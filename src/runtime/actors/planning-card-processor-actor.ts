@@ -88,7 +88,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       fail: (message) => this.plannerFailure(message),
       onPlainText: async (_outcome, control) => {
         const message = `${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`;
-        return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
+        return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record:///status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
       },
       onTerminalTool: async (terminalOutcome, control) => {
         const invalidTerminal = this.validatePlannerTerminal(terminalOutcome, contract);
@@ -96,12 +96,12 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
         }
         if (this.isPlannerDoneTerminal(terminalOutcome, contract) && (input.notificationDelivery.hasPendingNotifications?.() ?? false)) {
-          const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record://status.md?v=next if needed, then call emit_result again.';
+          const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record:///status.md?v=next if needed, then call emit_result again.';
           return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
         }
         const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md', 'planner', input.card.version_seq);
         if (missingRecord) {
-          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record:///status.md?v=next, then call emit_result again.` }]));
         }
         const completionGateFailure = this.validatePlannerCompletionGate(terminalOutcome, contract);
         if (completionGateFailure) {
@@ -200,7 +200,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private reviewerReworkPlannerMessage(cardId: string, summary: string): string {
     const reviewUrl = latestClosedRecordSlot(this.projectRoot, { cardId, filename: 'review.md' }).recordUrl;
-    return `Reviewer requested rework at ${reviewUrl}. Read it for required changes, update or create the necessary child cards, activate the rework, write record://status.md?v=next, then call emit_result again when ready for review. Reviewer summary: ${summary}`;
+    return `Reviewer requested rework at ${reviewUrl}. Read it for required changes, update or create the necessary child cards, activate the rework, write record:///status.md?v=next, then call emit_result again when ready for review. Reviewer summary: ${summary}`;
   }
 
   private async reviewPlannerDone(input: CardActivationInput, planning: DoneResult, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
@@ -221,7 +221,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         fail: (message) => this.plannerFailure(message),
         onPlainText: async (_outcome, control) => {
           const message = `${expectedTerminalToolMessage(reviewerContract)} Plain reviewer messages are not accepted as terminal results.`;
-          return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record://review.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
+          return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record:///review.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
         },
         onTerminalTool: async (terminalOutcome, control) => {
           const invalidTerminal = this.validateReviewerTerminal(terminalOutcome, reviewerContract);
@@ -230,7 +230,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           }
           const missingRecord = this.validateRequiredOpenRecord(input.card.id, 'review.md');
           if (missingRecord) {
-            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://review.md?v=next, then call emit_result again.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record:///review.md?v=next, then call emit_result again.` }]));
           }
           const staleReason = this.reviewerCurrentnessStaleReason(input, currentness);
           if (staleReason) {
@@ -333,7 +333,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     try {
       const slot = filename.slice(0, -'.md'.length);
       const index = readRecordSlotIndex(this.projectRoot, cardId, slot);
-      if (index.open === null) return `Required record 'record://${filename}?card=${cardId}&v=next' was not created.`;
+      if (index.open === null) return `Required record 'record:///${filename}?card=${cardId}&v=next' was not created.`;
       const open = concreteRecordSlot(this.projectRoot, { cardId, filename, version: index.open });
       if (!recordFileIsNonEmpty(open.absolutePath)) return `Required record '${open.recordUrl}' was not created or is empty.`;
       return null;
@@ -359,7 +359,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const lines = this.descendants(cardId).map((card) => {
       let recordUrl = 'no closed status record';
       const version = recordVersions.get(card.id) ?? null;
-      if (version !== null) recordUrl = `record://status.md?card=${encodeURIComponent(card.id)}&v=${version}`;
+      if (version !== null) recordUrl = `record:///status.md?card=${encodeURIComponent(card.id)}&v=${version}`;
       const result = card.lifecycle.result;
       const resultSummary = result && 'summary' in result && typeof result.summary === 'string' ? result.summary : result && 'error' in result && typeof result.error === 'string' ? result.error : '';
       return `- ${card.id} (${card.type}, ${card.status}): ${card.title}; result=${result?.kind ?? 'none'}${resultSummary ? `; summary=${resultSummary}` : ''}; record=${recordUrl}`;
@@ -401,11 +401,11 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private plannerPrompt(card: CardRecord): string {
-    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use reorder_child to reorder immediate children. Use queue_notification to leave targeted context for another agent session. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked.\n\nWrite your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_result until the status file exists. End by calling emit_result with status done, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`;
+    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use reorder_child to reorder immediate children. Use queue_notification to leave targeted context for another agent session. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked.\n\nWrite your current invocation status to:\nrecord:///status.md?v=next\n\nDo not call emit_result until the status file exists. End by calling emit_result with status done, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
   private reviewerPrompt(card: CardRecord, assessmentId: string): string {
-    return `Review card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nAssessment id: ${assessmentId}\n\nWrite your review to:\nrecord://review.md?v=next\n\nDo not call emit_result until the review file exists. End by calling emit_result with status done, rework, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`;
+    return `Review card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nAssessment id: ${assessmentId}\n\nWrite your review to:\nrecord:///review.md?v=next\n\nDo not call emit_result until the review file exists. End by calling emit_result with status done, rework, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
   private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {

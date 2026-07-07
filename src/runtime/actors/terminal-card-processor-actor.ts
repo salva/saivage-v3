@@ -79,7 +79,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         fail: (message) => ({ status: 'failed', summary: message, result: executorFailure(message) }),
         onPlainText: async (_outcome, control) => {
           const message = `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`;
-          return control.repair(() => llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
+          return control.repair(() => llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record:///status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
         },
         onTerminalTool: async (terminalOutcome, control) => {
           const invalidTerminal = this.validateExecutorTerminal(terminalOutcome, contract);
@@ -88,11 +88,11 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
           }
           const missingRecord = this.closeRequiredStatusRecord(input.card.version_seq);
           if (missingRecord) {
-            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record:///status.md?v=next, then call emit_result again.` }]));
           }
           const projected = projectTerminalExecutorOutcome(terminalOutcome, contract);
           if (projected.status === 'done' && (input.notificationDelivery.hasPendingNotifications?.() ?? false)) {
-            const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record://status.md?v=next if needed, then call emit_result again.';
+            const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record:///status.md?v=next if needed, then call emit_result again.';
             return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
           }
           this.markTerminalProjected(terminalOutcome);
@@ -120,7 +120,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       agentId: executorActorId(this.cardId),
       role: 'executor',
       sessionId: executorActorId(this.cardId),
-      systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${cardBriefForPrompt(this.projectRoot, input.card)}\n\nUse process and file tools when needed. Write your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_result until the status file exists. End by calling emit_result with status done, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`,
+      systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${cardBriefForPrompt(this.projectRoot, input.card)}\n\nUse process and file tools when needed. Write your current invocation status to:\nrecord:///status.md?v=next\n\nDo not call emit_result until the status file exists. End by calling emit_result with status done, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`,
       contextMessages: this.plannerNotificationContext(input, inputId),
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),

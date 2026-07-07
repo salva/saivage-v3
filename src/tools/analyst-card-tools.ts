@@ -26,7 +26,7 @@ import {
 } from './tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { cardSummary, defaultParentForCreate, getStore, humanizeToolError, normalizeParentValue, preflightEnum, saivageDir, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
-import { readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';
+import { normalizeRecordUrl, readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';
 
 const createCardInput = z.object({
   type: enumSchema('The non-project card type.', CARD_TYPE_VALUES),
@@ -190,10 +190,10 @@ function cardRecordSummaries(projectRoot: string, cardId: string): Array<Record<
     .filter((definition) => definition.exposed)
     .map((definition) => {
       const index = readRecordSlotIndex(projectRoot, cardId, definition.slot);
-      if (index.latest === null) return { filename: definition.filename, path: `record://${definition.filename}`, url: `record://${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
+      if (index.latest === null) return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
       const entry = index.versions[String(index.latest)];
-      const url = entry?.url ?? `record://${definition.filename}?card=${encodeURIComponent(cardId)}&v=${index.latest}`;
-      const summary: Record<string, unknown> = { filename: definition.filename, path: `record://${definition.filename}`, url, latest: index.latest, format: definition.format, schema: definition.schema, writers: definition.writers, size: entry?.size ?? null, modifiedAt: entry?.committed_at ?? null, writer: entry?.writer ?? null };
+      const url = normalizeRecordUrl({ filename: definition.filename, cardId, version: index.latest });
+      const summary: Record<string, unknown> = { filename: definition.filename, path: `record:///${definition.filename}`, url, latest: index.latest, format: definition.format, schema: definition.schema, writers: definition.writers, size: entry?.size ?? null, modifiedAt: entry?.committed_at ?? null, writer: entry?.writer ?? null };
       const path = recordPath(projectRoot, cardId, definition.slot, index.latest, definition.filename).absolutePath;
       if (existsSync(path)) {
         const max = 4000;

@@ -5,7 +5,7 @@ import type { CardHistoryEntry, CardRecord } from '../schemas/index.js';
 import { CardStoreState } from '../cards/state.js';
 import { CardStoreInvariantError } from '../cards/errors.js';
 import { validateCardHistoryInvariant, validateParsedCards } from '../cards/validator.js';
-import { allocateGlobalRecordSeq, normalizeRecordUrl, readRecordSlotIndex, recordPath, recordSlotDir, writeRecordSlotIndex, type RecordSlotIndex } from '../runtime/records/record-slots.js';
+import { allocateGlobalRecordSeq, readRecordSlotIndex, recordPath, recordSlotDir, writeRecordSlotIndex, type RecordSlotIndex } from '../runtime/records/record-slots.js';
 
 export interface LoadCardStoreStateOptions {
   maxDepth?: number;
@@ -95,7 +95,6 @@ export function writeCardRecordVersion(projectRoot: string, card: CardRecord, hi
     schema: 'record.card.json.v1',
     cardVersionSeq: card.version_seq,
     globalSeq: allocateGlobalRecordSeq(projectRoot),
-    url: normalizeRecordUrl({ filename, cardId: card.id, version: card.version_seq }),
     ...(historyEntry ? { history: historyEntry } : {}),
   };
   writeRecordSlotIndex(projectRoot, card.id, index);
@@ -122,7 +121,6 @@ export function writeBriefRecordVersion(projectRoot: string, card: CardRecord, c
     schema: 'record.brief.markdown.v1',
     cardVersionSeq: card.version_seq,
     globalSeq: allocateGlobalRecordSeq(projectRoot),
-    url: normalizeRecordUrl({ filename, cardId: card.id, version }),
   };
   writeRecordSlotIndex(projectRoot, card.id, index);
 }

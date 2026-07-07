@@ -91,9 +91,9 @@ describe('System Prompt Builder', () => {
     it('describes project, record, status, and process scoping', () => {
       const prompt = buildExecutorPrompt(executorContract);
       expect(prompt).toContain('project files');
-      expect(prompt).toContain('record://status.md');
+      expect(prompt).toContain('record:///status.md');
       expect(prompt).toContain('summary');
-      expect(prompt).toContain('.saivage-work');
+      expect(prompt).toContain('work:///processes/<id>/stdout.log');
       expect(prompt).not.toContain('never a project source');
     });
 

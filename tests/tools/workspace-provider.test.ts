@@ -51,13 +51,13 @@ describe('workspace and patch providers', () => {
       const card = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'old', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store })]);
 
-      const result = await invokeTool(surface, 'write', { path: `record://brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
+      const result = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
 
       expect(result.success).toBe(true);
       if (result.success) {
         const data = result.data as { path: string; record_url: string; card_id: string };
         expect(data.card_id).toBe(card.id);
-        expect(data.record_url).toBe(`record://brief.md?card=${card.id}&v=2`);
+        expect(data.record_url).toBe(`record:///brief.md?card=${card.id}&v=2`);
         expect(readFileSync(join(root, data.path), 'utf8')).toBe(VALID_BRIEF);
       }
     } finally {
@@ -72,7 +72,7 @@ describe('workspace and patch providers', () => {
       updateRuntimeState(root, { status: 'running' });
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store })]);
 
-      const result = await invokeTool(surface, 'write', { path: `record://brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
+      const result = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
 
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error).toContain('requires runtime status stopped or paused');
@@ -87,7 +87,7 @@ describe('workspace and patch providers', () => {
       const card = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'old', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst' })]);
 
-      await expect(invokeTool(surface, 'write', { path: `record://brief.md?card=${card.id}&v=next`, content: VALID_BRIEF })).rejects.toThrow('Analyst record writes require a card store.');
+      await expect(invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF })).rejects.toThrow('Analyst record writes require a card store.');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -101,10 +101,10 @@ describe('workspace and patch providers', () => {
       writeFileSync(file, 'outside content', 'utf8');
       const surface = buildInvocationSurface('executor', [createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' })]);
 
-      const result = await invokeTool(surface, 'read', { path: `system://${file}` });
+      const result = await invokeTool(surface, 'read', { path: `system:///${file.replace(/^\/+/, '')}` });
 
       expect(result.success).toBe(true);
-      if (result.success) expect(result.data).toMatchObject({ path: `system://${file}`, content: 'outside content' });
+      if (result.success) expect(result.data).toMatchObject({ path: `system:///${file.replace(/^\/+/, '')}`, content: 'outside content' });
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(systemRoot, { recursive: true, force: true });
@@ -120,15 +120,16 @@ describe('workspace and patch providers', () => {
       writeFileSync(join(systemRoot, '.env'), 'UNIQUE_TOKEN secret', 'utf8');
       const surface = buildInvocationSurface('executor', [createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' })]);
 
-      const globResult = await invokeTool(surface, 'glob', { directory: `system://${systemRoot}`, pattern: '**/*.md' });
-      const grepResult = await invokeTool(surface, 'grep', { path: `system://${systemRoot}`, pattern: 'UNIQUE_TOKEN' });
+      const systemUrl = `system:///${systemRoot.replace(/^\/+/, '')}`;
+      const globResult = await invokeTool(surface, 'glob', { directory: systemUrl, pattern: '**/*.md' });
+      const grepResult = await invokeTool(surface, 'grep', { path: systemUrl, pattern: 'UNIQUE_TOKEN' });
 
       expect(globResult.success).toBe(true);
-      if (globResult.success) expect((globResult.data as { matches: string[] }).matches).toEqual([`system://${join(systemRoot, 'nested', 'match.md')}`]);
+      if (globResult.success) expect((globResult.data as { matches: string[] }).matches).toEqual([`system:///${join(systemRoot, 'nested', 'match.md').replace(/^\/+/, '')}`]);
       expect(grepResult.success).toBe(true);
       if (grepResult.success) {
         const matches = (grepResult.data as { matches: Array<{ path: string }> }).matches;
-        expect(matches.map((match) => match.path)).toEqual([`system://${join(systemRoot, 'nested', 'match.md')}`]);
+        expect(matches.map((match) => match.path)).toEqual([`system:///${join(systemRoot, 'nested', 'match.md').replace(/^\/+/, '')}`]);
       }
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -143,8 +144,8 @@ describe('workspace and patch providers', () => {
       const surface = buildInvocationSurface('executor', [createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' })]);
       const target = join(systemRoot, 'out.txt');
 
-      const ok = await invokeTool(surface, 'write', { path: `system://${target}`, content: 'ok' });
-      const denied = await invokeTool(surface, 'write', { path: `system://${join(systemRoot, '.env')}`, content: 'SECRET=1' });
+      const ok = await invokeTool(surface, 'write', { path: `system:///${target.replace(/^\/+/, '')}`, content: 'ok' });
+      const denied = await invokeTool(surface, 'write', { path: `system:///${join(systemRoot, '.env').replace(/^\/+/, '')}`, content: 'SECRET=1' });
 
       expect(ok.success).toBe(true);
       expect(readFileSync(target, 'utf8')).toBe('ok');
@@ -186,7 +187,7 @@ describe('workspace and patch providers', () => {
       const plannerSurface = buildInvocationSurface('planner', [createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner' })]);
       const target = join(systemRoot, 'analyst-out.txt');
 
-      const analystWrite = await invokeTool(analystSurface, 'write', { path: `system://${target}`, content: 'operator' });
+      const analystWrite = await invokeTool(analystSurface, 'write', { path: `system:///${target.replace(/^\/+/, '')}`, content: 'operator' });
       const plannerWrite = await invokeTool(plannerSurface, 'write', { path: 'planner-out.txt', content: 'nope' });
 
       expect(analystWrite.success).toBe(true);
@@ -205,14 +206,14 @@ describe('workspace and patch providers', () => {
       const card = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'old', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store })]);
 
-      const write = await invokeTool(surface, 'write', { path: `record://brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
-      const read = await invokeTool(surface, 'read', { path: `record://brief.md?card=${card.id}` });
-      const glob = await invokeTool(surface, 'glob', { directory: `record://${card.id}`, pattern: '**/*.md' });
-      const grep = await invokeTool(surface, 'grep', { path: `record://${card.id}/brief.md`, pattern: 'Acceptance Criteria' });
+      const write = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
+      const read = await invokeTool(surface, 'read', { path: `record:///brief.md?card=${card.id}` });
+      const glob = await invokeTool(surface, 'glob', { directory: `record:///${card.id}`, pattern: '**/*.md' });
+      const grep = await invokeTool(surface, 'grep', { path: `record:///${card.id}/brief.md`, pattern: 'Acceptance Criteria' });
 
       expect(write.success).toBe(true);
       expect(read.success).toBe(true);
-      if (read.success) expect(read.data).toMatchObject({ content: VALID_BRIEF, record_url: `record://brief.md?card=${card.id}&v=2` });
+      if (read.success) expect(read.data).toMatchObject({ content: VALID_BRIEF, record_url: `record:///brief.md?card=${card.id}&v=2` });
       expect(glob.success).toBe(true);
       if (glob.success) expect((glob.data as { matches: string[] }).matches.some((path) => path.endsWith('/brief/2.md'))).toBe(true);
       expect(grep.success).toBe(true);
@@ -227,12 +228,37 @@ describe('workspace and patch providers', () => {
     try {
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst' })]);
 
-      const write = await invokeTool(surface, 'write', { path: 'tmp://card-1/notes.txt', content: 'temporary note' });
-      const read = await invokeTool(surface, 'read', { path: 'tmp://card-1/notes.txt' });
+      const write = await invokeTool(surface, 'write', { path: 'tmp:///card-1/notes.txt', content: 'temporary note' });
+      const read = await invokeTool(surface, 'read', { path: 'tmp:///card-1/notes.txt' });
 
       expect(write.success).toBe(true);
       expect(read.success).toBe(true);
       if (read.success) expect(read.data).toMatchObject({ content: 'temporary note' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reads work:/// files but rejects work writes and scoped patch paths', async () => {
+    const { root } = setupProject();
+    try {
+      mkdirSync(join(root, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
+      writeFileSync(join(root, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), 'runtime output', 'utf8');
+      const surface = buildInvocationSurface('executor', [
+        createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' }),
+        createPatchProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' }),
+      ]);
+
+      const read = await invokeTool(surface, 'read', { path: 'work:///processes/proc-1/stdout.log' });
+      const write = await invokeTool(surface, 'write', { path: 'work:///processes/proc-1/stdout.log', content: 'no' });
+      const patch = await invokeTool(surface, 'apply_patch', { patch: '--- /dev/null\n+++ b/work:///processes/proc-1/stdout.log\n@@ -0,0 +1 @@\n+bad\n' });
+
+      expect(read.success).toBe(true);
+      if (read.success) expect(read.data).toMatchObject({ content: 'runtime output' });
+      expect(write.success).toBe(false);
+      if (!write.success) expect(write.error).toContain('read-only');
+      expect(patch.success).toBe(false);
+      if (!patch.success) expect(patch.error).toContain('Unsafe patch path');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

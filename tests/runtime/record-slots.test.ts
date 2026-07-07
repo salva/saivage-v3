@@ -17,12 +17,14 @@ describe('record slots', () => {
     writeFileSync(first.absolutePath, 'done', 'utf8');
 
     const closed = closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
-    expect(closed.recordUrl).toBe('record://status.md?card=card-1&v=1');
-    expect(readRecordSlotIndex(projectRoot, 'card-1', 'status')).toMatchObject({ latest: 1, open: null, versions: { '1': { status: 'closed', writer: 'planner', size: 4, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 1, globalSeq: 1, url: 'record://status.md?card=card-1&v=1' } } });
-    expect(readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'status.md' })).toMatchObject({ writer: 'planner', committed_at: expect.any(String), size: 4, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 1, globalSeq: 1, url: 'record://status.md?card=card-1&v=1' });
+    expect(closed.recordUrl).toBe('record:///status.md?card=card-1&v=1');
+    const index = readRecordSlotIndex(projectRoot, 'card-1', 'status');
+    expect(index).toMatchObject({ latest: 1, open: null, versions: { '1': { status: 'closed', writer: 'planner', size: 4, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 1, globalSeq: 1 } } });
+    expect(index.versions['1']).not.toHaveProperty('url');
+    expect(readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'status.md' })).toMatchObject({ writer: 'planner', committed_at: expect.any(String), size: 4, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 1, globalSeq: 1, url: 'record:///status.md?card=card-1&v=1' });
 
     const second = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
-    expect(second.recordUrl).toBe('record://status.md?card=card-1&v=2');
+    expect(second.recordUrl).toBe('record:///status.md?card=card-1&v=2');
   }));
 
   it('discards stale open records without advancing latest', () => withTempProject((projectRoot) => {
@@ -30,10 +32,10 @@ describe('record slots', () => {
     writeFileSync(first.absolutePath, 'stale', 'utf8');
     const discarded = discardOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md', reason: 'stale_review' });
 
-    expect(discarded?.recordUrl).toBe('record://review.md?card=card-1&v=1');
+    expect(discarded?.recordUrl).toBe('record:///review.md?card=card-1&v=1');
     expect(readRecordSlotIndex(projectRoot, 'card-1', 'review')).toMatchObject({ latest: null, open: null, versions: { '1': { status: 'discarded' } } });
     expect(existsSync(first.absolutePath)).toBe(true);
-    expect(openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md' }).recordUrl).toBe('record://review.md?card=card-1&v=2');
+    expect(openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md' }).recordUrl).toBe('record:///review.md?card=card-1&v=2');
   }));
 
   it('records explicit writer and card/global sequence metadata on close', () => withTempProject((projectRoot) => {

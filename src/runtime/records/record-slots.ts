@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { AgentRole } from '../../schemas/index.js';
+import { buildScopedPathUrl } from '../../workspace/scoped-path-url.js';
 
 export type RecordSlotVersionStatus = 'open' | 'closed' | 'discarded';
 
@@ -17,7 +18,6 @@ export interface RecordSlotVersionEntry {
   schema?: string;
   cardVersionSeq?: number;
   globalSeq?: number;
-  url?: string;
   history?: unknown;
 }
 
@@ -109,7 +109,7 @@ export function recordSlotDefinitions(): readonly RecordSlotDefinition[] {
 
 export function exposedRecordSlotDefinitionForFilename(filename: string): RecordSlotDefinition {
   const definition = recordSlotDefinitionForFilename(filename);
-  if (!definition.exposed) throw new Error(`Record slot '${definition.filename}' is internal and cannot be read through record:// URLs.`);
+  if (!definition.exposed) throw new Error(`Record slot '${definition.filename}' is internal and cannot be read through record:/// URLs.`);
   return definition;
 }
 
@@ -123,7 +123,7 @@ export function recordPath(projectRoot: string, cardId: string, slot: string, ve
 }
 
 export function normalizeRecordUrl(input: { filename: string; cardId: string; version: number }): string {
-  return `record://${basename(input.filename)}?card=${encodeURIComponent(input.cardId)}&v=${input.version}`;
+  return `${buildScopedPathUrl('record', [basename(input.filename)])}?card=${encodeURIComponent(input.cardId)}&v=${encodeURIComponent(String(input.version))}`;
 }
 
 export function readRecordSlotIndex(projectRoot: string, cardId: string, slot: string): RecordSlotIndex {
@@ -180,7 +180,7 @@ export function closeOpenRecordSlot(projectRoot: string, input: { cardId: string
   const definition = recordSlotDefinitionForFilename(filename);
   const slot = definition.slot;
   const index = readRecordSlotIndex(projectRoot, input.cardId, slot);
-  if (index.open === null) throw new ExpectedRecordSlotCloseError('missing_open', `Required record 'record://${filename}?card=${input.cardId}&v=next' was not created.`);
+  if (index.open === null) throw new ExpectedRecordSlotCloseError('missing_open', `Required record 'record:///${filename}?card=${input.cardId}&v=next' was not created.`);
   const open = concreteRecordSlot(projectRoot, { cardId: input.cardId, filename, version: index.open });
   if (!recordFileIsNonEmpty(open.absolutePath)) throw new ExpectedRecordSlotCloseError('empty_open', `Required record '${open.recordUrl}' was not created or is empty.`);
   const writer = input.writer ?? singleWriter(definition);
@@ -200,7 +200,6 @@ export function closeOpenRecordSlot(projectRoot: string, input: { cardId: string
     schema: definition.schema,
     cardVersionSeq,
     globalSeq,
-    url: open.recordUrl,
   };
   index.latest = open.version;
   index.open = null;
@@ -231,10 +230,10 @@ export function readClosedRecordSlotMetadata(projectRoot: string, input: { cardI
   const entry = index.versions[String(version)];
   if (!entry) throw new Error(`Record '${input.cardId}/${slot}/${version}' does not exist.`);
   if (entry.status !== 'closed') throw new Error(`Record '${input.cardId}/${slot}/${version}' is not closed.`);
-  if (!entry.writer || !entry.committed_at || entry.size === undefined || !entry.format || !entry.schema || entry.cardVersionSeq === undefined || entry.globalSeq === undefined || !entry.url) {
+  if (!entry.writer || !entry.committed_at || entry.size === undefined || !entry.format || !entry.schema || entry.cardVersionSeq === undefined || entry.globalSeq === undefined) {
     throw new Error(`Closed record '${input.cardId}/${slot}/${version}' is missing required metadata.`);
   }
-  return { url: entry.url, cardId: input.cardId, filename, slot, version, writer: entry.writer, committed_at: entry.committed_at, size: entry.size, format: entry.format, schema: entry.schema, cardVersionSeq: entry.cardVersionSeq, globalSeq: entry.globalSeq };
+  return { url: normalizeRecordUrl({ filename, cardId: input.cardId, version }), cardId: input.cardId, filename, slot, version, writer: entry.writer, committed_at: entry.committed_at, size: entry.size, format: entry.format, schema: entry.schema, cardVersionSeq: entry.cardVersionSeq, globalSeq: entry.globalSeq };
 }
 
 export function recordFileIsNonEmpty(path: string): boolean {

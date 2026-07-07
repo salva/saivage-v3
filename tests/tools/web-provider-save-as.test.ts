@@ -34,7 +34,7 @@ describe('webfetch save_as scoped URLs', () => {
     mockFetch('project body');
     const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' })]);
 
-    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/page.txt', save_as: 'project://docs/page.txt' });
+    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/page.txt', save_as: 'project:///docs/page.txt' });
 
     expect(result.success).toBe(true);
     expect(readFileSync(join(root, 'docs', 'page.txt'), 'utf8')).toBe('project body');
@@ -45,7 +45,7 @@ describe('webfetch save_as scoped URLs', () => {
     const fetchSpy = mockFetch();
     const surface = buildInvocationSurface('planner', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner' })]);
 
-    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/page.txt', save_as: 'project://docs/page.txt' });
+    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/page.txt', save_as: 'project:///docs/page.txt' });
 
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain('planner cannot write project files');
@@ -56,10 +56,10 @@ describe('webfetch save_as scoped URLs', () => {
     mockFetch('planner status');
     const surface = buildInvocationSurface('planner', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner' })]);
 
-    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/status.txt', save_as: 'record://status.md?v=next' });
+    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/status.txt', save_as: 'record:///status.md?v=next' });
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data).toMatchObject({ saved_as: 'record://status.md?card=card-1&v=1' });
+    if (result.success) expect(result.data).toMatchObject({ saved_as: 'record:///status.md?card=card-1&v=1' });
     expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', 'card-1', 'status', '1.md'), 'utf8')).toBe('planner status');
   });
 
@@ -67,7 +67,7 @@ describe('webfetch save_as scoped URLs', () => {
     const fetchSpy = mockFetch();
     const surface = buildInvocationSurface('planner', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner' })]);
 
-    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/review.txt', save_as: 'record://review.md?v=next' });
+    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/review.txt', save_as: 'record:///review.md?v=next' });
 
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain("planner cannot write record slot 'review'");
@@ -78,10 +78,10 @@ describe('webfetch save_as scoped URLs', () => {
     mockFetch('review text');
     const surface = buildInvocationSurface('reviewer', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'reviewer' })]);
 
-    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/review.txt', save_as: 'record://review.md?v=next' });
+    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/review.txt', save_as: 'record:///review.md?v=next' });
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data).toMatchObject({ saved_as: 'record://review.md?card=card-1&v=1' });
+    if (result.success) expect(result.data).toMatchObject({ saved_as: 'record:///review.md?card=card-1&v=1' });
     expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', 'card-1', 'review', '1.md'), 'utf8')).toBe('review text');
   });
 
@@ -89,7 +89,7 @@ describe('webfetch save_as scoped URLs', () => {
     const fetchSpy = mockFetch();
     const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' })]);
 
-    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/tmp.txt', save_as: 'tmp://card-2/fetched.txt' });
+    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/tmp.txt', save_as: 'tmp:///card-2/fetched.txt' });
 
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain('Agents may write tmp files only for their current card');
@@ -120,9 +120,9 @@ describe('webfetch save_as scoped URLs', () => {
     mockFetch('# Goal\n\nFetched.\n\n# Instructions\n\nUse it.\n\n# Acceptance Criteria\n\nDone.\n');
     const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', store })]);
 
-    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/brief.md', save_as: `record://brief.md?card=${card.id}&v=next` });
+    const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/brief.md', save_as: `record:///brief.md?card=${card.id}&v=next` });
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data).toMatchObject({ saved_as: `record://brief.md?card=${card.id}&v=2` });
+    if (result.success) expect(result.data).toMatchObject({ saved_as: `record:///brief.md?card=${card.id}&v=2` });
   });
 });

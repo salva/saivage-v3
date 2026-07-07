@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, MAX_COMMAND_TIMEOUT_MS, truncateCommandOutput } from '../runtime/command-policy.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { AgentRole, ProcessRecord } from '../schemas/index.js';
-import { resolveContainedProjectPath } from '../workspace/index.js';
+import { parseScopedPathUrl, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
 export interface ProcessProviderContext {
@@ -69,11 +69,16 @@ function timeoutMs(value: number | undefined): number {
 
 function scopedCwd(projectRoot: string, raw: string | undefined): string {
   if (!raw) return projectRoot;
-  if (raw.startsWith('system://')) {
-    const target = raw.slice('system://'.length);
-    return target ? resolve(target) : '/';
+  if (raw.startsWith('system:///')) {
+    const parsed = parseScopedPathUrl(raw, 'system');
+    if (parsed.query !== null || parsed.hadFragment) throw new Error(`Invalid system cwd '${raw}'.`);
+    return resolve(`/${parsed.segments.join('/')}`);
   }
-  const projectPath = raw.startsWith('project://') ? raw.slice('project://'.length) : raw;
+  const projectPath = raw.startsWith('project:///') ? (() => {
+    const parsed = parseScopedPathUrl(raw, 'project');
+    if (parsed.query !== null || parsed.hadFragment) throw new Error(`Invalid project cwd '${raw}'.`);
+    return parsed.segments.join('/');
+  })() : raw;
   const resolved = resolveContainedProjectPath(projectRoot, projectPath || '.');
   if (!resolved.safe) throw new Error(resolved.reason ?? 'cwd must resolve inside the project root.');
   return resolved.absolutePath;
@@ -140,7 +145,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
     tools: [
       defineTool({
         name: 'run_command',
-        description: 'Run a shell command. Set wait=false to start a background process for later wait_process or kill_process.',
+        description: 'Run a shell command. Results use process_id, exit_code, status, stdout_url, stderr_url, and stdout/stderr tails; pass work:/// stdout_url/stderr_url to read or grep to page through full output. Set wait=false to start a background process for later wait_process or kill_process.',
         inputSchema: runCommandSchema,
         executor: async (args, signal) => {
           try {
@@ -172,7 +177,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
       }),
       defineTool({
         name: 'wait_process',
-        description: 'Wait for a process owned by this activation or session. Use timeout_ms=0 for non-blocking inspection.',
+        description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and stdout/stderr tails; pass the work:/// output URLs to read or grep. Use timeout_ms=0 for non-blocking inspection.',
         inputSchema: waitProcessSchema,
         executor: async (args, signal) => {
           try {
@@ -190,7 +195,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
       }),
       defineTool({
         name: 'kill_process',
-        description: 'Signal a process owned by this activation or session. Defaults to SIGTERM.',
+        description: 'Signal a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and stdout/stderr tails; pass the work:/// output URLs to read or grep.',
         inputSchema: killProcessSchema,
         executor: async (args) => {
           try {

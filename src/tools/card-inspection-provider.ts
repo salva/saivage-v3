@@ -5,7 +5,7 @@ import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
 import { cardStatusValues, cardTypeValues, type AgentRole, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardDisplayPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
-import { readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';
+import { normalizeRecordUrl, readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';
 
 interface CardInspectionStore {
   read(cardId: string): CardRecord | null;
@@ -157,10 +157,10 @@ function cardRecordSummaries(projectRoot: string, cardId: string): Array<Record<
     .filter((definition) => definition.exposed)
     .map((definition) => {
       const index = readRecordSlotIndex(projectRoot, cardId, definition.slot);
-      if (index.latest === null) return { filename: definition.filename, path: `record://${definition.filename}`, url: `record://${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
+      if (index.latest === null) return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
       const entry = index.versions[String(index.latest)];
-      const url = entry?.url ?? `record://${definition.filename}?card=${encodeURIComponent(cardId)}&v=${index.latest}`;
-      const summary: Record<string, unknown> = { filename: definition.filename, path: `record://${definition.filename}`, url, latest: index.latest, format: definition.format, schema: definition.schema, writers: definition.writers, size: entry?.size ?? null, modifiedAt: entry?.committed_at ?? null, writer: entry?.writer ?? null };
+      const url = normalizeRecordUrl({ filename: definition.filename, cardId, version: index.latest });
+      const summary: Record<string, unknown> = { filename: definition.filename, path: `record:///${definition.filename}`, url, latest: index.latest, format: definition.format, schema: definition.schema, writers: definition.writers, size: entry?.size ?? null, modifiedAt: entry?.committed_at ?? null, writer: entry?.writer ?? null };
       const path = recordPath(projectRoot, cardId, definition.slot, index.latest, definition.filename).absolutePath;
       if (existsSync(path)) {
         const max = 4000;

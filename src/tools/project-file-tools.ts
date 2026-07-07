@@ -1,11 +1,11 @@
 import * as childProcess from 'node:child_process';
 import { lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
-import { isReadBlocked, isWriteBlocked, looksLikeSecretPath, resolveContainedProjectPath } from '../workspace/index.js';
-import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, RECORD_OUTPUTS_RELATIVE_DIR, recordSlotDir, type OpenRecordSlot } from '../runtime/records/record-slots.js';
+import { assertRecordWrite, isReadBlocked, isWriteBlocked, looksLikeSecretPath, parseScopedPathScheme, resolveContainedProjectPath, resolveRecordSearchTarget, resolveRecordWriteTarget, scopedPathResolvers, type ResolvedScopedPath, type ScopedPathScheme } from '../workspace/index.js';
+import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readRecordSlotIndex } from '../runtime/records/record-slots.js';
 import type { CardStore } from '../cards/store-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
 
@@ -17,8 +17,7 @@ const MAX_SEARCH_LIMIT = 1000;
 const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', '.saivage-work', 'dist', 'build', '__pycache__']);
 
 export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read'> };
-type ResolvedToolPath = { kind: 'project' | 'tmp' | 'system'; absolutePath: string; relativePath: string } | ({ kind: 'record' } & OpenRecordSlot);
-type ScopedAgentContext = { cardId?: string; agentRole: AgentRole };
+type ResolvedToolPath = ResolvedScopedPath;
 
 export class WorkspaceToolInputError extends Error {
   constructor(message: string) {
@@ -45,6 +44,10 @@ function isHiddenPath(projectRoot: string, absolutePath: string, relativePath: s
   return isReadBlocked(relativePath) || looksLikeSecretPath(absolutePath) || relativePath.split('/').some((part) => SKIPPED_DIRS.has(part));
 }
 
+function workRootOf(resolved: { kind?: string; workRoot?: unknown; absolutePath?: string; relativePath?: string }): string | undefined {
+  return resolved.kind === 'work' && typeof resolved.workRoot === 'string' ? resolved.workRoot : undefined;
+}
+
 function assertReadable(projectRoot: string, path: string, label = 'read path'): { absolutePath: string; relativePath: string } {
   const resolved = resolveProjectPath(projectRoot, path, label);
   if (isHiddenPath(projectRoot, resolved.absolutePath, resolved.relativePath)) throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
@@ -64,110 +67,38 @@ function assertWritable(projectRoot: string, path: string): { absolutePath: stri
   return resolved;
 }
 
-function systemDisplayPath(absolutePath: string): string {
-  return `system://${absolutePath}`;
-}
-
-function resolveSystemPath(raw: string): { absolutePath: string; relativePath: string } {
-  const target = decodeURIComponent(raw.slice('system://'.length));
-  if (!target.startsWith('/')) throw toolInputError(`system:// paths must use an absolute path: '${raw}'.`);
-  const absolutePath = resolve(target);
-  return { absolutePath, relativePath: systemDisplayPath(absolutePath) };
-}
-
-function assertReadableSystemPath(raw: string): { absolutePath: string; relativePath: string } {
-  const resolved = resolveSystemPath(raw);
-  if (isHiddenPath('', resolved.absolutePath, normalizeRel(resolved.absolutePath))) throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
-  return resolved;
-}
-
-function assertWritableSystemPath(raw: string): { absolutePath: string; relativePath: string } {
-  const resolved = resolveSystemPath(raw);
-  if (resolved.absolutePath === '/' || raw.endsWith('/')) throw toolInputError('write requires a file path, not a directory.');
-  if (isWriteBlocked(normalizeRel(resolved.absolutePath)) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
-  try {
-    if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
-  return resolved;
-}
-
 function canWriteWorkspaceFiles(role: AgentRole | undefined): boolean {
   return role === undefined || role === 'executor' || role === 'analyst';
 }
 
-function resolveProjectSchemePath(path: string): string {
-  return path.startsWith('project://') ? path.slice('project://'.length) : path;
-}
-
-function requireAgentRole(ctx: WorkspaceContext, scheme: string): ScopedAgentContext {
-  if (!ctx.agentRole) throw toolInputError(`${scheme} paths require an active agent role.`);
-  return { cardId: ctx.cardId, agentRole: ctx.agentRole };
-}
-
-function parseRecordUrlParts(ctx: WorkspaceContext, raw: string, defaultVersion: string): { agent: ScopedAgentContext; filename: string; cardId: string; version: string } {
-  const agent = requireAgentRole(ctx, 'record://');
-  const url = new URL(raw);
-  const rawFilename = decodeURIComponent(`${url.hostname}${url.pathname}`);
-  const filename = validRecordSegment(rawFilename, 'record filename', raw);
-  if (!filename) throw toolInputError(`Invalid record URL '${raw}'.`);
-  exposedRecordSlotDefinitionForFilename(filename);
-  const cardId = validRecordSegment(url.searchParams.get('card') ?? agent.cardId ?? '', 'card id', raw);
-  const version = url.searchParams.get('v') ?? defaultVersion;
-  return { agent, filename, cardId, version };
-}
-
-function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): OpenRecordSlot {
-  const { agent, filename, cardId, version } = parseRecordUrlParts(ctx, raw, mode === 'read' ? 'latest' : 'next');
-  if (mode === 'write') {
-    if (!agent.cardId) throw toolInputError('Record writes require an active card context.');
-    assertRecordWrite(agent.agentRole, agent.cardId, cardId, filename, version);
-    return openRecordSlot(ctx.projectRoot, { cardId, filename });
-  }
-  if (version === 'next') {
-    const open = openRecordSlot(ctx.projectRoot, { cardId, filename });
-    if (!agent.cardId || cardId !== agent.cardId || !exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole)) throw toolInputError('Only the owning agent may read its current open record slot.');
-    return open;
-  }
-  if (version === 'latest') return latestClosedRecordSlot(ctx.projectRoot, { cardId, filename });
-  const numeric = Number(version);
-  if (!Number.isInteger(numeric) || numeric < 1) throw toolInputError(`Invalid record version '${version}'.`);
-  const record = concreteRecordSlot(ctx.projectRoot, { cardId, filename, version: numeric });
-  const index = readRecordSlotIndex(ctx.projectRoot, cardId, record.slot);
-  const entry = index.versions[String(numeric)];
-  if (entry.status !== 'closed' && !(entry.status === 'open' && cardId === agent.cardId && exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole))) throw toolInputError('Only closed records are readable outside the owning open slot.');
-  return record;
-}
-
-function assertRecordWrite(role: AgentRole, currentCardId: string, cardId: string, filename: string, version: string): void {
-  if (cardId !== currentCardId) throw toolInputError('Agents may write records only for their current card.');
-  const definition = exposedRecordSlotDefinitionForFilename(filename);
-  if (!definition.writers.includes(role)) throw toolInputError(`${role} cannot write record slot '${definition.slot}'.`);
-  if (version !== 'next') throw toolInputError('Record writes must use v=next.');
-}
-
-function resolveTmpPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): ResolvedToolPath {
-  const agent = requireAgentRole(ctx, 'tmp://');
-  const url = new URL(raw);
-  const cardId = decodeURIComponent(url.hostname);
-  const rel = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-  if (!cardId || !rel || rel.includes('..')) throw toolInputError(`Invalid tmp URL '${raw}'.`);
-  if (mode === 'write' && agent.agentRole !== 'analyst' && cardId !== agent.cardId) throw toolInputError('Agents may write tmp files only for their current card.');
-  const projectRel = `.saivage-work/cards/${cardId}/tmp/${rel}`;
-  const resolved = resolveProjectPath(ctx.projectRoot, projectRel, 'tmp path');
-  return { kind: 'tmp', ...resolved };
-}
-
 function resolveToolPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): ResolvedToolPath {
-  if (raw.startsWith('record://')) return { kind: 'record', ...parseRecordUrl(ctx, raw, mode) };
-  if (raw.startsWith('tmp://')) return resolveTmpPath(ctx, raw, mode);
-  if (raw.startsWith('system://')) {
-    if (mode === 'write' && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write system files.`);
-    const resolved = mode === 'read' ? assertReadableSystemPath(raw) : assertWritableSystemPath(raw);
-    return { kind: 'system', ...resolved };
+  let scheme: ScopedPathScheme | null;
+  try {
+    scheme = parseScopedPathScheme(raw);
+  } catch (error) {
+    throw toolInputError(error instanceof Error ? error.message : String(error));
   }
-  const projectPath = resolveProjectSchemePath(raw);
+  if (scheme) {
+    if ((scheme === 'project' || scheme === 'system') && mode === 'write' && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write ${scheme} files.`);
+    const resolved = scopedPathResolvers[scheme]({ projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError }, raw, mode);
+    if (mode === 'read' && resolved.kind !== 'record') {
+      const workRoot = workRootOf(resolved);
+      const filterRel = workRoot ? normalizeRel(relative(workRoot, resolved.absolutePath)) : resolved.kind === 'tmp' ? resolved.relativePath.replace(/^\.saivage-work\/cards\/[^/]+\/tmp\/?/, '') : resolved.relativePath;
+      if (isHiddenPath(ctx.projectRoot, resolved.absolutePath, filterRel)) throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
+    }
+    if (mode === 'write' && resolved.kind !== 'record') {
+      if (resolved.absolutePath === '/' || raw.endsWith('/') || (resolved.kind !== 'system' && (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')))) throw toolInputError('write requires a file path, not a directory.');
+      if (resolved.kind === 'project' && (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/') || resolved.relativePath === '.saivage-work' || resolved.relativePath.startsWith('.saivage-work/'))) throw toolInputError('Cannot modify Saivage internal state directories.');
+      if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
+      try {
+        if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+    }
+    return resolved;
+  }
+  const projectPath = raw;
   if (mode === 'write' && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
   const resolved = mode === 'read' ? assertReadable(ctx.projectRoot, projectPath) : assertWritable(ctx.projectRoot, projectPath);
   return { kind: 'project', ...resolved };
@@ -220,7 +151,7 @@ function patchPaths(patch: string): string[] {
     const raw = match[1];
     if (raw === '/dev/null') continue;
     const clean = raw.replace(/^[ab]\//, '');
-    if (!clean || isAbsolute(clean) || clean.includes('..')) throw toolInputError(`Unsafe patch path '${raw}'.`);
+    if (!clean || isAbsolute(clean) || clean.includes('..') || /^[a-z][a-z0-9+.-]*:\/\/\//i.test(clean)) throw toolInputError(`Unsafe patch path '${raw}'.`);
     paths.add(clean);
   }
   return [...paths];
@@ -237,7 +168,7 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
   if (st.isDirectory()) {
     const entries = readdirSync(absolutePath, { withFileTypes: true })
       .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'dir' : 'file', absolutePath: join(absolutePath, entry.name), relativePath: normalizeRel(join(relativePath === '.' ? '' : relativePath, entry.name)) }))
-      .filter((entry) => !isHiddenPath(ctx.projectRoot, entry.absolutePath, entry.relativePath))
+      .filter((entry) => !isHiddenPath(ctx.projectRoot, entry.absolutePath, workRootOf(resolved) ? normalizeRel(relative(workRootOf(resolved)!, entry.absolutePath)) : entry.relativePath))
       .map(({ name, type }) => ({ name, type }))
       .sort((a, b) => a.name.localeCompare(b.name));
     return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), entries: entries.slice(offset, offset + limit), offset, limit, total_entries: entries.length, truncated: offset + limit < entries.length };
@@ -251,7 +182,7 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
 }
 
 export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<unknown> {
-  if (ctx.agentRole === 'analyst' && params.path.startsWith('record://')) return writeAnalystBriefRecord(ctx, params);
+  if (ctx.agentRole === 'analyst' && params.path.startsWith('record:///')) return writeAnalystBriefRecord(ctx, params);
   const resolved = resolveToolPath(ctx, params.path, 'write');
   const { absolutePath, relativePath } = resolved;
   mkdirSync(dirname(absolutePath), { recursive: true });
@@ -260,28 +191,26 @@ export async function writeProject(ctx: WorkspaceContext, params: { path: string
 }
 
 export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: string; content?: string }): void {
-  if (ctx.agentRole === 'analyst' && params.path.startsWith('record://')) {
+  if (ctx.agentRole === 'analyst' && params.path.startsWith('record:///')) {
     assertAnalystBriefRecordWritable(ctx, params);
     return;
   }
-  if (params.path.startsWith('record://')) {
-    const { agent, filename, cardId, version } = parseRecordUrlParts(ctx, params.path, 'next');
-    if (!agent.cardId) throw toolInputError('Record writes require an active card context.');
-    assertRecordWrite(agent.agentRole, agent.cardId, cardId, filename, version);
+  if (params.path.startsWith('record:///')) {
+    const target = resolveRecordWriteTarget({ projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError }, params.path);
+    assertRecordWrite(target.agent.agentRole, target.agent.cardId, target.cardId, target.filename, target.version, toolInputError);
     return;
   }
-  if (params.path.startsWith('tmp://')) {
-    resolveTmpPath(ctx, params.path, 'write');
+  if (params.path.startsWith('tmp:///')) {
+    resolveToolPath(ctx, params.path, 'write');
     return;
   }
-  if (params.path.startsWith('system://')) {
+  if (params.path.startsWith('system:///')) {
     if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write system files.`);
-    assertWritableSystemPath(params.path);
+    resolveToolPath(ctx, params.path, 'write');
     return;
   }
-  const projectPath = resolveProjectSchemePath(params.path);
   if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
-  assertWritable(ctx.projectRoot, projectPath);
+  resolveToolPath(ctx, params.path, 'write');
 }
 
 function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; content: string }): unknown {
@@ -299,11 +228,11 @@ function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; 
 }
 
 function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path: string; content?: string }): { cardId: string; path: string } {
-  if (!params.path.startsWith('record://')) throw toolInputError('Analyst write only writes record://brief.md document records. It cannot write host or project files.');
+  if (!params.path.startsWith('record:///')) throw toolInputError('Analyst write only writes record:///brief.md document records. It cannot write host or project files.');
   if (!ctx.store) throw new Error('Analyst record writes require a card store.');
   const runtimeState = readRuntimeState(ctx.projectRoot);
   if (runtimeState?.status !== 'stopped' && runtimeState?.status !== 'paused') throw toolInputError(`Analyst write requires runtime status stopped or paused before mutating card records. Current runtime status is ${runtimeState?.status ?? 'unknown'}.`);
-  const target = parseAnalystBriefWriteUrl(params.path);
+  const target = resolveAnalystBriefWriteUrl(ctx, params.path);
   if (params.content !== undefined) {
     if (params.content.length === 0) throw toolInputError('brief.md content must not be empty.');
     validateBriefMarkdown(params.content);
@@ -315,14 +244,11 @@ function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path:
   return target;
 }
 
-function parseAnalystBriefWriteUrl(raw: string): { cardId: string; path: string } {
-  const url = new URL(raw);
-  const filename = validRecordSegment(decodeURIComponent(`${url.hostname}${url.pathname}`), 'record filename', raw);
-  if (filename !== 'brief.md') throw toolInputError('Analyst write only supports record://brief.md document writes.');
-  const cardId = validRecordSegment(url.searchParams.get('card') ?? '', 'card id', raw);
-  const version = url.searchParams.get('v') ?? 'next';
-  if (version !== 'next') throw toolInputError('Analyst record writes must use v=next.');
-  return { cardId, path: `record://brief.md?card=${encodeURIComponent(cardId)}&v=next` };
+function resolveAnalystBriefWriteUrl(ctx: WorkspaceContext, raw: string): { cardId: string; path: string } {
+  const target = resolveRecordWriteTarget({ projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError }, raw);
+  if (target.filename !== 'brief.md') throw toolInputError('Analyst write only supports record:///brief.md document writes.');
+  if (target.version !== 'next') throw toolInputError('Analyst record writes must use v=next.');
+  return { cardId: target.cardId, path: target.recordUrl };
 }
 
 function validateBriefMarkdown(content: string): void {
@@ -332,8 +258,9 @@ function validateBriefMarkdown(content: string): void {
 }
 
 export async function globProject(ctx: WorkspaceContext, params: { directory: string; pattern: string; max_results?: number }): Promise<unknown> {
-  const isRecordSearch = params.directory.startsWith('record://');
-  const isSystemSearch = params.directory.startsWith('system://');
+  const isRecordSearch = params.directory.startsWith('record:///');
+  const isSystemSearch = params.directory.startsWith('system:///');
+  const isWorkSearch = params.directory.startsWith('work:///');
   const resolved = isRecordSearch
     ? resolveRecordSearchPath(ctx, params.directory)
     : resolveToolPath(ctx, params.directory, 'read');
@@ -348,13 +275,14 @@ export async function globProject(ctx: WorkspaceContext, params: { directory: st
     if (matches.length >= limit) return false;
   };
   if (st.isFile()) consider(absolutePath, relativePath);
-  else walkFiles(ctx.projectRoot, absolutePath, consider, { includeHidden: isRecordSearch, root: isSystemSearch ? absolutePath : undefined, displayPath: isSystemSearch ? (abs) => systemDisplayPath(abs) : undefined });
+  else walkFiles(ctx.projectRoot, absolutePath, consider, { includeHidden: isRecordSearch, root: isSystemSearch ? absolutePath : workRootOf(resolved), displayPath: isSystemSearch ? (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}` : undefined });
   return { directory: relativePath, pattern: params.pattern, matches, truncated: matches.length >= limit };
 }
 
 export async function grepProject(ctx: WorkspaceContext, params: { pattern: string; path?: string; include?: string; max_results?: number }): Promise<unknown> {
-  const isRecordSearch = params.path?.startsWith('record://') ?? false;
-  const isSystemSearch = params.path?.startsWith('system://') ?? false;
+  const isRecordSearch = params.path?.startsWith('record:///') ?? false;
+  const isSystemSearch = params.path?.startsWith('system:///') ?? false;
+  const isWorkSearch = params.path?.startsWith('work:///') ?? false;
   const target = isRecordSearch
     ? resolveRecordSearchPath(ctx, params.path!)
     : resolveToolPath(ctx, params.path ?? '.', 'read');
@@ -374,7 +302,7 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
   };
   const st = statSync(target.absolutePath);
   if (st.isFile()) scan(target.absolutePath, target.relativePath);
-  else walkFiles(ctx.projectRoot, target.absolutePath, scan, { includeHidden: isRecordSearch, root: isSystemSearch ? target.absolutePath : undefined, displayPath: isSystemSearch ? (abs) => systemDisplayPath(abs) : undefined });
+  else walkFiles(ctx.projectRoot, target.absolutePath, scan, { includeHidden: isRecordSearch, root: isSystemSearch ? target.absolutePath : workRootOf(target), displayPath: isSystemSearch ? (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}` : undefined });
   return { pattern: params.pattern, matches, truncated: matches.length >= limit };
 }
 
@@ -403,20 +331,6 @@ export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: 
 }
 
 function resolveRecordSearchPath(ctx: WorkspaceContext, raw: string): { absolutePath: string; relativePath: string } {
-  const agent = requireAgentRole(ctx, 'record://');
-  const url = new URL(raw);
-  const host = decodeURIComponent(url.hostname);
-  const path = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-  const cardId = validRecordSegment(host || url.searchParams.get('card') || agent.cardId || '', 'card id', raw);
-  const slot = path ? validRecordSegment(path, 'record slot', raw) : '';
-  const absolutePath = slot ? recordSlotDir(ctx.projectRoot, cardId, exposedRecordSlotDefinitionForFilename(slot.includes('.') ? slot : `${slot}.md`).slot) : join(ctx.projectRoot, RECORD_OUTPUTS_RELATIVE_DIR, cardId);
-  const relativePath = normalizeRel(relative(ctx.projectRoot, absolutePath));
-  const contained = resolveContainedProjectPath(ctx.projectRoot, relativePath);
-  if (!contained.safe || contained.relativePath !== relativePath || !relativePath.startsWith(`${RECORD_OUTPUTS_RELATIVE_DIR}/${cardId}`)) throw toolInputError(`Invalid record search URL '${raw}'.`);
-  return { absolutePath, relativePath };
-}
-
-function validRecordSegment(value: string, label: string, raw: string): string {
-  if (!value || value === '.' || value === '..' || value.includes('/') || value.includes('\\')) throw toolInputError(`Invalid ${label} in record URL '${raw}'.`);
-  return value;
+  if (!ctx.agentRole) throw toolInputError('record:/// paths require an active agent role.');
+  return resolveRecordSearchTarget({ projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError }, raw);
 }
