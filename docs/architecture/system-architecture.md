@@ -14,7 +14,7 @@ The major subsystems are:
 
 - Operator web UI: read-only workspace plus always-visible Analyst panel.
 - Analyst agent: user-facing inspection and mutation orchestrator.
-- Runtime supervisor: root intent, run/resume, pause mode tracking, active-work ownership, recovery coordination. Shutdown process termination is performed at the runtime/composition root (`SupervisorRuntimeApi.shutdown()` → `ProcessRunner.stopRuntimeOwned`); the supervisor actor only records stopped mode.
+- Runtime control surface: `SupervisorRuntimeApi` coordinates root intent, run/resume, pause state, active-work ownership, and recovery against durable `RuntimeState`. Shutdown process termination is performed at the runtime/composition root (`SupervisorRuntimeApi.shutdown()` → `ProcessRunner.stopRuntimeOwned`).
 - Canonical card service: Analyst-owned card mutation validation, durable tree updates, audit/projection events, and active-runtime change notification.
 - Card store: durable project hierarchy and card history.
 - Agent sessions: planner, executor, reviewer, and analyst transcripts.
@@ -69,9 +69,9 @@ Run:
 
 1. Analyst receives a user request to run, start, continue, or resume.
 2. If the runtime is paused, the runtime opens the global provider-admission gate so provider waiters proceed before new autonomous work is admitted.
-3. If no root run exists, the supervisor records durable running intent and creates the root runtime run.
-4. If the project is already running, the supervisor returns an already-running warning and creates no duplicate root run.
-5. When needed, the supervisor activates the parentless project card.
+3. If no root run exists, `SupervisorRuntimeApi` records durable running intent and creates the root runtime run.
+4. If the project is already running, `SupervisorRuntimeApi` returns an already-running warning and creates no duplicate root run.
+5. When needed, `SupervisorRuntimeApi` activates the parentless project card through the runtime/composition root.
 
 Child execution:
 

@@ -23,7 +23,7 @@ The implemented runtime uses root-only recovery that cascades through `activate_
 cascade is possible because the runtime has a single gate at the LLM provider call (see §3);
 there is no separate deepest-first supervisor replay pass.
 
-**The supervisor reactivates the root card only.** Everything else cascades through `activate_card`:
+**The runtime reactivates the root card only.** Everything else cascades through `activate_card`:
 
 1. The root card's processor starts its activation loop.
 2. When it encounters `waiting_tool` on `activate_card`, the inline replay resolves the child: either `settled` (child terminal, result delivered) or `redispatch` (child running, executor re-establishes the wait).
@@ -81,7 +81,7 @@ Stage 1 constructs all running card actors bottom-up as data/tree loading. Proce
 
 ### Stage 2: Top-Down root reactivation
 
-1. **Recover the root card actor.** The supervisor calls `recoverCurrentCardState()` on the root card (the project card) only. One call.
+1. **Recover the root card actor.** The runtime (`SupervisorRuntimeApi`) calls `recoverCurrentCardState()` on the root card (the project card) only. One call.
 2. **The activation loop runs.** The root card's processor starts lazily if deferred, then `processor.recoverActive` adopts recovered LLM snapshots and `runActivation` resolves the adopted planner LLM state (§6). Each child reached by the cascade follows the same path: `_on_recover__running` → lazy processor start → `processor.recoverActive` → LLM adoption.
 3. **Everything parks at provider calls.** The cascade flows through card reactivation and tool replay (no provider calls needed) until it reaches a point where a provider call is needed — then it blocks at the gate.
 4. **Operator inspects, then resumes.** Opening the gate lets blocked provider calls proceed. Activations continue from where they stopped.
@@ -246,7 +246,7 @@ During recovery, the child is `running` (it was running before shutdown). The ex
 
 `awaitSettlement()` resolves when the child settles. The parent's `activate_card` executor returns the result.
 
-Each card is recovered exactly once: the root by the supervisor, each child by its parent's `activate_card` executor during the cascade. `recoverCurrentCardState()` therefore does not need to be idempotent. (The current implementation in `card-actor.ts` is not idempotent, and this redesign keeps that.)
+Each card is recovered exactly once: the root by the runtime/composition root (`SupervisorRuntimeApi`), each child by its parent's `activate_card` executor during the cascade. `recoverCurrentCardState()` therefore does not need to be idempotent. (The current implementation in `card-actor.ts` is not idempotent, and this redesign keeps that.)
 
 `recoverCurrentCardState()` does not need to be idempotent (see above: each card is recovered exactly once).
 
@@ -358,7 +358,7 @@ If the card's `activeReconstruction` IS present but its LLM actor snapshot is mi
 
 ### Corrupt root card
 
-If the root card record itself is corrupt or missing, the project cannot be recovered. The supervisor reports this to the operator and halts. This is the only unrecoverable condition.
+If the root card record itself is corrupt or missing, the project cannot be recovered. The runtime reports this to the operator and halts. This is the only unrecoverable condition.
 
 ### Write atomicity
 
@@ -366,13 +366,13 @@ JSONL appends and temp-file-then-rename writes are assumed atomic. In the worst 
 
 ---
 
-## 13. The Supervisor's Role
+## 13. The Runtime's Role
 
-1. **Stage 1**: reconcile processes → load snapshots → project terminals → validate running cards (fail cards with missing `activeReconstruction`, corrupt snapshots, or orphaned/stranded parentage per §12 — deferred robustness) → construct valid running card actors with deferred processor start. There is no LLM adoption in Stage 1.
-2. **Stage 2**: call `recoverCurrentCardState()` on the root card. The cascade reaches children via `activate_card`; each reached card's processor starts lazily and `processor.recoverActive` adopts its recovered LLMs. Provider calls park at the gate.
-3. **Resume**: the operator inspects the fully reconstructed tree, then opens the gate. Provider calls proceed. Activations continue.
+1. **Stage 1**: `SupervisorRuntimeApi` (the runtime/composition root) reconciles processes → loads snapshots → projects terminals → validates running cards (fail cards with missing `activeReconstruction`, corrupt snapshots, or orphaned/stranded parentage per §12 — deferred robustness) → constructs valid running card actors with deferred processor start. There is no LLM adoption in Stage 1.
+2. **Stage 2**: `SupervisorRuntimeApi` calls `recoverCurrentCardState()` on the root card. The cascade reaches children via `activate_card`; each reached card's processor starts lazily and `processor.recoverActive` adopts its recovered LLMs. Provider calls park at the gate.
+3. **Resume**: the operator inspects the fully reconstructed tree, then `SupervisorRuntimeApi` opens the gate. Provider calls proceed. Activations continue.
 
-The supervisor has no knowledge of tool semantics, replay logic, or activation traversal. It performs root activation plus Stage 1 structural validation (parent/child status consistency and orphan/stranded propagation per §12). It does not traverse the card tree to recover individual non-root cards; the cascade does that.
+The runtime/composition root has no knowledge of tool semantics, replay logic, or activation traversal. It performs root activation plus Stage 1 structural validation (parent/child status consistency and orphan/stranded propagation per §12). It does not traverse the card tree to recover individual non-root cards; the cascade does that.
 
 ---
 
@@ -403,7 +403,7 @@ The supervisor has no knowledge of tool semantics, replay logic, or activation t
 - **Corrupt actor snapshot** → card failed with diagnostic. System continues.
 - **Running card whose parent is not running, or whose parent is not `waiting_tool` on this child** → orphan/stranded pre-check fails (or strands) the card. Children of failed cards caught in subsequent passes.
 - **Missing LLM snapshot** → processor creates fresh LLM. Model re-orients. Graceful degradation.
-- **Corrupt root card** → supervisor reports to operator, halts recovery. Only unrecoverable condition.
+- **Corrupt root card** → runtime reports to operator, halts recovery. Only unrecoverable condition.
 
 ---
 
@@ -424,7 +424,7 @@ Each item is tagged **[drift]** (pre-existing drift versus the implemented runti
   - §17 lines 320/324 **[drift + redesign]** — same no-resumption drift, plus the cascade model.
   - §19 line 336 **[drift + redesign]** — same no-resumption drift, plus session resumption under recovery.
 - `docs/architecture/micro-actor-runtime-design.md`
-  - System Shape gate chokepoints (~line 111), `RuntimeGate`, `CardActor._on_enter__running`, supervisor recovery responsibilities, `LLMActor` states, and old helper removal **[redesign]**.
+  - System Shape gate chokepoints (~line 111), `RuntimeGate`, `CardActor._on_enter__running`, runtime recovery responsibilities, `LLMActor` states, and old helper removal **[redesign]**.
   - Recovery procedure (lines 533-554): block-on-restart described as "current policy" and mid-flight resume as "deferred future work (NOT current policy)" **[drift]** — must be corrected regardless of this redesign.
 - `docs/architecture/system-architecture.md:127` **[drift + redesign]** — "Recovery does not recreate in-flight provider calls, process waits, tool waits, or running card actors."
 - `docs/architecture/shared-tool-invocation-design.md` §3.1 / §3.4 **[drift]** — `ToolDefinition` shown without `signal`/`replay`; code (`invocation.ts`) already has both. Independent drift, flagged here.

@@ -89,26 +89,25 @@ Most task states use the same local completion protocol: the state starts or adm
 
 ## System Shape
 
-The runtime has one root supervisor and a deterministic card actor tree:
+The runtime has a deterministic card actor tree rooted at the project card:
 
 ```text
-RuntimeSupervisorActor
-  CardActor(project)
+CardActor(project)
+  PlanningCardProcessorActor
+    LLMActor(planner:project)
+    LLMActor(reviewer:project)
+  CardActor(goal)
     PlanningCardProcessorActor
-      LLMActor(planner:project)
-      LLMActor(reviewer:project)
-    CardActor(goal)
-      PlanningCardProcessorActor
-        LLMActor(planner:goal)
-        LLMActor(reviewer:goal)
-      CardActor(terminal)
-        TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor
-          LLMActor(executor:terminal)
+      LLMActor(planner:goal)
+      LLMActor(reviewer:goal)
+    CardActor(terminal)
+      TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor
+        LLMActor(executor:terminal)
 ```
 
 Process execution is a service, not an actor. A single injected `ProcessRunner` is called directly by process tools and by shutdown; it does not appear in the actor tree.
 
-Pause admission is also a service, not an actor state. A single composition-root `RuntimeGate` owns live pause truth and waiters; persisted runtime mode is the restart truth, and the supervisor actor only tracks scheduling **mode** (`idle`/`running`/`paused`) for projection and duplicate-run guards. The gate is NOT part of the micro-actor framework. The gate has one chokepoint: `LLMActor` before provider invocation. Process tools and card/root dispatch do not ask the gate; already-received provider responses may continue through tool execution, process spawn, card dispatch, and durable settlement while paused until the next provider call parks. `ProcessRunner` itself never asks the gate — it is a pure OS-process service. (See [Implementation Plan P4](./micro-actor-runtime-implementation-plan.md#p4-runtimegate-replaces-llm-admission-and-owns-the-pause-barrier).)
+Pause admission is also a service, not an actor state. A single composition-root `RuntimeGate` owns live pause truth and waiters; persisted runtime mode is projected from `RuntimeState.status` directly and is the restart truth. Runtime state and the runtime gate are the two sources of pause truth: `RuntimeState.status` is durable projection/restart state, and `RuntimeGate` is the live provider-admission barrier. The gate is NOT part of the micro-actor framework. The gate has one chokepoint: `LLMActor` before provider invocation. Process tools and card/root dispatch do not ask the gate; already-received provider responses may continue through tool execution, process spawn, card dispatch, and durable settlement while paused until the next provider call parks. `ProcessRunner` itself never asks the gate — it is a pure OS-process service. (See [Implementation Plan P4](./micro-actor-runtime-implementation-plan.md#p4-runtimegate-replaces-llm-admission-and-owns-the-pause-barrier).)
 
 `CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `cancelled`, and `changed`. This is the public card lifecycle layer. New card actors start in `backlog`; recovered actors use the persisted card state. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `cancelled` is terminal: the actor exits, the card cannot be edited or reactivated, and replacement work requires creating a new card. Processor actors share mechanical base classes but keep role/card policy in concrete subclasses. `LLMActor` interacts with remote LLM providers.
 
@@ -138,43 +137,6 @@ Parent-child waiting follows one pattern. `CardActor` owns child actor reference
 This keeps the micro-actor framework out of ownership and out of cross-actor waiting. `CardActor` owns the lifecycle wait; processors only await a normalized result for tool semantics. The child only reports activation outcomes to its known parent card. If the parent card leaves the waiting state before the child reports, the parent invalidates the wait record; a later child report is ignored as a diagnostic no-op, not treated as a second outcome.
 
 ## Actor Inventory
-
-### RuntimeSupervisorActor
-
-Purpose: root runtime control, scheduling-mode tracking, recovery, and parentless project ownership. The supervisor tracks runtime mode (`idle`/`running`/`paused`) for projection and duplicate-run guards. Pause **enforcement** lives in the composition-root `RuntimeGate` (see System Shape), not in the supervisor actor. The supervisor does not own shutdown process termination; shutdown is operational teardown performed at the runtime/composition root (see Pause, Cancellation, And Shutdown).
-
-States (scheduling mode only):
-
-- `idle`: parked; no root work is active.
-- `running`: active; root project exists and the runtime gate is open.
-- `paused`: parked; root project may exist, but the runtime gate is closed. No new provider calls are admitted (enforced by `RuntimeGate`, not by the supervisor actor itself). Already-admitted work may still execute tool calls, spawn runtime-owned processes, dispatch cards, persist facts, and settle to durable boundaries until it next needs a provider call.
-
-There is no `shutting_down` actor state. Shutdown is operational teardown performed at the runtime/composition root (see Pause, Cancellation, And Shutdown); it closes the runtime gate, stops OS processes, and the process exits. If projection ever needs a "teardown in progress" signal, represent it as a runtime-root flag, not as supervisor actor state.
-
-Public methods:
-
-- `run()`: start idle project work or resume from paused. Resume reopens the runtime gate; waiters already blocked at gate seams proceed in normal actor order. The supervisor does not run a custom drain workflow.
-- `pause()`: record paused mode; the runtime gate close is performed by `RuntimeGate`.
-- `shutdown()`: record stopped mode. The supervisor's only shutdown role is to stop admitting new provider calls; terminating processes, freezing state, and halting activity are runtime-root responsibilities.
-- `cancelProject()`: cancel inactive project work immediately. For running project work, cancel the current project-card activation — the card store is marked `cancelled` immediately, activation-owned process scope is stopped, and late outcomes are dropped by the CardActor cancellation flag (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
-
-Event guidance:
-
-- Public lifecycle methods may queue command events such as `run`, `pause`, `shutdown`, and `cancel`.
-- Supervisor async work completes with `done` or `failed` after storing result/diagnostic fields.
-
-Responsibilities:
-
-- Hold the parentless project `CardActor` reference as supervisor runtime data.
-- Enforce duplicate-run behavior: return already-running warning, no duplicate root run.
-- Track and project scheduling mode (idle/running/paused).
-- Rebuild or explicitly fail unsafe runtime state during startup recovery before normal runtime commands are accepted.
-
-Non-responsibilities:
-
-- Planner/executor/reviewer semantics.
-- Tool-call interpretation.
-- Direct card mutation outside canonical services.
 
 ### CardActor
 
@@ -405,17 +367,17 @@ Routing:
 
 ## External Command Mapping
 
-Runtime public surfaces must map Analyst/operator commands to supervisor or card public methods. They must not call internal actor hooks or run workflow logic.
+Runtime public surfaces must map Analyst/operator commands to `SupervisorRuntimeApi`, `RuntimeGate`, `RuntimeState`, or card public methods. They must not call internal actor hooks or run workflow logic.
 
 Initial command mapping:
 
 | User/API command | Runtime target | Behavior |
 | --- | --- | --- |
-| start/run project | `RuntimeSupervisorActor.run()` plus root `CardActor.activate()` via RuntimeApi | Sets running mode, activates root card, awaits outcome, and projects run record; or returns already-running warning. |
-| pause runtime | `RuntimeSupervisorActor.pause()` plus runtime gate close | Closes the global provider-admission gate; does not mutate card statuses. |
-| resume runtime | `RuntimeSupervisorActor.run()` plus runtime gate open | Reopens the gate from paused so provider waiters proceed in normal actor order. |
-| shutdown | Runtime/composition root (`SupervisorRuntimeApi.shutdown()`) | Closes the runtime gate and records stopped mode via the supervisor actor, then terminates runtime-owned processes via `ProcessRunner.stopRuntimeOwned(...)`, then halts. The supervisor actor itself only records mode; it does not own process termination (see Pause, Cancellation, And Shutdown). |
-| cancel project | `RuntimeSupervisorActor.cancelProject()` | Cancels inactive project work immediately; for running project work, cancels the project card's current activation. |
+| start/run project | `SupervisorRuntimeApi` plus root `CardActor.activate()` and `RuntimeState` | Sets runtime state to running, activates root card, awaits outcome, and projects run record; or returns already-running warning. |
+| pause runtime | `SupervisorRuntimeApi` plus `RuntimeGate.close()` and `RuntimeState` | Closes the global provider-admission gate and records paused runtime state; does not mutate card statuses. |
+| resume runtime | `SupervisorRuntimeApi` plus `RuntimeGate.open()` and `RuntimeState` | Reopens the gate from paused and records running runtime state so provider waiters proceed in normal actor order. |
+| shutdown | Runtime/composition root (`SupervisorRuntimeApi.shutdown()`) | Closes the runtime gate, records stopped runtime state, terminates runtime-owned processes via `ProcessRunner.stopRuntimeOwned(...)`, then halts. |
+| cancel project | `SupervisorRuntimeApi` plus root `CardActor.cancel()` and `RuntimeState` | Cancels inactive project work immediately; for running project work, cancels the project card's current activation. |
 | cancel card/subtree | `CardActor.cancel()` through the runtime command boundary | Marks inactive cards/subtrees `cancelled`; for running cards, cancels the current activation (writes `cancelled`, stops activation-owned process scope, rejects late outcomes, propagates to running children). |
 | mark needs correction/change | `CardActor.markChanged(change)` | Sets durable card states to `changed` through edit/subtree propagation and queues notifications so active/future agents learn about the change. Notifications alone never set `changed`. |
 | queue notification | `CardActor.notify(notification)` | Queues card-addressed context for delivery to the main agent session. Does not mutate card lifecycle state. |
@@ -481,7 +443,7 @@ Notifications can affect flow:
 
 Pause (see [Implementation Plan P4](./micro-actor-runtime-implementation-plan.md#p4-runtimegate-replaces-llm-admission-and-owns-the-pause-barrier)):
 
-- `RuntimeGate` closes; the supervisor records paused mode.
+- `RuntimeGate` closes; `RuntimeState.status` records paused mode.
 - Active provider calls and already-running OS processes may continue until the next durable boundary.
 - No new provider call starts while paused.
 - Already-received provider responses may execute tool calls, spawn runtime-owned processes, dispatch child/root cards, persist facts, and settle to durable boundaries while paused. Follow-up provider calls park at the provider gate.
@@ -496,14 +458,14 @@ Cancellation:
 
 Shutdown (operational teardown at the runtime root):
 
-Shutdown is not a domain state cascade. The goal is to halt all actor activity, not to drive every agent to a terminal state. It is performed by the runtime/composition root, not by the supervisor actor state machine.
+Shutdown is not a domain state cascade. The goal is to halt all actor activity, not to drive every agent to a terminal state. It is performed by the runtime/composition root.
 
-1. Close the runtime gate (the supervisor records stopped mode; this is the only actor-side act).
+1. Close the runtime gate and record stopped mode in `RuntimeState`.
 2. Terminate runtime-owned OS processes via `ProcessRunner.stopRuntimeOwned(...)` — SIGTERM, bounded wait, SIGKILL stragglers, reap, dispose scope.
 3. In-flight provider calls are abandoned; recovery classifies them as `abandon_with_diagnostic` on next startup.
 4. Mark the runtime stopped. Activity halts because no new work is admitted and all OS-level waits have settled.
 
-The supervisor does not own process termination or tree-cascade logic. Driving agents through domain states on shutdown is explicitly avoided; in-flight work is left to be classified by recovery on the next startup.
+No actor owns process termination or tree-cascade logic for shutdown. Driving agents through domain states on shutdown is explicitly avoided; in-flight work is left to be classified by recovery on the next startup.
 
 ## Persistence And Recovery
 
@@ -511,7 +473,7 @@ Persist Saivage-owned data at explicit boundaries:
 
 - Card records and histories.
 - Agent messages and tool-call delivery records.
-- Runtime supervisor state: mode, root intent, pause/shutdown diagnostics.
+- Runtime state: status, root intent, pause/shutdown diagnostics.
 - Card actor reconstruction records: actor id, card id, actor kind, current state, active child/process/tool wait metadata.
 - LLM actor reconstruction records: session id, role, state, admission/request metadata, current tool call wait.
 - Process records: process id, command metadata, status, terminal result/failure, delivery status.
@@ -564,14 +526,14 @@ Non-goal: OS process reattachment is deliberately excluded. Runtime/agent-owned 
 
 Allowed responsibilities:
 
-- Construct or attach the runtime root and call supervisor/card public methods. The root `CardActor.activate()` owns root activation; `RuntimeApi` calls it, awaits the promise, and projects the run record — it does not branch over planner/executor/reviewer sequencing. There is no production projection-only runtime mode.
+- Construct or attach the runtime root and call `SupervisorRuntimeApi`/card public methods. The root `CardActor.activate()` owns root activation; `RuntimeApi` calls it, awaits the promise, and projects the run record — it does not branch over planner/executor/reviewer sequencing. There is no production projection-only runtime mode.
 - Validate command authority and shape.
 - Subscribe or wait on projected state.
 - Project cards, agents, processes, runtime mode, diagnostics, and timelines.
 
 Forbidden responsibilities:
 
-- Directly instantiate child actors below supervisor/card ownership.
+- Directly instantiate child actors below card ownership.
 - Branch over planner/executor/reviewer workflow.
 - Synthesize child activation outcomes.
 - Call protected actor methods.
@@ -581,7 +543,7 @@ Forbidden responsibilities:
 
 Projection requirements:
 
-- Show stopped/running/paused (and error on failed startup) truthfully, mapped from supervisor actor `idle`/`running`/`paused`.
+- Show stopped/running/paused (and error on failed startup) truthfully, mapped from `RuntimeState.status`.
 - Show active chain and active leaf.
 - Show current provider/process waits when safe to expose.
 - Show recovery/cancellation diagnostics.
@@ -596,7 +558,6 @@ src/runtime/micro-actor/
   micro-actor.ts
 
 src/runtime/actors/
-  runtime-supervisor.ts
   supervisor-runtime-api.ts   # RuntimeApi boundary (composition root)
   card-actor.ts
   base-card-processor-actor.ts
