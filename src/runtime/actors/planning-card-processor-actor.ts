@@ -1,6 +1,6 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, CardStatus, DoneResult } from '../../schemas/index.js';
-import type { LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
+import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardNotification, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
@@ -21,6 +21,7 @@ import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
+import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -57,7 +58,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
     super(args);
     this.store = args.store;
     this.children = args.children;

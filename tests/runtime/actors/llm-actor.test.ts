@@ -9,6 +9,7 @@ import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { InvocationSurface } from '../../../src/tools/invocation.js';
+import type { CompactionConfig } from '../../../src/runtime/actors/compaction/compactor.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-actor-'));
@@ -102,6 +103,40 @@ describe('LLMActor', () => {
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
   }));
 
+  it('runs compaction only from the base pre-provider hook and swaps context wholesale', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const compacted = { id: 'planner:project:compacted', session_id: 'planner:project', role: 'user' as const, kind: 'context_compaction' as const, content: '[Compacted prior conversation — generation 1]:\nsummary\n\n## Recoverable evidence (use `read` to recover full content)\nNone.', round_id: 'r-compacted-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
+    const config = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim', summarizer_model: 'test/_/summary' } satisfies CompactionConfig;
+    const compactor = {
+      shouldCompact: jest.fn(() => ({ shouldCompact: true })),
+      compact: jest.fn(async () => [compacted]),
+    };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (providerInput: LlmInvocationInput) => ({ kind: 'message' as const, content: `saw:${(providerInput.contextMessages as unknown[]).length}:${(providerInput.contextMessages[0] as { content: string }).content}` })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) } });
+    actor.start();
+
+    const outcome = await actor.turn({ ...input(), contextMessages: [{ ...compacted, id: 'raw', kind: 'text', content: 'raw context before compaction', round_id: 'r-user-00000000000000000000000000000001' }] });
+
+    expect(compactor.shouldCompact).toHaveBeenCalledTimes(1);
+    expect(compactor.compact).toHaveBeenCalledTimes(1);
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ contextMessages: [compacted] }), expect.any(AbortSignal));
+    expect(outcome).toMatchObject({ type: 'result', result: { content: expect.stringContaining('saw:1:[Compacted prior conversation') } });
+  }));
+
+  it('does not set compacting when shouldCompact is false', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const config = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim', summarizer_model: 'test/_/summary' } satisfies CompactionConfig;
+    const compactor = { shouldCompact: jest.fn(() => ({ shouldCompact: false })), compact: jest.fn(async () => []) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'done' })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 1, bufferTokens: 100 }) } });
+    actor.start();
+
+    await actor.turn(input());
+
+    expect(compactor.compact).not.toHaveBeenCalled();
+    expect(readActorSnapshots(projectRoot).some((snapshot) => snapshot.context.compacting === true)).toBe(false);
+  }));
+
   it('invokes the initial input factory only on the idle branch', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     let finishCalling!: () => void;
@@ -121,6 +156,7 @@ describe('LLMActor', () => {
 
     expect(factory).not.toHaveBeenCalled();
     expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.content === 'lazy planner state')).toBe(false);
+    await eventually(() => expect(typeof finishCalling).toBe('function'));
     finishCalling();
     await expect(recovered).resolves.toMatchObject({ type: 'result' });
     await expect(pendingTurn).resolves.toMatchObject({ type: 'result' });
@@ -179,6 +215,7 @@ describe('LLMActor', () => {
       projectRoot,
       agentId: 'planner:project',
       active_reconstruction: expect.any(Object),
+      compacting: false,
     });
     expect(active).toMatchObject({
       schema_version: 1,
@@ -197,6 +234,7 @@ describe('LLMActor', () => {
     expect(snapshot?.context).not.toHaveProperty('waitingToolCall');
     expect(snapshot?.context).not.toHaveProperty('deliveredToolCallIds');
     expect(snapshot?.context).not.toHaveProperty('toolDeliveryCounter');
+    await eventually(() => expect(typeof finish).toBe('function'));
     finish();
     await expect(pending).resolves.toMatchObject({ type: 'result' });
   }));
@@ -214,6 +252,7 @@ describe('LLMActor', () => {
     expect(actorKindFromId('analyst:global')).toBe('llm');
     expect(parseLlmActorId('analyst:global')).toEqual({ role: 'analyst', cardId: null });
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'analyst:global')?.context.active_reconstruction).toMatchObject({ role: 'analyst', card_id: null });
+    await eventually(() => expect(typeof finish).toBe('function'));
     finish();
     await expect(pending).resolves.toMatchObject({ type: 'result' });
   }));
@@ -367,6 +406,7 @@ describe('LLMActor', () => {
 
     const pending = actor.turn(input());
     await eventually(() => expect(actor.state()).toBe('calling_provider'));
+    await eventually(() => expect(typeof finish).toBe('function'));
     finish();
 
     await expect(pending).resolves.toMatchObject({ type: 'result', result: { content: 'late' } });
@@ -399,6 +439,7 @@ describe('LLMActor', () => {
     const pending = actor.turn(input());
     await eventually(() => expect(provider.completeTurn).toHaveBeenCalledTimes(1));
     corruptActorMessages(projectRoot);
+    await eventually(() => expect(typeof finish).toBe('function'));
     finish();
 
     await expect(pending).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);

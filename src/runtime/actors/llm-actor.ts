@@ -10,6 +10,7 @@ import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
+import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -18,6 +19,11 @@ export type LLMActorOutcome =
 
 export interface LLMProviderPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmCompleteResult>;
+}
+
+export interface CompactorPort {
+  shouldCompact(input: LlmInvocationInput, config: CompactionConfig, estimator: BufferSizeEstimator): { shouldCompact: boolean };
+  compact(args: { projectRoot: string; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; bufferSizeEstimator: BufferSizeEstimator; signal?: AbortSignal }): Promise<unknown[]>;
 }
 
 type WaitingToolCall = {
@@ -159,17 +165,21 @@ export class ConversationLLMActor extends BaseActor {
   _on_enter__calling_provider(): void {
     try {
       const input = this.requireInput();
-      const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(input.sessionId);
-      appendLlmTurnStarted(this.projectRoot, input, { includeSystemPrompt });
-      if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(input.sessionId);
       this.runTask(async (signal) => {
+        const hookInput = await this.onBeforeProviderCall(input, signal);
+        const effectiveInput = hookInput ?? input;
+        if (hookInput) this.input = effectiveInput;
+        const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(effectiveInput.sessionId);
+        appendLlmTurnStarted(this.projectRoot, effectiveInput, { includeSystemPrompt });
+        if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(effectiveInput.sessionId);
         await this.gate.waitUntilOpen();
-        return this.provider.completeTurn(input, this.providerSignal(signal));
+        return this.provider.completeTurn(effectiveInput, this.providerSignal(signal));
       }, {
         on_done: (result) => {
           try {
-            appendLlmTurnFinished(this.projectRoot, input, result);
-            this.completeWithProviderResult(input, result);
+            const effectiveInput = this.requireInput();
+            appendLlmTurnFinished(this.projectRoot, effectiveInput, result);
+            this.completeWithProviderResult(effectiveInput, result);
           } catch (error) {
             this.failPendingTurnFatally(error);
             throw error;
@@ -181,7 +191,7 @@ export class ConversationLLMActor extends BaseActor {
               this.completeWithCancellation(error);
               return;
             }
-            this.completeWithError(input, error instanceof Error ? error.message : String(error));
+            this.completeWithError(this.requireInput(), error instanceof Error ? error.message : String(error));
           } catch (fatal) {
             this.failPendingTurnFatally(fatal);
             throw fatal;
@@ -319,6 +329,8 @@ export class ConversationLLMActor extends BaseActor {
 
   protected onTurnSettled(): void {}
 
+  protected async onBeforeProviderCall(_input: LlmInvocationInput, _signal: AbortSignal): Promise<LlmInvocationInput | void> {}
+
   protected toolDeliveryCounter(): number {
     return this.#toolDeliveryCounter;
   }
@@ -326,9 +338,14 @@ export class ConversationLLMActor extends BaseActor {
 
 export class LLMActor extends ConversationLLMActor {
   activeReconstruction: LlmActiveReconstructionRecord | null = null;
+  #compacting = false;
+  readonly compactor?: CompactorPort;
+  readonly compactionConfig?: CompactionConfig;
+  readonly summarizerProvider?: LLMProviderPort;
+  readonly bufferSizeEstimator?: BufferSizeEstimator;
 
-  static fromActiveReconstruction(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; gate?: RuntimeGate; state: string; activeReconstruction: LlmActiveReconstructionRecord }): LLMActor {
-    const actor = new LLMActor({ projectRoot: args.projectRoot, agentId: args.agentId, provider: args.provider, gate: args.gate });
+  static fromActiveReconstruction(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; gate?: RuntimeGate; state: string; activeReconstruction: LlmActiveReconstructionRecord; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }): LLMActor {
+    const actor = new LLMActor({ projectRoot: args.projectRoot, agentId: args.agentId, provider: args.provider, gate: args.gate, compactor: args.compactor, compactionConfig: args.compactionConfig, summarizerProvider: args.summarizerProvider, bufferSizeEstimator: args.bufferSizeEstimator });
     actor.activeReconstruction = args.activeReconstruction;
     actor.input = args.activeReconstruction.input;
     actor.deliveredToolCallIds = new Set(args.activeReconstruction.delivered_tool_call_ids);
@@ -362,6 +379,7 @@ export class LLMActor extends ConversationLLMActor {
         projectRoot: this.projectRoot,
         agentId: this.agentId,
         active_reconstruction: this.activeReconstruction,
+        compacting: this.#compacting,
       },
       updated_at: new Date().toISOString(),
     };
@@ -369,6 +387,35 @@ export class LLMActor extends ConversationLLMActor {
 
   protected override onTurnStarting(input: LlmInvocationInput): void {
     this.activeReconstruction = this.createActiveReconstruction(input);
+  }
+
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
+    super(args);
+    this.compactor = args.compactor;
+    this.compactionConfig = args.compactionConfig;
+    this.summarizerProvider = args.summarizerProvider;
+    this.bufferSizeEstimator = args.bufferSizeEstimator;
+  }
+
+  protected override async onBeforeProviderCall(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmInvocationInput | void> {
+    if (!this.compactor) return;
+    if (!this.compactionConfig || !this.summarizerProvider || !this.bufferSizeEstimator) throw new Error(`LLMActor '${this.agentId}' has incomplete compaction wiring.`);
+    if (this.state() !== 'calling_provider') throw new Error(`LLMActor '${this.agentId}' cannot compact from state '${this.state()}'.`);
+    const decision = this.compactor.shouldCompact(input, this.compactionConfig, this.bufferSizeEstimator);
+    if (!decision.shouldCompact) return;
+    try {
+      this.#compacting = true;
+      saveActorSnapshot(this.projectRoot, this.snapshot());
+      const compactedRows = await this.compactor.compact({ projectRoot: this.projectRoot, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, signal });
+      const compactedInput = { ...input, contextMessages: compactedRows } as LlmInvocationInput;
+      this.#compacting = false;
+      if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction to refresh after compaction.`);
+      this.activeReconstruction = { ...this.activeReconstruction, input: compactedInput };
+      saveActorSnapshot(this.projectRoot, this.snapshot());
+      return compactedInput;
+    } finally {
+      this.#compacting = false;
+    }
   }
 
   private createActiveReconstruction(input: LlmInvocationInput): LlmActiveReconstructionRecord {

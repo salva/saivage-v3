@@ -88,6 +88,7 @@ export class AgentOperatorReadModelService {
 
   private deriveActivityStatus(sessionId: string, snapshots: ActorSnapshotRecord[]): AgentOperatorConversationResponse['activity_status'] {
     const snapshot = this.matchingSnapshot(sessionId, snapshots);
+    if (snapshot?.context && typeof snapshot.context === 'object' && (snapshot.context as Record<string, unknown>).compacting === true) return { status: 'compacting', pending_calls: [], updated_at: snapshot.updated_at };
     if (snapshot?.state_value === 'calling_provider') return { status: 'thinking', pending_calls: [], updated_at: snapshot.updated_at };
     if (snapshot?.state_value === 'waiting_tool') return { status: 'tool_calling', pending_calls: [], updated_at: snapshot.updated_at };
     return { status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() };

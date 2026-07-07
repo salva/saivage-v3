@@ -1,4 +1,4 @@
-import { LLMActor, type LLMActorOutcome, type LLMProviderPort, type LLMToolContinuationContextHook } from './llm-actor.js';
+import { LLMActor, type CompactorPort, type LLMActorOutcome, type LLMProviderPort, type LLMToolContinuationContextHook } from './llm-actor.js';
 import { BaseCardProcessorActor, type CardProcessorOutcome } from './base-card-processor-actor.js';
 import type { CardActivationInput } from './card-actor.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -6,23 +6,32 @@ import type { LlmInvocationInput } from './llm-invocation.js';
 import { replayToolForRecovery, type InvocationSurface } from '../../tools/invocation.js';
 import { readLlmActiveReconstruction } from './active-reconstruction.js';
 import { readActorSnapshot } from './snapshots.js';
+import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
   readonly gate: RuntimeGate;
+  readonly compactor?: CompactorPort;
+  readonly compactionConfig?: CompactionConfig;
+  readonly summarizerProvider?: LLMProviderPort;
+  readonly bufferSizeEstimator?: BufferSizeEstimator;
   readonly activeLlmActors = new Map<string, LLMActor>();
   #invocationInputCounter = 0;
 
-  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; gate?: RuntimeGate }) {
+  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
     super(args);
     this.provider = args.provider;
     this.gate = args.gate ?? new RuntimeGate();
+    this.compactor = args.compactor;
+    this.compactionConfig = args.compactionConfig;
+    this.summarizerProvider = args.summarizerProvider;
+    this.bufferSizeEstimator = args.bufferSizeEstimator;
   }
 
   protected createMainLlm(agentId: string): LLMActor {
     const existing = this.activeLlmActors.get(agentId);
     if (existing) return existing;
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, gate: this.gate });
+    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator });
     llm.start();
     this.activeLlmActors.set(agentId, llm);
     return llm;
@@ -87,6 +96,10 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
         agentId,
         provider: this.provider,
         gate: this.gate,
+        compactor: this.compactor,
+        compactionConfig: this.compactionConfig,
+        summarizerProvider: this.summarizerProvider,
+        bufferSizeEstimator: this.bufferSizeEstimator,
         state: String(snapshot.state_value),
         activeReconstruction,
       });

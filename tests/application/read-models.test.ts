@@ -166,4 +166,13 @@ describe('application read models', () => {
     expect(JSON.stringify(debug.errors)).not.toContain('secret');
     expect(existsSync(join(root, '.saivage', 'agents', 'conversations', encodeURIComponent('analyst:global'), '1.jsonl'))).toBe(true);
   });
+
+  it('reports compacting before generic thinking status', () => {
+    appendConversationMessage(root, buildContextTextMessage('planner:project', 'user', 'hello'));
+    saveActorSnapshot(root, { actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: { compacting: true }, updated_at: '2026-01-01T00:00:00.000Z' });
+
+    const chat = new AgentOperatorReadModelService(root).getConversation('planner:project').body as { activity_status: { status: string } };
+
+    expect(chat.activity_status.status).toBe('compacting');
+  });
 });

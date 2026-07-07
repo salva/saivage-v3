@@ -6,7 +6,7 @@ import type { CardMutationContext } from '../../cards/lifecycle.js';
 import { cardActorId, processorActorId } from './ids.js';
 import { readActorSnapshot, saveActorSnapshot } from './snapshots.js';
 import type { CardActiveReconstructionRecord } from './active-reconstruction.js';
-import type { LLMProviderPort } from './llm-actor.js';
+import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { NotifyCardResult } from '../runtime-api.js';
 import type { ProcessRunner } from '../process-runner.js';
@@ -14,6 +14,7 @@ import { PlanningCardProcessorActor } from './planning-card-processor-actor.js';
 import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
+import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 
 export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
 
@@ -78,6 +79,10 @@ export interface CardActorDeps {
   projectRoot: string;
   store: CardActorStorePort;
   provider: LLMProviderPort;
+  compactor?: CompactorPort;
+  compactionConfig?: CompactionConfig;
+  summarizerProvider?: LLMProviderPort;
+  bufferSizeEstimator?: BufferSizeEstimator;
   gate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   processRunner: ProcessRunner;
@@ -412,6 +417,10 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       gate: owner.deps.gate,
       notifyCard: owner.deps.notifyCard,
       mcpManagerProvider: owner.deps.mcpManagerProvider,
+      compactor: owner.deps.compactor,
+      compactionConfig: owner.deps.compactionConfig,
+      summarizerProvider: owner.deps.summarizerProvider,
+      bufferSizeEstimator: owner.deps.bufferSizeEstimator,
     });
   }
   return new TerminalCardProcessorActor({
@@ -422,6 +431,10 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
     gate: owner.deps.gate,
     store: owner.deps.store,
     mcpManagerProvider: owner.deps.mcpManagerProvider,
+    compactor: owner.deps.compactor,
+    compactionConfig: owner.deps.compactionConfig,
+    summarizerProvider: owner.deps.summarizerProvider,
+    bufferSizeEstimator: owner.deps.bufferSizeEstimator,
   });
 }
 

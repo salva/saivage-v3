@@ -7,7 +7,8 @@ import { CardActor, type CardActivationOutcome, type CardActorDeps, type CardAct
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { toPublicAgentPhase, toPublicCardActorState } from './actor-vocabulary.js';
 import { appendNotificationToActorSnapshot } from './snapshots.js';
-import type { LLMProviderPort } from './llm-actor.js';
+import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
+import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import type { NotifyCardResult, RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import type { RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
@@ -33,6 +34,10 @@ export interface SupervisorRuntimeApiOptions {
   rootCards?: ProjectRootCardReader;
   actorStore: CardActorStorePort;
   provider: LLMProviderPort;
+  compactor?: CompactorPort;
+  compactionConfig?: CompactionConfig;
+  summarizerProvider?: LLMProviderPort;
+  bufferSizeEstimator?: BufferSizeEstimator;
   processRunner: ProcessRunner;
   runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
@@ -410,6 +415,10 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
       provider: this.options.provider,
+      compactor: this.options.compactor,
+      compactionConfig: this.options.compactionConfig,
+      summarizerProvider: this.options.summarizerProvider,
+      bufferSizeEstimator: this.options.bufferSizeEstimator,
       gate: this.runtimeGate,
       processRunner: this.options.processRunner,
       mcpManagerProvider: this.options.mcpManagerProvider,

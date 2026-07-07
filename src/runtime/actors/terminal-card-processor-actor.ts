@@ -1,7 +1,7 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import { executorActorId } from './ids.js';
-import type { LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
+import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
@@ -17,6 +17,7 @@ import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
+import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' | 'blocked' }>;
 
@@ -40,7 +41,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly processRunner: ProcessRunner;
 
-  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; processRunner: ProcessRunner; gate?: RuntimeGate; store?: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
+  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; processRunner: ProcessRunner; gate?: RuntimeGate; store?: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
     super(args);
     this.store = args.store;
     this.processRunner = args.processRunner;

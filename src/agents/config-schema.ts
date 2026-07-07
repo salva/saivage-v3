@@ -151,6 +151,22 @@ const notificationsSectionSchema = z.object({
   channels: z.array(notificationChannelSchema).default(['web']),
 }).strict();
 
+const compactionSectionSchema = z.object({
+  enabled: z.boolean().default(false),
+  trigger_fraction: z.number().positive().max(1).default(0.80),
+  completion_reserve_fraction: z.number().nonnegative().max(1).default(0.20),
+  merge_line_fraction: z.number().nonnegative().max(1).default(0.30),
+  summary_line_fraction: z.number().nonnegative().max(1).default(0.50),
+  escalate_merge_line_fraction: z.number().nonnegative().max(1).default(0.40),
+  escalate_summary_line_fraction: z.number().nonnegative().max(1).default(0.60),
+  snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']).default('keep_straddler_verbatim'),
+  summarizer_model: z.string().optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.merge_line_fraction > value.summary_line_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['merge_line_fraction'], message: 'merge_line_fraction must be <= summary_line_fraction' });
+  if (value.summary_line_fraction > value.trigger_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['summary_line_fraction'], message: 'summary_line_fraction must be <= trigger_fraction' });
+  if (value.escalate_merge_line_fraction > value.escalate_summary_line_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_merge_line_fraction'], message: 'escalate_merge_line_fraction must be <= escalate_summary_line_fraction' });
+});
+
 // MCP Server entry
 const mcpServerEntrySchema = z.object({
   command: z.string().optional(),
@@ -172,12 +188,14 @@ export const saivageConfigSchema = z.object({
   security: securitySectionSchema.default({}),
   telegram: telegramSectionSchema.optional(),
   notifications: notificationsSectionSchema.optional(),
+  compaction: compactionSectionSchema.optional().default({}),
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
 }).strict();
 
 // ── Derived Types ─────────────────────────────────────────────
 
-export type SaivageConfig = z.infer<typeof saivageConfigSchema>;
+type ParsedSaivageConfig = z.infer<typeof saivageConfigSchema>;
+export type SaivageConfig = Omit<ParsedSaivageConfig, 'compaction'> & { compaction?: ParsedSaivageConfig['compaction'] };
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;

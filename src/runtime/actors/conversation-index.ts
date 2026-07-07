@@ -76,6 +76,56 @@ export function writeConversationIndex(projectRoot: string, sessionId: string, i
   writeFileSyncDurable(conversationIndexPath(projectRoot, sessionId), JSON.stringify(parsed, null, 2) + '\n');
 }
 
+export function writeConversationVersion(projectRoot: string, sessionId: string, version: number, content: string): void {
+  mkdirSync(conversationDir(projectRoot, sessionId), { recursive: true });
+  writeFileSyncDurable(activeVersionPath(projectRoot, sessionId, version), content);
+}
+
+export function writeCompactedConversationVersion(args: {
+  projectRoot: string;
+  sessionId: string;
+  sourceVersion: number;
+  content: string;
+  compactedThrough: { message_id: string; round_id: string; timestamp: string };
+  summaryIds: string[];
+  compactionGeneration: number;
+  bands: { merge_line: number; summary_line: number; trigger: number; snap: 'keep_straddler_verbatim' | 'compact_straddler' };
+}): ConversationIndex {
+  const index = ensureConversationIndex(args.projectRoot, args.sessionId);
+  if (index.active_version !== args.sourceVersion) throw new Error(`Conversation '${args.sessionId}' active version changed from ${args.sourceVersion} to ${index.active_version} during compaction.`);
+  const sourceEntry = index.versions[String(args.sourceVersion)];
+  if (!sourceEntry || sourceEntry.status !== 'active') throw new Error(`Conversation '${args.sessionId}' source version ${args.sourceVersion} is not active.`);
+
+  const nextVersion = Math.max(...Object.keys(index.versions).map(Number)) + 1;
+  writeConversationVersion(args.projectRoot, args.sessionId, nextVersion, args.content);
+  const frozenAt = new Date().toISOString();
+  const sourceSize = statSync(activeVersionPath(args.projectRoot, args.sessionId, args.sourceVersion)).size;
+  const nextIndex: ConversationIndex = {
+    ...index,
+    active_version: nextVersion,
+    versions: {
+      ...index.versions,
+      [String(args.sourceVersion)]: {
+        ...sourceEntry,
+        status: 'frozen',
+        frozen_at: frozenAt,
+        size_bytes: sourceSize,
+      },
+      [String(nextVersion)]: {
+        status: 'active',
+        opened_at: frozenAt,
+        source_version: args.sourceVersion,
+        compaction_generation: args.compactionGeneration,
+        compacted_through: args.compactedThrough,
+        summary_ids: args.summaryIds,
+        bands: args.bands,
+      },
+    },
+  };
+  writeConversationIndex(args.projectRoot, args.sessionId, nextIndex);
+  return nextIndex;
+}
+
 export function readConversationIndex(projectRoot: string, sessionId: string): ConversationIndex | null {
   const path = conversationIndexPath(projectRoot, sessionId);
   if (!existsSync(path)) return null;

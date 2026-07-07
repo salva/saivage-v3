@@ -52,6 +52,16 @@ describe('config-schema', () => {
 
       const { config, warnings } = loadConfig(TEST_ROOT);
       expect(config.models.default).toEqual(['test-model']);
+      expect(config.compaction).toMatchObject({
+        enabled: false,
+        trigger_fraction: 0.8,
+        completion_reserve_fraction: 0.2,
+        merge_line_fraction: 0.3,
+        summary_line_fraction: 0.5,
+        escalate_merge_line_fraction: 0.4,
+        escalate_summary_line_fraction: 0.6,
+        snap: 'keep_straddler_verbatim',
+      });
       expect(warnings).toEqual([]);
     });
 
