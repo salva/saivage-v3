@@ -1,9 +1,5 @@
 <template>
   <div class="app-shell" :class="[`pane-${effectiveMobileActivePane}`, { 'analyst-pane-suppressed': suppressAnalystPane }]" @keydown="handleKeydown">
-    <header class="app-top-bar" aria-label="Project">
-      <span class="top-bar-project-name">{{ projectName }}</span>
-    </header>
-
     <div class="workspace-shell">
       <NavRail
         :nav-items="navItems"
@@ -42,6 +38,9 @@
     </div>
 
     <div v-if="!suppressAnalystPane" class="analyst-pane">
+      <header class="analyst-pane-header" aria-label="Project">
+        <span class="analyst-pane-project-name">{{ projectName }}</span>
+      </header>
       <AnalystChatPanel />
     </div>
 
@@ -236,32 +235,10 @@ onUnmounted(() => {
 .app-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) clamp(20rem, 25vw, 30vw);
-  grid-template-rows: auto 1fr;
+  grid-template-rows: 1fr;
   height: 100%;
   width: 100%;
   outline: none;
-}
-
-.app-top-bar {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 16px;
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.top-bar-project-name {
-  max-width: min(50vw, 360px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .app-shell.analyst-pane-suppressed {
@@ -293,8 +270,32 @@ onUnmounted(() => {
 }
 
 .analyst-pane {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+.analyst-pane-header {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  background: var(--surface-1);
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.analyst-pane-project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mobile-pane-switch { display: none; }
@@ -302,7 +303,7 @@ onUnmounted(() => {
 @media (max-width: 880px) {
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: 1fr auto;
   }
 
   .app-shell.pane-workspace .workspace-shell { display: grid; }

@@ -31,6 +31,7 @@
   --teal:     var(--c-teal);
 
   /* Card status marker colors */
+  --card-status-backlog: var(--c-white);
   --card-status-running: var(--c-card-status-green);
   --card-status-cancelled: var(--c-card-status-gray);
   --card-status-blocked: var(--c-card-status-orange);

@@ -21,7 +21,7 @@ The Analyst panel contains the current Analyst session, chat history, and compos
 
 At narrow widths, the shell collapses to a single column and exposes a presentation-only `Workspace` / `Analyst` pane switch so the user can choose which region is visible. The switch changes only the local layout; it does not mutate server state and does not turn the Analyst into a modal or separate control surface.
 
-A slim full-width top bar sits above both the workspace area and the Analyst panel. It shows the current project name at the top-right of the page.
+The current project name is shown in a slim header at the top of the Analyst panel only, occupying the top of the Analyst column rather than a full-width page bar.
 
 ## 3. Workspace Area
 

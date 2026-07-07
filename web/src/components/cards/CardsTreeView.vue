@@ -22,7 +22,7 @@
           </button>
           <span v-else class="node-toggle placeholder"></span>
 
-          <span class="state-ball" :class="`tone-${toneForCardStatus(node.card.status)}`" aria-hidden="true"></span>
+          <span class="state-ball" :class="`card-status-${node.card.status}`" aria-hidden="true"></span>
           <span v-if="node.card.display_path" class="node-path">{{ node.card.display_path }}</span>
           <span class="node-title">{{ node.card.title }}</span>
           <span class="node-kind">{{ labelForCardType(node.card.type) }}</span>
@@ -35,7 +35,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { CardRecord } from '../../types/view-models';
-import { labelForCardType, toneForCardStatus } from '../../utils/status';
+import { labelForCardType } from '../../utils/status';
 import SelectableRow from '../ui/SelectableRow.vue';
 
 const props = defineProps<{
@@ -148,16 +148,14 @@ const renderedTree = computed<TreeNode[]>(() => {
   flex-shrink: 0;
 }
 
-.state-ball.tone-neutral { background: var(--text-muted); }
-.state-ball.tone-active { background: var(--accent-2); }
-.state-ball.tone-info { background: var(--accent-2); }
-.state-ball.tone-success { background: var(--accent); }
-.state-ball.tone-warning { background: var(--warn); }
-.state-ball.tone-danger { background: var(--danger); }
-.state-ball.tone-pending { background: var(--warn); }
-.state-ball.tone-stale { background: var(--warn); }
-.state-ball.tone-unauthorized { background: var(--danger); }
-.state-ball.tone-offline { background: var(--border-strong); }
+.state-ball.card-status-backlog { background: var(--card-status-backlog); border: 1px solid var(--border-strong); }
+.state-ball.card-status-running { background: var(--card-status-running); }
+.state-ball.card-status-blocked { background: var(--card-status-blocked); }
+.state-ball.card-status-changed { background: var(--card-status-changed); }
+.state-ball.card-status-done { background: var(--card-status-done); }
+.state-ball.card-status-failed { background: var(--card-status-failed); }
+.state-ball.card-status-cancelled { background: var(--card-status-cancelled); }
+.state-ball.card-status-needs_verification { background: var(--card-status-needs-verification); }
 
 .node-title {
   flex: 1;

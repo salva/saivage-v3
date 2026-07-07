@@ -40,13 +40,13 @@ function createTestRouter() {
   });
 }
 
-describe('AppShell top bar', () => {
+describe('AppShell project name', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     localStorage.clear();
   });
 
-  it('renders the project name in a page-level top bar outside WorkspaceHeader', async () => {
+  it('renders the project name in the Analyst pane header outside WorkspaceHeader', async () => {
     const router = createTestRouter();
     await router.push('/dashboard');
     await router.isReady();
@@ -54,8 +54,8 @@ describe('AppShell top bar', () => {
     const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
     await flushPromises();
 
-    expect(wrapper.get('.app-top-bar').text()).toContain('saivage-v3');
-    expect(wrapper.find('.workspace-header .project-name').exists()).toBe(false);
+    expect(wrapper.find('.app-top-bar').exists()).toBe(false);
+    expect(wrapper.get('.analyst-pane-project-name').text()).toContain('saivage-v3');
     expect(wrapper.get('.workspace-header').text()).not.toContain('saivage-v3');
 
     wrapper.unmount();
