@@ -167,7 +167,7 @@ const recoveryDiagnosticSchema = z.object({
   message: z.string().min(1),
 });
 
-const recoveryDiagnosticActionSchema = z.object({
+export const recoveryDiagnosticActionSchema = z.object({
   actorId: z.string().min(1),
   kind: z.enum(['active_card', 'active_llm', 'llm_recovery_action', 'active_processor']),
   action: z.string().min(1),

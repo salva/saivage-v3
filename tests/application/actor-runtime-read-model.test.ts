@@ -8,6 +8,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { CardStatus } from '../../src/schemas/index.js';
 import { createRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
+import { runtimeStatePath } from '../../src/runtime/state.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-read-model-'));
@@ -29,6 +30,15 @@ function createCardWithStatus(store: CardStore, status: CardStatus) {
   if (status === 'blocked') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'blocked' }, error: 'blocked', completed_at: null } });
   if (status === 'needs_verification') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'verify', status_text: 'verify', at: '2026-06-12T00:00:00.000Z' } }, error: null, completed_at: null } });
   return store.setStatus(card.id, status);
+}
+
+function llmActive(cardId: string): Record<string, unknown> {
+  const inputId = `planner:${cardId}:1`;
+  return { schema_version: 1, kind: 'llm_turn', agent_id: `planner:${cardId}`, role: 'planner', card_id: cardId, input_id: inputId, input: { inputId, agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, provider_call_id: `planner:${cardId}:${inputId}`, waiting_tool_call: null, delivered_tool_call_ids: [], tool_delivery_counter: 0, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
+function cardActive(cardId: string): Record<string, unknown> {
+  return { schema_version: 1, kind: 'card_activation', card_id: cardId, processor_actor_id: `processor:${cardId}`, caller: { kind: 'root' }, started_at: '2026-06-12T00:00:00.000Z' };
 }
 
 describe('actor runtime read model', () => {
@@ -107,7 +117,10 @@ describe('actor runtime read model', () => {
     });
   }));
 
-  it('maps stopped runtime status to idle runtime availability', () => withTempProject((projectRoot) => {
+  it('maps missing and stopped runtime status to runtime availability', () => withTempProject((projectRoot) => {
+    rmSync(runtimeStatePath(projectRoot), { force: true });
+    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'unknown', activeWork: 'unknown', diagnostics: [], recovery: null });
+
     createRuntimeStateMutationPort(projectRoot).apply({ kind: 'patchRuntimeState', patch: { status: 'stopped' } });
 
     expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'idle', activeWork: 'none', diagnostics: [], recovery: null });
@@ -119,7 +132,14 @@ describe('actor runtime read model', () => {
       actor_id: `card:${card.id}`,
       actor_kind: 'card',
       state_value: 'running',
-      context: { providerPayload: 'not projected' },
+      context: { cardId: card.id, active_reconstruction: cardActive(card.id), providerPayload: 'not projected' },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: `planner:${card.id}`,
+      actor_kind: 'llm',
+      state_value: 'calling_provider',
+      context: { cardId: card.id, active_reconstruction: llmActive(card.id), providerPayload: 'not projected' },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z');
@@ -128,9 +148,13 @@ describe('actor runtime read model', () => {
 
     expect(model.recovery).toMatchObject({
       generated_at: '2026-06-12T00:00:00.000Z',
-      diagnostics: [expect.objectContaining({ actorId: `card:${card.id}`, severity: 'warning' })],
-      actions: [expect.objectContaining({ actorId: `card:${card.id}`, kind: 'active_card', action: 'diagnose_active_card' })],
+      diagnostics: expect.arrayContaining([expect.objectContaining({ actorId: `planner:${card.id}`, severity: 'warning' })]),
+      actions: expect.arrayContaining([
+        expect.objectContaining({ actorId: `card:${card.id}`, kind: 'active_card', action: 'diagnose_active_card' }),
+        expect.objectContaining({ actorId: `planner:${card.id}`, kind: 'active_llm', action: 'diagnose_active_llm' }),
+      ]),
     });
     expect(JSON.stringify(model.recovery)).not.toContain('not projected');
+    expect(JSON.stringify(model.recovery)).not.toContain('discarded_supervisor');
   }));
 });

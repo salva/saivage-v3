@@ -208,6 +208,19 @@ describe('SupervisorRuntimeApi', () => {
     expect(readActorSnapshots(projectRoot).some((item) => item.actor_id === 'supervisor')).toBe(false);
   }));
 
+  it('preserves error runtime status and rejects resume from error state', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+
+    await api.start();
+    createRuntimeStateMutationPort(projectRoot).apply({ kind: 'patchRuntimeState', patch: { status: 'error' } });
+
+    expect(api.getStatus()).toMatchObject({ status: 'error', currentCardId: null });
+    expect(() => api.resume()).toThrow("Cannot resume runtime from 'error'.");
+  }));
+
   it('resume opens the runtime gate without requiring a second run command', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
@@ -270,7 +283,7 @@ describe('SupervisorRuntimeApi', () => {
     expect(api.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', activeWork: 'none' });
   }));
 
-  it('captures the actor recovery plan before starting the supervisor', async () => withTempProject(async (projectRoot) => {
+  it('captures the actor recovery plan before starting the runtime', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
