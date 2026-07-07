@@ -68,7 +68,52 @@ Enter this loop, using the `designer` subagent for all plan authoring and the `r
 1. Have the `designer` subagent write or revise the self-contained design/plan under `docs/working/` (see Designer Subagent below). For revisions, pass the designer the material findings to address.
 2. Launch the `reviewer` subagent on the current design/plan (see Reviewer Subagent below).
 3. Triage every finding per Finding Triage.
-4. Decide whether to run another round: if any finding was material, loop back to step 1 (have the `designer` revise the plan) for another review round; if every finding was false or minor (nothing material to fix), stop and implement.
+4. Decide whether to run another round: if any finding was material, loop back to step 1 (have the `designer` revise the plan) for another review round; if every finding was false or minor (nothing material to fix), stop and implement. Before looping back, check Reassessment On Repeated Review Loops below; if its trigger is met, run that reassessment first and re-aim the design before the next round.
+
+### Reassessment On Repeated Review Loops
+
+The review loop can keep surfacing new material findings without converging when the
+issue is aimed at the wrong level/layer/component, the root cause is not being solved
+at the right place, or the plan is over-complicated. Repeated rounds are a signal to
+step back, not just to keep revising the same plan.
+
+The primary agent — not the `designer` or `reviewer` — runs this reassessment, because
+only the primary synthesizes findings across rounds. Trigger it when any of these is
+true:
+
+- Roughly three or more review rounds have returned material findings.
+- The same or closely related findings recur across rounds after being addressed.
+- Each revision keeps widening scope or shifting the fix rather than converging it.
+
+When triggered, pause the loop and re-evaluate the overall approach along these axes:
+
+- **Layer/component fit**: is the fix applied at the layer or component where the
+  root cause actually lives, or is it patching a symptom one level away?
+- **Root-cause placement**: does the plan solve the root cause directly, or does it
+  add compensating logic that a deeper fix would remove?
+- **Complexity and scope**: is the plan over-complicated, over-scoped, or bundling
+  deferred concerns that should be split out (see Changeset Scope Discipline in
+  `AGENTS.md`)?
+- **Issue framing**: is the issue itself stated at the wrong level, so that no plan
+  at this layer can satisfy review?
+
+Act on the reassessment with exactly one of:
+
+- **Simplify** the plan: cut complexity and deferred concerns; re-aim at the minimal
+  coherent fix.
+- **Re-scope** the issue: narrow or shift the stated scope to match where the real
+  problem is.
+- **Move the fix**: relocate the design to the correct component/layer and update the
+  affected modules, contracts, and call sites accordingly.
+- **Ask the user**: when the tradeoff between the options above is unclear or the
+  issue framing itself is in question (this overlaps with Escalation And Blockers
+  below).
+
+Reassessment is not an exit from the loop. After re-aiming the design (or receiving
+user direction), hand the revised framing to the `designer`, resume the Adversarial
+Review And Revision Loop, and proceed to implementation only once findings are false
+or minor. Reassessment must not be used to skip review or to push through material
+findings.
 
 ### Designer Subagent
 
@@ -107,7 +152,7 @@ Do not blindly accept adversarial findings. Classify each reported finding:
 
 ### Escalation And Blockers
 
-- Stop and ask the user if the loop reaches repeated disagreement, unclear scope, or a tradeoff that needs operator choice.
+- Stop and ask the user if the loop reaches repeated disagreement, unclear scope, or a tradeoff that needs operator choice. Run Reassessment On Repeated Review Loops first; escalate here only when re-aiming cannot resolve the tradeoff.
 - If the subagent tooling is unavailable, report that blocker explicitly, do not claim that adversarial review passed, and proceed only when the user has directed you to continue despite the blocker, or the change is needed to repair the review workflow itself.
 
 ## Implementation
