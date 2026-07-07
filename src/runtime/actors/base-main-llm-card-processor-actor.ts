@@ -43,7 +43,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
 
   protected async resolveInitialOutcome(
     llm: LLMActor,
-    input: LlmInvocationInput,
+    buildInput: () => LlmInvocationInput | Promise<LlmInvocationInput>,
     surface: InvocationSurface,
     isTerminalToolName: (name: string) => boolean,
     signal: AbortSignal,
@@ -51,7 +51,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   ): Promise<LLMActorOutcome> {
     switch (llm.state()) {
       case 'idle':
-        return llm.turn(input, signal);
+        return llm.turn(await buildInput(), signal);
       case 'calling_provider':
         return llm.awaitPendingTurn();
       case 'waiting_tool':

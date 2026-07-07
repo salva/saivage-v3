@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { appendSyncIdempotentByKey, writeFileAtomic } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
+import { generateRoundId } from '../../schemas/round-id-server.js';
 
 const conversationSegmentNameSchema = z.string().regex(/^seg-\d{3}\.jsonl$/);
 const conversationIndexSchema = z.object({
@@ -37,6 +38,10 @@ export function readConversationMessages(projectRoot: string, sessionId: string)
   return messages;
 }
 
+export function readActiveVersionMessages(projectRoot: string, sessionId: string): AgentMessage[] {
+  return readConversationMessages(projectRoot, sessionId);
+}
+
 export function listConversationSessionIds(projectRoot: string): string[] {
   const dir = join(projectRoot, '.saivage', 'agents', 'conversations');
   if (!existsSync(dir)) return [];
@@ -49,6 +54,49 @@ export function listConversationSessionIds(projectRoot: string): string[] {
 export function appendConversationMessage(projectRoot: string, message: AgentMessage): void {
   const parsed = agentMessageSchema.parse(message);
   appendSyncIdempotentByKey(activeConversationSegmentPath(projectRoot, parsed.session_id), parsed, 'id');
+}
+
+export type UserContextMessageCategory = 'planner_state' | 'notification' | 'reviewer_descendant' | 'reviewer_currentness' | 'continuation_hook';
+
+export function appendUserContextMessage(
+  projectRoot: string,
+  sessionId: string,
+  inputId: string,
+  category: UserContextMessageCategory,
+  ordinal: number,
+  content: string,
+): AgentMessage {
+  const timestamp = new Date().toISOString();
+  const seed = `${sessionId}:user:${inputId}:${category}:${ordinal}:${timestamp}:${content}`;
+  const message = agentMessageSchema.parse({
+    id: `${sessionId}:ctxmsg:${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`,
+    session_id: sessionId,
+    role: 'user',
+    kind: 'text',
+    content,
+    round_id: roundId('user', seed),
+    message_index: 1,
+    block_index: 0,
+    timestamp,
+  });
+  appendConversationMessage(projectRoot, message);
+  return message;
+}
+
+export function appendActivationMarker(projectRoot: string, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): void {
+  const timestamp = new Date().toISOString();
+  const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
+  appendConversationMessage(projectRoot, agentMessageSchema.parse({
+    id: `${sessionId}:activation:${createHash('sha256').update(seed).digest('hex').slice(0, 16)}`,
+    session_id: sessionId,
+    role: 'system',
+    kind: 'activity',
+    content: JSON.stringify({ ...payload, timestamp }),
+    round_id: generateRoundId('pre'),
+    message_index: 0,
+    block_index: 0,
+    timestamp,
+  }));
 }
 
 export function buildContextTextMessage(sessionId: string, role: Extract<MessageRole, 'user' | 'system'>, content: string): AgentMessage {

@@ -16,8 +16,14 @@ import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
+import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' | 'blocked' }>;
+
+function userContextContent(message: unknown): string {
+  if (typeof message === 'object' && message !== null && 'content' in message && typeof message.content === 'string') return message.content;
+  throw new Error('Provider-visible user context message must carry string content.');
+}
 
 export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
   static _actor: ActorDefinition = {
@@ -68,11 +74,10 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (llm.state() === 'idle') discardOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', reason: 'new_activation' });
     const processOwnerId = input.activationId;
     const surface = this.executorInvocationSurface(processOwnerId);
-    const llmInput = this.buildLlmInput(input, surface, contract);
     this.activeProcessOwnerId = processOwnerId;
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
     try {
-      const outcome = await this.resolveInitialOutcome(llm, llmInput, surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
+      const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, surface, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
       const result = await runContractRepairLoop<TerminalProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => contract.isTerminalToolName(name),
@@ -115,13 +120,17 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createExecutorContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('terminal');
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
+    const sessionId = executorActorId(this.cardId);
+    const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
+    appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId });
+    const notifications = this.plannerNotificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, userContextContent(message)));
     return {
       inputId,
-      agentId: executorActorId(this.cardId),
+      agentId: sessionId,
       role: 'executor',
-      sessionId: executorActorId(this.cardId),
+      sessionId,
       systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${cardBriefForPrompt(this.projectRoot, input.card)}\n\nUse process and file tools when needed. Write your current invocation status to:\nrecord:///status.md?v=next\n\nDo not call emit_result until the status file exists. End by calling emit_result with status done, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`,
-      contextMessages: this.plannerNotificationContext(input, inputId),
+      contextMessages: [...loaded, ...notifications],
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

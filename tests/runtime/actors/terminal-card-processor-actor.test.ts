@@ -9,6 +9,7 @@ import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-terminal-processor-'));
@@ -224,6 +225,7 @@ describe('TerminalCardProcessorActor', () => {
       caller: { kind: 'parent', cardId: 'project' },
       activation_counter: 1,
     });
+    await eventually(() => expect(finish).toEqual(expect.any(Function)));
 
     finish();
     await expect(pending).resolves.toMatchObject({ status: 'done' });
@@ -416,7 +418,10 @@ describe('TerminalCardProcessorActor', () => {
     expect(continuationContext).toHaveLength(3);
     expect(continuationContext[0]).toMatchObject({ role: 'assistant', kind: 'tool_call', tool: 'run_command', tool_call_id: 'run-1' });
     expect(continuationContext[1]).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'run_command', tool_call_id: 'run-1' });
-    expect(continuationContext[2]).toEqual({ role: 'user', content: 'executor mid-turn notice' });
+    expect(continuationContext[2]).toMatchObject({ role: 'user', kind: 'text', content: 'executor mid-turn notice' });
+    expect(readConversationMessages(projectRoot, `executor:${card.id}`)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', kind: 'text', content: 'executor mid-turn notice' }),
+    ]));
     await eventually(() => expect(runner.list().filter((process) => process.card_id === card.id)).toEqual([
       expect.objectContaining({ owner_id: `card:${card.id}:activation:test`, status: 'killed' }),
     ]));

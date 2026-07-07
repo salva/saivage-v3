@@ -174,11 +174,13 @@ Target actor ownership:
 
 - `CardActor`s own direct child `CardActor` instances and the associated processor actor for that card type;
 - `BaseCardProcessorActor` owns shared processor mechanics: activation, settlement, outcome reporting to the owning `CardActor`, and processor snapshot mechanics. It has no cancellation API; running cancellation is owned by `CardActor` (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement));
-- `BaseMainLLMCardProcessorActor` owns shared main-agent LLM loop mechanics and per-turn notification delivery without role-specific policy;
+- `BaseMainLLMCardProcessorActor` owns shared main-agent LLM loop mechanics, lazy initial-input resolution for idle versus recovery branches, and per-turn notification delivery without role-specific policy;
 - `PlanningCardProcessorActor` owns project/goal planner and reviewer semantics;
 - `TerminalCardProcessorActor` owns executor semantics for terminal cards; it constructs card-scoped capabilities and does not own child cards.
 
 Process execution follows a launch-and-monitor model through the process runner, process registry, and process tool provider. Agents launch project commands, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. `run_command`, `wait_process`, and `kill_process` share one result shape with process identity, exit/status, byte counts, redacted tails, and canonical `work:///processes/<id>/stdout.log` / `stderr.log` URLs. Process-list read models derive `work:///processes/<id>/{stdout,stderr,combined}.log` log URLs from registry paths. The functional specification does not impose process concurrency limits for now.
+
+Planner, executor, and reviewer provider inputs are built only for fresh idle turns. The builder loads the persisted conversation prefix, writes a structural `activation_open` activity row that is excluded from provider context, persists this turn's runtime-provided user-context rows, and sends the provider the persisted prefix plus those new rows. Recovery paths for in-flight provider calls or waiting tool calls do not build a new input and therefore do not append unsent activation markers or context rows.
 
 Controllers that advance runtime behavior are disallowed by default. A retained `RuntimeApi` may accept commands, call actor public methods, wait on projections, and project read models; it must not execute workflow logic itself.
 

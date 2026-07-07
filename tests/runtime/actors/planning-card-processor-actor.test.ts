@@ -10,6 +10,7 @@ import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-planning-processor-'));
@@ -255,6 +256,36 @@ describe('PlanningCardProcessorActor', () => {
       'create_plan',
       'update_plan',
     ]));
+    expect(readConversationMessages(projectRoot, `planner:${project.id}`)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'text', role: 'user', content: 'Cancellation requested: stop' }),
+      expect.objectContaining({ kind: 'activity', role: 'system', content: expect.stringContaining('activation_open') }),
+    ]));
+    expect(readConversationMessages(projectRoot, `reviewer:${project.id}:assessment-${project.id}-1`)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'text', role: 'user', content: expect.stringContaining('Descendant work:') }),
+      expect.objectContaining({ kind: 'text', role: 'user', content: expect.stringContaining('Main-agent notification currentness') }),
+    ]));
+  }));
+
+  it('loads the persisted planner prefix on a later idle activation without provider-visible activation markers', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const provider = withMandatoryRecords(() => plannerResult('blocked', 'blocked'));
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: { hasPendingNotifications: () => false, deliverNotificationsForInput: () => [{ id: 'n1', message: 'first-turn-note', created_at: '2026-06-12T00:00:00.000Z' }] } }, new AbortController().signal);
+    await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
+
+    const plannerCalls = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.map(([call]) => call).filter((call) => call.role === 'planner');
+    const secondInitial = plannerCalls.find((call) => call.inputId === `planner:${project.id}:2`);
+    if (!secondInitial) throw new Error('Missing second planner initial turn');
+    expect(secondInitial.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'text', role: 'user', content: 'first-turn-note' }),
+    ]));
+    expect(secondInitial.contextMessages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'activity' }),
+    ]));
   }));
 
   it('builds planner and reviewer prompts from the latest brief record', async () => withTempProject(async (projectRoot) => {
@@ -305,6 +336,7 @@ describe('PlanningCardProcessorActor', () => {
       caller: { kind: 'root' },
       activation_counter: 1,
     });
+    await eventually(() => expect(finish).toEqual(expect.any(Function)));
 
     finish();
     await expect(pending).resolves.toMatchObject({ status: 'done' });

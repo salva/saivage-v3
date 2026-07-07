@@ -10,7 +10,7 @@ import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
-import { buildPlannerStateContextMessage } from '../../agents/planner-state-context.js';
+import { buildPlannerStateContextText } from '../../agents/planner-state-context.js';
 import { invokeToolForLlm, surfaceToolDefinitions, type ToolResult } from '../../tools/invocation.js';
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
@@ -20,6 +20,7 @@ import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
+import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -30,6 +31,11 @@ type ReviewerCurrentnessSnapshot = {
   includedRecordVersions: Array<{ cardId: string; filename: 'status.md'; latest: number | null }>;
   hasPendingNotifications: boolean;
 };
+
+function userContextContent(message: unknown): string {
+  if (typeof message === 'object' && message !== null && 'content' in message && typeof message.content === 'string') return message.content;
+  throw new Error('Provider-visible user context message must carry string content.');
+}
 
 export interface PlannerChildActorPort {
   get(cardId: string): CardActor | null;
@@ -80,7 +86,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     if (llm.state() === 'idle') discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'status.md', reason: 'new_activation' });
     const surface = this.plannerInvocationSurface(input.card.id);
-    const outcome = await this.resolveInitialOutcome(llm, this.buildLlmInput(input, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
+    const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
     let reviewerReworkAttempts = 0;
     const result = await runContractRepairLoop<PlannerProcessorOutcome>({
       initialOutcome: outcome,
@@ -131,24 +137,26 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private buildLlmInput(input: CardActivationInput, contract = createPlannerContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('planner');
+    const sessionId = plannerActorId(this.cardId);
+    const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
+    appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
+    const plannerState = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'planner_state', 0, buildPlannerStateContextText({
+      projectRoot: this.projectRoot,
+      sessionId,
+      goalId: this.cardId,
+      cardStore: {
+        read: (cardId) => this.store.read(cardId),
+        listChildren: (cardId) => this.store.listChildren?.(cardId) ?? [],
+      },
+    }));
+    const notifications = this.plannerNotificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, userContextContent(message)));
     return {
       inputId,
-      agentId: plannerActorId(this.cardId),
+      agentId: sessionId,
       role: 'planner',
-      sessionId: plannerActorId(this.cardId),
+      sessionId,
       systemPrompt: this.plannerPrompt(input.card),
-      contextMessages: [
-        buildPlannerStateContextMessage({
-          projectRoot: this.projectRoot,
-          sessionId: plannerActorId(this.cardId),
-          goalId: this.cardId,
-          cardStore: {
-            read: (cardId) => this.store.read(cardId),
-            listChildren: (cardId) => this.store.listChildren?.(cardId) ?? [],
-          },
-        }),
-        ...this.plannerNotificationContext(input, inputId),
-      ],
+      contextMessages: [...loaded, plannerState, ...notifications],
       tools: [...surfaceToolDefinitions(this.plannerInvocationSurface(input.card.id)), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
@@ -214,7 +222,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     while (true) {
       const currentness = this.captureReviewerCurrentness(input);
       const surface = this.reviewerInvocationSurface(input.card.id, sessionId);
-      const outcome = await this.resolveInitialOutcome(llm, this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness), surface, (name) => reviewerContract.isTerminalToolName(name), signal, () => this.reviewerContext(input));
+      const outcome = await this.resolveInitialOutcome(llm, () => this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness), surface, (name) => reviewerContract.isTerminalToolName(name), signal, () => this.reviewerContext(input));
       const review = await runContractRepairLoop<PlannerProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => reviewerContract.isTerminalToolName(name),
@@ -259,13 +267,17 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string, currentness: ReviewerCurrentnessSnapshot): LlmInvocationInput {
     const contract = createReviewerContract();
     const inputId = this.nextInvocationInputId('reviewer');
+    const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
+    appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
+    const descendantContext = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness).content);
+    const currentnessContext = this.reviewerContext(input).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_currentness', index, userContextContent(message)));
     return {
       inputId,
       agentId: reviewerActorId(input.card.id),
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId),
-      contextMessages: [this.reviewerDescendantContext(input.card.id, currentness), ...this.reviewerContext(input)],
+      contextMessages: [...loaded, descendantContext, ...currentnessContext],
       tools: [...surfaceToolDefinitions(this.reviewerInvocationSurface(input.card.id, sessionId)), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

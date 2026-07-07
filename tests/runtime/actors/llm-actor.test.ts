@@ -3,10 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { actorKindFromId, actorToolCallStatusesPath, conversationIndexPath, conversationSegmentPath, LLMActor, parseLlmActorId, readActorSnapshots, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { actorKindFromId, actorToolCallStatusesPath, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, conversationSegmentPath, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
+import type { InvocationSurface } from '../../../src/tools/invocation.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-actor-'));
@@ -46,6 +47,21 @@ function corruptActorMessages(projectRoot: string): void {
   writeFileSync(path, '{"partial"', 'utf-8');
 }
 
+class InitialOutcomeHarness extends BaseMainLLMCardProcessorActor {
+  constructor(projectRoot: string, provider: LLMProviderPort) {
+    super({ projectRoot, cardId: 'project', provider });
+  }
+
+  resolveForTest(llm: LLMActor, buildInput: () => LlmInvocationInput, isTerminalToolName = () => false): Promise<LLMActorOutcome> {
+    return this.resolveInitialOutcome(llm, buildInput, {} as InvocationSurface, isTerminalToolName, new AbortController().signal);
+  }
+
+  protected recoverableLlmAgentIds(): readonly string[] { return []; }
+  protected get processorLabel(): string { return 'Harness processor'; }
+  protected get processorKind(): 'planning' { return 'planning'; }
+  protected activationFailureOutcome(error: string) { return { status: 'failed' as const, summary: error, result: { kind: 'failed' as const, summary: error } }; }
+}
+
 async function eventually(assertion: () => void, attempts = 20): Promise<void> {
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -83,6 +99,67 @@ describe('LLMActor', () => {
     expect(jsonl(conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl')).map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toContain('planner:project');
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
+  }));
+
+  it('invokes the initial input factory only on the idle branch', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    let finishCalling!: () => void;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finishCalling = () => resolve({ kind: 'message' as const, content: 'done' }); })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+    const pendingTurn = actor.turn(input());
+    await eventually(() => expect(actor.state()).toBe('calling_provider'));
+    const harness = new InitialOutcomeHarness(projectRoot, provider);
+    const factory = jest.fn(() => {
+      appendActivationMarker(projectRoot, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
+      appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'planner_state', 0, 'lazy planner state');
+      return input('lazy-input');
+    });
+
+    const recovered = harness.resolveForTest(actor, factory);
+
+    expect(factory).not.toHaveBeenCalled();
+    expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.content === 'lazy planner state')).toBe(false);
+    finishCalling();
+    await expect(recovered).resolves.toMatchObject({ type: 'result' });
+    await expect(pendingTurn).resolves.toMatchObject({ type: 'result' });
+    expect(factory).not.toHaveBeenCalled();
+  }));
+
+  it('does not invoke the initial input factory on the waiting-tool branch', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+    await actor.turn(input());
+    await eventually(() => expect(actor.state()).toBe('waiting_tool'));
+    const harness = new InitialOutcomeHarness(projectRoot, provider);
+    const factory = jest.fn(() => input('lazy-input'));
+
+    await expect(harness.resolveForTest(actor, factory, () => true)).resolves.toMatchObject({ type: 'tool_call', toolCallId: 'call-1' });
+
+    expect(factory).not.toHaveBeenCalled();
+  }));
+
+  it('invokes the initial input factory on the idle branch', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'done' })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+    const harness = new InitialOutcomeHarness(projectRoot, provider);
+    const factory = jest.fn(() => {
+      appendActivationMarker(projectRoot, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
+      const context = appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'planner_state', 0, 'lazy planner state');
+      return { ...input('lazy-input'), contextMessages: [context] };
+    });
+
+    await expect(harness.resolveForTest(actor, factory)).resolves.toMatchObject({ type: 'result' });
+
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(readConversationMessages(projectRoot, 'planner:project')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'activity', role: 'system', content: expect.stringContaining('activation_open') }),
+      expect.objectContaining({ kind: 'text', role: 'user', content: 'lazy planner state' }),
+    ]));
   }));
 
   it('persists active reconstruction while calling the provider', async () => withTempProject(async (projectRoot) => {
@@ -239,7 +316,10 @@ describe('LLMActor', () => {
       tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'inspect', arguments: '{}' } }],
     });
     expect(context[2]).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'inspect', tool_call_id: 'call-1', content: JSON.stringify(result) });
-    expect(context[3]).toEqual({ role: 'user', content: 'notification for turn-1:tool:1' });
+    expect(context[3]).toMatchObject({ role: 'user', kind: 'text', content: 'notification for turn-1:tool:1' });
+    expect(readConversationMessages(projectRoot, 'planner:project')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', kind: 'text', content: 'notification for turn-1:tool:1' }),
+    ]));
   }));
 
   it('rejects duplicate tool settlement for the same call', async () => withTempProject(async (projectRoot) => {

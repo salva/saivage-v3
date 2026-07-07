@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 
 function makeMessage(overrides: Record<string, unknown> = {}) {
   return {
@@ -35,5 +35,28 @@ describe('conversation-store', () => {
 
     expect(messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
     expect(messages.filter((message) => message.content === 'launch the project')).toHaveLength(1);
+  });
+
+  it('persists identical user context content with unique ids', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+
+    const first = appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 0, 'same content');
+    const second = appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 1, 'same content');
+    const messages = readConversationMessages(root, 'planner:project');
+
+    expect(first.id).not.toBe(second.id);
+    expect(messages.filter((message) => message.content === 'same content')).toHaveLength(2);
+    expect(new Set(messages.map((message) => message.id)).size).toBe(2);
+  });
+
+  it('keeps activation markers out of provider context while active-version read returns the persisted prefix', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+
+    appendUserContextMessage(root, 'planner:project', 'input-1', 'planner_state', 0, 'planner state');
+    appendActivationMarker(root, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'input-1' });
+
+    const active = readActiveVersionMessages(root, 'planner:project');
+    expect(active.map((message) => message.kind)).toEqual(['text', 'activity']);
+    expect(conversationMessagesForModel(active).map((message) => message.content)).toEqual(['planner state']);
   });
 });

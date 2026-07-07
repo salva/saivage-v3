@@ -5,6 +5,7 @@ import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
+import { appendUserContextMessage } from './conversation-store.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -33,6 +34,11 @@ type TurnStateUpdate = {
 };
 
 export type LLMToolContinuationContextHook = (deliveryInputId: string) => unknown[] | undefined;
+
+function userContextContent(message: unknown): string {
+  if (typeof message === 'object' && message !== null && 'content' in message && typeof message.content === 'string') return message.content;
+  throw new Error('Provider-visible user context message must carry string content.');
+}
 
 export class ConversationLLMActor extends BaseActor {
   static _actor: ActorDefinition = {
@@ -290,7 +296,7 @@ export class ConversationLLMActor extends BaseActor {
       type: 'function',
       function: { name: waiting.toolName, arguments: waiting.toolCallArguments },
     });
-    const extraMessages = continuationContextHook?.(delivery.delivery_input_id) ?? [];
+    const extraMessages = (continuationContextHook?.(delivery.delivery_input_id) ?? []).map((message, index) => appendUserContextMessage(this.projectRoot, input.sessionId, delivery.delivery_input_id, 'continuation_hook', index, userContextContent(message)));
     return [...input.contextMessages, toolCallMessage, toolResultAgentMessage(delivery), ...extraMessages];
   }
 

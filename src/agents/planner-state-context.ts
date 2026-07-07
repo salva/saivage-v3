@@ -1,7 +1,6 @@
-import type { AgentMessage, CardRecord, RuntimeState } from '../schemas/index.js';
+import type { CardRecord, RuntimeState } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { isUnresolvedRuntimeActivationStatus, readRuntimeState } from '../runtime/state.js';
-import { generateRoundId } from '../schemas/round-id-server.js';
 import { cardBriefForPrompt } from '../runtime/records/card-brief.js';
 
 export type PlannerStateCardStore = Pick<CardStore, 'read' | 'listChildren'>;
@@ -94,7 +93,7 @@ function inferNextAction(children: CardRecord[], runtimeState: RuntimeState | nu
   };
 }
 
-export function buildPlannerStateContextMessage(input: PlannerStateContextInput): AgentMessage {
+export function buildPlannerStateContextText(input: PlannerStateContextInput): string {
   const store = input.cardStore;
   const goal = store.read(input.goalId);
   const children = store
@@ -145,24 +144,13 @@ export function buildPlannerStateContextMessage(input: PlannerStateContextInput)
     candidate_next_action: inferNextAction(children, runtimeState),
   };
 
-  return {
-    id: `msg-${input.sessionId}-planner-state-context-in-memory`,
-    session_id: input.sessionId,
-    role: 'user',
-    kind: 'text',
-    content:
-      '## Current Planner State (compacted turn)\n\n' +
-      'This is reconstructed authoritative state for the current goal. Do not rely on earlier transcript content for current child state.\n\n' +
-      '```json\n' +
-      `${JSON.stringify(state, null, 2)}\n` +
-      '```\n\n' +
-      'Rules:\n' +
-      '- Existing direct children are authoritative. Do not create a sibling with the same title and type.\n' +
-      '- If a needed child already exists, edit/restart/activate it instead of creating a replacement.\n' +
-      '- Grandchildren belong to child planners.',
-    round_id: generateRoundId('diagnostic'),
-    message_index: 1,
-    block_index: 0,
-    timestamp: new Date().toISOString(),
-  };
+  return '## Current Planner State (compacted turn)\n\n' +
+    'This is reconstructed authoritative state for the current goal. Do not rely on earlier transcript content for current child state.\n\n' +
+    '```json\n' +
+    `${JSON.stringify(state, null, 2)}\n` +
+    '```\n\n' +
+    'Rules:\n' +
+    '- Existing direct children are authoritative. Do not create a sibling with the same title and type.\n' +
+    '- If a needed child already exists, edit/restart/activate it instead of creating a replacement.\n' +
+    '- Grandchildren belong to child planners.';
 }
