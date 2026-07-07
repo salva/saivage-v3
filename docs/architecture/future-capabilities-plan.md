@@ -73,23 +73,20 @@ Activation requirements:
 
 ### Conversation Compaction
 
-Decision: deferred; keep as a future reliability capability, not current cleanup work.
+Decision: resolved and implemented for card processor sessions. Current authority is [System Architecture — Conversation Compaction](./system-architecture.md#conversation-compaction).
 
-Rationale:
+Resolved decisions:
 
-- Analyst sessions can be long-lived and eventually hit provider context limits.
-- Planner/executor/reviewer sessions are shorter-lived; compaction should not be generalized to them without measured need.
-- Current token-budget diagnostics and the ability to start a new Analyst session are acceptable for now.
+- Planner, executor, and reviewer sessions use a card-lifetime persisted conversation thread loaded back at idle-path activation start.
+- Compacted summaries are provider-visible `context_compaction` rows with `role: 'user'` and a framing marker.
+- The active conversation layout is versioned, and `conversationMessagesForModel()` includes the active version's compacted summaries exactly once.
+- The single compaction hook is `LLMActor.onBeforeProviderCall`, reached from the base provider-call entry path; active reconstruction is refreshed after compaction.
+- Backend read models expose transient `compacting` activity status while the summarizer window is active.
+- Summarizer routing and compaction thresholds are configuration knobs.
 
-Required design updates before implementation:
+Analyst auto-compaction remains out of scope for the implemented subsystem; Analyst sessions still use active-version load-back without an automatic compactor.
 
-- Decide whether compacted summaries are provider-visible system messages, user messages, or boundary-aware reconstruction data.
-- Define how `conversationMessagesForModel()` includes compacted summaries. `context_compaction` rows are schema-valid today but not provider-visible by default.
-- Keep in-memory actor context, segment-backed transcripts, and active reconstruction snapshots consistent.
-- Define backend compaction state before exposing `compacting` in UI read models.
-- Decide provider/model routing for compaction summaries.
-
-Validation if activated:
+Implemented validation coverage:
 
 - Conversation reconstruction tests.
 - Provider request serialization tests showing compacted summaries are included exactly once.

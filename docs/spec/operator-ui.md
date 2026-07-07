@@ -39,6 +39,10 @@ The workspace area renders read-only projections of runtime state, including:
 
 Agent conversations in the Analyst panel and Debug agents view follow the shared design in [Agent Conversation UI Redesign](../architecture/agent-conversation-ui-redesign.md). That document defines the round, tool-row, grouping, detail, raw-payload, and Debug-as-transcript-entry behavior for conversation displays.
 
+Agent activity status may be `compacting` while the backend is summarizing an oversized card-lifetime conversation before a provider call. The status is transient and read-only; it means the runtime is preserving the active conversation by writing a new compacted version, not that the card has changed state.
+
+The backend exposes compacted conversation rows for future `CompactedCluster` rendering. Each compacted row is a `context_compaction` entry with `role: 'user'`, `round_id` using the `compacted` round kind, and `content` containing the runtime framing marker, summary text, and deterministic `Recoverable evidence` section. Read-model metadata for compacted clusters includes `compaction_generation`, `compacted_through`, `summary_ids`, and `bands` when present. The `CompactedCluster.vue` component is owned by the agent-conversation-ui-redesign phases and is not required by this change.
+
 The workspace may provide projection-only affordances:
 
 - navigation;

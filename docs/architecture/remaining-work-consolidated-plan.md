@@ -4,9 +4,9 @@ Status: current planning document.
 
 Last reviewed: 2026-07-02.
 
-This plan consolidates the still-relevant follow-up work from the record-slot, tool-surface, deferred-capability, and conversation-compaction plans. It intentionally filters out tasks that have drifted, have already been implemented, or would now conflict with the current Saivage v3 architecture.
+This plan consolidates the still-relevant follow-up work from the record-slot and tool-surface plans plus remaining deferred-capability notes. It intentionally filters out tasks that have drifted, have already been implemented, or would now conflict with the current Saivage v3 architecture.
 
-The active execution backlog in this document is limited to improvements of the current codebase: simplification, dead-code removal, test hardening, and documentation cleanup. Completely new capabilities such as Git tools, RAG, memory, notes, and conversation compaction are parked in [Future Capabilities Plan](./future-capabilities-plan.md).
+The active execution backlog in this document is limited to improvements of the current codebase: simplification, dead-code removal, test hardening, and documentation cleanup. Completely new capabilities such as Git tools, RAG, memory, and notes are parked in [Future Capabilities Plan](./future-capabilities-plan.md). Conversation compaction is no longer deferred; its implemented architecture is documented in [System Architecture](./system-architecture.md#conversation-compaction).
 
 Architecture-level simplification of the actor, process, shutdown, and analyst subsystems — card/processor tree ownership, the process service forwarding stack, operational shutdown teardown, the shared LLM turn-loop home, analyst turn-loop dedup, and CLI pause/resume routing — is tracked in [Micro-Actor Runtime Implementation Plan — Remediation](./micro-actor-runtime-implementation-plan.md#completed-remediation-r1-r4). Those items are intentionally not duplicated here; this backlog covers config/provider, persistence, web UI, tool-surface, and test/docs cleanup instead.
 
@@ -20,7 +20,7 @@ Current authorities:
 - [Shared Tool Invocation Design](./shared-tool-invocation-design.md) (implemented rationale; obsolete checklist)
 - [Mandatory Output Files](./agent-invocation-output-slots.md) (historical design context; obsolete checklist)
 - [Record-Backed Card Storage Plan](./record-backed-card-storage-plan.md) (historical design context; obsolete checklist)
-- [Conversation Compaction Design](./conversation-compaction-design.md) (deferred design context; not active backlog)
+- [Conversation Compaction Design](./conversation-compaction-design.md) (superseded historical pointer; implementation authority moved to System Architecture)
 - [Future Capabilities Plan](./future-capabilities-plan.md) (deferred capabilities; not active cleanup backlog)
 
 ## Current Baseline

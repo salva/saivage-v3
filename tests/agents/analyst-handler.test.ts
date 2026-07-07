@@ -206,7 +206,7 @@ describe('AnalystHandler F05 contract', () => {
         role: 'system',
         kind: 'model_issue',
         content: 'provider debug diagnostic must not be resent',
-        round_id: 'r-diagnostic-00000000000000000000000000000000',
+        round_id: 'r-pre-00000000000000000000000000000000',
         message_index: 0,
         block_index: 0,
         timestamp: new Date().toISOString(),

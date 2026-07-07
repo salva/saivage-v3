@@ -53,7 +53,7 @@ function syntheticToolCallContent(callId: string, toolName: string): string {
 
 function fallbackRoundKind(entry: AgentConversationEntry): TimelineRoundKind {
   if (entry.role === 'user') return 'user';
-  if (entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'context_compaction' || entry.kind === 'model_recovered') return 'diagnostic';
+  if (entry.kind === 'context_compaction') return 'compacted';
   return 'assistant';
 }
 

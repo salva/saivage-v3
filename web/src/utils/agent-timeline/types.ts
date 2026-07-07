@@ -1,6 +1,6 @@
 import type { ActivityStatus, AgentConversationEntry } from '../../api/types';
 
-export type TimelineRoundKind = 'pre' | 'user' | 'assistant' | 'diagnostic' | 'compacted';
+export type TimelineRoundKind = 'pre' | 'user' | 'assistant' | 'compacted';
 export interface ParsedRoundId { kind: TimelineRoundKind; tier: number; }
 export interface ToolPair { call: AgentConversationEntry; result: AgentConversationEntry | null; status: 'pending' | 'ok' | 'error'; }
 export interface ToolGroup { kind: 'tool_group'; id: string; label: string; summary: string; pairs: ToolPair[]; }

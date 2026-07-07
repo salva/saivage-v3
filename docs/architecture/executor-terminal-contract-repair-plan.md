@@ -58,6 +58,8 @@ Startup recovery remains different: if recovery projects a persisted terminal to
 
 ## Conversation Invariant
 
+Supersession note (2026-07-07): this provenance section predates the implemented conversation compaction/load-back subsystem. The current authority is [System Architecture — Agent Lifecycle / Conversation Compaction](./system-architecture.md#conversation-compaction). In particular, the old "within one activation" framing below is superseded: planner, executor, and reviewer sessions are card-lifetime, and each idle-path activation loads the active persisted conversation version from disk before adding the current turn's persisted context rows. The encapsulation rule in line 65 is now satisfied by the implemented behavior: runtime state, card state, notifications, continuation-hook messages, and planner/reviewer context sent to the provider are persisted as transcript rows.
+
 For a card-scoped agent session, every live LLM call within one activation must see the full session conversation since that activation started (or since the last compaction boundary), plus fresh current-state context for the current turn.
 
 The in-memory `input.contextMessages` accumulated by `LLMActor` is the authority for live turns. The active LLM actor snapshot (`active_reconstruction.input`) is the primary and normally only recovery authority for an interrupted live activation; it already stores the full `input.contextMessages` at the point of interruption. Persisted conversation segments are audit, debugging, and cold reconstruction for rebuilding history after compaction removed it from active reconstruction.
@@ -250,6 +252,8 @@ Adding provider-level `tool_choice: required` could prevent plain-text responses
 This may be worth considering later, but the immediate fix should repair terminal contract failures at the processor boundary.
 
 ## Rejected Alternative: Disk Reconstruction Every Turn
+
+Supersession note (2026-07-07): this rejected alternative predates the uniform load-back model. The old claim that disk is not used for rebuilding live context is superseded by [System Architecture — Agent Lifecycle / Conversation Compaction](./system-architecture.md#conversation-compaction). Current behavior loads the active persisted conversation version at idle-path activation start, then grows the in-memory provider context in lockstep with transcript persistence during that activation. Recovery branches do not construct a fresh input.
 
 Reading the persisted JSONL from disk before every provider call would replace a working in-memory mechanism with unnecessary I/O and parsing complexity. `LLMActor` already accumulates conversation across tool calls through `continuationContextMessages()`. The only missing case is plain text continuation, which is solved by extending the in-memory path. Disk is for persistence, recovery, and compaction, not for rebuilding live context on every turn.
 
