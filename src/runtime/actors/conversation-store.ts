@@ -54,6 +54,12 @@ export function appendConversationMessage(projectRoot: string, message: AgentMes
 
 export type UserContextMessageCategory = 'planner_state' | 'notification' | 'reviewer_descendant' | 'continuation_hook';
 
+export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
+
+export function providerVisibleUserContextContent(message: ProviderVisibleUserContextMessage): string {
+  return message.content;
+}
+
 export function appendUserContextMessage(
   projectRoot: string,
   sessionId: string,

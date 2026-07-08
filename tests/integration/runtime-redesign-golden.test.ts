@@ -69,7 +69,7 @@ describe('runtime redesign final golden behavior', () => {
 
       const api = createSupervisorRuntimeApi({
         projectRoot,
-        promptTemplates: createTestPromptTemplateRegistry(projectRoot),
+        promptTemplates: createTestPromptTemplateRegistry(),
         rootCards: cardStore,
         actorStore: cardStore,
         provider: blockedPlannerProvider(),
@@ -127,7 +127,11 @@ describe('runtime redesign final golden behavior', () => {
     expect(defaultsYaml).toMatch(/^analyst: \|/m);
     expect(defaultsYaml).toContain('{{contractDescription}}');
     expect(defaultsYaml).toContain('{{toolList}}');
-    expect(defaultsYaml).toContain('{{skills}}');
+    expect(defaultsYaml).toMatch(/^cardTypeGuidance:/m);
+    expect(defaultsYaml).not.toContain('Loaded skills');
+    expect(defaultsYaml).not.toContain(`{{${'skills'}}}`);
+    expect(defaultsYaml).not.toContain(`{{${'goal' + 'Depth'}}}`);
+    expect(defaultsYaml).not.toContain(`{{${'max' + 'Depth'}}}`);
     expect(registrySource).toContain('PromptTemplateRegistry');
     expect(registrySource).toContain('validatePlaceholders');
     expect(registrySource).toContain('unknown placeholder');

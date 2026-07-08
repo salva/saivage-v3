@@ -7,6 +7,7 @@ import { replayToolForRecovery, type InvocationSurface } from '../../tools/invoc
 import { readLlmActiveReconstruction } from './active-reconstruction.js';
 import { readActorSnapshot } from './snapshots.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
+import type { ProviderVisibleUserContextMessage } from './conversation-store.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
@@ -119,7 +120,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     return `${prefix}:${this.cardId}:${this.#invocationInputCounter}`;
   }
 
-  protected plannerNotificationContext(input: CardActivationInput, inputId: string): unknown[] {
+  protected notificationContext(input: CardActivationInput, inputId: string): readonly ProviderVisibleUserContextMessage[] {
     const notifications = input.notificationDelivery.deliverNotificationsForInput(inputId);
     return notifications.map((notification) => ({ role: 'user', content: notification.message }));
   }

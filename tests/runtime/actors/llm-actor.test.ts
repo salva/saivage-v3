@@ -318,7 +318,7 @@ describe('LLMActor', () => {
     actor.start();
 
     await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result', result: { content: 'plain text' } });
-    const hook = jest.fn((deliveryInputId: string) => [{ role: 'user', content: `notification for ${deliveryInputId}` }]);
+    const hook = jest.fn((deliveryInputId: string) => [{ role: 'user' as const, content: `notification for ${deliveryInputId}` }]);
     const repaired = await actor.continueAfterPlainText('Use emit_result.', undefined, hook);
 
     expect(repaired).toMatchObject({ type: 'result', result: { content: 'repaired' } });
@@ -348,7 +348,7 @@ describe('LLMActor', () => {
 
     await actor.turn({ ...input(), contextMessages: [{ role: 'user', content: 'base' }] });
     await eventually(() => expect(actor.state()).toBe('waiting_tool'));
-    const hook = jest.fn((deliveryInputId: string) => [{ role: 'user', content: `notification for ${deliveryInputId}` }]);
+    const hook = jest.fn((deliveryInputId: string) => [{ role: 'user' as const, content: `notification for ${deliveryInputId}` }]);
 
     const result = { success: true, data: { inspected: true } } as const;
     await expect(actor.appendToolResult('call-1', result, undefined, hook)).resolves.toMatchObject({ type: 'result' });

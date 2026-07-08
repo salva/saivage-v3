@@ -8,11 +8,10 @@ import { formatPromptToolList } from '../../src/utils/prompt-api.js';
 
 describe('analyst workspace-context prompt contract', () => {
   it('includes the deictic-resolution paragraph in the rendered system prompt', () => {
-    const prompt = createTestPromptTemplateRegistry(process.cwd()).render('analyst', {
+    const prompt = createTestPromptTemplateRegistry().render('analyst', {
       toolList: formatPromptToolList(ANALYST_TOOL_DEFINITIONS),
       vocabularySnippet: formatVocabularySnippet(),
       projectContext: '{"projectRoot":"test"}',
-      skills: '',
     });
     expect(prompt).toContain('Resolve deictic phrases');
     expect(prompt).toContain('workspace context');

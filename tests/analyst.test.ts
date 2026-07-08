@@ -480,7 +480,7 @@ describe('Analyst Runtime', () => {
     let resolveProvider!: (result: { kind: 'message'; content: string }) => void;
     const runtimeDeps = createTestAnalystRuntime({ projectRoot, cardStore: new CardStore(projectRoot) });
     runtimeDeps.provider = { completeTurn: async () => new Promise((resolve) => { resolveProvider = resolve; }) };
-    const runtime = new AnalystRuntime({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), config: loadTestConfig(projectRoot), runtimeDeps });
+    const runtime = new AnalystRuntime({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(projectRoot), runtimeDeps });
     const first = runtime.submit('s16', { userContent: 'list all cards' });
     await expect(runtime.submit('s16', { userContent: 'list all cards' })).rejects.toThrow('already has an active turn');
     await new Promise((resolve) => setImmediate(resolve));

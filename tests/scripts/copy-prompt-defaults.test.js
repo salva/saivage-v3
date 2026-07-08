@@ -10,6 +10,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const staleDir = join(repoRoot, 'dist', 'prompts');
 const outputFile = join(repoRoot, 'dist', 'src', 'utils', 'prompt-defaults.yaml');
 const roleKeys = ['planner', 'executor', 'reviewer', 'analyst'];
+const topLevelKeys = [...roleKeys, 'cardTypeGuidance'];
 
 function fail(message) {
   throw new Error(message);
@@ -19,9 +20,21 @@ function assertDefaultsValid() {
   if (!existsSync(outputFile)) fail('prompt-defaults.yaml was not copied to dist/src/utils');
   const parsed = YAML.parse(readFileSync(outputFile, 'utf8'));
   const keys = Object.keys(parsed).sort();
-  const expected = [...roleKeys].sort();
+  const expected = [...topLevelKeys].sort();
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
-    fail(`defaults.yaml has wrong role keys: ${keys.join(', ')}`);
+    fail(`defaults.yaml has wrong top-level keys: ${keys.join(', ')}`);
+  }
+  for (const role of roleKeys) {
+    if (typeof parsed[role] !== 'string' || parsed[role].length === 0) fail(`defaults.yaml has invalid role template: ${role}`);
+  }
+  const guidance = parsed.cardTypeGuidance;
+  if (guidance === null || typeof guidance !== 'object' || Array.isArray(guidance)) fail('defaults.yaml cardTypeGuidance is not a mapping');
+  if (typeof guidance.default !== 'string' || guidance.default.length === 0) fail('defaults.yaml cardTypeGuidance.default is invalid');
+  for (const [key, value] of Object.entries(guidance)) {
+    if (typeof value !== 'string' || value.length === 0) fail(`defaults.yaml cardTypeGuidance.${key} is invalid`);
+    for (const match of value.matchAll(/{{\s*([^}\s]+)\s*}}/g)) {
+      if (match[1] !== 'cardType') fail(`defaults.yaml cardTypeGuidance.${key} has unsupported placeholder ${match[1]}`);
+    }
   }
 }
 

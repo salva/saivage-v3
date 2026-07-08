@@ -2,14 +2,24 @@ import { describe, expect, it } from '@jest/globals';
 
 import {
   createPromptTemplateRegistry,
-  executorTypeGuidance,
   PromptTemplateRenderError,
   type AgentRoleKey,
+  type PromptDefaultBundle,
   type PromptTemplateVariables,
 } from '../../../src/utils/prompt-api.js';
 
-const projectRoot = process.cwd();
 const roleKeys = ['planner', 'executor', 'reviewer', 'analyst'] as const satisfies readonly AgentRoleKey[];
+
+const defaultBundle: PromptDefaultBundle = {
+  planner: 'planner {{cardId}} {{cardTitle}} {{cardBrief}} {{contractDescription}} {{toolList}}',
+  executor: 'executor {{cardId}} {{cardTitle}} {{cardBrief}} {{contractDescription}} {{toolList}} {{cardType}} {{cardTypeGuidance}}',
+  reviewer: 'reviewer {{cardId}} {{cardTitle}} {{cardBrief}} {{assessmentId}} {{contractDescription}} {{toolList}}',
+  analyst: 'analyst {{toolList}} {{vocabularySnippet}} {{projectContext}}',
+  cardTypeGuidance: {
+    code: 'code guidance for {{cardType}}',
+    default: 'default guidance for {{cardType}}',
+  },
+};
 
 function variables(role: AgentRoleKey, overrides: PromptTemplateVariables = {}): PromptTemplateVariables {
   const common = {
@@ -18,14 +28,13 @@ function variables(role: AgentRoleKey, overrides: PromptTemplateVariables = {}):
     cardBrief: 'Brief text',
     contractDescription: 'Contract text',
     toolList: '- read: Read files',
-    skills: '',
     ...overrides,
   };
   switch (role) {
     case 'planner':
-      return { ...common, goalDepth: '1', maxDepth: '3' };
+      return common;
     case 'executor':
-      return { ...common, cardType: 'code', cardTypeGuidance: executorTypeGuidance('code') };
+      return { ...common, cardType: overrides.cardType ?? 'code' };
     case 'reviewer':
       return { ...common, assessmentId: 'assessment-1' };
     case 'analyst':
@@ -33,14 +42,17 @@ function variables(role: AgentRoleKey, overrides: PromptTemplateVariables = {}):
         toolList: '- get_status: Get status',
         vocabularySnippet: 'Card status: done | blocked',
         projectContext: '{"projectRoot":"/work"}',
-        skills: '',
         ...overrides,
       };
   }
 }
 
 function create(overrides: Partial<Record<AgentRoleKey, string>> = {}) {
-  return createPromptTemplateRegistry({ projectRoot, promptsConfig: overrides });
+  return createPromptTemplateRegistry({ promptsConfig: overrides });
+}
+
+function createWithBundle(bundle: Partial<PromptDefaultBundle>) {
+  return createPromptTemplateRegistry({ defaultBundleForTest: bundle as PromptDefaultBundle });
 }
 
 describe('PromptTemplateRegistry', () => {
@@ -55,8 +67,8 @@ describe('PromptTemplateRegistry', () => {
   });
 
   it('uses per-role string overrides instead of defaults', () => {
-    const registry = create({ planner: 'custom {{cardId}} {{skills}}' });
-    expect(registry.render('planner', variables('planner'))).toBe('custom card-1 ');
+    const registry = create({ planner: 'custom {{cardId}}' });
+    expect(registry.render('planner', variables('planner'))).toBe('custom card-1');
   });
 
   it('validates unknown and cross-role placeholders during construction', () => {
@@ -73,8 +85,8 @@ describe('PromptTemplateRegistry', () => {
   });
 
   it('renders empty string variables and rejects missing variables', () => {
-    const registry = create({ planner: 'before{{skills}}after {{cardId}}' });
-    expect(registry.render('planner', variables('planner'))).toBe('beforeafter card-1');
+    const registry = create({ planner: 'before{{cardBrief}}after {{cardId}}' });
+    expect(registry.render('planner', variables('planner', { cardBrief: '' }))).toBe('beforeafter card-1');
     expect(() => registry.render('planner', { cardId: 'card-1' })).toThrow(PromptTemplateRenderError);
   });
 
@@ -86,21 +98,49 @@ describe('PromptTemplateRegistry', () => {
   it('fails construction when a default role is missing', () => {
     expect(() =>
       createPromptTemplateRegistry({
-        projectRoot,
-        defaultTemplatesForTest: {
+        defaultBundleForTest: {
           planner: 'p',
           executor: 'e',
           reviewer: 'r',
-        },
+          cardTypeGuidance: { default: 'default {{cardType}}' },
+        } as PromptDefaultBundle,
       }),
     ).toThrow(/analyst/);
   });
 
-  it('allows skills as an empty placeholder for all roles', () => {
+  it('rejects removed dead placeholders for every role that used to accept them', () => {
     for (const role of roleKeys) {
-      const registry = create({ [role]: 'before{{skills}}after' });
-      expect(registry.render(role, variables(role))).toBe('beforeafter');
+      expect(() => create({ [role]: `before{{${'skills'}}}after` })).toThrow(PromptTemplateRenderError);
     }
+    expect(() => create({ planner: `{{${'goal' + 'Depth'}}}` })).toThrow(PromptTemplateRenderError);
+    expect(() => create({ planner: `{{${'max' + 'Depth'}}}` })).toThrow(PromptTemplateRenderError);
+  });
+
+  it('derives executor card-type guidance from the default bundle without mutating caller variables', () => {
+    const registry = createPromptTemplateRegistry({ defaultBundleForTest: defaultBundle });
+    const knownVariables = variables('executor', { cardType: 'code' });
+    expect(registry.render('executor', knownVariables)).toContain('code guidance for code');
+    expect(knownVariables).not.toHaveProperty('cardTypeGuidance');
+
+    expect(registry.render('executor', variables('executor', { cardType: 'custom' }))).toContain('default guidance for custom');
+    expect(registry.render('executor', variables('executor', { cardType: '' }))).not.toContain('guidance for');
+  });
+
+  it('validates card-type guidance bundle shape during construction', () => {
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: undefined as never })).toThrow(/cardTypeGuidance/);
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: [] as never })).toThrow(/cardTypeGuidance/);
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: { code: 'code' } as never })).toThrow(/default/);
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: { default: '' } })).toThrow(/default/);
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: { default: 7 as never } })).toThrow(/default/);
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: { default: 'ok', code: '' } })).toThrow(/code/);
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: { default: 'ok', code: 7 as never } })).toThrow(/code/);
+  });
+
+  it('validates card-type guidance placeholders during construction', () => {
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: { default: '{{cardTitle}}' } })).toThrow(PromptTemplateRenderError);
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: { default: '{{unknown}}' } })).toThrow(PromptTemplateRenderError);
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: { default: '{{cardType}' } })).toThrow(PromptTemplateRenderError);
+    expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: { default: '{{card-type}}' } })).toThrow(PromptTemplateRenderError);
   });
 
   it('rejects malformed placeholders during construction', () => {

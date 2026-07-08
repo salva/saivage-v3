@@ -22,7 +22,7 @@ import type { ToolContext } from '../src/tools/analyst-tool-types.js';
 import { createTestPromptTemplateRegistry } from './helpers/prompt-template-registry.js';
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort): CardActorDeps {
-  return { projectRoot, store, provider, promptTemplates: createTestPromptTemplateRegistry(projectRoot), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeCard(overrides: Partial<NewCardInput> & { id?: string; type: NewCardInput['type']; title: string }): NewCardInput & { id?: string } {
@@ -216,7 +216,7 @@ describe('queueNotification recipient resolution', () => {
     };
     const processor = new PlanningCardProcessorActor({
       projectRoot,
-      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
+      promptTemplates: createTestPromptTemplateRegistry(),
       cardId: goal.id,
       store,
       children: { get: () => null },

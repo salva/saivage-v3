@@ -49,7 +49,7 @@ describe('createMicroActorRuntimeApi', () => {
       eventBus: new EventBus(),
       cardStore,
       invocationService,
-      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
+      promptTemplates: createTestPromptTemplateRegistry(),
       processRunner: new ProcessRunner(projectRoot),
       now: () => '2026-06-12T00:00:00.000Z',
     });

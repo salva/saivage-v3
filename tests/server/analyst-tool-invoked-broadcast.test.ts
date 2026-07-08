@@ -72,7 +72,7 @@ describe('analyst_tool_invoked event projection source', () => {
     try {
       writeFileSync(join(root, 'README.md'), 'hello');
       mockToolCall('read', { path: 'project:///README.md' });
-      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
       await runtime.submit('s1', { userContent: 'inspect README.md' });
       expect(broadcasts.length).toBeGreaterThan(0);
       const payload = broadcasts.at(-1) as BroadcastPayload;
@@ -88,7 +88,7 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       mockToolCall('delete_card', { ids: ['card-1'] });
-      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
       await runtime.submit('s2', { userContent: 'delete card card-1' });
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('delete_card');
@@ -102,7 +102,7 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       mockToolCall('run_command', { command: 'false' });
-      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
       await runtime.submit('s3', { userContent: 'run false' });
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_command');
@@ -115,7 +115,7 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       mockToolCall('run_command', { command: 'printf ok' });
-      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
       await runtime.submit('s4', { userContent: 'run printf ok' });
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_command');
@@ -127,7 +127,7 @@ describe('analyst_tool_invoked event projection source', () => {
   it('exposes canonical command tools in telegram tool registration', async () => {
     const root = setupRoot();
     try {
-      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
       expect(runtime.getAvailableToolNames('analyst', 'telegram')).toContain('run_command');
       expect(runtime.getAvailableToolNames('analyst', 'telegram')).toContain('kill_process');
     } finally { rmSync(root, { recursive: true, force: true }); }

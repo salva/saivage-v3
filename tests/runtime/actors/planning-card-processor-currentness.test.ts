@@ -72,7 +72,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       }
       return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);
     }) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate(activateInput(project), new AbortController().signal);
@@ -106,7 +106,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       notificationArrivedDuringReview = true;
       return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);
     }) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate(activateInput(project, delivery), new AbortController().signal);
@@ -145,7 +145,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       if (lastToolResult.toolName === 'emit_result') return toolCall('reviewer-write-repair', 'write', { path: 'record:///review.md?v=next', content: 'repaired review' });
       return reviewerPass('reviewer-pass-repaired', child.id);
     }) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate(activateInput(project), new AbortController().signal);
@@ -175,7 +175,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       store.mutateCard(project.id, { priority: project.priority + reviewerAttempt }, { actor: 'planner', surface: 'runtime', reason: 'test stale review budget' });
       return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);
     }) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate(activateInput(project), new AbortController().signal);

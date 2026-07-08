@@ -20,7 +20,7 @@ import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
-import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
+import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, providerVisibleUserContextContent, readActiveVersionMessages } from './conversation-store.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 
@@ -32,11 +32,6 @@ type ReviewerCurrentnessSnapshot = {
   cards: Array<{ id: string; status: CardStatus; versionSeq: number }>;
   includedRecordVersions: Array<{ cardId: string; filename: 'status.md'; latest: number | null }>;
 };
-
-function userContextContent(message: unknown): string {
-  if (typeof message === 'object' && message !== null && 'content' in message && typeof message.content === 'string') return message.content;
-  throw new Error('Provider-visible user context message must carry string content.');
-}
 
 export interface PlannerChildActorPort {
   get(cardId: string): CardActor | null;
@@ -89,7 +84,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     if (llm.state() === 'idle') discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'status.md', reason: 'new_activation' });
     const surface = this.plannerInvocationSurface(input.card.id);
-    const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, surface, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
+    const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, surface, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.notificationContext(input, inputId));
     let reviewerReworkAttempts = 0;
     const result = await runContractRepairLoop<PlannerProcessorOutcome>({
       initialOutcome: outcome,
@@ -97,20 +92,20 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       fail: (message) => this.plannerFailure(message),
       onPlainText: async (_outcome, control) => {
         const message = `${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`;
-        return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record:///status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
+        return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record:///status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal, (inputId) => this.notificationContext(input, inputId)));
       },
       onTerminalTool: async (terminalOutcome, control) => {
         const invalidTerminal = this.validatePlannerTerminal(terminalOutcome, contract);
         if (invalidTerminal) {
-          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }, signal, (inputId) => this.notificationContext(input, inputId)));
         }
         const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md', 'planner', input.card.version_seq);
         if (missingRecord) {
-          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${missingRecord} Create record:///status.md?v=next, then call emit_result again.` }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${missingRecord} Create record:///status.md?v=next, then call emit_result again.` }, signal, (inputId) => this.notificationContext(input, inputId)));
         }
         const completionGateFailure = this.validatePlannerCompletionGate(terminalOutcome, contract);
         if (completionGateFailure) {
-          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: completionGateFailure }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: completionGateFailure }, signal, (inputId) => this.notificationContext(input, inputId)));
         }
         const projected = await this.projectPlannerTerminal(input, terminalOutcome, signal, contract);
         if (projected.result.kind === 'rework') {
@@ -120,14 +115,14 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           }
           reviewerReworkAttempts++;
           const message = this.reviewerReworkPlannerMessage(input.card.id, projected.summary);
-          return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
+          return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.notificationContext(input, inputId)));
         }
         this.markTerminalProjected(terminalOutcome, plannerActorId(this.cardId));
         return control.done(projected);
       },
       onNonTerminalTool: async (toolOutcome) => {
         const toolResult = await this.handleToolCall(surface, toolOutcome, signal);
-        return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (inputId) => this.plannerNotificationContext(input, inputId));
+        return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (inputId) => this.notificationContext(input, inputId));
       },
     });
     if (result.kind === 'restart') throw new Error('Planner activation repair loop cannot restart.');
@@ -148,7 +143,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         listChildren: (cardId) => this.store.listChildren?.(cardId) ?? [],
       },
     }));
-    const notifications = this.plannerNotificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, userContextContent(message)));
+    const notifications = this.notificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, providerVisibleUserContextContent(message)));
     return {
       inputId,
       agentId: sessionId,
@@ -406,9 +401,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       cardBrief: cardBriefForPrompt(this.projectRoot, card),
       contractDescription: contract.describe(),
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
-      goalDepth: '',
-      maxDepth: '',
-      skills: '',
     });
   }
 
@@ -420,7 +412,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       assessmentId,
       contractDescription: contract.describe(),
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
-      skills: '',
     });
   }
 

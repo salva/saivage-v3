@@ -393,7 +393,6 @@ export class AnalystSessionActor extends BaseActor {
         toolList: formatPromptToolList(tools),
         vocabularySnippet: formatVocabularySnippet(),
         projectContext: this.buildProjectContext(),
-        skills: '',
       }),
       contextMessages,
       turnMessages: newMessages,

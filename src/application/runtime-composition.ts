@@ -99,7 +99,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const processRunner = new ProcessRunner(projectRoot);
   const runtimeGate = new RuntimeGate();
-  const promptTemplates = createPromptTemplateRegistry({ projectRoot, promptsConfig: config.prompts });
+  const promptTemplates = createPromptTemplateRegistry({ promptsConfig: config.prompts });
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({

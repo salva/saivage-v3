@@ -176,7 +176,7 @@ The analyst loop currently re-reads all messages from disk every iteration, comp
 agentId: sessionId   (e.g. 'analyst:global')
 role: 'analyst'
 sessionId: sessionId
-systemPrompt: PromptTemplateRegistry.render('analyst', { toolList, vocabularySnippet, projectContext, skills })
+systemPrompt: PromptTemplateRegistry.render('analyst', { toolList, vocabularySnippet, projectContext })
 contextMessages: [workspace-context system message, user message]
 tools: getAnalystToolDefinitions()
 terminalToolNames: []
@@ -191,7 +191,7 @@ contextMessages: [...actor.input.contextMessages, workspaceContextMessage, newUs
 
 This is the natural `LLMActor` continuation pattern — the same way `appendToolResult` builds on `input.contextMessages`.
 
-When reconstructing an analyst actor after restart/reset, the handler reads the segment transcript, projects it through `conversationMessagesForModel`, appends the current workspace-context note and new user message, and starts the next turn from that reconstructed context. The reconstructed `LlmInvocationInput` also needs `systemPrompt`, `tools`, `terminalToolNames`, and `episodeContext: { cardId: null }`; the handler rebuilds these deterministically (analyst prompt rendered by `PromptTemplateRegistry` with the current tool list, vocabulary snippet, project context, and empty skills; analyst tool definitions; empty terminal set) rather than extracting them from the transcript, since they are stable inputs, not conversation history. Normal live turns do not reread the transcript from disk.
+When reconstructing an analyst actor after restart/reset, the handler reads the segment transcript, projects it through `conversationMessagesForModel`, appends the current workspace-context note and new user message, and starts the next turn from that reconstructed context. The reconstructed `LlmInvocationInput` also needs `systemPrompt`, `tools`, `terminalToolNames`, and `episodeContext: { cardId: null }`; the handler rebuilds these deterministically (analyst prompt rendered by `PromptTemplateRegistry` with the current tool list, vocabulary snippet, and project context; analyst tool definitions; empty terminal set) rather than extracting them from the transcript, since they are stable inputs, not conversation history. Normal live turns do not reread the transcript from disk.
 
 **User message and workspace-context persistence.** `LLMActor` logs model-side entries (system prompt, assistant text, tool calls, tool results) but not arbitrary caller-provided context messages. The analyst handler appends the per-turn workspace-context note and the operator's user message to `conversation-store` directly before calling `llmActor.turn(...)`. Persisting the workspace-context note is required because it is provider-visible context needed to reconstruct deictic user turns after restart. The conversation directory is created by `appendConversationMessage` on the first persisted context row — no pre-creation step, no empty-session problem.
 

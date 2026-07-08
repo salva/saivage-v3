@@ -33,7 +33,7 @@ function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled'
 }
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(projectRoot), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function cardActive(cardId: string): Record<string, unknown> {
@@ -336,7 +336,7 @@ describe('CardActor', () => {
     });
     const runtime = createSupervisorRuntimeApi({
       projectRoot,
-      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
+      promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store,
       provider: { completeTurn: jest.fn() as never },
       processRunner: new ProcessRunner(projectRoot),
@@ -357,7 +357,7 @@ describe('CardActor', () => {
     createProject(store);
     const runtime = createSupervisorRuntimeApi({
       projectRoot,
-      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
+      promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store,
       provider: { completeTurn: jest.fn() as never },
       processRunner: new ProcessRunner(projectRoot),

@@ -22,7 +22,7 @@ function deps(projectRoot: string, store: CardStore, lookup = new Map<string, Ca
     projectRoot,
     store,
     provider,
-    promptTemplates: createTestPromptTemplateRegistry(projectRoot),
+    promptTemplates: createTestPromptTemplateRegistry(),
     processRunner: new ProcessRunner(projectRoot),
     notifyCard: () => ({ ok: true }),
     lookup,

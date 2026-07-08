@@ -39,7 +39,7 @@ Completed post-review fixes:
 - Dead actor APIs/options such as untracked notification drain/record methods, production-dead `LLMActor.appendToolError`, and unused runtime construction inputs were removed.
 - Notification delivery markers and terminal processor process actor records are bounded/compacted.
 - Actor runtime read-model state names are aligned with current actor states.
-- Reviewer turns cannot drain main-agent notifications: only planner/executor flows use `plannerNotificationContext(input, inputId)` at safe pre-provider-call points (see [P5](#p5-reviewer-cannot-reach-main-agent-notification-delivery)). Reviewer success is invalidated by actual assessed card/subtree/record currentness changes, not merely by pending main-agent notification state.
+- Reviewer turns cannot drain main-agent notifications: only planner/executor flows use `notificationContext(input, inputId)` at safe pre-provider-call points (see [P5](#p5-reviewer-cannot-reach-main-agent-notification-delivery)). Reviewer success is invalidated by actual assessed card/subtree/record currentness changes, not merely by pending main-agent notification state.
 - Startup's pre-reconstruction `runActorStartupRecovery` pass projects safe terminal outcomes from durable records; after that pass, startup constructs running card actors with valid `active_reconstruction`, recovers the root card only, and lets `activate_card` replay cascade to children. A `blocked` card status may still arise from terminal projection when the persisted planner terminal is itself `blocked`, never from unreconstructable active work.
 - Safe parked-state recovery hooks avoid normal-entry side effects where needed.
 - Terminal tool-call recovery projects safe executor terminal outcomes, planner `blocked`/`failed` outcomes, and planner `done` outcomes paired with matching persisted reviewer terminal results.
@@ -533,7 +533,7 @@ Acceptance: `LLMAdmissionPort` and the supervisor's provider-call admission are 
 
 **Fix.** This is a method split plus a safe-point contract, not a delivery-policy class. Make the wrong action unrepresentable by removing the generic `notificationContextMessages` helper and exposing only the main-agent delivery hook where provider input is being prepared:
 
-- `plannerNotificationContext(input, inputId)` — drains main-agent notifications (planner/executor flows only) at safe pre-provider-call points. Atomic drain + marker recording already lives inside `CardActor.deliverNotificationsForInput`; no new atomicity machinery.
+- `notificationContext(input, inputId)` — drains main-agent notifications (planner/executor flows only) at safe pre-provider-call points. Atomic drain + marker recording already lives inside `CardActor.deliverNotificationsForInput`; no new atomicity machinery.
 - Reviewer turns have **no** access to the main-agent queue. Reviewer currentness/change invalidation uses actual assessed card/subtree/record changes only.
 
 Update planner/executor initial inputs, non-terminal tool continuations, failed terminal `emit_result` repair continuations, and plain-text repair continuations to use the planner delivery hook. Reviewer continuations do not use it. The earlier reviewer-currentness check that invalidated approval solely because main-agent notifications were pending is stale and must not be reintroduced.

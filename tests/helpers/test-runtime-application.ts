@@ -184,7 +184,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       };
     },
     get analystRuntime() {
-      analystRuntimeService ??= new AnalystRuntime({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), config: loadTestConfig(projectRoot), runtimeDeps: this.analystDeps });
+      analystRuntimeService ??= new AnalystRuntime({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(projectRoot), runtimeDeps: this.analystDeps });
       return analystRuntimeService;
     },
     setAnalystRequestServerRestart(requestServerRestart) {

@@ -135,11 +135,10 @@ function createProductionShapedAnalystSurface(root: string, store: CardStore): R
 }
 
 function renderAnalystPrompt(root: string, tools = ANALYST_TOOL_DEFINITIONS): string {
-  return createTestPromptTemplateRegistry(root).render('analyst', {
+  return createTestPromptTemplateRegistry().render('analyst', {
     toolList: formatPromptToolList(tools),
     vocabularySnippet: formatVocabularySnippet(),
     projectContext: '{"projectRoot":"test"}',
-    skills: '',
   });
 }
 
@@ -185,7 +184,7 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
   it('exposes Analyst shared provider tools through the active invocation surface', () => {
     const root = setupRoot();
     try {
-      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
 
       const names = runtime.getAvailableToolNames();
       expect(names).toEqual(expect.arrayContaining(['list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'skill', 'mcp_tool_call', 'websearch', 'webfetch', 'run_command']));
@@ -321,7 +320,7 @@ describe('Contract C1 unsupported-action reply', () => {
         if (call === 1) return toolResponse('not_a_tool', {});
         return messageResponse('That action is not supported by the Analyst on this surface.');
       });
-      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
       const response = await runtime.submit('s-c1', { userContent: 'perform unsupported action' });
       expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
       expect(response.toolInvocations ?? []).toHaveLength(1);
@@ -366,7 +365,7 @@ describe('Contract C2 partial-success reporting', () => {
         if (call === 1) return toolResponse('delete_card', { ids: codeIds });
         return messageResponse('Partial delete completed; one card could not be deleted.');
       });
-      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
       const response = await runtime.submit('s-c2', { userContent: 'delete code cards' });
       expect(response.toolInvocations ?? []).toHaveLength(1);
       expect(response.toolInvocations?.[0].tool).toBe('delete_card');
