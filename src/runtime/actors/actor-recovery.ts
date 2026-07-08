@@ -30,7 +30,7 @@ import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { NotifyCardResult } from '../runtime-api.js';
 import { appendConversationMessage, listConversationSessionIds, readActiveVersionMessages } from './conversation-store.js';
 import { classifyConversation, type ConversationImplicitState } from './conversation-recovery.js';
-import { loggedToolCallKey, loggedToolErrorIdentity, loggedToolResultIdentity } from '../../schemas/message-identity.js';
+import { loggedToolCallIdentity, loggedToolCallKey, loggedToolErrorIdentity, loggedToolResultIdentity } from '../../schemas/message-identity.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
@@ -272,6 +272,7 @@ export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorStar
 
 function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorStartupRecoveryDeps & { generatedAt: string }): { incidents: ActorStartupRecoveryIncident[]; preservedToolCallKeys: Set<string> } {
   const incidents: ActorStartupRecoveryIncident[] = [];
+  const preservedToolCallKeys = new Set<string>();
   const entries = buildLlmConversationRecoveryEntries(plan, deps.projectRoot);
   const activationChildIds = new Set(entries.flatMap((entry) => {
     const childId = danglingActivateCardChildId(entry);
@@ -302,16 +303,16 @@ function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorStart
       }
       continue;
     }
-    applyLlmRecoveryMatrix(deps.projectRoot, entry, processor, card, incidents, deps.store);
+    applyLlmRecoveryMatrix(deps.projectRoot, entry, processor, card, incidents, deps.store, preservedToolCallKeys);
     if (entry.llm?.active && card?.status === 'running' && !processor?.active && (entry.llm.snapshot.state_value === 'calling_provider' || entry.llm.snapshot.state_value === 'waiting_tool')) {
       removeActorSnapshot(deps.projectRoot, entry.actorId);
       incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_llm_without_active_processor', cardId: entry.cardId ?? undefined, message: `Startup recovery removed active LLM snapshot '${entry.actorId}' because its card has no active processor snapshot.` });
     }
   }
-  return { incidents, preservedToolCallKeys: new Set() };
+  return { incidents, preservedToolCallKeys };
 }
 
-function applyLlmRecoveryMatrix(projectRoot: string, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore): void {
+function applyLlmRecoveryMatrix(projectRoot: string, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>): void {
   const llmState = entryLlmState(entry);
   switch (llmState) {
     case 'idle_or_absent':
@@ -321,12 +322,12 @@ function applyLlmRecoveryMatrix(projectRoot: string, entry: LlmConversationRecov
       applyCallingProviderEntry(projectRoot, entry, incidents);
       return;
     case 'waiting_tool':
-      applyWaitingToolEntry(projectRoot, entry, incidents, store);
+      applyWaitingToolEntry(projectRoot, entry, processor, card, incidents, store, preservedToolCallKeys);
       return;
   }
 }
 
-function applyIdleOrAbsentEntry(projectRoot: string, entry: LlmConversationRecoveryEntry, _processor: ProcessorActorRecoveryRecord | null, _card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore): void {
+function applyIdleOrAbsentEntry(projectRoot: string, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore): void {
   switch (entry.conversation) {
     case 'empty':
     case 'system_prompt_only':
@@ -334,7 +335,7 @@ function applyIdleOrAbsentEntry(projectRoot: string, entry: LlmConversationRecov
     case 'settled_terminal':
       return;
     case 'awaiting_tool_result':
-      reportDanglingAwaitingTool(entry, incidents, store);
+      reportDanglingAwaitingTool(entry, processor, card, incidents, store, new Set());
       return;
     case 'assistant_text_pending':
       appendPlainTextRecoveryRepair(projectRoot, entry);
@@ -361,10 +362,10 @@ function applyCallingProviderEntry(projectRoot: string, entry: LlmConversationRe
   }
 }
 
-function applyWaitingToolEntry(projectRoot: string, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore): void {
+function applyWaitingToolEntry(projectRoot: string, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>): void {
   switch (entry.conversation) {
     case 'awaiting_tool_result':
-      reportDanglingAwaitingTool(entry, incidents, store);
+      reportDanglingAwaitingTool(entry, processor, card, incidents, store, preservedToolCallKeys);
       return;
     case 'empty':
     case 'system_prompt_only':
@@ -386,14 +387,38 @@ function entryLlmState(entry: LlmConversationRecoveryEntry): RecoverableLlmState
   return 'idle_or_absent';
 }
 
-function reportDanglingAwaitingTool(entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore): void {
+function reportDanglingAwaitingTool(entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>): void {
   if (!danglingActivateCardCall(entry)) return;
   const childId = danglingActivateCardChildId(entry);
   const child = childId ? store.read(childId) : null;
+  if (canPreserveExistingActivationWait(entry, processor, card, child)) {
+    const key = danglingToolCallKey(entry);
+    if (!key) throw new Error(`Cannot preserve activation wait for session '${entry.sessionId}': dangling activate_card call has malformed identity.`);
+    preservedToolCallKeys.add(key);
+    incidents.push({ actorId: entry.actorId, kind: 'stale_tool_call', action: 'relink_existing_activation_wait', cardId: entry.cardId ?? undefined, message: `Startup recovery preserved existing waiting_tool continuation for running child '${childId}'.` });
+    return;
+  }
   const reason = child?.status === 'running'
     ? `child '${childId}' is running, but startup recovery has no deterministic child-completion registration surface to relink the parent wait`
     : `child '${childId ?? 'unknown'}' is not a compatible running child`;
   incidents.push({ actorId: entry.actorId, kind: 'stale_tool_call', action: 'fail_unrelinked_activation_wait', cardId: entry.cardId ?? undefined, message: `Startup recovery could not reconstruct a concrete activate_card continuation for session '${entry.sessionId}' because ${reason}; the dangling call will receive an actionable failed tool result.` });
+}
+
+function canPreserveExistingActivationWait(entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, child: CardRecord | null): boolean {
+  const waiting = entry.llm?.activeReconstruction?.waiting_tool_call;
+  if (!waiting || entry.llm?.snapshot.state_value !== 'waiting_tool') return false;
+  if (!processor?.active || !card || card.status !== 'running') return false;
+  if (!child || child.status !== 'running') return false;
+  const call = lastDanglingToolCall(entry);
+  if (!call || call.tool !== 'activate_card') return false;
+  const identity = safeToolCallIdentity(call);
+  return identity !== null && identity.session_id === entry.sessionId && identity.source_input_id === waiting.sourceInputId && identity.tool_call_id === waiting.toolCallId;
+}
+
+function danglingToolCallKey(entry: LlmConversationRecoveryEntry): string | null {
+  const call = lastDanglingToolCall(entry);
+  const identity = call ? safeToolCallIdentity(call) : null;
+  return identity ? loggedToolCallKey(identity) : null;
 }
 
 function removeIncompatibleLlmSnapshot(projectRoot: string, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], action: string, message: string): void {
@@ -442,13 +467,13 @@ function terminalToolNamesForRole(role: LlmRecoveryRole): ReadonlySet<string> {
 
 function danglingActivateCardCall(entry: LlmConversationRecoveryEntry): boolean {
   if (entry.conversation !== 'awaiting_tool_result') return false;
-  const lastCall = [...entry.messages].reverse().find((message) => message.kind === 'tool_call');
+  const lastCall = lastDanglingToolCall(entry);
   return lastCall?.tool === 'activate_card';
 }
 
 function danglingActivateCardChildId(entry: LlmConversationRecoveryEntry): string | null {
   if (!danglingActivateCardCall(entry)) return null;
-  const lastCall = [...entry.messages].reverse().find((message) => message.kind === 'tool_call' && message.tool === 'activate_card');
+  const lastCall = lastDanglingToolCall(entry);
   if (!lastCall) return null;
   try {
     const args = parseToolCallMessage(JSON.parse(lastCall.content)).args;
@@ -457,6 +482,10 @@ function danglingActivateCardChildId(entry: LlmConversationRecoveryEntry): strin
   } catch {
     return null;
   }
+}
+
+function lastDanglingToolCall(entry: LlmConversationRecoveryEntry): AgentMessage | null {
+  return [...entry.messages].reverse().find((message) => message.kind === 'tool_call') ?? null;
 }
 
 function conversationNeedsProviderVisibleToolErrorSettlement(entry: LlmConversationRecoveryEntry): boolean {
@@ -474,6 +503,10 @@ function conversationNeedsProviderVisibleToolErrorSettlement(entry: LlmConversat
 
 function safeToolResultIdentity(message: AgentMessage) {
   try { return loggedToolResultIdentity(message); } catch { return null; }
+}
+
+function safeToolCallIdentity(message: AgentMessage) {
+  try { return loggedToolCallIdentity(message); } catch { return null; }
 }
 
 function safeToolErrorIdentity(message: AgentMessage) {
