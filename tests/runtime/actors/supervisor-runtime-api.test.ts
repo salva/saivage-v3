@@ -74,7 +74,7 @@ function doneProjectProvider(_evidenceId: string): LLMProviderPort {
 }
 
 function failedPlannerProvider(): LLMProviderPort {
-  return { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'plain messages fail planner activation' })) };
+  return { completeTurn: jest.fn(async () => { throw new Error('planner provider failed'); }) };
 }
 
 function recordWrite(callId: string, path: string, content: string): LlmCompleteResult {

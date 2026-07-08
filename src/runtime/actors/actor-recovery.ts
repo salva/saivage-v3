@@ -352,7 +352,7 @@ function projectReviewerRecoveryOutcome(
   deps.store.commitTerminalLifecyclePatch(card.id, cardActivationOutcomePatch(projected, generatedAt));
   const plannerWaiting = planner.activeReconstruction!.waiting_tool_call!;
   appendTerminalProjectedToolResult(deps.projectRoot, { sessionId: planner.activeReconstruction!.input.sessionId, sourceInputId: plannerWaiting.sourceInputId, toolCallId: plannerWaiting.toolCallId, toolName: plannerWaiting.toolName });
-  appendTerminalProjectedToolResult(deps.projectRoot, { sessionId: reviewer.activeReconstruction.input.sessionId, sourceInputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName });
+  appendTerminalProjectedToolResult(deps.projectRoot, { sessionId, sourceInputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName });
   return {
     cardId: card.id,
     actorIds: [cardSnapshot.snapshot.actor_id, processor.actorId, planner.actorId, reviewer.actorId].sort(),
