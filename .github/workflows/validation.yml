@@ -241,7 +241,7 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Full Jest suite
+      - name: Default Jest suite
         run: npm test
 
   ui-smoke:
