@@ -123,9 +123,4 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     const notifications = input.notificationDelivery.deliverNotificationsForInput(inputId);
     return notifications.map((notification) => ({ role: 'user', content: notification.message }));
   }
-
-  protected reviewerContext(input: CardActivationInput): unknown[] {
-    const pending = input.notificationDelivery.hasPendingNotifications?.() ?? false;
-    return [{ role: 'user', content: `Main-agent notification currentness: pending=${pending ? 'yes' : 'no'}. This is an invalidation signal only; reviewer turns must not consume main-agent notifications.` }];
-  }
 }

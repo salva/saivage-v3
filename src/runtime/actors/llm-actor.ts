@@ -132,7 +132,7 @@ export class ConversationLLMActor extends BaseActor {
     return this.continueAfterTool(undefined, signal);
   }
 
-  continueAfterPlainText(repairDirective: string, signal?: AbortSignal): Promise<LLMActorOutcome> {
+  continueAfterPlainText(repairDirective: string, signal?: AbortSignal, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
     if (this.state() !== 'idle') return Promise.reject(new Error(`LLMActor '${this.agentId}' cannot continue a plain-text result from '${this.state()}'.`));
     if (this.#result) return Promise.reject(new Error(`LLMActor '${this.agentId}' already has a pending turn.`));
     if (this.outcome?.type !== 'result') return Promise.reject(new Error(`LLMActor '${this.agentId}' has no plain-text result to continue.`));
@@ -140,10 +140,11 @@ export class ConversationLLMActor extends BaseActor {
     const repairInputId = this.nextDeliveryInputId(input.inputId);
     const repairMessage = appendModelRepairMessage(this.projectRoot, { ...input, inputId: repairInputId }, repairDirective);
     const repairContextMessage = { role: 'user', content: repairDirective };
+    const extraMessages = (continuationContextHook?.(repairInputId) ?? []).map((message, index) => appendUserContextMessage(this.projectRoot, input.sessionId, repairInputId, 'continuation_hook', index, userContextContent(message)));
     return this.startProviderTurn({
       ...input,
       inputId: repairInputId,
-      contextMessages: [...input.contextMessages, repairContextMessage],
+      contextMessages: [...input.contextMessages, repairContextMessage, ...extraMessages],
       episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
     }, { resetDeliveredToolCalls: false, signal });
   }

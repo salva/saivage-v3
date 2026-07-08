@@ -85,22 +85,18 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         fail: (message) => ({ status: 'failed', summary: message, result: executorFailure(message) }),
         onPlainText: async (_outcome, control) => {
           const message = `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`;
-          return control.repair(() => llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record:///status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
+          return control.repair(() => llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record:///status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
         },
         onTerminalTool: async (terminalOutcome, control) => {
           const invalidTerminal = this.validateExecutorTerminal(terminalOutcome, contract);
           if (invalidTerminal) {
-            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
           }
           const missingRecord = this.closeRequiredStatusRecord(input.card.version_seq);
           if (missingRecord) {
-            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record:///status.md?v=next, then call emit_result again.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${missingRecord} Create record:///status.md?v=next, then call emit_result again.` }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
           }
           const projected = projectTerminalExecutorOutcome(terminalOutcome, contract);
-          if (projected.status === 'done' && (input.notificationDelivery.hasPendingNotifications?.() ?? false)) {
-            const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record:///status.md?v=next if needed, then call emit_result again.';
-            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
-          }
           this.markTerminalProjected(terminalOutcome, executorActorId(this.cardId));
           return control.done(projected);
         },

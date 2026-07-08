@@ -307,7 +307,7 @@ describe('LLMActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
   }));
 
-  it('continues after plain text with provider-visible repair context', async () => withTempProject(async (projectRoot) => {
+  it('continues after plain text with provider-visible repair context before hook context', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (turnInput: LlmInvocationInput) => turnInput.inputId === 'turn-1'
@@ -318,19 +318,23 @@ describe('LLMActor', () => {
     actor.start();
 
     await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result', result: { content: 'plain text' } });
-    const repaired = await actor.continueAfterPlainText('Use emit_result.');
+    const hook = jest.fn((deliveryInputId: string) => [{ role: 'user', content: `notification for ${deliveryInputId}` }]);
+    const repaired = await actor.continueAfterPlainText('Use emit_result.', undefined, hook);
 
     expect(repaired).toMatchObject({ type: 'result', result: { content: 'repaired' } });
+    expect(hook).toHaveBeenCalledWith('turn-1:tool:1');
     const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0];
     expect(repairInput.inputId).toBe('turn-1:tool:1');
     expect(repairInput.contextMessages).toEqual([
       { role: 'assistant', content: 'plain text' },
       { role: 'user', content: 'Use emit_result.' },
+      expect.objectContaining({ role: 'user', kind: 'text', content: 'notification for turn-1:tool:1' }),
     ]);
     expect((actor.input?.contextMessages ?? []).filter((message) => (message as { role?: string; content?: string }).role === 'assistant' && (message as { content?: string }).content === 'plain text')).toHaveLength(1);
     const rows = jsonl(activeVersionPath(projectRoot, 'planner:project', 1));
-    expect(rows.map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text', 'model_repair', 'activity', 'text']);
+    expect(rows.map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text', 'model_repair', 'text', 'activity', 'text']);
     expect(rows.find((entry) => entry.kind === 'model_repair')).toMatchObject({ role: 'user', content: 'Use emit_result.' });
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'text', role: 'user', content: 'notification for turn-1:tool:1' })]));
   }));
 
   it('adds provider-visible tool history before hook continuation context', async () => withTempProject(async (projectRoot) => {

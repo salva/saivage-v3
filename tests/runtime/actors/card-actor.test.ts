@@ -271,9 +271,10 @@ describe('CardActor', () => {
 
     await actor.activate({ kind: 'root' });
 
-    expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({
-      notificationDelivery: actor,
-    }), expect.any(AbortSignal));
+    const activationInput = (fakeProcessor.activate as jest.MockedFunction<CardProcessorActor['activate']>).mock.calls[0][0];
+    expect(activationInput.notificationDelivery).not.toBe(actor);
+    expect(activationInput.notificationDelivery).toEqual({ deliverNotificationsForInput: expect.any(Function) });
+    expect(activationInput.notificationDelivery).not.toHaveProperty('hasPendingNotifications');
     expect(deliveredIds).toEqual(['n1', 'n2']);
     expect(actor.hasPendingNotifications()).toBe(false);
     expect(actor.notificationDeliveryMarkers).toEqual([

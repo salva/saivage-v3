@@ -30,7 +30,6 @@ const MAX_REVIEWER_REWORK_ATTEMPTS = 3;
 type ReviewerCurrentnessSnapshot = {
   cards: Array<{ id: string; status: CardStatus; versionSeq: number }>;
   includedRecordVersions: Array<{ cardId: string; filename: 'status.md'; latest: number | null }>;
-  hasPendingNotifications: boolean;
 };
 
 function userContextContent(message: unknown): string {
@@ -95,24 +94,20 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       fail: (message) => this.plannerFailure(message),
       onPlainText: async (_outcome, control) => {
         const message = `${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`;
-        return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record:///status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
+        return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record:///status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
       },
       onTerminalTool: async (terminalOutcome, control) => {
         const invalidTerminal = this.validatePlannerTerminal(terminalOutcome, contract);
         if (invalidTerminal) {
-          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
-        }
-        if (this.isPlannerDoneTerminal(terminalOutcome, contract) && (input.notificationDelivery.hasPendingNotifications?.() ?? false)) {
-          const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record:///status.md?v=next if needed, then call emit_result again.';
-          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
         }
         const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md', 'planner', input.card.version_seq);
         if (missingRecord) {
-          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record:///status.md?v=next, then call emit_result again.` }]));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${missingRecord} Create record:///status.md?v=next, then call emit_result again.` }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
         }
         const completionGateFailure = this.validatePlannerCompletionGate(terminalOutcome, contract);
         if (completionGateFailure) {
-          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: completionGateFailure }, signal, () => [{ role: 'user', content: completionGateFailure }]));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: completionGateFailure }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
         }
         const projected = await this.projectPlannerTerminal(input, terminalOutcome, signal, contract);
         if (projected.result.kind === 'rework') {
@@ -122,7 +117,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           }
           reviewerReworkAttempts++;
           const message = this.reviewerReworkPlannerMessage(input.card.id, projected.summary);
-          return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, () => [{ role: 'user', content: message }]));
+          return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
         }
         this.markTerminalProjected(terminalOutcome, plannerActorId(this.cardId));
         return control.done(projected);
@@ -223,7 +218,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     while (true) {
       const currentness = this.captureReviewerCurrentness(input);
       const surface = this.reviewerInvocationSurface(input.card.id, sessionId);
-      const outcome = await this.resolveInitialOutcome(llm, () => this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness), surface, (name) => reviewerContract.isTerminalToolName(name), signal, () => this.reviewerContext(input));
+      const outcome = await this.resolveInitialOutcome(llm, () => this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness), surface, (name) => reviewerContract.isTerminalToolName(name), signal);
       const review = await runContractRepairLoop<PlannerProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => reviewerContract.isTerminalToolName(name),
@@ -235,11 +230,11 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         onTerminalTool: async (terminalOutcome, control) => {
           const invalidTerminal = this.validateReviewerTerminal(terminalOutcome, reviewerContract);
           if (invalidTerminal) {
-            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }, signal));
           }
           const missingRecord = this.validateRequiredOpenRecord(input.card.id, 'review.md');
           if (missingRecord) {
-            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record:///review.md?v=next, then call emit_result again.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${missingRecord} Create record:///review.md?v=next, then call emit_result again.` }, signal));
           }
           const staleReason = this.reviewerCurrentnessStaleReason(input, currentness);
           if (staleReason) {
@@ -256,7 +251,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         },
         onNonTerminalTool: async (toolOutcome) => {
           const toolResult = await this.handleReviewerToolCall(input.card, sessionId, toolOutcome, signal);
-          return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, () => this.reviewerContext(input));
+          return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal);
         },
       });
       if (review.kind === 'restart') continue;
@@ -271,14 +266,13 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
     appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
     const descendantContext = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness).content);
-    const currentnessContext = this.reviewerContext(input).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_currentness', index, userContextContent(message)));
     return {
       inputId,
       agentId: reviewerActorId(input.card.id),
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId),
-      contextMessages: [...loaded, descendantContext, ...currentnessContext],
+      contextMessages: [...loaded, descendantContext],
       tools: [...surfaceToolDefinitions(this.reviewerInvocationSurface(input.card.id, sessionId)), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
@@ -297,14 +291,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
-    }
-  }
-
-  private isPlannerDoneTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createPlannerContract()): boolean {
-    try {
-      return verifyTerminalToolOutcome(contract, outcome).result.result.status === 'done';
-    } catch {
-      return false;
     }
   }
 
@@ -383,12 +369,11 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private captureReviewerCurrentness(input: CardActivationInput): ReviewerCurrentnessSnapshot {
     const cards = this.reviewedSubtree(input.card.id).map((card) => ({ id: card.id, status: card.status, versionSeq: card.version_seq }));
     const includedRecordVersions = this.descendants(input.card.id).map((card) => ({ cardId: card.id, filename: 'status.md' as const, latest: latestClosedRecordVersion(this.projectRoot, card.id, 'status.md') }));
-    return { cards, includedRecordVersions, hasPendingNotifications: input.notificationDelivery.hasPendingNotifications?.() ?? false };
+    return { cards, includedRecordVersions };
   }
 
   private reviewerCurrentnessStaleReason(input: CardActivationInput, snapshot: ReviewerCurrentnessSnapshot): string | null {
     const current = this.captureReviewerCurrentness(input);
-    if (current.hasPendingNotifications !== snapshot.hasPendingNotifications) return 'pending notification state changed during review';
     const snapshotCards = new Map(snapshot.cards.map((card) => [card.id, card]));
     const currentCards = new Map(current.cards.map((card) => [card.id, card]));
     if (snapshotCards.size !== currentCards.size) return 'reviewed subtree card set changed during review';

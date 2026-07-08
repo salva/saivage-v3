@@ -119,7 +119,7 @@ Ownership conventions are deliberately narrow:
 
 - `CardActor` owns its direct child `CardActor` instances and its associated processor actor.
 - `BaseCardProcessorActor` owns common processor mechanics: activation, pending activation resolution, settlement, snapshots, and parent outcome reporting.
-- `BaseMainLLMCardProcessorActor` owns the shared main-agent LLM loop for processors driven by one main LLM session. It exposes two distinct notification methods: `plannerNotificationContext(input, inputId)` (drains main-agent notifications and records markers — planner/executor flows only) and `reviewerContext(input)` (currentness/change-invalidation state only, no access to the main-agent queue). Reviewer continuations must use `reviewerContext` so draining planner notifications is unrepresentable (see [Implementation Plan P5](./micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
+- `BaseMainLLMCardProcessorActor` owns the shared main-agent LLM loop for processors driven by one main LLM session. It exposes `plannerNotificationContext(input, inputId)`, a delivery-only hook that drains main-agent notifications and records markers only while planner/executor provider input is being constructed. Reviewer continuations do not receive that hook, so draining planner notifications is unrepresentable (see [Implementation Plan P5](./micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery)). Reviewer currentness is based on actual assessed card/subtree/record changes, not on pending main-agent notification state.
 - `PlanningCardProcessorActor` owns project/goal planner/reviewer semantics.
 - `TerminalCardProcessorActor` owns executor semantics.
 - Process execution is owned by a single injected `ProcessRunner` service, not by an actor. Process tools and shutdown call it directly.
@@ -194,7 +194,7 @@ Purpose: card-type-dependent behavior for project, goal, and terminal cards.
 Processor actors use a small inheritance hierarchy for shared mechanics, not a generic policy framework:
 
 - `BaseCardProcessorActor`: common to all processor actors. It defines the shared processor state machine, `activate(input)`, pending activation promise, `settle(outcome)`, generic snapshot persistence, and outcome reporting to the owning `CardActor`. It must not know planner, reviewer, executor, process-tool, or card-type policy. It has no cancellation API and no `cancelled` state; running cancellation is owned by the `CardActor` activation (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
-- `BaseMainLLMCardProcessorActor`: common to processors driven by a card's main agent LLM. It creates one `LLMActor` per logical invocation flow, lazily adopts recovered LLM snapshots inside `recoverActive`, resolves recovered initial LLM outcomes through inline tool replay, exposes `plannerNotificationContext(input, inputId)` to drain main-agent notifications before each planner/executor turn (records delivery markers atomically), and exposes `reviewerContext(input)` for reviewer turns with no main-agent queue access. It must not decide role-specific tool semantics.
+- `BaseMainLLMCardProcessorActor`: common to processors driven by a card's main agent LLM. It creates one `LLMActor` per logical invocation flow, lazily adopts recovered LLM snapshots inside `recoverActive`, resolves recovered initial LLM outcomes through inline tool replay, and exposes `plannerNotificationContext(input, inputId)` to drain main-agent notifications only while constructing planner/executor provider input (records delivery markers atomically). Reviewer turns have no main-agent queue access. It must not decide role-specific tool semantics.
 - `PlanningCardProcessorActor`: project/goal semantics around planner, child activation, completion gate, reviewer phase, and planner/reviewer terminal contracts.
 - `TerminalCardProcessorActor`: terminal-card executor semantics around executor terminal contract and process tools. Executor terminal outcomes are `done`, `failed`, or `blocked`, matching the uniform main-agent outcome vocabulary.
 
@@ -232,7 +232,7 @@ Important actor fields:
 - Reviewer `LLMActor` for the current review invocation, when reviewer work has been needed.
 - Active child activation metadata, when waiting on a child.
 - Active process wait metadata, when waiting on a process.
-- Pending notifications for planner delivery.
+- Queued notifications waiting for the next safe planner delivery point.
 - Classified planner/reviewer result awaiting transition, if any.
 
 Responsibilities:
@@ -260,7 +260,7 @@ Reviewer rules:
 
 - Reviewer output must be structured enough for control-plane decisions.
 - Ambiguous prose is a failure or tool error, not a guessed pass/fail.
-- If notifications or changes arrive while reviewing, reviewer success must be invalidated or diverted back to planning when those changes affect the assessed subtree.
+- If card, subtree, or record changes arrive while reviewing and affect the assessed snapshot, reviewer success must be invalidated or diverted back to planning. Pending main-agent notifications alone do not invalidate reviewer success and reviewer turns must not drain them.
 
 Terminal processor phases:
 
@@ -310,7 +310,8 @@ LLMActor event names are intentionally left to implementation. Provider/tool-loo
 Public methods:
 
 - `turn(inputRef)`: run a model turn from persisted input context.
-- `appendToolResult(toolCallId, result, continuationContext)`: continue after tool success or tool error (tool errors are delivered through the same method; there is no separate `appendToolError`).
+- `appendToolResult(toolCallId, result, continuationContext)`: continue after tool success or tool error, including failed terminal `emit_result` repair tool results (tool errors are delivered through the same method; there is no separate `appendToolError`).
+- `continueAfterPlainText(repairDirective, continuationContext)`: continue after a plain-text contract repair directive, with optional caller-provided context appended before the next provider call.
 - `fromActiveReconstruction(...)`: rebuild a persisted active LLM without calling `start()`. This is invoked lazily by the owning processor's `recoverActive` path; a recovered `calling_provider` turn reissues the provider call and parks at the provider gate.
 
 `LLMActor` has no public card-cancellation API. Authoritative cancellation is handled by `CardActor`'s cancellation flag (P3); any in-flight provider call's late outcome is dropped by `CardActor.commitOutcome()`. `LLMActor` never decides cancellation.
@@ -408,6 +409,7 @@ Rules:
 - Owning processor actor validates role-specific semantics.
 - Process waits and child activations put the LLM actor into `waiting_for_tool`.
 - Reporting tools are role-contract terminal tools interpreted by the owning card processor, not by `LLMActor`. Planner, executor, and reviewer terminal outcomes must be accepted only after their contract payload validates; free-form prose or ad-hoc JSON messages do not commit card outcomes.
+- Terminal `emit_result` validation does not sample pending notification state, does not drain notifications, and does not defer or reject terminal results because notifications arrived after the provider call. Failed terminal repair guidance is written to the failed `emit_result` tool result; notification rows for a repair turn, if any, are separate continuation context in the next provider input.
 - Rejected tool calls append a tool error and may allow another turn.
 - Recovery repairs tool delivery from durable tool-call records and message logs.
 
@@ -420,23 +422,23 @@ Notifications are card-addressed ephemeral delivery items. There is no user-mana
 Rules:
 
 - Analyst and runtime services enqueue notifications to cards.
-- The card runtime decides when to append pending notifications to the main agent session.
-- `CardActor` owns the pending card-addressed queue. The processor's `plannerNotificationContext(input, inputId)` drains deliverable main-agent notifications (planner/executor flows only); reviewer flows use `reviewerContext(input)` which has no queue access (see [Implementation Plan P5](./micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
+- The card runtime appends pending notifications to the main agent session only while constructing provider input.
+- `CardActor` owns the pending card-addressed queue. The processor's `plannerNotificationContext(input, inputId)` drains deliverable main-agent notifications at safe planner/executor pre-provider-call points only; reviewer flows have no queue access (see [Implementation Plan P5](./micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
 - `LLMActor` is deliberately queue-free. It receives notification content only as part of the `LlmInvocationInput` built by the owning processor, preserving generic provider/tool-loop mechanics and keeping card semantics in card/processor actors.
-- `CardActor` exposes enough domain methods for its processor to check whether undelivered notifications exist, drain the notifications deliverable to the main agent, and record delivery markers after the processor appends them to the next model-visible turn.
+- `CardActor` exposes a delivery method for its processor to drain notifications deliverable to a specific main-agent input and record delivery markers. Processor activation inputs do not expose pendingness queries.
 - Project/goal main agent is the planner.
 - Terminal main agent is the executor.
 - Reviewer is not the main agent for notification delivery.
-- Delivery happens before the next provider call, not by interrupting an in-flight call.
+- Delivery happens before the next provider call, not by interrupting an in-flight call and not during terminal validation.
 - Delivery evidence is the agent session transcript and a small durable delivery marker.
 - Project/goal processors must have access to their owning `CardActor` so they can drain newly queued main-agent notifications before every planner provider turn, not only at activation.
-- If undelivered main-agent notifications exist when the processor's contract repair loop receives a `done` terminal report, the report is deferred: the card stays `running`, the pending notifications are appended to the next LLM turn, and the agent decides whether to re-report `done`, adjust its result, block, or fail. `CardActor` only commits clean outcomes; it never flips `done` to `changed` because of pending notifications. Notifications arriving on an already-inactive `done` card after settlement are queued for future delivery and do not mutate lifecycle state. `changed` is produced only by card edits/subtree mutations, never by notification delivery.
+- Safe pre-provider delivery points are initial planner/executor turns, continuations after non-terminal tool results, continuations after failed terminal `emit_result` repair tool results, and continuations after plain-text repair directives. If terminal validation succeeds and no further provider call is made, notifications that arrived after the last safe point remain queued for a future safe provider-input delivery. `CardActor` only commits clean outcomes; it never flips `done` to `changed` because of pending notifications. Notifications arriving on an already-inactive `done` card after settlement are queued for future delivery and do not mutate lifecycle state. `changed` is produced only by card edits/subtree mutations, never by notification delivery.
 
 Notifications can affect flow:
 
 - While planning/executing, append before the next turn.
 - While waiting on child/process, keep pending until the tool result is appended and the next turn is prepared.
-- While reviewing, hold pending main-agent notifications. Change notifications that affect the reviewed subtree divert back to planning after reviewer completion or invalidate reviewer success. Cancellation during review cancels the current activation; late reviewer outcomes are dropped by the CardActor cancellation flag (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
+- While reviewing, hold pending main-agent notifications for later planner/executor delivery. Actual card/subtree/record changes that affect the reviewed snapshot divert back to planning after reviewer completion or invalidate reviewer success; pending notification state alone does not. Cancellation during review cancels the current activation; late reviewer outcomes are dropped by the CardActor cancellation flag (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
 - While settled/inactive, keep pending until reactivation or discard/archive by domain policy. Notifications queued on terminal `cancelled` cards can never be reactivated; they remain queued as provenance and do not steer any agent. To replace cancelled work, create a new card or notify the parent planner.
 
 ## Pause, Cancellation, And Shutdown

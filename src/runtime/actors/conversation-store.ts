@@ -52,7 +52,7 @@ export function appendConversationMessage(projectRoot: string, message: AgentMes
   appendSyncIdempotentByKey(activeConversationVersionPath(projectRoot, parsed.session_id), parsed, 'id');
 }
 
-export type UserContextMessageCategory = 'planner_state' | 'notification' | 'reviewer_descendant' | 'reviewer_currentness' | 'continuation_hook';
+export type UserContextMessageCategory = 'planner_state' | 'notification' | 'reviewer_descendant' | 'continuation_hook';
 
 export function appendUserContextMessage(
   projectRoot: string,

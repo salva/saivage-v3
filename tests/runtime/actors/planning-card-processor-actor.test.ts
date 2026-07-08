@@ -63,7 +63,7 @@ function makeChildActor(projectRoot: string, store: CardStore, card: CardRecord,
 }
 
 function noopNotificationDelivery() {
-  return { hasPendingNotifications: () => false, deliverNotificationsForInput: () => [] };
+  return { deliverNotificationsForInput: () => [] };
 }
 
 function plannerResult(status: 'done' | 'blocked' | 'failed', summary: string) {
@@ -102,6 +102,18 @@ function capturedInput(provider: LLMProviderPort, role: 'planner' | 'reviewer'):
   const input = calls.find(([candidate]) => candidate.role === role)?.[0];
   if (!input) throw new Error(`Missing ${role} invocation input`);
   return input;
+}
+
+function terminalToolResultError(input: LlmInvocationInput, toolCallId: string): string {
+  const result = input.episodeContext.lastToolResult as { toolCallId?: string; result?: { error?: string } } | undefined;
+  expect(result).toMatchObject({ toolCallId, result: { success: false, error: expect.any(String) } });
+  return result?.result?.error ?? '';
+}
+
+function expectNotificationSeparatedFromTerminalError(error: string, notificationPayload: string): void {
+  expect(error).not.toContain('Pending main-agent notifications');
+  expect(error).not.toContain('notification');
+  expect(error).not.toContain(notificationPayload);
 }
 
 function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
@@ -262,7 +274,6 @@ describe('PlanningCardProcessorActor', () => {
     ]));
     expect(readConversationMessages(projectRoot, `reviewer:${project.id}:assessment-${project.id}-1`)).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'text', role: 'user', content: expect.stringContaining('Descendant work:') }),
-      expect.objectContaining({ kind: 'text', role: 'user', content: expect.stringContaining('Main-agent notification currentness') }),
     ]));
   }));
 
@@ -274,7 +285,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: { hasPendingNotifications: () => false, deliverNotificationsForInput: () => [{ id: 'n1', message: 'first-turn-note', created_at: '2026-06-12T00:00:00.000Z' }] } }, new AbortController().signal);
+    await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: { deliverNotificationsForInput: () => [{ id: 'n1', message: 'first-turn-note', created_at: '2026-06-12T00:00:00.000Z' }] } }, new AbortController().signal);
     await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
 
     const plannerCalls = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.map(([call]) => call).filter((call) => call.role === 'planner');
@@ -652,7 +663,7 @@ describe('PlanningCardProcessorActor', () => {
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult() : plannerResult('done', 'done'));
-    const delivery = { hasPendingNotifications: jest.fn(() => false), deliverNotificationsForInput: jest.fn(() => []) };
+    const delivery = { deliverNotificationsForInput: jest.fn(() => []) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
@@ -672,7 +683,6 @@ describe('PlanningCardProcessorActor', () => {
     const child = markDone(store, createGoal(store, project.id));
     let pendingNotifications = true;
     const delivery = {
-      hasPendingNotifications: jest.fn(() => pendingNotifications),
       deliverNotificationsForInput: jest.fn((inputId: string) => {
         if (!inputId.startsWith('planner:') || !pendingNotifications) return [];
         pendingNotifications = false;
@@ -693,29 +703,24 @@ describe('PlanningCardProcessorActor', () => {
 
     expect(outcome).toMatchObject({ status: 'done' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
-    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
     expect(delivery.deliverNotificationsForInput).not.toHaveBeenCalledWith(expect.stringMatching(/^reviewer:/));
     const reviewerContinuation = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.find(([input]) => input.role === 'reviewer' && input.inputId.endsWith(':tool:1'))?.[0];
-    expect(reviewerContinuation?.contextMessages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: 'user', content: expect.stringContaining('Main-agent notification currentness: pending=no') }),
-    ]));
     expect(reviewerContinuation?.contextMessages).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'user', content: 'must stay queued for planner' }),
     ]));
     expect(child.status).toBe('done');
   }));
 
-  it('relaunches reviewer when main-agent notifications arrive during review', async () => withTempProject(async (projectRoot) => {
+  it('does not relaunch reviewer when main-agent notifications arrive during review', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
-    const delivery = { hasPendingNotifications: jest.fn(() => false), deliverNotificationsForInput: jest.fn(() => []) };
+    const delivery = { deliverNotificationsForInput: jest.fn(() => []) };
     let reviewerAttempts = 0;
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
         if (input.role === 'reviewer') {
           reviewerAttempts++;
-          if (reviewerAttempts === 1) delivery.hasPendingNotifications.mockReturnValue(true);
           return reviewerResult();
         }
         return plannerResult('done', 'done');
@@ -726,7 +731,7 @@ describe('PlanningCardProcessorActor', () => {
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', result: { kind: 'done' } });
-    expect(reviewerAttempts).toBe(2);
+    expect(reviewerAttempts).toBe(1);
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
   }));
 
@@ -749,7 +754,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'rework', summary: 'fix it' } });
   }));
 
-  it('feeds reviewer rework back to the planner with the concrete review record URL', async () => withTempProject(async (projectRoot) => {
+  it('feeds reviewer rework back to the planner with the concrete review record URL and separate notification context', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -768,17 +773,26 @@ describe('PlanningCardProcessorActor', () => {
       }
       return plannerResult('done', 'initial done');
     });
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.startsWith('planner:') && inputId.endsWith(':tool:2') ? [{ id: 'n-rework', message: 'review rework notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok after rework', result: { kind: 'done', summary: 'review ok after rework' } });
     expect(reviewerAttempts).toBe(2);
     const plannerInputs = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.map(([input]) => input).filter((input) => input.role === 'planner');
     const reworkInput = plannerInputs.find((input) => JSON.stringify(input.episodeContext.lastToolResult ?? {}).includes('Reviewer requested rework'));
-    expect(JSON.stringify(reworkInput?.episodeContext.lastToolResult)).toContain('record:///review.md?card=project&v=1');
-    expect(JSON.stringify(reworkInput?.episodeContext.lastToolResult)).toContain('missing proof');
+    const reworkError = terminalToolResultError(reworkInput!, 'planner-done');
+    expect(reworkError).toContain('record:///review.md?card=project&v=1');
+    expect(reworkError).toContain('missing proof');
+    expectNotificationSeparatedFromTerminalError(reworkError, 'review rework notice');
+    expect(reworkInput?.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: 'review rework notice' }),
+    ]));
+    expect(reworkInput?.contextMessages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Reviewer requested rework') }),
+    ]));
   }));
 
   it('invokes reviewer for goal done outcomes', async () => withTempProject(async (projectRoot) => {
@@ -837,7 +851,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome.summary).toContain('outside the reviewed subtree');
   }));
 
-  it('repairs done reports while descendants remain incomplete', async () => withTempProject(async (projectRoot) => {
+  it('repairs done reports while descendants remain incomplete with separate notification context', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -853,14 +867,25 @@ describe('PlanningCardProcessorActor', () => {
       }
       return plannerResult('done', 'project done');
     });
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:2') ? [{ id: 'n-gate', message: 'completion gate notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', result: { kind: 'done' } });
     expect(sawCompletionGateFailure).toBe(true);
     expect(provider.completeTurn).toHaveBeenCalledTimes(6);
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.map(([input]) => input).find((input) => JSON.stringify(input.episodeContext.lastToolResult ?? {}).includes(`descendant '${goal.id}'`));
+    const error = terminalToolResultError(repairInput!, 'planner-done');
+    expect(error).toContain(`descendant '${goal.id}'`);
+    expectNotificationSeparatedFromTerminalError(error, 'completion gate notice');
+    expect(repairInput?.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: 'completion gate notice' }),
+    ]));
+    expect(repairInput?.contextMessages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: expect.stringContaining(`descendant '${goal.id}'`) }),
+    ]));
   }));
 
   it('does not invoke reviewer for blocked or failed planner outcomes', async () => withTempProject(async (projectRoot) => {
@@ -1000,14 +1025,17 @@ describe('PlanningCardProcessorActor', () => {
     ]);
     const repairInput = reviewerCalls[1][0];
     const missingRecord = `Required record 'record:///review.md?card=${project.id}&v=next' was not created.`;
+    const repairError = `${missingRecord} Create record:///review.md?v=next, then call emit_result again.`;
     expect(repairInput.episodeContext.lastToolResult).toMatchObject({
       toolCallId: 'reviewer-result-1',
       toolName: 'emit_result',
-      result: { success: false, error: missingRecord },
+      result: { success: false, error: repairError },
     });
     expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'reviewer-result-1' }),
-      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'reviewer-result-1', content: JSON.stringify({ success: false, error: missingRecord }) }),
+      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'reviewer-result-1', content: JSON.stringify({ success: false, error: repairError }) }),
+    ]));
+    expect(repairInput.contextMessages).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record:///review.md?v=next, then call emit_result again.') }),
     ]));
   }));
@@ -1040,7 +1068,7 @@ describe('PlanningCardProcessorActor', () => {
     ]));
   }));
 
-  it('repairs plain planner prose and succeeds with a later terminal result', async () => withTempProject(async (projectRoot) => {
+  it('repairs plain planner prose with separate notification context and succeeds with a later terminal result', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -1050,15 +1078,22 @@ describe('PlanningCardProcessorActor', () => {
       if (plannerTurns === 1) return { kind: 'message' as const, content: 'Project is done.' };
       return plannerResult('done', 'done after repair');
     });
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-plain', message: 'planner plain-text repair notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'done after repair' });
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0];
+    expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Plain planner messages are not accepted') }),
+      expect.objectContaining({ role: 'user', content: 'planner plain-text repair notice' }),
+    ]));
+    expect(JSON.stringify(repairInput.episodeContext.lastToolResult ?? {})).not.toContain('planner plain-text repair notice');
   }));
 
-  it('repairs invalid planner terminal arguments before projecting the outcome', async () => withTempProject(async (projectRoot) => {
+  it('repairs invalid planner terminal arguments with separate notification context before projecting the outcome', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -1071,15 +1106,28 @@ describe('PlanningCardProcessorActor', () => {
       expect(input.episodeContext.lastToolResult).toMatchObject({ result: { success: false, error: expect.any(String) } });
       return plannerResult('blocked', 'valid after repair');
     });
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:2') ? [{ id: 'n-invalid', message: 'planner invalid terminal notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'valid after repair' });
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[2]?.[0];
+    const error = terminalToolResultError(repairInput, 'bad-planner');
+    expect(error).toContain("Terminal tool 'emit_result' arguments must be a JSON object.");
+    expect(error).toContain('Call emit_result again with valid JSON arguments.');
+    expectNotificationSeparatedFromTerminalError(error, 'planner invalid terminal notice');
+    expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'bad-planner', content: JSON.stringify({ success: false, error }) }),
+      expect.objectContaining({ role: 'user', content: 'planner invalid terminal notice' }),
+    ]));
+    expect(repairInput.contextMessages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Call emit_result again with valid JSON arguments.') }),
+    ]));
   }));
 
-  it('repairs missing planner status record before projecting the terminal outcome', async () => withTempProject(async (projectRoot) => {
+  it('repairs missing planner status record with separate notification context before projecting the terminal outcome', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -1099,10 +1147,11 @@ describe('PlanningCardProcessorActor', () => {
         return plannerResult('blocked', 'blocked after missing-record repair');
       }),
     };
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-missing-status', message: 'planner missing status notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'blocked after missing-record repair' });
     expect(actions).toEqual(['emit_without_status', 'write_status_after_repair', 'emit_after_status']);
@@ -1111,14 +1160,21 @@ describe('PlanningCardProcessorActor', () => {
     expect(calls.map(([input]) => input.sessionId)).toEqual([`planner:${project.id}`, `planner:${project.id}`, `planner:${project.id}`]);
     const repairInput = calls[1][0];
     const missingRecord = `Required record 'record:///status.md?card=${project.id}&v=next' was not created.`;
+    const repairError = `${missingRecord} Create record:///status.md?v=next, then call emit_result again.`;
     expect(repairInput.episodeContext.lastToolResult).toMatchObject({
       toolCallId: 'planner-blocked',
       toolName: 'emit_result',
-      result: { success: false, error: missingRecord },
+      result: { success: false, error: repairError },
     });
+    const error = terminalToolResultError(repairInput, 'planner-blocked');
+    expect(error).toBe(repairError);
+    expectNotificationSeparatedFromTerminalError(error, 'planner missing status notice');
     expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'planner-blocked' }),
-      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'planner-blocked', content: JSON.stringify({ success: false, error: missingRecord }) }),
+      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'planner-blocked', content: JSON.stringify({ success: false, error: repairError }) }),
+      expect.objectContaining({ role: 'user', content: 'planner missing status notice' }),
+    ]));
+    expect(repairInput.contextMessages).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record:///status.md?v=next, then call emit_result again.') }),
     ]));
   }));

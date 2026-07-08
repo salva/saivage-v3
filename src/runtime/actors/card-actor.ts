@@ -51,7 +51,6 @@ export interface CardNotificationDeliveryMarker {
 }
 
 export interface CardNotificationDeliveryPort {
-  hasPendingNotifications?(): boolean;
   deliverNotificationsForInput(inputId: string): CardNotification[];
 }
 
@@ -299,7 +298,10 @@ export class CardActor extends BaseActor {
     if (!this.#activationId) throw new Error(`Card '${this.cardId}' entered running without an activation id.`);
     const caller = this.#activationCaller;
     if (!caller) throw new Error(`Card '${this.cardId}' entered running without an activation caller.`);
-    const input: CardActivationInput = { activationId: this.#activationId, card: this.requireCard(), caller, notificationDelivery: this };
+    const notificationDelivery: CardNotificationDeliveryPort = {
+      deliverNotificationsForInput: (inputId) => this.deliverNotificationsForInput(inputId),
+    };
+    const input: CardActivationInput = { activationId: this.#activationId, card: this.requireCard(), caller, notificationDelivery };
     this.#activationAbort = new AbortController();
     this.runTask(async () => {
       if (mode === 'recovery' && this.processor.recoverActive) return this.processor.recoverActive(this.processorActiveState(), input, this.#activationAbort!.signal);

@@ -43,8 +43,8 @@ function reviewerPass(id: string, evidenceCardId: string) {
   return toolCall(id, 'emit_result', { status: 'done', summary: 'review ok' });
 }
 
-function activateInput(card: CardRecord, hasPendingNotifications: () => boolean): CardActivationInput {
-  return { card, caller: { kind: 'root' }, notificationDelivery: { hasPendingNotifications, deliverNotificationsForInput: () => [] } };
+function activateInput(card: CardRecord, notificationDelivery: CardActivationInput['notificationDelivery'] = { deliverNotificationsForInput: () => [] }): CardActivationInput {
+  return { card, caller: { kind: 'root' }, notificationDelivery };
 }
 
 describe('PlanningCardProcessorActor reviewer currentness', () => {
@@ -74,7 +74,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate(activateInput(project, () => false), new AbortController().signal);
+    const outcome = await actor.activate(activateInput(project), new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok' });
     expect(reviewerAttempt).toBe(2);
@@ -84,14 +84,14 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     expect(index.versions['2']).toMatchObject({ status: 'closed' });
   }));
 
-  it('uses pending notification currentness instead of standalone reviewer invalidation', async () => withTempProject(async (projectRoot) => {
+  it('does not use pending notification state or reviewer notification context as reviewer currentness', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
-    let pending = false;
     let reviewerAttempt = 0;
-    let flippedPending = false;
+    let notificationArrivedDuringReview = false;
+    const delivery = { deliverNotificationsForInput: jest.fn(() => []) };
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
       if (input.role === 'planner') {
@@ -102,22 +102,31 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
         reviewerAttempt++;
         return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` });
       }
-      if (!flippedPending) {
-        flippedPending = true;
-        pending = true;
-      }
+      notificationArrivedDuringReview = true;
       return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);
     }) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate(activateInput(project, () => pending), new AbortController().signal);
+    const outcome = await actor.activate(activateInput(project, delivery), new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok' });
-    expect(reviewerAttempt).toBe(2);
+    expect(notificationArrivedDuringReview).toBe(true);
+    expect(reviewerAttempt).toBe(1);
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
+    expect(delivery.deliverNotificationsForInput).not.toHaveBeenCalledWith(expect.stringMatching(/^reviewer:/));
+    const reviewerInputs = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.map(([input]) => input).filter((input) => input.role === 'reviewer');
+    expect(reviewerInputs).toHaveLength(2);
+    for (const reviewerInput of reviewerInputs) {
+      const contextText = JSON.stringify(reviewerInput.contextMessages);
+      expect(contextText).not.toContain('pending main-agent notifications');
+      expect(contextText).not.toContain('Pending main-agent notifications');
+      expect(contextText).not.toContain('notification-currentness');
+      expect(contextText).not.toContain('invalidation signal');
+    }
     const index = readRecordSlotIndex(projectRoot, project.id, 'review');
-    expect(index.versions['1']).toMatchObject({ status: 'discarded', reason: 'stale_review' });
-    expect(index.latest).toBe(2);
+    expect(index.versions['1']).toMatchObject({ status: 'closed' });
+    expect(index.latest).toBe(1);
   }));
 
   it('repairs a missing review file in the same reviewer session before currentness acceptance', async () => withTempProject(async (projectRoot) => {
@@ -138,7 +147,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate(activateInput(project, () => false), new AbortController().signal);
+    const outcome = await actor.activate(activateInput(project), new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok' });
     const index = readRecordSlotIndex(projectRoot, project.id, 'review');
@@ -151,7 +160,6 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
-    let pending = false;
     let reviewerAttempt = 0;
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
@@ -163,13 +171,13 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
         reviewerAttempt++;
         return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` });
       }
-      pending = !pending;
+      store.mutateCard(project.id, { priority: project.priority + reviewerAttempt }, { actor: 'planner', surface: 'runtime', reason: 'test stale review budget' });
       return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);
     }) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate(activateInput(project, () => pending), new AbortController().signal);
+    const outcome = await actor.activate(activateInput(project), new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
     expect(outcome.summary).toContain('Reviewer currentness relaunch budget exhausted');

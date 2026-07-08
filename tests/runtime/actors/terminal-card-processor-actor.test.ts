@@ -51,6 +51,18 @@ function invocationToolNames(input: LlmInvocationInput): string[] {
   return input.tools.map((tool) => tool.function.name).sort();
 }
 
+function terminalToolResultError(input: LlmInvocationInput, toolCallId: string): string {
+  const result = input.episodeContext.lastToolResult as { toolCallId?: string; result?: { error?: string } } | undefined;
+  expect(result).toMatchObject({ toolCallId, result: { success: false, error: expect.any(String) } });
+  return result?.result?.error ?? '';
+}
+
+function expectNotificationSeparatedFromTerminalError(error: string, notificationPayload: string): void {
+  expect(error).not.toContain('Pending main-agent notifications');
+  expect(error).not.toContain('notification');
+  expect(error).not.toContain(notificationPayload);
+}
+
 function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal: AbortSignal) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
   const pending = new Map<string, LlmCompleteResult>();
   const statusWrites = new Map<string, number>();
@@ -259,7 +271,7 @@ describe('TerminalCardProcessorActor', () => {
     ]));
   }));
 
-  it('repairs plain executor prose and succeeds when the model emits a terminal result', async () => withTempProject(async (projectRoot) => {
+  it('repairs plain executor prose with separate notification context and succeeds when the model emits a terminal result', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
     let turns = 0;
     const provider = withExecutorStatusRecord(() => {
@@ -269,19 +281,21 @@ describe('TerminalCardProcessorActor', () => {
     });
     const processor = terminalProcessor(projectRoot, card.id, provider, store);
     processor.start();
-    const actor = actorFromCard(projectRoot, store, card, processor, provider);
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-plain', message: 'executor plain-text repair notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
 
-    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'implemented after repair' });
     const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0];
     expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
       { role: 'assistant', content: 'I implemented it.' },
       expect.objectContaining({ role: 'user', content: expect.stringContaining('Plain executor messages are not accepted') }),
+      expect.objectContaining({ role: 'user', content: 'executor plain-text repair notice' }),
     ]));
+    expect(JSON.stringify(repairInput.episodeContext.lastToolResult ?? {})).not.toContain('executor plain-text repair notice');
   }));
 
-  it('repairs invalid executor terminal arguments before projecting the result', async () => withTempProject(async (projectRoot) => {
+  it('repairs invalid executor terminal arguments with separate notification context before projecting the result', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
     let emittedInvalid = false;
     const provider = withExecutorStatusRecord((input: LlmInvocationInput) => {
@@ -294,14 +308,26 @@ describe('TerminalCardProcessorActor', () => {
     });
     const processor = terminalProcessor(projectRoot, card.id, provider, store);
     processor.start();
-    const actor = actorFromCard(projectRoot, store, card, processor, provider);
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:2') ? [{ id: 'n-invalid', message: 'executor invalid terminal notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
 
-    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'valid after terminal repair' });
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[2]?.[0];
+    const error = terminalToolResultError(repairInput, 'bad-executor');
+    expect(error).toContain('summary');
+    expect(error).toContain('Call emit_result again with valid JSON arguments.');
+    expectNotificationSeparatedFromTerminalError(error, 'executor invalid terminal notice');
+    expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'bad-executor', content: JSON.stringify({ success: false, error }) }),
+      expect.objectContaining({ role: 'user', content: 'executor invalid terminal notice' }),
+    ]));
+    expect(repairInput.contextMessages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Call emit_result again with valid JSON arguments.') }),
+    ]));
   }));
 
-  it('repairs missing executor status record before projecting the terminal result', async () => withTempProject(async (projectRoot) => {
+  it('repairs missing executor status record with separate notification context before projecting the terminal result', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
     const actions: string[] = [];
     const provider: LLMProviderPort = {
@@ -313,7 +339,6 @@ describe('TerminalCardProcessorActor', () => {
         }
         if (last.toolName === 'emit_result') {
           actions.push('write_status_after_repair');
-          expect(store.read(card.id)?.status).toBe('running');
           return recordWrite('executor-status-after-repair', 'record:///status.md?v=next', 'Executor status after repair.');
         }
         actions.push('emit_after_status');
@@ -322,9 +347,9 @@ describe('TerminalCardProcessorActor', () => {
     };
     const processor = terminalProcessor(projectRoot, card.id, provider, store);
     processor.start();
-    const actor = actorFromCard(projectRoot, store, card, processor, provider);
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-missing-status', message: 'executor missing status notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
 
-    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'implemented after missing-record repair' });
     expect(actions).toEqual(['emit_without_status', 'write_status_after_repair', 'emit_after_status']);
@@ -333,14 +358,21 @@ describe('TerminalCardProcessorActor', () => {
     expect(calls.map(([input]) => input.sessionId)).toEqual([`executor:${card.id}`, `executor:${card.id}`, `executor:${card.id}`]);
     const repairInput = calls[1][0];
     const missingRecord = `Required record 'record:///status.md?card=${card.id}&v=next' was not created.`;
+    const repairError = `${missingRecord} Create record:///status.md?v=next, then call emit_result again.`;
     expect(repairInput.episodeContext.lastToolResult).toMatchObject({
       toolCallId: 'executor-done',
       toolName: 'emit_result',
-      result: { success: false, error: missingRecord },
+      result: { success: false, error: repairError },
     });
+    const error = terminalToolResultError(repairInput, 'executor-done');
+    expect(error).toBe(repairError);
+    expectNotificationSeparatedFromTerminalError(error, 'executor missing status notice');
     expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'executor-done' }),
-      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'executor-done', content: JSON.stringify({ success: false, error: missingRecord }) }),
+      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'executor-done', content: JSON.stringify({ success: false, error: repairError }) }),
+      expect.objectContaining({ role: 'user', content: 'executor missing status notice' }),
+    ]));
+    expect(repairInput.contextMessages).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record:///status.md?v=next, then call emit_result again.') }),
     ]));
   }));
