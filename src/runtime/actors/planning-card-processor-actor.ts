@@ -20,7 +20,7 @@ import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
-import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, providerVisibleUserContextContent, readActiveVersionMessages } from './conversation-store.js';
+import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 
@@ -134,16 +134,19 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const sessionId = plannerActorId(this.cardId);
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
     appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
-    const plannerState = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'planner_state', 0, buildPlannerStateContextText({
-      projectRoot: this.projectRoot,
-      sessionId,
-      goalId: this.cardId,
-      cardStore: {
-        read: (cardId) => this.store.read(cardId),
-        listChildren: (cardId) => this.store.listChildren?.(cardId) ?? [],
-      },
-    }));
-    const notifications = this.notificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, providerVisibleUserContextContent(message)));
+    const plannerState = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'planner_state', 0, {
+      role: 'user',
+      content: buildPlannerStateContextText({
+        projectRoot: this.projectRoot,
+        sessionId,
+        goalId: this.cardId,
+        cardStore: {
+          read: (cardId) => this.store.read(cardId),
+          listChildren: (cardId) => this.store.listChildren?.(cardId) ?? [],
+        },
+      }),
+    });
+    const notifications = this.notificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, message));
     return {
       inputId,
       agentId: sessionId,
@@ -261,7 +264,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const inputId = this.nextInvocationInputId('reviewer');
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
     appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
-    const descendantContext = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness).content);
+    const descendantContext = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness));
     return {
       inputId,
       agentId: reviewerActorId(input.card.id),

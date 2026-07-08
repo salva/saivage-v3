@@ -56,18 +56,15 @@ export type UserContextMessageCategory = 'planner_state' | 'notification' | 'rev
 
 export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
 
-export function providerVisibleUserContextContent(message: ProviderVisibleUserContextMessage): string {
-  return message.content;
-}
-
 export function appendUserContextMessage(
   projectRoot: string,
   sessionId: string,
   inputId: string,
   category: UserContextMessageCategory,
   ordinal: number,
-  content: string,
+  userContextMessage: ProviderVisibleUserContextMessage,
 ): AgentMessage {
+  const content = userContextMessage.content;
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:user:${inputId}:${category}:${ordinal}:${timestamp}:${content}`;
   const message = agentMessageSchema.parse({

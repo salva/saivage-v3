@@ -15,7 +15,7 @@ export interface PromptTemplateRegistry {
 
 export type PromptTemplatesConfig = Partial<Record<AgentRoleKey, string>>;
 
-export type PromptCardTypeGuidanceConfig = Readonly<Record<string, string>> & Readonly<{ default: string }>;
+type PromptCardTypeGuidanceConfig = Readonly<Record<string, string>> & Readonly<{ default: string }>;
 
 export interface PromptDefaultBundle {
   readonly planner: string;
@@ -221,6 +221,7 @@ function renderTokens(role: AgentRoleKey, tokens: readonly TemplateToken[], vari
 export function createPromptTemplateRegistry(options: PromptTemplateRegistryOptions): PromptTemplateRegistry {
   const defaults = validateDefaultBundle((options.defaultBundleForTest ?? readDefaultBundle()) as unknown as Record<string, unknown>, 'Prompt default bundle');
   const tokensByRole = new Map<AgentRoleKey, readonly TemplateToken[]>();
+  let executorTemplateIncludesCardTypeGuidance = false;
 
   for (const role of ROLE_KEYS) {
     const override = options.promptsConfig?.[role];
@@ -231,6 +232,9 @@ export function createPromptTemplateRegistry(options: PromptTemplateRegistryOpti
     const tokens = tokenizeTemplate(role, template);
     validatePlaceholders(role, tokens);
     tokensByRole.set(role, tokens);
+    if (role === 'executor') {
+      executorTemplateIncludesCardTypeGuidance = tokens.some((token) => token.kind === 'placeholder' && token.key === 'cardTypeGuidance');
+    }
   }
 
   return Object.freeze({
@@ -239,7 +243,7 @@ export function createPromptTemplateRegistry(options: PromptTemplateRegistryOpti
       if (tokens === undefined) {
         throw new PromptTemplateRenderError(role, role, 'unknown role');
       }
-      const renderVariables = role === 'executor'
+      const renderVariables = role === 'executor' && executorTemplateIncludesCardTypeGuidance
         ? { ...variables, cardTypeGuidance: renderCardTypeGuidance(defaults.cardTypeGuidance, variables.cardType) }
         : variables;
       return renderTokens(role, tokens, renderVariables);

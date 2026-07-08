@@ -16,7 +16,7 @@ import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
-import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, providerVisibleUserContextContent, readActiveVersionMessages } from './conversation-store.js';
+import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 
@@ -118,7 +118,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const sessionId = executorActorId(this.cardId);
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
     appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId });
-    const notifications = this.notificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, providerVisibleUserContextContent(message)));
+    const notifications = this.notificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, message));
     return {
       inputId,
       agentId: sessionId,

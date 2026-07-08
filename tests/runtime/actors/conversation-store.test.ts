@@ -104,8 +104,8 @@ describe('conversation-store', () => {
   it('persists identical user context content with unique ids', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
 
-    const first = appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 0, 'same content');
-    const second = appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 1, 'same content');
+    const first = appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 0, { role: 'user', content: 'same content' });
+    const second = appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 1, { role: 'user', content: 'same content' });
     const messages = readConversationMessages(root, 'planner:project');
 
     expect(first.id).not.toBe(second.id);
@@ -116,7 +116,7 @@ describe('conversation-store', () => {
   it('keeps activation markers out of provider context while active-version read returns the persisted prefix', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
 
-    appendUserContextMessage(root, 'planner:project', 'input-1', 'planner_state', 0, 'planner state');
+    appendUserContextMessage(root, 'planner:project', 'input-1', 'planner_state', 0, { role: 'user', content: 'planner state' });
     appendActivationMarker(root, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'input-1' });
 
     const active = readActiveVersionMessages(root, 'planner:project');

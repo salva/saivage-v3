@@ -148,7 +148,7 @@ describe('LLMActor', () => {
     const harness = new InitialOutcomeHarness(projectRoot, provider);
     const factory = jest.fn(() => {
       appendActivationMarker(projectRoot, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
-      appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'planner_state', 0, 'lazy planner state');
+      appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'planner_state', 0, { role: 'user', content: 'lazy planner state' });
       return input('lazy-input');
     });
 
@@ -186,7 +186,7 @@ describe('LLMActor', () => {
     const harness = new InitialOutcomeHarness(projectRoot, provider);
     const factory = jest.fn(() => {
       appendActivationMarker(projectRoot, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
-      const context = appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'planner_state', 0, 'lazy planner state');
+      const context = appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'planner_state', 0, { role: 'user', content: 'lazy planner state' });
       return { ...input('lazy-input'), contextMessages: [context] };
     });
 

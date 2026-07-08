@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync 
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as YAML from 'yaml';
+import { assertGuidancePlaceholders } from './prompt-placeholder-validator.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceFile = join(repoRoot, 'src', 'utils', 'prompt-defaults.yaml');
@@ -12,44 +13,6 @@ const outputDir = join(repoRoot, 'dist', 'src', 'utils');
 const outputFile = join(outputDir, 'prompt-defaults.yaml');
 const roleKeys = ['planner', 'executor', 'reviewer', 'analyst'];
 const topLevelKeys = [...roleKeys, 'cardTypeGuidance'];
-
-function isIdentifierStart(char) {
-  if (char === undefined) return false;
-  return /[A-Za-z_]/.test(char);
-}
-
-function isIdentifierPart(char) {
-  if (char === undefined) return false;
-  return /[A-Za-z0-9_]/.test(char);
-}
-
-function malformedToken(template, start) {
-  return template.slice(start, Math.min(template.length, start + 32));
-}
-
-function assertGuidancePlaceholders(key, template) {
-  let i = 0;
-  while (i < template.length) {
-    const c = template[i];
-    if (c === '{' && template[i + 1] === '{') {
-      let j = i + 2;
-      while (template[j] === ' ' || template[j] === '\t') j++;
-      const idStart = j;
-      if (!isIdentifierStart(template[j])) throw new Error(`Prompt defaults cardTypeGuidance.${key} has malformed placeholder: ${malformedToken(template, i)}`);
-      j++;
-      while (isIdentifierPart(template[j])) j++;
-      const placeholder = template.slice(idStart, j);
-      if (placeholder !== 'cardType') throw new Error(`Prompt defaults cardTypeGuidance.${key} uses unsupported placeholder: ${placeholder}`);
-      if (template[j] !== ' ' && template[j] !== '\t' && template[j] !== '}' && template[j] !== undefined) throw new Error(`Prompt defaults cardTypeGuidance.${key} has malformed placeholder: ${malformedToken(template, i)}`);
-      while (template[j] === ' ' || template[j] === '\t') j++;
-      if (template[j] !== '}' || template[j + 1] !== '}') throw new Error(`Prompt defaults cardTypeGuidance.${key} has unclosed placeholder: ${malformedToken(template, i)}`);
-      i = j + 2;
-      continue;
-    }
-    if (c === '}' && template[i + 1] === '}') throw new Error(`Prompt defaults cardTypeGuidance.${key} has stray '}}'.`);
-    i++;
-  }
-}
 
 function assertDefaultsFile(path) {
   if (!existsSync(path)) {

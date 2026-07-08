@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as YAML from 'yaml';
+import { assertGuidancePlaceholders } from '../../scripts/prompt-placeholder-validator.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const staleDir = join(repoRoot, 'dist', 'prompts');
@@ -14,6 +15,17 @@ const topLevelKeys = [...roleKeys, 'cardTypeGuidance'];
 
 function fail(message) {
   throw new Error(message);
+}
+
+function assertThrows(message, fn, expectedText) {
+  try {
+    fn();
+  } catch (error) {
+    const actual = error instanceof Error ? error.message : String(error);
+    if (!actual.includes(expectedText)) fail(`${message}: expected error containing ${expectedText}, got ${actual}`);
+    return;
+  }
+  fail(`${message}: expected error`);
 }
 
 function assertDefaultsValid() {
@@ -32,10 +44,13 @@ function assertDefaultsValid() {
   if (typeof guidance.default !== 'string' || guidance.default.length === 0) fail('defaults.yaml cardTypeGuidance.default is invalid');
   for (const [key, value] of Object.entries(guidance)) {
     if (typeof value !== 'string' || value.length === 0) fail(`defaults.yaml cardTypeGuidance.${key} is invalid`);
-    for (const match of value.matchAll(/{{\s*([^}\s]+)\s*}}/g)) {
-      if (match[1] !== 'cardType') fail(`defaults.yaml cardTypeGuidance.${key} has unsupported placeholder ${match[1]}`);
-    }
+    assertGuidancePlaceholders(key, value);
   }
+}
+
+function assertPlaceholderValidationRejectsInvalidTemplates() {
+  assertThrows('unsupported guidance placeholder', () => assertGuidancePlaceholders('test', 'Use {{cardTitle}}'), 'unsupported placeholder: cardTitle');
+  assertThrows('malformed guidance placeholder', () => assertGuidancePlaceholders('test', 'Use {{card-type}}'), 'malformed placeholder');
 }
 
 function assertStaleDirGone() {
@@ -58,6 +73,7 @@ function runCopyPromptDefaultsTest() {
     execFileSync('node', ['scripts/copy-prompt-defaults.js'], { cwd: repoRoot, stdio: 'inherit' });
     assertStaleDirGone();
     assertDefaultsValid();
+    assertPlaceholderValidationRejectsInvalidTemplates();
   } finally {
     rmSync(staleDir, { recursive: true, force: true });
   }

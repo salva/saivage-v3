@@ -5,7 +5,7 @@ import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
-import { appendUserContextMessage, providerVisibleUserContextContent, type ProviderVisibleUserContextMessage } from './conversation-store.js';
+import { appendUserContextMessage, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -135,7 +135,7 @@ export class ConversationLLMActor extends BaseActor {
     const repairInputId = this.nextDeliveryInputId(input.inputId);
     const repairMessage = appendModelRepairMessage(this.projectRoot, { ...input, inputId: repairInputId }, repairDirective);
     const repairContextMessage = { role: 'user', content: repairDirective };
-    const extraMessages = (continuationContextHook?.(repairInputId) ?? []).map((message, index) => appendUserContextMessage(this.projectRoot, input.sessionId, repairInputId, 'continuation_hook', index, providerVisibleUserContextContent(message)));
+    const extraMessages = (continuationContextHook?.(repairInputId) ?? []).map((message, index) => appendUserContextMessage(this.projectRoot, input.sessionId, repairInputId, 'continuation_hook', index, message));
     return this.startProviderTurn({
       ...input,
       inputId: repairInputId,
@@ -302,7 +302,7 @@ export class ConversationLLMActor extends BaseActor {
       type: 'function',
       function: { name: waiting.toolName, arguments: waiting.toolCallArguments },
     });
-    const extraMessages = (continuationContextHook?.(delivery.delivery_input_id) ?? []).map((message, index) => appendUserContextMessage(this.projectRoot, input.sessionId, delivery.delivery_input_id, 'continuation_hook', index, providerVisibleUserContextContent(message)));
+    const extraMessages = (continuationContextHook?.(delivery.delivery_input_id) ?? []).map((message, index) => appendUserContextMessage(this.projectRoot, input.sessionId, delivery.delivery_input_id, 'continuation_hook', index, message));
     return [...input.contextMessages, toolCallMessage, toolResultAgentMessage(delivery), ...extraMessages];
   }
 

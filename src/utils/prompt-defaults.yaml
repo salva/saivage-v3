@@ -129,4 +129,4 @@ cardTypeGuidance:
     - This is an **ops** card — perform operational tasks.
     - Log command outputs for auditing.
   default: |
-    - Card type `{{cardType}}` — follow the general executor guidelines.
+    - Follow the general executor guidelines.

@@ -126,6 +126,29 @@ describe('PromptTemplateRegistry', () => {
     expect(registry.render('executor', variables('executor', { cardType: '' }))).not.toContain('guidance for');
   });
 
+  it('does not require or inject card-type guidance when the executor template omits the placeholder', () => {
+    const registry = createPromptTemplateRegistry({
+      defaultBundleForTest: {
+        ...defaultBundle,
+        executor: 'executor {{cardId}} {{cardTitle}}',
+      },
+    });
+
+    expect(registry.render('executor', { cardId: 'card-1', cardTitle: 'No guidance' })).toBe('executor card-1 No guidance');
+  });
+
+  it('renders card-type guidance when the executor template includes the placeholder', () => {
+    const registry = createPromptTemplateRegistry({
+      defaultBundleForTest: {
+        ...defaultBundle,
+        executor: 'executor {{cardTypeGuidance}}',
+      },
+    });
+
+    expect(registry.render('executor', { cardType: 'code' })).toBe('executor code guidance for code');
+    expect(registry.render('executor', { cardType: 'custom' })).toBe('executor default guidance for custom');
+  });
+
   it('validates card-type guidance bundle shape during construction', () => {
     expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: undefined as never })).toThrow(/cardTypeGuidance/);
     expect(() => createWithBundle({ ...defaultBundle, cardTypeGuidance: [] as never })).toThrow(/cardTypeGuidance/);
