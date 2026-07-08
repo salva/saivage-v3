@@ -2,6 +2,7 @@ export * from './ids.js';
 export * from './snapshots.js';
 export * from './llm-delivery-log.js';
 export * from './conversation-store.js';
+export * from './conversation-recovery.js';
 export {
   activeVersionPath,
   versionExists,

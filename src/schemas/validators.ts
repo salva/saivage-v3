@@ -15,6 +15,7 @@ import {
 import { buildLoggedEventSchema } from './event-catalog.js';
 import { roundIdGrammar } from './round-id.js';
 import { cardLifecycleStateSchema } from './lifecycle.js';
+import { sourceInputIdFromToolErrorMessageId } from './message-identity.js';
 export { roundIdGrammar, assertRoundId, type RoundKind } from './round-id.js';
 
 
@@ -49,7 +50,20 @@ export const agentSessionSchema = z.object({ id: z.string().min(1), role: agentR
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
 export const messageKindSchema = z.enum(['text', 'activity', 'provider_exchange', 'tool_call', 'tool_result', 'tool_error', 'model_issue', 'model_repair', 'context_compaction', 'model_recovered', 'system_prompt']);
 export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment', 'quarantine']), entity_id: z.string().min(1), label: z.string().optional() });
-export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: z.string().min(1), role: messageRoleSchema, kind: messageKindSchema, content: z.string(), round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional() }).superRefine((message, ctx) => { if ((message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'tool_error') && message.tool_call_id !== undefined && typeof message.tool_call_id !== 'string') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_call_id must be a scalar string when present on tool entries', path: ['tool_call_id'] }); });
+export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: z.string().min(1), role: messageRoleSchema, kind: messageKindSchema, content: z.string(), round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional() }).superRefine((message, ctx) => {
+  if ((message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'tool_error') && message.tool_call_id !== undefined && typeof message.tool_call_id !== 'string') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_call_id must be a scalar string when present on tool entries', path: ['tool_call_id'] });
+  if (message.kind !== 'tool_error') return;
+  if (!message.tool) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_error rows require tool', path: ['tool'] });
+  if (!message.tool_call_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_error rows require tool_call_id', path: ['tool_call_id'] });
+    return;
+  }
+  try {
+    sourceInputIdFromToolErrorMessageId(message.id, message.tool_call_id);
+  } catch (error) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: error instanceof Error ? error.message : String(error), path: ['id'] });
+  }
+});
 
 export const activationCompletionOutcomeSchema = z.enum(['done', 'failed', 'blocked', 'cancelled', 'timed_out']);
 export const activationCompletionEnvelopeV1Schema: z.ZodType<import('./types.js').ActivationCompletionEnvelopeV1> = z.object({ kind: z.literal('activate_card_completion'), version: z.literal(1), child_card_id: z.string().min(1), outcome: activationCompletionOutcomeSchema, summary: z.string(), result: z.record(z.string(), z.unknown()).nullable().optional(), evidence_card_ids: z.array(z.string()).optional(), error: z.string().nullable().optional(), completed_by_session_id: z.string().nullable().optional(), success: z.boolean(), cardId: z.string().min(1), failure_kind: z.string().optional() }).strict();

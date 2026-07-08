@@ -9,6 +9,7 @@ import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { appendConversationMessage, appendProviderExchangeMessage, listConversationSessionIds, readConversationMessages } from './conversation-store.js';
 import { agentIdFromSessionId, cardIdFromSessionId } from './ids.js';
+export { sourceInputIdFromToolErrorMessageId } from '../../schemas/message-identity.js';
 
 const toolDeliveryRecordSchema = z.object({
   delivery_id: z.string().min(1),

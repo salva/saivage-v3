@@ -3,9 +3,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { abandonStalePendingToolCalls, appendConversationMessage, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalProjectedToolResult, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, loggedToolCallKey, readConversationMessages, readLoggedToolCall, sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../../../src/runtime/actors/index.js';
+import { abandonStalePendingToolCalls, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalProjectedToolResult, loggedToolCallKey, readLoggedToolCall, sourceInputIdFromToolCallMessageId, sourceInputIdFromToolErrorMessageId, sourceInputIdFromToolResultMessageId } from '../../../src/runtime/actors/llm-delivery-log.js';
+import { appendConversationMessage, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
-import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
+import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-delivery-log-'));
@@ -149,9 +150,12 @@ describe('llm delivery log recovery helpers', () => {
   it('extracts source input ids from tool message ids and fails fast on malformed ids', () => {
     expect(sourceInputIdFromToolCallMessageId('planner:G-1:1:tool-call:call_dup')).toBe('planner:G-1:1');
     expect(sourceInputIdFromToolResultMessageId('planner:G-1:2:tool:1:tool-result:call_dup')).toBe('planner:G-1:2');
+    expect(sourceInputIdFromToolErrorMessageId('planner:G-1:3:tool-error:call_dup', 'call_dup')).toBe('planner:G-1:3');
     expect(() => sourceInputIdFromToolCallMessageId('planner:G-1:1')).toThrow(/Malformed tool_call/);
     expect(() => sourceInputIdFromToolResultMessageId('planner:G-1:2:tool:1')).toThrow(/Malformed tool_result/);
     expect(() => sourceInputIdFromToolResultMessageId('planner:G-1:2:tool-result:call_dup')).toThrow(/delivery input/);
+    expect(() => sourceInputIdFromToolErrorMessageId('planner:G-1:3:tool-error:call_dup', 'other')).toThrow(/Malformed tool_error/);
+    expect(() => sourceInputIdFromToolErrorMessageId('planner:G-1:3:tool-error:', '')).toThrow(/missing tool_call_id/);
   });
 
   it('lists encoded conversation session directories as decoded ids', () => withTempProject((projectRoot) => {

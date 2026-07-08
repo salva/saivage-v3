@@ -8,6 +8,7 @@ import {
   processRecordSchema,
   projectConfigSchema,
   runtimeStateSchema,
+  agentMessageSchema,
   createActivationCompletionEnvelope,
   parseActivationCompletionEnvelope,
 } from '../src/schemas/validators.js';
@@ -153,6 +154,27 @@ describe('Core schemas still validate expected records', () => {
       runtime_runs: [],
       runtime_activations: [],
     }).success).toBe(true);
+  });
+
+  it('enforces persisted tool_error identity', () => {
+    const base = {
+      id: 'planner:G-1:1:tool-error:call-1',
+      session_id: 'planner:G-1',
+      role: 'tool',
+      kind: 'tool_error',
+      content: 'tool failed',
+      round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      message_index: 2,
+      block_index: 0,
+      timestamp: '2025-01-01T00:00:00.000Z',
+      tool: 'emit_result',
+      tool_call_id: 'call-1',
+    };
+    expect(agentMessageSchema.safeParse(base).success).toBe(true);
+    expect(agentMessageSchema.safeParse({ ...base, tool: undefined }).success).toBe(false);
+    expect(agentMessageSchema.safeParse({ ...base, tool_call_id: undefined }).success).toBe(false);
+    expect(agentMessageSchema.safeParse({ ...base, id: 'planner:G-1:1:tool-error:other-call' }).success).toBe(false);
+    expect(agentMessageSchema.safeParse({ ...base, id: 'planner:G-1:1:error:call-1' }).success).toBe(false);
   });
 
 
