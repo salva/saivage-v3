@@ -63,7 +63,7 @@ Card tree rows show only the depth-indented state ball, human-friendly display-p
 
 The Analyst panel is the user's mutation path. The user asks for changes in natural language; the Analyst invokes canonical services.
 
-Planner, executor, reviewer, and analyst prompts are configurable by editing `prompts` blocks in `.saivage/saivage.yaml`; rendered prompts still appear through the normal agent transcript and Debug conversation surfaces.
+Planner, executor, reviewer, and analyst prompts are configurable by editing Markdown overrides under `.saivage/config/prompts/<cardType>/<role>.md`; rendered prompts still appear through the normal agent transcript and Debug conversation surfaces.
 
 The chat composer must be reachable without opening a drawer or switching page modes. The user should be able to inspect the workspace and talk to the Analyst at the same time.
 

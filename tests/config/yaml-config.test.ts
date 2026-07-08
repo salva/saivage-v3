@@ -34,11 +34,4 @@ describe('YAML project config loading', () => {
     expect(env.config.models.default).toEqual(['model-a']);
     expect(env.config.providers.default.apiKey).toBe('key-a');
   });
-
-  it('accepts prompts block scalars', () => {
-    const root = makeRoot();
-    writeSaivageConfig(root, 'models:\n  default: [test-model]\nprompts:\n  planner: |\n    Plan with {{cardId}}\n    Keep newlines.\n');
-    const env = loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root, NODE_ENV: 'test' });
-    expect(env.config.prompts?.planner).toContain('Keep newlines.');
-  });
 });

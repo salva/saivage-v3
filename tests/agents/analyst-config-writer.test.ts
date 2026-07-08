@@ -71,8 +71,8 @@ describe('analyst-config-writer.setFailoverChain', () => {
     expect((config as Record<string, unknown>).failover).toBeUndefined();
   });
 
-  it('preserves comments, ordering, and prompts block scalars while writing YAML only', () => {
-    setupYamlConfig(`# operator comment\nmodels:\n  default:\n    - gpt-5.5\nprompts:\n  planner: |\n    Keep this prompt as a block scalar.\n    It contains ${'${HOME}'} literally.\nserver:\n  host: 127.0.0.1\n  port: 8080\n`);
+  it('preserves comments and surviving key ordering while writing YAML only', () => {
+    setupYamlConfig(`# operator comment\nmodels:\n  default:\n    - gpt-5.5\nserver:\n  host: 127.0.0.1\n  port: 8080\n`);
 
     const result = setFailoverChain(TEST_ROOT, 'gpt-5.5', ['kimi-k2.6']);
     expect(result.success).toBe(true);
@@ -80,10 +80,7 @@ describe('analyst-config-writer.setFailoverChain', () => {
     const content = readFileSync(CONFIG_PATH, 'utf-8');
     expect(content).toContain('# operator comment');
     expect(content).toContain('models:');
-    expect(content.indexOf('models:')).toBeLessThan(content.indexOf('prompts:'));
-    expect(content.indexOf('prompts:')).toBeLessThan(content.indexOf('server:'));
-    expect(content).toContain('planner: |');
-    expect(content).toContain('It contains ${HOME} literally.');
+    expect(content.indexOf('models:')).toBeLessThan(content.indexOf('server:'));
     expect(content).toContain('failover:');
     expect(existsSync(LEGACY_CONFIG_PATH)).toBe(false);
   });

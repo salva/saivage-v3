@@ -389,7 +389,7 @@ export class AnalystSessionActor extends BaseActor {
       agentId: this.llm.agentId,
       role: 'analyst',
       sessionId: this.sessionId,
-      systemPrompt: this.args.promptTemplates.render('analyst', {
+      systemPrompt: this.args.promptTemplates.render('analyst', 'analyst', {
         toolList: formatPromptToolList(tools),
         vocabularySnippet: formatVocabularySnippet(),
         projectContext: this.buildProjectContext(),

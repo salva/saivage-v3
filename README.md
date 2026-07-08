@@ -35,9 +35,9 @@ server:
 runtime: {}
 ```
 
-Agent prompts are customizable inline via `prompts:` in `.saivage/saivage.yaml`. Copy a role block from `dist/src/utils/prompt-defaults.yaml` into the config and edit the YAML literal block scalar; omitted roles keep the built-in defaults.
+Agent prompts are customizable with file-level Markdown overrides in `.saivage/config/prompts/<cardType>/<role>.md`. Shipped defaults live in `src/prompts/` and are copied to `dist/prompts/`; omitted override files keep the built-in defaults.
 
-Existing deployments must rename `.saivage/saivage.json` to `.saivage/saivage.yaml` with `mv`, not `cp`. If both files exist, startup fails and directs the operator to delete the obsolete JSON because it may still contain provider credentials. After the rename, operators may rewrite the file to idiomatic YAML and optionally add `prompts:` overrides. `${ENV_VAR}` interpolation does not apply inside `prompts:`; use `{{variable}}` placeholders there.
+Existing deployments must rename `.saivage/saivage.json` to `.saivage/saivage.yaml` with `mv`, not `cp`. If both files exist, startup fails and directs the operator to delete the obsolete JSON because it may still contain provider credentials. After the rename, operators may rewrite the file to idiomatic YAML and optionally add prompt override files under `.saivage/config/prompts/`.
 
 Start Saivage from the target project directory:
 

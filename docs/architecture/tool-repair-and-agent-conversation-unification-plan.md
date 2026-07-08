@@ -176,7 +176,7 @@ The analyst loop currently re-reads all messages from disk every iteration, comp
 agentId: sessionId   (e.g. 'analyst:global')
 role: 'analyst'
 sessionId: sessionId
-systemPrompt: PromptTemplateRegistry.render('analyst', { toolList, vocabularySnippet, projectContext })
+systemPrompt: PromptTemplateRegistry.render('analyst', 'analyst', { toolList, vocabularySnippet, projectContext })
 contextMessages: [workspace-context system message, user message]
 tools: getAnalystToolDefinitions()
 terminalToolNames: []

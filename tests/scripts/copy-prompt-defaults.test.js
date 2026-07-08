@@ -1,17 +1,25 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import * as YAML from 'yaml';
-import { assertGuidancePlaceholders } from '../../scripts/prompt-placeholder-validator.js';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, relative } from 'node:path';
+import { copyPromptDefaults } from '../../scripts/copy-prompt-defaults.js';
+import { assertPromptPlaceholders, tokenizePromptTemplate } from '../../scripts/prompt-placeholder-validator.js';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const staleDir = join(repoRoot, 'dist', 'prompts');
-const outputFile = join(repoRoot, 'dist', 'src', 'utils', 'prompt-defaults.yaml');
-const roleKeys = ['planner', 'executor', 'reviewer', 'analyst'];
-const topLevelKeys = [...roleKeys, 'cardTypeGuidance'];
+const activePairs = [
+  ['project', 'planner'],
+  ['project', 'reviewer'],
+  ['goal', 'planner'],
+  ['goal', 'reviewer'],
+  ['architecture', 'executor'],
+  ['code', 'executor'],
+  ['test', 'executor'],
+  ['doc', 'executor'],
+  ['data', 'executor'],
+  ['research', 'executor'],
+  ['ops', 'executor'],
+  ['analyst', 'analyst'],
+];
 
 function fail(message) {
   throw new Error(message);
@@ -28,59 +36,65 @@ function assertThrows(message, fn, expectedText) {
   fail(`${message}: expected error`);
 }
 
-function assertDefaultsValid() {
-  if (!existsSync(outputFile)) fail('prompt-defaults.yaml was not copied to dist/src/utils');
-  const parsed = YAML.parse(readFileSync(outputFile, 'utf8'));
-  const keys = Object.keys(parsed).sort();
-  const expected = [...topLevelKeys].sort();
-  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
-    fail(`defaults.yaml has wrong top-level keys: ${keys.join(', ')}`);
+function walkFiles(root, current = root) {
+  const files = [];
+  for (const entry of readdirSync(current, { withFileTypes: true })) {
+    const path = join(current, entry.name);
+    if (entry.isDirectory()) files.push(...walkFiles(root, path));
+    else if (entry.isFile()) files.push(relative(root, path));
   }
-  for (const role of roleKeys) {
-    if (typeof parsed[role] !== 'string' || parsed[role].length === 0) fail(`defaults.yaml has invalid role template: ${role}`);
+  return files.sort();
+}
+
+function writeFixtureTree(root) {
+  for (const [cardType, role] of activePairs) {
+    const path = join(root, cardType, `${role}.md`);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${cardType}/${role} {{toolList}}`);
   }
-  const guidance = parsed.cardTypeGuidance;
-  if (guidance === null || typeof guidance !== 'object' || Array.isArray(guidance)) fail('defaults.yaml cardTypeGuidance is not a mapping');
-  if (typeof guidance.default !== 'string' || guidance.default.length === 0) fail('defaults.yaml cardTypeGuidance.default is invalid');
-  for (const [key, value] of Object.entries(guidance)) {
-    if (typeof value !== 'string' || value.length === 0) fail(`defaults.yaml cardTypeGuidance.${key} is invalid`);
-    assertGuidancePlaceholders(key, value);
+}
+
+function assertTreesEqual(sourceRoot, outputRoot) {
+  const sourceFiles = walkFiles(sourceRoot);
+  const outputFiles = walkFiles(outputRoot);
+  if (sourceFiles.join('\n') !== outputFiles.join('\n')) fail('copied prompt file set does not match source tree');
+  for (const file of sourceFiles) {
+    const source = readFileSync(join(sourceRoot, file), 'utf8');
+    const output = readFileSync(join(outputRoot, file), 'utf8');
+    if (source !== output) fail(`copied prompt content does not match for ${file}`);
   }
 }
 
 function assertPlaceholderValidationRejectsInvalidTemplates() {
-  assertThrows('unsupported guidance placeholder', () => assertGuidancePlaceholders('test', 'Use {{cardTitle}}'), 'unsupported placeholder: cardTitle');
-  assertThrows('malformed guidance placeholder', () => assertGuidancePlaceholders('test', 'Use {{card-type}}'), 'malformed placeholder');
-}
-
-function assertStaleDirGone() {
-  if (!existsSync(staleDir)) return;
-  const entries = readdirSync(staleDir);
-  if (entries.length > 0) fail('dist/prompts still contains stale files');
-  fail('dist/prompts still exists');
+  assertThrows('stray close placeholder', () => tokenizePromptTemplate('Use }}', 'test'), "stray '}}'");
+  assertThrows('nested placeholder', () => tokenizePromptTemplate('Use {{outer {{inner}}', 'test'), 'nested placeholder');
+  assertThrows('unknown placeholder', () => assertPromptPlaceholders('Use {{cardTitle}}', 'test', new Set(['cardId'])), 'unknown placeholder: cardTitle');
 }
 
 function runCopyPromptDefaultsTest() {
-  mkdirSync(staleDir, { recursive: true });
-  writeFileSync(join(staleDir, 'stale.md'), 'stale');
-  writeFileSync(join(staleDir, 'planner.md'), 'old planner');
-
+  const sourceRoot = mkdtempSync(join(tmpdir(), 'saivage-copy-source-'));
+  const outputRoot = mkdtempSync(join(tmpdir(), 'saivage-copy-output-'));
+  const staleYaml = join('dist', 'src', 'utils', `prompt-${'defaults'}.yaml`);
   try {
-    execFileSync('node', ['scripts/copy-prompt-defaults.js'], { cwd: repoRoot, stdio: 'inherit' });
-    assertStaleDirGone();
-    assertDefaultsValid();
-
-    execFileSync('node', ['scripts/copy-prompt-defaults.js'], { cwd: repoRoot, stdio: 'inherit' });
-    assertStaleDirGone();
-    assertDefaultsValid();
+    writeFixtureTree(sourceRoot);
+    writeFileSync(join(outputRoot, 'stale.md'), 'stale');
+    mkdirSync(dirname(staleYaml), { recursive: true });
+    writeFileSync(staleYaml, 'stale yaml');
+    copyPromptDefaults({ sourceRoot, outputRoot });
+    if (existsSync(join(outputRoot, 'stale.md'))) fail('stale output file survived copy');
+    if (existsSync(staleYaml)) fail('stale YAML prompt defaults survived copy');
+    assertTreesEqual(sourceRoot, outputRoot);
+    copyPromptDefaults({ sourceRoot, outputRoot });
+    assertTreesEqual(sourceRoot, outputRoot);
     assertPlaceholderValidationRejectsInvalidTemplates();
   } finally {
-    rmSync(staleDir, { recursive: true, force: true });
+    rmSync(sourceRoot, { recursive: true, force: true });
+    rmSync(outputRoot, { recursive: true, force: true });
   }
 }
 
 if (typeof globalThis.test === 'function') {
-  globalThis.test('copies prompt defaults and removes stale dist prompt files idempotently', () => {
+  globalThis.test('copies prompt defaults as a directory tree idempotently', () => {
     runCopyPromptDefaultsTest();
   });
 } else {

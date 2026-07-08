@@ -198,7 +198,7 @@ function readConfigFile(configPath: string, projectRoot: string, env: Environmen
     throw new EnvironmentLoadError(`Failed to parse saivage.yaml: ${err instanceof Error ? err.message : String(err)}`, { field: 'config', expected: 'valid YAML', received: 'invalid YAML', source: 'file' });
   }
 
-  const { value: interpolated, warnings } = interpolateValue(rawObj, env, { skipRootKeys: new Set(['prompts']) });
+  const { value: interpolated, warnings } = interpolateValue(rawObj, env);
   const parsed = saivageConfigSchema.safeParse(interpolated);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ');

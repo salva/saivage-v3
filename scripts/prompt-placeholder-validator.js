@@ -27,7 +27,10 @@ export function tokenizePromptTemplate(template, sourceLabel) {
       const placeholder = template.slice(idStart, j);
       if (template[j] !== ' ' && template[j] !== '\t' && template[j] !== '}' && template[j] !== undefined) throw new Error(`${sourceLabel} has malformed placeholder: ${malformedToken(template, i)}`);
       while (template[j] === ' ' || template[j] === '\t') j++;
-      if (template[j] !== '}' || template[j + 1] !== '}') throw new Error(`${sourceLabel} has unclosed placeholder: ${malformedToken(template, i)}`);
+      if (template[j] !== '}' || template[j + 1] !== '}') {
+        if (template[j] === '{' && template[j + 1] === '{') throw new Error(`${sourceLabel} has nested placeholder open before close: ${malformedToken(template, i)}`);
+        throw new Error(`${sourceLabel} has unclosed placeholder: ${malformedToken(template, i)}`);
+      }
       placeholders.push(placeholder);
       i = j + 2;
       continue;
@@ -38,9 +41,8 @@ export function tokenizePromptTemplate(template, sourceLabel) {
   return placeholders;
 }
 
-export function assertGuidancePlaceholders(key, template, allowedPlaceholders = new Set(['cardType'])) {
-  const sourceLabel = `Prompt defaults cardTypeGuidance.${key}`;
+export function assertPromptPlaceholders(template, sourceLabel, allowedPlaceholders) {
   for (const placeholder of tokenizePromptTemplate(template, sourceLabel)) {
-    if (!allowedPlaceholders.has(placeholder)) throw new Error(`${sourceLabel} uses unsupported placeholder: ${placeholder}`);
+    if (!allowedPlaceholders.has(placeholder)) throw new Error(`${sourceLabel} uses unknown placeholder: ${placeholder}`);
   }
 }

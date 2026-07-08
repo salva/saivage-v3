@@ -7,10 +7,6 @@ export interface EnvInterpolationResult {
 
 export type EnvironmentSource = Readonly<Record<string, string | undefined>>;
 
-export interface InterpolateOptions {
-  readonly skipRootKeys?: ReadonlySet<string>;
-}
-
 /**
  * Resolve `${ENV_VAR}` references in a string against the explicit startup env.
  * Unknown variables are replaced with an empty string and recorded as warnings;
@@ -30,16 +26,16 @@ export function interpolateString(raw: string, env: EnvironmentSource): EnvInter
 }
 
 /** Deep-interpolate ${ENV_VAR} references in any config-compatible value. */
-export function interpolateValue(v: unknown, env: EnvironmentSource, options?: InterpolateOptions): { value: unknown; warnings: string[] } {
-  return interpolateValueImpl(v, env, options, true);
+export function interpolateValue(v: unknown, env: EnvironmentSource): { value: unknown; warnings: string[] } {
+  return interpolateValueImpl(v, env);
 }
 
-function interpolateValueImpl(v: unknown, env: EnvironmentSource, options: InterpolateOptions | undefined, isRoot: boolean): { value: unknown; warnings: string[] } {
+function interpolateValueImpl(v: unknown, env: EnvironmentSource): { value: unknown; warnings: string[] } {
   if (typeof v === 'string') {
     return interpolateString(v, env);
   }
   if (Array.isArray(v)) {
-    const results = v.map((item) => interpolateValueImpl(item, env, options, false));
+    const results = v.map((item) => interpolateValueImpl(item, env));
     return {
       value: results.map((r) => r.value),
       warnings: results.flatMap((r) => r.warnings),
@@ -49,11 +45,7 @@ function interpolateValueImpl(v: unknown, env: EnvironmentSource, options: Inter
     const result: Record<string, unknown> = {};
     const warnings: string[] = [];
     for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
-      if (isRoot && options?.skipRootKeys?.has(key)) {
-        result[key] = val;
-        continue;
-      }
-      const { value: iv, warnings: iw } = interpolateValueImpl(val, env, options, false);
+      const { value: iv, warnings: iw } = interpolateValueImpl(val, env);
       result[key] = iv;
       warnings.push(...iw);
     }

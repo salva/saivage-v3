@@ -29,7 +29,7 @@ Runtime is infrastructure. Operator UI and HTTP/WebSocket transport are infrastr
 
 This distinction matters: the runtime should not be described as a peer of planner/executor/reviewer. It owns dispatch and persistence. Worker agents perform card work under runtime control. The Analyst controls the system on behalf of the user through canonical services.
 
-Planner, executor, reviewer, and analyst system prompts are rendered by the `PromptTemplateRegistry` through `src/utils/prompt-api.ts`. It loads built-in defaults from `src/utils/prompt-defaults.yaml` and applies optional per-role YAML block-scalar overrides from `prompts:` in `.saivage/saivage.yaml`. Startup validates placeholder syntax and role-specific placeholder names for every effective template before any agent turn. Planner templates can render card identity/brief, terminal contract description, and the live tool list; executor templates add card type and registry-derived card-type guidance; reviewer templates add assessment identity; analyst templates render the analyst tool list, vocabulary snippet, and project context. Executor card-type guidance is owned by the same YAML default bundle in the top-level `cardTypeGuidance` mapping, whose values may only reference `{{cardType}}`. System-prompt persistence is still deduped once per session; the registry changes the source of prompt text, not that persistence rule.
+Planner, executor, reviewer, and analyst system prompts are rendered by the `PromptTemplateRegistry` through `src/utils/prompt-api.ts`. Agent identity is the `(cardType, role)` pair: project and goal planners are distinct prompt slots, each terminal card type has its own executor prompt, and the analyst uses the synthetic `analyst/analyst.md` slot. Built-in defaults ship as Markdown files under `src/prompts/<cardType>/<role>.md` and are copied to `dist/prompts/` at build time. Project overrides live in `.saivage/config/prompts/<cardType>/<role>.md`; an override file replaces the matching default, while absent override files fall back to the shipped default. Startup validates placeholder syntax and role-specific placeholder names for every active effective template before any agent turn. Planner templates can render card identity/brief, terminal contract description, and the live tool list; executor templates add card type; reviewer templates add assessment identity; analyst templates render the analyst tool list, vocabulary snippet, and project context. Type-specific executor guidance is ordinary prose inline in each terminal executor Markdown file. System-prompt persistence is still deduped once per session, and reviewer turns intentionally skip notification delivery; the registry changes the source of prompt text, not those persistence and notification rules.
 
 The detailed micro-actor module architecture is specified in [Declarative micro-actor module architecture](./declarative-micro-actor-module.md).
 
@@ -274,7 +274,7 @@ This appendix is maintained as source-derived reference data for documentation d
 <!-- saivage:config-schema:start -->
 | Section | Fields | Source |
 |---|---|---|
-| `top-level` | `compaction,mcpServers,models,notifications,prompts,providers,runtime,security,server,telegram` | `src/agents/config-schema.ts:190` |
+| `top-level` | `compaction,mcpServers,models,notifications,providers,runtime,security,server,telegram` | `src/agents/config-schema.ts:183` |
 | `models` | `default,equivalents,failover,max_tokens,profiles,routing,temperature` | `src/agents/config-schema.ts:36` |
 | `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority` | `src/agents/config-schema.ts:93` |
 | `providers.account` | `apiKey,authProfile,baseUrl,capabilities,models,priority` | `src/agents/config-schema.ts:83` |
@@ -286,6 +286,5 @@ This appendix is maintained as source-derived reference data for documentation d
 | `telegram` | `allowedUserIds,botToken,notificationChatIds` | `src/agents/config-schema.ts:141` |
 | `notifications` | `channels` | `src/agents/config-schema.ts:150` |
 | `compaction` | `completion_reserve_fraction,enabled,escalate_merge_line_fraction,escalate_summary_line_fraction,merge_line_fraction,snap,summarizer_model,summary_line_fraction,trigger_fraction` | `src/agents/config-schema.ts:154` |
-| `mcpServers.entry` | `args,autostart,command,disabled,env,transport,url` | `src/agents/config-schema.ts:155` |
-| `prompts` | `analyst,executor,planner,reviewer` | `src/agents/config-schema.ts:181` |
+| `mcpServers.entry` | `args,autostart,command,disabled,env,transport,url` | `src/agents/config-schema.ts:171` |
 <!-- saivage:config-schema:end -->

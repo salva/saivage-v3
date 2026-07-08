@@ -11,7 +11,7 @@
         "t1-install-prompt-template-registry",
         "scripts/copy-prompt-defaults.js",
         "package.json",
-        "src/utils/prompt-defaults.yaml",
+        "src/prompts/",
         "src/utils/prompt-api.ts"
       ]
     }

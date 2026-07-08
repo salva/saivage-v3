@@ -110,28 +110,41 @@ describe('runtime redesign final golden behavior', () => {
       'docs/architecture/system-architecture.md',
       'docs/spec/operator-ui.md',
       'docs/spec/system-specification.md',
-      'src/utils/prompt-defaults.yaml',
+      'src/prompts/project/planner.md',
+      'src/prompts/goal/planner.md',
+      'src/prompts/project/reviewer.md',
+      'src/prompts/goal/reviewer.md',
+      'src/prompts/architecture/executor.md',
+      'src/prompts/code/executor.md',
+      'src/prompts/test/executor.md',
+      'src/prompts/doc/executor.md',
+      'src/prompts/data/executor.md',
+      'src/prompts/research/executor.md',
+      'src/prompts/ops/executor.md',
+      'src/prompts/analyst/analyst.md',
       'src/utils/prompt-api.ts',
       'src/agents/analyst-prompt.ts',
     ];
     const combined = activeFiles.map((file) => readFileSync(file, 'utf-8')).join('\n');
-    const defaultsYaml = readFileSync('src/utils/prompt-defaults.yaml', 'utf-8');
+    const promptFiles = activeFiles.filter((file) => file.startsWith('src/prompts/'));
+    const promptsCombined = promptFiles.map((file) => readFileSync(file, 'utf-8')).join('\n');
     const registrySource = readFileSync('src/utils/prompt-api.ts', 'utf-8');
     expect(combined).toContain('start_project');
     expect(combined).toContain('stop_project');
     expect(combined).toContain('activate_card');
     expect(combined).toContain('Analyst');
-    expect(defaultsYaml).toMatch(/^planner: \|/m);
-    expect(defaultsYaml).toMatch(/^executor: \|/m);
-    expect(defaultsYaml).toMatch(/^reviewer: \|/m);
-    expect(defaultsYaml).toMatch(/^analyst: \|/m);
-    expect(defaultsYaml).toContain('{{contractDescription}}');
-    expect(defaultsYaml).toContain('{{toolList}}');
-    expect(defaultsYaml).toMatch(/^cardTypeGuidance:/m);
-    expect(defaultsYaml).not.toContain('Loaded skills');
-    expect(defaultsYaml).not.toContain(`{{${'skills'}}}`);
-    expect(defaultsYaml).not.toContain(`{{${'goal' + 'Depth'}}}`);
-    expect(defaultsYaml).not.toContain(`{{${'max' + 'Depth'}}}`);
+    expect(promptsCombined).toContain('{{contractDescription}}');
+    expect(promptsCombined).toContain('{{toolList}}');
+    expect(promptsCombined).toContain('{{cardId}}');
+    expect(promptsCombined).toContain('{{cardTitle}}');
+    expect(promptsCombined).toContain('{{cardBrief}}');
+    expect(readFileSync('src/prompts/code/executor.md', 'utf-8')).toContain('{{cardType}}');
+    expect(readFileSync('src/prompts/project/reviewer.md', 'utf-8')).toContain('{{assessmentId}}');
+    expect(promptsCombined).not.toContain(`{{${'cardType'}Guidance}}`);
+    expect(promptsCombined).not.toContain('Loaded skills');
+    expect(promptsCombined).not.toContain(`{{${'skills'}}}`);
+    expect(promptsCombined).not.toContain(`{{${'goal' + 'Depth'}}}`);
+    expect(promptsCombined).not.toContain(`{{${'max' + 'Depth'}}}`);
     expect(registrySource).toContain('PromptTemplateRegistry');
     expect(registrySource).toContain('validatePlaceholders');
     expect(registrySource).toContain('unknown placeholder');

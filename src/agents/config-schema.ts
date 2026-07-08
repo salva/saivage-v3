@@ -178,13 +178,6 @@ const mcpServerEntrySchema = z.object({
   autostart: z.boolean().default(true),
 });
 
-const promptsSectionSchema = z.object({
-  planner: z.string().min(1).optional(),
-  executor: z.string().min(1).optional(),
-  reviewer: z.string().min(1).optional(),
-  analyst: z.string().min(1).optional(),
-}).strict();
-
 // ── Full Config Schema ────────────────────────────────────────
 
 export const saivageConfigSchema = z.object({
@@ -197,7 +190,6 @@ export const saivageConfigSchema = z.object({
   notifications: notificationsSectionSchema.optional(),
   compaction: compactionSectionSchema.optional().default({}),
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
-  prompts: promptsSectionSchema.optional(),
 }).strict();
 
 // ── Derived Types ─────────────────────────────────────────────
@@ -207,7 +199,6 @@ export type SaivageConfig = Omit<ParsedSaivageConfig, 'compaction'> & { compacti
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
-export type PromptsConfig = z.infer<typeof promptsSectionSchema>;
 
 // ── Model Params ──────────────────────────────────────────────
 

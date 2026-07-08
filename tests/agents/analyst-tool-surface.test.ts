@@ -133,7 +133,7 @@ function createProductionShapedAnalystSurface(root: string, store: CardStore): R
 }
 
 function renderAnalystPrompt(root: string, tools = ANALYST_TOOL_DEFINITIONS): string {
-  return createTestPromptTemplateRegistry().render('analyst', {
+  return createTestPromptTemplateRegistry().render('analyst', 'analyst', {
     toolList: formatPromptToolList(tools),
     vocabularySnippet: formatVocabularySnippet(),
     projectContext: '{"projectRoot":"test"}',

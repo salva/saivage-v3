@@ -398,7 +398,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private plannerPrompt(card: CardRecord, surface: InvocationSurface, contract = createPlannerContract()): string {
-    return this.promptTemplates.render('planner', {
+    return this.promptTemplates.render(card.type, 'planner', {
       cardId: card.id,
       cardTitle: card.title,
       cardBrief: cardBriefForPrompt(this.projectRoot, card),
@@ -408,7 +408,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private reviewerPrompt(card: CardRecord, assessmentId: string, surface: InvocationSurface, contract = createReviewerContract()): string {
-    return this.promptTemplates.render('reviewer', {
+    return this.promptTemplates.render(card.type, 'reviewer', {
       cardId: card.id,
       cardTitle: card.title,
       cardBrief: cardBriefForPrompt(this.projectRoot, card),

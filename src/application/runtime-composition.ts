@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { SaivageConfig } from '../agents/config-api.js';
 import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
 import { FsCandidateAvailability } from '../agents/candidate-availability-store.js';
@@ -76,6 +79,13 @@ function buildAnalystDeps(input: {
   };
 }
 
+function bundledPromptDefaultsRoot(): string {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const sourceTreeRoot = join(moduleDir, '..', 'prompts');
+  if (existsSync(sourceTreeRoot)) return sourceTreeRoot;
+  return join(moduleDir, '..', '..', 'prompts');
+}
+
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
   const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore } = services;
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
@@ -99,7 +109,10 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const processRunner = new ProcessRunner(projectRoot);
   const runtimeGate = new RuntimeGate();
-  const promptTemplates = createPromptTemplateRegistry({ promptsConfig: config.prompts });
+  const promptTemplates = createPromptTemplateRegistry({
+    defaultRoot: bundledPromptDefaultsRoot(),
+    overrideRoot: join(projectRoot, '.saivage', 'config', 'prompts'),
+  });
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({

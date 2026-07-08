@@ -1,6 +1,9 @@
 import { createPromptTemplateRegistry, type PromptTemplateRegistry } from '../../src/utils/prompt-api.js';
-import type { SaivageConfig } from '../../src/agents/config-schema.js';
+import { resolve } from 'node:path';
 
-export function createTestPromptTemplateRegistry(prompts?: SaivageConfig['prompts']): PromptTemplateRegistry {
-  return createPromptTemplateRegistry({ promptsConfig: prompts });
+export function createTestPromptTemplateRegistry(options?: {
+  defaultRoot?: string;
+  overrideRoot?: string;
+}): PromptTemplateRegistry {
+  return createPromptTemplateRegistry({ defaultRoot: resolve('src/prompts'), ...options });
 }

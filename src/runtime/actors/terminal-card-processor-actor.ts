@@ -124,13 +124,13 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       agentId: sessionId,
       role: 'executor',
       sessionId,
-      systemPrompt: this.promptTemplates.render('executor', {
+      systemPrompt: this.promptTemplates.render(input.card.type, 'executor', {
         cardId: input.card.id,
         cardTitle: input.card.title,
         cardBrief: cardBriefForPrompt(this.projectRoot, input.card),
         contractDescription: contract.describe(),
         toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
-        cardType: input.card.type ?? '',
+        cardType: input.card.type,
       }),
       contextMessages: [...loaded, ...notifications],
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
