@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
 import AgentsView from '../views/AgentsView.vue';
+import agentsViewSource from '../views/AgentsView.vue?raw';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
 import { useAgentStore } from '../stores/agents';
 import type { AgentSession, AgentRole } from '../api/types';
@@ -171,6 +172,12 @@ describe('AgentsView', () => {
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
+
+  it('exposes a route-owned root and route-body content for browser smoke assertions', () => {
+    expect(agentsViewSource).toContain('data-testid="route-agents"');
+    expect(agentsViewSource).toContain('list-label="Agent sessions"');
+    expect(agentsViewSource).toContain('class="agents-content"');
+  });
 
   it('renders sessions grouped by role', async () => {
     const { wrapper } = await mountAgentsView({ sessions: allSessions });

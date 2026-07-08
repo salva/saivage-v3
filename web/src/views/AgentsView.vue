@@ -1,14 +1,15 @@
 <template>
-  <EntityInspectorShell
-    :selected="!!selectedSessionId"
-    list-label="Agent sessions"
-    detail-label="Agent conversation"
-    empty-title="Select an agent session to inspect"
-    back-label="Back to Agents"
-    :detail-title="selectedSessionId"
-    @back="backToAgents"
-  >
-    <template #list>
+  <div data-testid="route-agents">
+    <EntityInspectorShell
+      :selected="!!selectedSessionId"
+      list-label="Agent sessions"
+      detail-label="Agent conversation"
+      empty-title="Select an agent session to inspect"
+      back-label="Back to Agents"
+      :detail-title="selectedSessionId"
+      @back="backToAgents"
+    >
+      <template #list>
       <ViewState v-if="loading" class="agents-loading" state="loading" title="Loading agents" />
       <ViewState v-else-if="unauthorized" class="agents-unauthorized" state="unauthorized" title="Agent sessions unavailable" message="Provide a valid API token to load agent sessions." />
       <ViewState v-else-if="errorMsg" class="agents-error" state="error" title="Could not load agents" :message="errorMsg" />
@@ -49,12 +50,13 @@
         </template>
         <ViewState v-if="roleEntries.length === 0" class="agents-empty" state="empty" title="No agent sessions recorded yet" />
       </div>
-    </template>
+      </template>
 
-    <template #detail>
-      <AgentConversationView v-if="selectedSessionId" :session-id="selectedSessionId" />
-    </template>
-  </EntityInspectorShell>
+      <template #detail>
+        <AgentConversationView v-if="selectedSessionId" :session-id="selectedSessionId" />
+      </template>
+    </EntityInspectorShell>
+  </div>
 </template>
 
 <script setup lang="ts">

@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import source from '../views/DashboardView.vue?raw';
 
 describe('DashboardView S06 read-only contract', () => {
+  it('exposes a route-owned root for browser smoke assertions', () => {
+    expect(source).toContain('data-testid="route-dashboard"');
+    expect(source).toContain('Runtime Status');
+  });
+
   it('keeps refresh and navigation while removing runtime command controls and dashboard chat', () => {
     expect(source).toContain('class="ui-refresh-button"');
     expect(source).toContain('@click="refreshRuntime"');

@@ -1,14 +1,15 @@
 <template>
-  <EntityInspectorShell
-    :selected="!!currentCardId"
-    list-label="Card tree"
-    detail-label="Card detail"
-    empty-title="Select a card to inspect"
-    back-label="Back to Cards"
-    :detail-title="currentCardId"
-    @back="backToCards"
-  >
-    <template #list>
+  <div data-testid="route-cards">
+    <EntityInspectorShell
+      :selected="!!currentCardId"
+      list-label="Card tree"
+      detail-label="Card detail"
+      empty-title="Select a card to inspect"
+      back-label="Back to Cards"
+      :detail-title="currentCardId"
+      @back="backToCards"
+    >
+      <template #list>
       <div class="cards-filters">
         <input class="filter-search" :value="searchQuery" placeholder="Search…" aria-label="Search cards" @input="searchQuery = ($event.target as HTMLInputElement).value" />
         <select :value="filterStatus" aria-label="Filter by status" @change="filterStatus = ($event.target as HTMLSelectElement).value as CardStatus | ''">
@@ -33,12 +34,13 @@
           @select="selectCard"
         />
       </div>
-    </template>
+      </template>
 
-    <template #detail>
-      <CardDetailView v-if="currentCardId" :card-id="currentCardId" @navigate="handleNavigate" />
-    </template>
-  </EntityInspectorShell>
+      <template #detail>
+        <CardDetailView v-if="currentCardId" :card-id="currentCardId" @navigate="handleNavigate" />
+      </template>
+    </EntityInspectorShell>
+  </div>
 </template>
 
 <script setup lang="ts">

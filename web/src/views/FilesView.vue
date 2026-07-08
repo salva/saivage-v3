@@ -1,5 +1,5 @@
 <template>
-  <div class="files-layout">
+  <div class="files-layout" data-testid="route-files">
     <StatusBanner
       v-if="isStale || unauthorized"
       class="files-status-banner"

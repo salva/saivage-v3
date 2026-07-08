@@ -1,5 +1,5 @@
 <template>
-  <div class="debug-layout">
+  <div class="debug-layout" data-testid="route-debug">
     <div class="tablist debug-tabs">
       <button
         v-for="tab in tabs"

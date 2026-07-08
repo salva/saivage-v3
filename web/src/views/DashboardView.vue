@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-layout">
+  <div class="dashboard-layout" data-testid="route-dashboard">
     <Panel as="section" :padded="false" scroll class="runtime-console" aria-label="Runtime Console">
       <div class="console-header">
         <PanelHeader title="Runtime Console">

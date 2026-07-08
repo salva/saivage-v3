@@ -99,7 +99,9 @@ describe('FilesView', () => {
 
   it('renders both Metadata and Output panels', async () => {
     const { wrapper } = await mountFilesView();
+    expect(wrapper.find('[data-testid="route-files"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="files-canonical-panel"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="route-files"]').text()).toContain('Metadata');
   });
 
   it('shows viewer state when file preview is blocked', async () => {

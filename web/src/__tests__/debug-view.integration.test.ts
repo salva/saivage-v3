@@ -3,6 +3,12 @@ import source from '../views/DebugView.vue?raw';
 import readModelSource from '../composables/useDebugReadModel?raw';
 
 describe('DebugView S06 diagnostic-only integration contract', () => {
+  it('exposes a route-owned root and route-body content for browser smoke assertions', () => {
+    expect(source).toContain('data-testid="route-debug"');
+    expect(source).toContain('debug-tabs');
+    expect(source).toContain('Runtime State');
+  });
+
   it('retains diagnostic tabs and refresh controls while removing mutation controls', () => {
     expect(readModelSource).toContain("label: 'State'");
     expect(readModelSource).toContain("label: 'Errors'");
