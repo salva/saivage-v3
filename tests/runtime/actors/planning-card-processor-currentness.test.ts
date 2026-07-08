@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { PlanningCardProcessorActor, type CardActivationInput, type LLMProviderPort, type LlmInvocationInput } from '../../../src/runtime/actors/index.js';
+import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { readRecordSlotIndex } from '../../../src/runtime/records/record-slots.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
@@ -44,6 +45,10 @@ function reviewerPass(id: string, evidenceCardId: string) {
   return toolCall(id, 'emit_result', { status: 'done', summary: 'review ok' });
 }
 
+function providerCompletion(result: LlmCompleteResult): ProviderTurnCompletion {
+  return { result, provider_exchanges: [] };
+}
+
 function activateInput(card: CardRecord, notificationDelivery: CardActivationInput['notificationDelivery'] = { deliverNotificationsForInput: () => [] }): CardActivationInput {
   return { card, caller: { kind: 'root' }, notificationDelivery };
 }
@@ -59,18 +64,18 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
       if (input.role === 'planner') {
-        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' });
-        return plannerDone();
+        if (!lastToolResult) return providerCompletion(toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' }));
+        return providerCompletion(plannerDone());
       }
       if (!lastToolResult) {
         reviewerAttempt++;
-        return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` });
+        return providerCompletion(toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` }));
       }
       if (!mutatedDuringReview) {
         mutatedDuringReview = true;
         store.mutateCard(project.id, { priority: project.priority + 1 }, { actor: 'planner', surface: 'runtime', reason: 'test stale review' });
       }
-      return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);
+      return providerCompletion(reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id));
     }) };
     const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
@@ -96,15 +101,15 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
       if (input.role === 'planner') {
-        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' });
-        return plannerDone();
+        if (!lastToolResult) return providerCompletion(toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' }));
+        return providerCompletion(plannerDone());
       }
       if (!lastToolResult) {
         reviewerAttempt++;
-        return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` });
+        return providerCompletion(toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` }));
       }
       notificationArrivedDuringReview = true;
-      return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);
+      return providerCompletion(reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id));
     }) };
     const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
@@ -138,12 +143,12 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
       if (input.role === 'planner') {
-        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' });
-        return plannerDone();
+        if (!lastToolResult) return providerCompletion(toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' }));
+        return providerCompletion(plannerDone());
       }
-      if (!lastToolResult) return reviewerPass('reviewer-pass-missing-file', child.id);
-      if (lastToolResult.toolName === 'emit_result') return toolCall('reviewer-write-repair', 'write', { path: 'record:///review.md?v=next', content: 'repaired review' });
-      return reviewerPass('reviewer-pass-repaired', child.id);
+      if (!lastToolResult) return providerCompletion(reviewerPass('reviewer-pass-missing-file', child.id));
+      if (lastToolResult.toolName === 'emit_result') return providerCompletion(toolCall('reviewer-write-repair', 'write', { path: 'record:///review.md?v=next', content: 'repaired review' }));
+      return providerCompletion(reviewerPass('reviewer-pass-repaired', child.id));
     }) };
     const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
@@ -165,15 +170,15 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
       if (input.role === 'planner') {
-        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' });
-        return plannerDone();
+        if (!lastToolResult) return providerCompletion(toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' }));
+        return providerCompletion(plannerDone());
       }
       if (!lastToolResult) {
         reviewerAttempt++;
-        return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` });
+        return providerCompletion(toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` }));
       }
       store.mutateCard(project.id, { priority: project.priority + reviewerAttempt }, { actor: 'planner', surface: 'runtime', reason: 'test stale review budget' });
-      return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);
+      return providerCompletion(reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id));
     }) };
     const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();

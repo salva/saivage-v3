@@ -221,9 +221,9 @@ describe('queueNotification recipient resolution', () => {
         capturedInputs.push(input);
         turn++;
         if (turn === 1) {
-          return { kind: 'tool_calls' as const, tool_calls: [{ id: 'write-status', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?v=next', content: 'status' }) } }] };
+          return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'write-status', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?v=next', content: 'status' }) } }] }, provider_exchanges: [] };
         }
-        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'emit-failed', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'failed', summary: 'done capturing notification' }) } }] };
+        return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'emit-failed', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'failed', summary: 'done capturing notification' }) } }] }, provider_exchanges: [] };
       }),
     };
     const processor = new PlanningCardProcessorActor({

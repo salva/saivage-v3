@@ -10,6 +10,8 @@ If compaction fails, treat it as a loud provider-turn failure rather than silent
 
 Audit compacted history under `.saivage/agents/conversations/<encoded-session-id>/`. `index.json` names the active version and frozen versions; numbered `<N>.jsonl` files contain immutable raw or compacted versions; `summaries.jsonl` contains cached per-round summaries used to rebuild merged summaries. Frozen versions are audit evidence and should not be edited during normal operation.
 
+Provider exchange auditing also lives in the conversation JSONL as `provider_exchange` rows. Inspect the latest settled exchange through the Raw LLM Exchange UI or `GET /api/agents/:id/llm-exchange`; there is no `.saivage/agents/llm-exchanges` side-file tree, and raw HTTP bodies are not stored.
+
 Do not manually delete stash files or process logs referenced by live conversation versions. Compacted summaries include `Recoverable evidence` pointers to `work:///tmp/stash/...` and `work:///processes/...` URLs, and cleanup preserves those files while the pointers remain referenced. Manual deletion can strand a compacted summary and prevent the model or operator from recovering dropped evidence.
 
 Per-session rollback to raw is available when version 1 still contains the desired raw transcript: stop the service, back up the session directory, edit that session's `index.json` so `active_version` points to `1`, then start the service. This rollback affects only that session and does not remove frozen compacted versions or summary cache entries.

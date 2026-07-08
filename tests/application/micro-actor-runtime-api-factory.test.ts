@@ -7,7 +7,7 @@ import { CardStore } from '../../src/cards/card-store.js';
 import { createMicroActorRuntimeApi } from '../../src/application/micro-actor-runtime-api-factory.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import type { InvocationService } from '../../src/agents/invocation-service.js';
-import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
+import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { readRuntimeState } from '../../src/runtime/state-api.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
@@ -36,12 +36,12 @@ describe('createMicroActorRuntimeApi', () => {
     const plannerTerminal = { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'waiting for operator' }) } }] };
     let wroteStatus = false;
     const invocationService = {
-      invokeWithRecovery: jest.fn(async (): Promise<LlmCompleteResult> => {
+      invokeWithRecovery: jest.fn(async (): Promise<ProviderTurnCompletion> => {
         if (!wroteStatus) {
           wroteStatus = true;
-          return { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-write-status', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?v=next', content: 'waiting for operator' }) } }] };
+          return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-write-status', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?v=next', content: 'waiting for operator' }) } }] }, provider_exchanges: [] };
         }
-        return plannerTerminal;
+        return { result: plannerTerminal, provider_exchanges: [] };
       }),
     } as unknown as InvocationService;
     const api = createMicroActorRuntimeApi({

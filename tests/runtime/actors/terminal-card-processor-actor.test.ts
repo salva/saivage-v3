@@ -6,7 +6,7 @@ import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { CardActor, TerminalCardProcessorActor, readActorSnapshots, type CardActorDeps, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
-import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
@@ -48,6 +48,10 @@ function recordWrite(callId: string, path: string, content: string) {
   };
 }
 
+function providerCompletion(result: LlmCompleteResult): ProviderTurnCompletion {
+  return { result, provider_exchanges: [] };
+}
+
 function invocationToolNames(input: LlmInvocationInput): string[] {
   return input.tools.map((tool) => tool.function.name).sort();
 }
@@ -64,7 +68,7 @@ function expectNotificationSeparatedFromTerminalError(error: string, notificatio
   expect(error).not.toContain(notificationPayload);
 }
 
-function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal: AbortSignal) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
+function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal: AbortSignal) => Promise<LlmCompleteResult | ProviderTurnCompletion> | LlmCompleteResult | ProviderTurnCompletion): LLMProviderPort {
   const pending = new Map<string, LlmCompleteResult>();
   const statusWrites = new Map<string, number>();
   return {
@@ -76,17 +80,18 @@ function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal:
           pending.delete(key);
         } else {
           pending.delete(key);
-          return pendingTerminal;
+          return providerCompletion(pendingTerminal);
         }
       }
-      const result = await responder(input, new AbortController().signal);
+      const completion = await responder(input, new AbortController().signal);
+      const result = 'result' in completion ? completion.result : completion;
       if (result.kind === 'tool_calls' && result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result')) {
         pending.set(key, result);
         const count = (statusWrites.get(key) ?? 0) + 1;
         statusWrites.set(key, count);
-        return recordWrite(`status-${key}-${count}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
+        return providerCompletion(recordWrite(`status-${key}-${count}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`));
       }
-      return result;
+      return providerCompletion(result);
     }),
   };
 }
@@ -97,6 +102,10 @@ function noopNotificationDelivery() {
 
 function processRunner(projectRoot: string): ProcessRunner {
   return new ProcessRunner(projectRoot);
+}
+
+function providerTurnFailure(message: string): ProviderTurnFailure {
+  return new ProviderTurnFailure({ failure_phase: 'pre_provider', provider_exchanges: [], originalFailure: new Error(message) });
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort, runner = processRunner(projectRoot)): CardActorDeps {
@@ -197,7 +206,7 @@ describe('TerminalCardProcessorActor', () => {
 
   it('commits provider failure as failed outcome', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => { throw new Error('model unavailable'); }) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => { throw providerTurnFailure('model unavailable'); }) };
     const processor = terminalProcessor(projectRoot, card.id, provider, store);
     processor.start();
     const actor = actorFromCard(projectRoot, store, card, processor, provider);
@@ -251,8 +260,8 @@ describe('TerminalCardProcessorActor', () => {
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async () => {
         turns++;
-        if (turns <= 2) return { kind: 'message' as const, content: 'implemented' };
-        throw new Error('model stopped after repeated plain executor messages');
+        if (turns <= 2) return providerCompletion({ kind: 'message' as const, content: 'implemented' });
+        throw providerTurnFailure('model stopped after repeated plain executor messages');
       }),
     };
     const processor = terminalProcessor(projectRoot, card.id, provider, store);
@@ -336,14 +345,14 @@ describe('TerminalCardProcessorActor', () => {
         const last = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
         if (!last) {
           actions.push('emit_without_status');
-          return executorResult(card.id, 'missing record first');
+          return providerCompletion(executorResult(card.id, 'missing record first'));
         }
         if (last.toolName === 'emit_result') {
           actions.push('write_status_after_repair');
-          return recordWrite('executor-status-after-repair', 'record:///status.md?v=next', 'Executor status after repair.');
+          return providerCompletion(recordWrite('executor-status-after-repair', 'record:///status.md?v=next', 'Executor status after repair.'));
         }
         actions.push('emit_after_status');
-        return executorResult(card.id, 'implemented after missing-record repair');
+        return providerCompletion(executorResult(card.id, 'implemented after missing-record repair'));
       }),
     };
     const processor = terminalProcessor(projectRoot, card.id, provider, store);
@@ -433,8 +442,8 @@ describe('TerminalCardProcessorActor', () => {
     const { card } = setup(projectRoot);
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
-        ? executorResult(card.id, 'saw running process')
-        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_command', arguments: JSON.stringify({ command: `${process.execPath} -e "setTimeout(() => console.log('late'), 1000)"`, wait: false }) } }] }),
+        ? providerCompletion(executorResult(card.id, 'saw running process'))
+        : providerCompletion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_command', arguments: JSON.stringify({ command: `${process.execPath} -e "setTimeout(() => console.log('late'), 1000)"`, wait: false }) } }] })),
     };
     const providerWithRecords = withExecutorStatusRecord(provider.completeTurn);
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-mid', message: 'executor mid-turn notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
@@ -501,7 +510,7 @@ describe('TerminalCardProcessorActor', () => {
 
   it('throws a clear impossible-state error when active recovery lacks activation input', () => withTempProject((projectRoot) => {
     const { card } = setup(projectRoot);
-    const processor = terminalProcessor(projectRoot, card.id, { completeTurn: jest.fn(async () => executorResult(card.id, 'unused')) });
+    const processor = terminalProcessor(projectRoot, card.id, { completeTurn: jest.fn(async () => providerCompletion(executorResult(card.id, 'unused'))) });
 
     expect(() => processor.recover('executing')).toThrow(/entered executing without activation input/);
   }));

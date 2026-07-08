@@ -101,6 +101,11 @@ describe('initProjectTree', () => {
     expect(existsSync(join(tmpDir, '.saivage', 'notes'))).toBe(false);
   });
 
+  it('does not create the legacy agent llm-exchanges tree', () => {
+    initProjectTree(tmpDir);
+    expect(existsSync(join(tmpDir, '.saivage', 'agents', 'llm-exchanges'))).toBe(false);
+  });
+
   it('creates skills/index.json as empty array', () => {
     initProjectTree(tmpDir);
     const skills = JSON.parse(
@@ -212,6 +217,19 @@ describe('initProjectTree', () => {
     expect(JSON.parse(readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8')).id).toBe(
       'project',
     );
+  });
+
+  it('discards state containing the legacy agent llm-exchanges tree', () => {
+    const legacyDir = join(tmpDir, '.saivage');
+    mkdirSync(join(legacyDir, 'outputs', 'cards'), { recursive: true });
+    mkdirSync(join(legacyDir, 'agents', 'conversations'), { recursive: true });
+    mkdirSync(join(legacyDir, 'agents', 'llm-exchanges'), { recursive: true });
+    mkdirSync(join(legacyDir, 'runtime'), { recursive: true });
+    mkdirSync(join(legacyDir, 'supervision'), { recursive: true });
+    writeFileSync(join(legacyDir, 'project.json'), JSON.stringify({ id: 'project', name: 'legacy', context: '', goals_summary: '', constraints: [], planner_enabled: true, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }));
+    initProjectTree(tmpDir);
+    expect(listDiscardedSaivageDirs(tmpDir)).toHaveLength(1);
+    expect(existsSync(join(tmpDir, '.saivage', 'agents', 'llm-exchanges'))).toBe(false);
   });
 
   it('keeps already-new .saivage state instead of discarding it', () => {

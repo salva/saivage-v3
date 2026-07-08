@@ -1,10 +1,10 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { EventLogger } from '../observability/index.js';
-import type { LlmCompleteOptions, LlmCompleteResult, LlmCallFn, LlmInvocationClient } from './llm-contracts.js';
+import type { LlmCompleteOptions, ProviderTurnCompletion, LlmCallFn, LlmInvocationClient } from './llm-contracts.js';
 import { LlmProviderGateway } from './llm-provider-gateway.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
-import { createLlmExchangeRecorder, toRecorderLogger, type LlmExchangeRecorder } from './llm-exchange-recorder.js';
+import { createProviderExchangeRecorder, toProviderExchangeRecorderLogger, type ProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 
 export interface AgentLlmInvocationGatewayConfig {
@@ -20,7 +20,6 @@ export class AgentLlmInvocationGateway {
   private readonly registry: ProviderRegistry;
   private readonly eventLogger?: EventLogger;
   private readonly llmClientCache: Map<string, LlmInvocationClient> = new Map();
-  private readonly recorderCache: Map<string, LlmExchangeRecorder> = new Map();
 
   constructor(config: AgentLlmInvocationGatewayConfig) {
     this.projectRoot = config.projectRoot;
@@ -29,32 +28,22 @@ export class AgentLlmInvocationGateway {
     this.eventLogger = config.eventLogger;
   }
 
-  private getOrCreateRecorder(sessionId: string): LlmExchangeRecorder {
-    let recorder = this.recorderCache.get(sessionId);
-    if (!recorder) {
-      recorder = createLlmExchangeRecorder({
-        saivageDir: this.saivageDir,
-        sessionId,
-        eventLogger: toRecorderLogger(this.eventLogger),
-      });
-      this.recorderCache.set(sessionId, recorder);
-    }
-    return recorder;
+  private createRecorder(sessionId: string): ProviderExchangeRecorder {
+    return createProviderExchangeRecorder({ sessionId, eventLogger: toProviderExchangeRecorderLogger(this.eventLogger) });
   }
 
   async flushRecorders(): Promise<void> {
-    await Promise.all([...this.recorderCache.values()].map((r) => r.flush()));
   }
 
   createLlmCallFn(): LlmCallFn {
-    return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts: LlmCompleteOptions): Promise<LlmCompleteResult> => {
+    return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts: LlmCompleteOptions): Promise<ProviderTurnCompletion> => {
       const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(this.projectRoot, this.registry, candidate);
       let client = this.llmClientCache.get(cacheKey);
       if (!client) {
         client = new LlmProviderGateway({ baseUrl, apiKey, registry: this.registry });
         this.llmClientCache.set(cacheKey, client);
       }
-      const recorder = this.getOrCreateRecorder(sessionId);
+      const recorder = this.createRecorder(sessionId);
       return await client.complete(candidate, systemPrompt, messages, sessionId, { ...opts, recorder });
     };
   }

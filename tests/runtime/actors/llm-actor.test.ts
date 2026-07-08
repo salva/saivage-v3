@@ -7,7 +7,7 @@ import { actorKindFromId, appendActivationMarker, appendUserContextMessage, Base
 import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
-import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
+import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import type { InvocationSurface } from '../../../src/tools/invocation.js';
 import type { CompactionConfig } from '../../../src/runtime/actors/compaction/compactor.js';
 
@@ -38,6 +38,10 @@ function input(inputId = 'turn-1'): LlmInvocationInput {
 function jsonl(path: string): Array<Record<string, unknown>> {
   if (!existsSync(path)) return [];
   return readFileSync(path, 'utf-8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+function completion(result: LlmCompleteResult): ProviderTurnCompletion {
+  return { result, provider_exchanges: [] };
 }
 
 function corruptActorMessages(projectRoot: string): void {
@@ -87,7 +91,7 @@ describe('LLMActor', () => {
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async () => {
         sawStartedMessage = jsonl(activeVersionPath(projectRoot, 'planner:project', 1)).some((entry) => String(entry.id).endsWith(':started'));
-        return { kind: 'message' as const, content: 'done' };
+        return completion({ kind: 'message' as const, content: 'done' });
       }),
     };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
@@ -111,7 +115,7 @@ describe('LLMActor', () => {
       shouldCompact: jest.fn(() => ({ shouldCompact: true })),
       compact: jest.fn(async () => [compacted]),
     };
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async (providerInput: LlmInvocationInput) => ({ kind: 'message' as const, content: `saw:${(providerInput.contextMessages as unknown[]).length}:${(providerInput.contextMessages[0] as { content: string }).content}` })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (providerInput: LlmInvocationInput) => completion({ kind: 'message' as const, content: `saw:${(providerInput.contextMessages as unknown[]).length}:${(providerInput.contextMessages[0] as { content: string }).content}` })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) } });
     actor.start();
 
@@ -127,7 +131,7 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     const config = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim', summarizer_model: 'test/_/summary' } satisfies CompactionConfig;
     const compactor = { shouldCompact: jest.fn(() => ({ shouldCompact: false })), compact: jest.fn(async () => []) };
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'done' })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 1, bufferTokens: 100 }) } });
     actor.start();
 
@@ -140,7 +144,7 @@ describe('LLMActor', () => {
   it('invokes the initial input factory only on the idle branch', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     let finishCalling!: () => void;
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finishCalling = () => resolve({ kind: 'message' as const, content: 'done' }); })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finishCalling = () => resolve(completion({ kind: 'message' as const, content: 'done' })); })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
     const pendingTurn = actor.turn(input());
@@ -165,7 +169,7 @@ describe('LLMActor', () => {
 
   it('does not invoke the initial input factory on the waiting-tool branch', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
     await actor.turn(input());
@@ -180,7 +184,7 @@ describe('LLMActor', () => {
 
   it('invokes the initial input factory on the idle branch', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'done' })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
     const harness = new InitialOutcomeHarness(projectRoot, provider);
@@ -202,7 +206,7 @@ describe('LLMActor', () => {
   it('persists active reconstruction while calling the provider', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     let finish!: () => void;
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve({ kind: 'message' as const, content: 'done' }); })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finish = () => resolve(completion({ kind: 'message' as const, content: 'done' })); })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
 
@@ -242,7 +246,7 @@ describe('LLMActor', () => {
   it('accepts analyst actor ids and persists nullable reconstruction card ids', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     let finish!: () => void;
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve({ kind: 'message' as const, content: 'done' }); })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finish = () => resolve(completion({ kind: 'message' as const, content: 'done' })); })) };
     const actor = new LLMActor({ projectRoot, agentId: 'analyst:global', provider });
     actor.start();
 
@@ -260,7 +264,7 @@ describe('LLMActor', () => {
   it('waits at the runtime gate instead of failing a provider turn while paused', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const gate = new RuntimeGate(false);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'unused' })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, gate });
     actor.start();
 
@@ -277,8 +281,8 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (turnInput: LlmInvocationInput) => turnInput.episodeContext.lastToolResult
-        ? { kind: 'message' as const, content: 'continued' }
-        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{"ok":true}' } }] }),
+        ? completion({ kind: 'message' as const, content: 'continued' })
+        : completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{"ok":true}' } }] })),
     };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
@@ -311,8 +315,8 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (turnInput: LlmInvocationInput) => turnInput.inputId === 'turn-1'
-        ? { kind: 'message' as const, content: 'plain text' }
-        : { kind: 'message' as const, content: 'repaired' }),
+        ? completion({ kind: 'message' as const, content: 'plain text' })
+        : completion({ kind: 'message' as const, content: 'repaired' })),
     };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
@@ -340,8 +344,8 @@ describe('LLMActor', () => {
   it('adds provider-visible tool history before hook continuation context', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const completeTurn = jest.fn(async (turnInput: LlmInvocationInput) => turnInput.episodeContext.lastToolResult
-      ? { kind: 'message' as const, content: 'continued' }
-      : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] });
+      ? completion({ kind: 'message' as const, content: 'continued' })
+      : completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] }));
     const provider: LLMProviderPort = { completeTurn };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
@@ -372,7 +376,7 @@ describe('LLMActor', () => {
   it('rejects duplicate tool settlement for the same call', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = {
-      completeTurn: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] })),
+      completeTurn: jest.fn(async () => completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] })),
     };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
@@ -388,8 +392,8 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (turnInput: LlmInvocationInput) => turnInput.episodeContext.lastToolResult
-        ? { kind: 'message' as const, content: 'continued' }
-        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] }),
+        ? completion({ kind: 'message' as const, content: 'continued' })
+        : completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] })),
     };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
@@ -407,7 +411,7 @@ describe('LLMActor', () => {
   it('settles late provider results for in-flight calls', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     let finish!: () => void;
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve({ kind: 'message' as const, content: 'late' }); })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finish = () => resolve(completion({ kind: 'message' as const, content: 'late' })); })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
 
@@ -424,7 +428,7 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     corruptActorMessages(projectRoot);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'unused' })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
 
@@ -439,7 +443,7 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     let finish!: () => void;
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve({ kind: 'message' as const, content: 'done' }); })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finish = () => resolve(completion({ kind: 'message' as const, content: 'done' })); })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
 
@@ -458,7 +462,7 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     let fail!: () => void;
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((_resolve, reject) => { fail = () => reject(new Error('provider failed')); })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((_resolve, reject) => { fail = () => reject(new Error('provider failed')); })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
 
@@ -467,7 +471,7 @@ describe('LLMActor', () => {
     corruptActorMessages(projectRoot);
     fail();
 
-    await expect(pending).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);
+    await expect(pending).rejects.toThrow(/Provider boundary .* failed without ProviderTurnFailure metadata/);
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
     consoleError.mockRestore();
   }));
@@ -475,7 +479,7 @@ describe('LLMActor', () => {
   it('rejects the pending turn when provider task registration throws', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'unused' })) };
     class ThrowingRunTaskLLMActor extends LLMActor {
       protected override runTask(): void {
         throw new Error('runTask exploded');

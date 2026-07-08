@@ -1,4 +1,5 @@
 import type { AgentMessage } from '../../../schemas/index.js';
+import { isConversationBudgetVisible } from '../conversation-store.js';
 
 export type SubRoundKind = 'repair' | 'reviewer_rework';
 
@@ -74,6 +75,7 @@ export function classifyConversationRounds(messages: AgentMessage[]): Classified
 }
 
 export function estimateMessageTokens(message: AgentMessage): number {
+  if (!isConversationBudgetVisible(message)) return 0;
   const structural = [message.role, message.kind, message.tool, message.tool_call_id, message.round_id].filter(Boolean).join(' ');
   return Math.max(1, Math.ceil((message.content.length + structural.length) / 4));
 }

@@ -3,10 +3,12 @@ import type { Candidate } from '../contracts/provider-candidate.js';
 import type {
   LlmCompleteOptions,
   LlmCompleteResult,
+  ProviderTurnCompletion,
   ToolCall,
   ToolDefinition,
   LlmUsage,
 } from './llm-contracts.js';
+import { ProviderTurnFailure } from './llm-contracts.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import {
@@ -77,7 +79,7 @@ export class OpenAIChatGateway {
     messages: AgentMessage[],
     _sessionId: string,
     opts: LlmCompleteOptions,
-  ): Promise<LlmCompleteResult> {
+  ): Promise<ProviderTurnCompletion> {
     const requestBody = buildOpenAIChatRequest(candidate, systemPrompt, messages, opts);
     const url = this.chatCompletionsUrl();
     const headers: Record<string, string> = {
@@ -93,9 +95,9 @@ export class OpenAIChatGateway {
       contractName: opts.contractName,
       candidate,
       endpoint: url,
-      headers,
-      body: requestBody,
+      requestParams: requestParamsFromOptions(opts, requestBody.tools?.length ?? 0),
       terminalToolOffered: opts.terminalToolOffered,
+      sourceInputId: opts.inputId,
     });
     let recordedErr = false;
     let rawText: string | undefined;
@@ -113,7 +115,7 @@ export class OpenAIChatGateway {
         if (handle) {
           recordedErr = true;
           const e = err as Error;
-          await handle.recordError({ errorName: e.name, message: e.message, bodyRaw: null });
+          await handle.recordError({ errorName: e.name, message: e.message });
         }
         throw err;
       }
@@ -150,10 +152,9 @@ export class OpenAIChatGateway {
             errorName: 'LlmRequestError',
             message: failure.message,
             status: response.status,
-            bodyRaw: bodyText,
           });
         }
-        throw new LlmRequestError(failure);
+        throw providerFailure(new LlmRequestError(failure), opts.recorder);
       }
 
       if (requestBody.stream) {
@@ -167,13 +168,12 @@ export class OpenAIChatGateway {
         if (handle) {
           const tee = teeStreamForRecorder(response.body);
           const result = await readOpenAIChatStream(tee.stream);
-          await handle.recordResponse(
-            { status: response.status, bodyRaw: tee.getBuffer(), bodyParsed: result },
-            firedTerminalFromResult(result, opts),
-          );
-          return result;
+          tee.getBuffer();
+          await handle.recordResponse({ status: response.status, token_usage: result.usage }, firedTerminalFromResult(result, opts));
+          return { result, provider_exchanges: opts.recorder?.settledAttempts() ?? [] };
         }
-        return await readOpenAIChatStream(response.body);
+        const result = await readOpenAIChatStream(response.body);
+        return { result, provider_exchanges: opts.recorder?.settledAttempts() ?? [] };
       }
 
       rawText = await response.text();
@@ -204,18 +204,19 @@ export class OpenAIChatGateway {
           : { kind: 'message', content: choice.message?.content ?? '', usage: parsed.usage };
       if (handle)
         await handle.recordResponse(
-          { status: response.status, bodyRaw: rawText, bodyParsed: parsed },
+          { status: response.status, token_usage: result.usage, finish_reason: choice.finish_reason ?? undefined },
           firedTerminalFromResult(result, opts),
         );
-      return result;
+      return { result, provider_exchanges: opts.recorder?.settledAttempts() ?? [] };
     } catch (err) {
-      if (handle && !recordedErr) await recordResponseError(handle, err, rawText ?? null);
-      if (err instanceof LlmRequestError) throw err;
+      if (handle && !recordedErr) await recordResponseError(handle, err);
+      if (err instanceof ProviderTurnFailure) throw err;
+      if (err instanceof LlmRequestError) throw providerFailure(err, opts.recorder);
       const failure = classifyTransportFailure(err, {
         provider: candidate.provider,
         model: candidate.model,
       });
-      throw new LlmRequestError(failure);
+      throw providerFailure(new LlmRequestError(failure), opts.recorder);
     }
   }
 
@@ -234,6 +235,20 @@ export class OpenAIChatGateway {
       'Copilot-Integration-Id': 'vscode-chat',
     };
   }
+}
+
+function requestParamsFromOptions(opts: LlmCompleteOptions, offeredToolsCount: number): Record<string, unknown> {
+  return {
+    temperature: opts.temperature ?? 0.7,
+    max_tokens: opts.max_tokens ?? 4096,
+    stream: opts.stream ?? false,
+    phase: opts.phase,
+    offered_tools_count: offeredToolsCount,
+  };
+}
+
+function providerFailure(error: unknown, recorder: LlmCompleteOptions['recorder']): ProviderTurnFailure {
+  return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: recorder?.settledAttempts() ?? [], originalFailure: error });
 }
 
 export function buildOpenAIChatRequest(

@@ -39,7 +39,7 @@ import {
   type OperatorApiBody,
   type OperatorApiSuccess,
 } from './contracts';
-import type { LlmExchange } from './contracts';
+import type { ProviderExchangePayload } from './contracts';
 import { dispatchApiAuthRequired } from '../utils/auth-events';
 
 function authHeaders(): Record<string, string> {
@@ -216,8 +216,8 @@ export function getAgentConversation(sessionId: string): Promise<AgentConversati
   return operatorRequest('agents.conversation', { params: { id: sessionId } }) as Promise<AgentConversationResponse>;
 }
 
-export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: LlmExchange }> {
-  return operatorRequest('agents.llmExchange', { params: { id: sessionId } }) as Promise<{ exchange: LlmExchange }>;
+export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: ProviderExchangePayload }> {
+  return operatorRequest('agents.llmExchange', { params: { id: sessionId } }) as Promise<{ exchange: ProviderExchangePayload }>;
 }
 
 export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {

@@ -150,7 +150,7 @@ describe('compaction primitives', () => {
     const provider: SummarizerProviderPort = {
       async completeTurn(input) {
         calls.push(input);
-        return { kind: 'message', content: 'Plain prose summary.' };
+        return { result: { kind: 'message', content: 'Plain prose summary.' }, provider_exchanges: [] };
       },
     };
 

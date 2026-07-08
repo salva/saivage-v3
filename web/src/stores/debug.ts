@@ -29,7 +29,6 @@ import type {
   ProcessListResponse,
   AgentSession,
   AgentConversationResponse,
-  FileEntry,
 } from '../api/types';
 import {
   getDebugState,
@@ -39,7 +38,6 @@ import {
   getDebugSupervision,
   listProcesses,
   listAgentSessions,
-  listFiles,
   getAgentConversation,
   getAgentLlmExchange,
   getFileContent,
@@ -57,7 +55,6 @@ import {
 const log = createLogger('store:debug');
 
 export type AgentDebugKind = 'conversation' | 'llmExchange';
-type RawAgentDebugKind = Exclude<AgentDebugKind, 'conversation'>;
 interface AgentDebugSession extends Pick<AgentSession, 'id' | 'role' | 'status'> {
   files: Partial<Record<AgentDebugKind, string>>;
 }
@@ -66,11 +63,6 @@ export const agentDebugKinds: Array<{ id: AgentDebugKind; label: string }> = [
   { id: 'conversation', label: 'Conversation' },
   { id: 'llmExchange', label: 'Raw LLM Exchange' },
 ];
-
-function sessionIdFromAgentDebugFile(name: string): string {
-  const withoutExtension = name.replace(/\.jsonl?$/i, '');
-  try { return decodeURIComponent(withoutExtension); } catch { return withoutExtension; }
-}
 
 function formatAgentDebugContent(content: string, path: string | null): string {
   if (!content) return '';
@@ -147,7 +139,7 @@ export const useDebugStore = defineStore('debug', () => {
     const session = selectedAgentDebugSession.value;
     if (!session) return null;
     if (selectedAgentDebugKind.value === 'conversation') return `/api/agents/${encodeURIComponent(session.id)}/conversation`;
-    if (selectedAgentDebugKind.value === 'llmExchange') return session.files.llmExchange ? `/api/agents/${encodeURIComponent(session.id)}/llm-exchange` : null;
+    if (selectedAgentDebugKind.value === 'llmExchange') return `/api/agents/${encodeURIComponent(session.id)}/llm-exchange`;
     return session.files[selectedAgentDebugKind.value] ?? null;
   });
   const formattedAgentDebugContent = computed(() => formatAgentDebugContent(agentDebugContent.value, selectedAgentDebugPath.value));
@@ -259,24 +251,6 @@ export const useDebugStore = defineStore('debug', () => {
     operatorLastFetchedAt.value = new Date().toISOString();
   }
 
-  async function listAgentDebugFiles(path: string): Promise<FileEntry[]> {
-    try {
-      const response = await listFiles(path);
-      return response.files.filter((file) => file.type === 'file');
-    } catch {
-      return [];
-    }
-  }
-
-  function addAgentDebugFiles(bySession: Map<string, AgentDebugSession>, files: FileEntry[], kind: RawAgentDebugKind): void {
-    for (const file of files) {
-      const id = sessionIdFromAgentDebugFile(file.name);
-      const session = bySession.get(id);
-      if (!session) continue;
-      session.files[kind] = file.path;
-    }
-  }
-
   function normalizeSelectedAgentDebugKind(): void {
     const session = selectedAgentDebugSession.value;
     if (!session) return;
@@ -288,6 +262,7 @@ export const useDebugStore = defineStore('debug', () => {
     const session = selectedAgentDebugSession.value;
     if (!session) return false;
     if (kind === 'conversation') return true;
+    if (kind === 'llmExchange') return true;
     return Boolean(session.files[kind]);
   }
 
@@ -336,13 +311,9 @@ export const useDebugStore = defineStore('debug', () => {
     agentDebugLoading.value = true;
     agentDebugError.value = null;
     try {
-      const [sessionResponse, llmExchanges] = await Promise.all([
-        listAgentSessions(),
-        listAgentDebugFiles('.saivage/agents/llm-exchanges'),
-      ]);
+      const sessionResponse = await listAgentSessions();
       const bySession = new Map<string, AgentDebugSession>();
       for (const session of sessionResponse.sessions) bySession.set(session.id, { id: session.id, role: session.role, status: session.status, files: {} });
-      addAgentDebugFiles(bySession, llmExchanges, 'llmExchange');
       agentDebugSessions.value = [...bySession.values()].sort((a, b) => a.id.localeCompare(b.id));
       if (!selectedAgentDebugSessionId.value || !bySession.has(selectedAgentDebugSessionId.value)) selectedAgentDebugSessionId.value = agentDebugSessions.value[0]?.id ?? null;
       normalizeSelectedAgentDebugKind();

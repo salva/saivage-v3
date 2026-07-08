@@ -140,7 +140,7 @@ async function buildCompactedRows(args: {
 }
 
 async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: string; config: CompactionConfig; summarizerProvider: SummarizerProviderPort; signal?: AbortSignal }, round: ClassifiedRound, cache: Map<string, SummaryCacheEntry>): Promise<SummaryCacheEntry> {
-  const rows = round.rows.map((row) => row.message).filter((message) => message.kind !== 'activity');
+  const rows = conversationMessagesForModel(round.rows.map((row) => row.message));
   const hash = contentHashForMessages(rows);
   const cacheKey = `${round.round_id}:${hash}`;
   const existing = cache.get(cacheKey);

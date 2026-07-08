@@ -1,10 +1,11 @@
-import type { LlmCompleteOptions, LlmCompleteResult, ToolCall } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteOptions, LlmCompleteResult, ProviderTurnCompletion, ToolCall } from '../../src/agents/llm-contracts.js';
 
 export function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
-  return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...(extra as object) } as LlmCompleteOptions;
+  return { inputId: 'test:input:1', phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...(extra as object) } as LlmCompleteOptions;
 }
 
-export function asMessage(r: LlmCompleteResult): { content: string; tool_calls: ToolCall[]; finishReason: string } {
+export function asMessage(value: LlmCompleteResult | ProviderTurnCompletion): { content: string; tool_calls: ToolCall[]; finishReason: string } {
+  const r = 'result' in value ? value.result : value;
   if (r.kind === 'message') return { content: r.content, tool_calls: [], finishReason: 'stop' };
   return { content: '', tool_calls: r.tool_calls, finishReason: 'tool_calls' };
 }

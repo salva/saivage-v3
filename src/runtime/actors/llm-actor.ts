@@ -1,10 +1,10 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
-import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
+import { appendLlmProviderExchangeRows, appendLlmTurnError, appendLlmTurnMessage, appendLlmTurnStarted, appendLlmTurnToolCall, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import { appendUserContextMessage, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
@@ -18,7 +18,7 @@ export type LLMActorOutcome =
   | { type: 'error'; agentId: string; error: string };
 
 export interface LLMProviderPort {
-  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmCompleteResult>;
+  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
 }
 
 export interface CompactorPort {
@@ -63,6 +63,7 @@ export class ConversationLLMActor extends BaseActor {
   #activationSignal: AbortSignal | null = null;
   #toolDeliveryCounter = 0;
   #systemPromptLoggedSessionIds = new Set<string>();
+  #providerBoundaryEntered = false;
 
   constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; gate?: RuntimeGate }) {
     super();
@@ -169,13 +170,13 @@ export class ConversationLLMActor extends BaseActor {
         appendLlmTurnStarted(this.projectRoot, effectiveInput, { includeSystemPrompt });
         if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(effectiveInput.sessionId);
         await this.gate.waitUntilOpen();
+        this.#providerBoundaryEntered = true;
         return this.provider.completeTurn(effectiveInput, this.providerSignal(signal));
       }, {
-        on_done: (result) => {
+        on_done: (completion) => {
           try {
             const effectiveInput = this.requireInput();
-            appendLlmTurnFinished(this.projectRoot, effectiveInput, result);
-            this.completeWithProviderResult(effectiveInput, result);
+            this.completeWithProviderCompletion(effectiveInput, completion);
           } catch (error) {
             this.failPendingTurnFatally(error);
             throw error;
@@ -187,7 +188,8 @@ export class ConversationLLMActor extends BaseActor {
               this.completeWithCancellation(error);
               return;
             }
-            this.completeWithError(this.requireInput(), error instanceof Error ? error.message : String(error));
+            if (!this.#providerBoundaryEntered) throw error instanceof Error ? error : new Error(String(error));
+            this.completeProviderFailure(this.requireInput(), error);
           } catch (fatal) {
             this.failPendingTurnFatally(fatal);
             throw fatal;
@@ -200,8 +202,11 @@ export class ConversationLLMActor extends BaseActor {
     }
   }
 
-  private completeWithProviderResult(input: LlmInvocationInput, result: LlmCompleteResult): void {
+  private completeWithProviderCompletion(input: LlmInvocationInput, completion: ProviderTurnCompletion): void {
+    const result = completion.result;
     if (result.kind === 'message') {
+      const message = appendLlmTurnMessage(this.projectRoot, input, result.content);
+      appendLlmProviderExchangeRows(this.projectRoot, input, completion.provider_exchanges, [message.id]);
       this.input = { ...input, contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }] };
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.onTurnSettled();
@@ -212,10 +217,15 @@ export class ConversationLLMActor extends BaseActor {
       return;
     }
     if (result.tool_calls.length !== 1) {
-      this.completeWithError(input, `Provider returned ${result.tool_calls.length} parallel tool calls; only one is supported.`);
+      const error = `Provider returned ${result.tool_calls.length} tool calls; exactly one supported tool call is required.`;
+      appendLlmTurnError(this.projectRoot, input, error);
+      appendLlmProviderExchangeRows(this.projectRoot, input, completion.provider_exchanges, []);
+      this.settleWithError(error);
       return;
     }
     const [call] = result.tool_calls;
+    const message = appendLlmTurnToolCall(this.projectRoot, input, call);
+    appendLlmProviderExchangeRows(this.projectRoot, input, completion.provider_exchanges, [message.id]);
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
     this.onTurnStateUpdated({ input, waitingToolCall: this.waitingToolCall });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
@@ -226,6 +236,19 @@ export class ConversationLLMActor extends BaseActor {
 
   private completeWithError(input: LlmInvocationInput, error: string): void {
     appendLlmTurnError(this.projectRoot, input, error);
+    this.settleWithError(error);
+  }
+
+  private completeProviderFailure(input: LlmInvocationInput, error: unknown): void {
+    if (!(error instanceof ProviderTurnFailure)) throw new Error(`Provider boundary for '${input.inputId}' failed without ProviderTurnFailure metadata.`);
+    if (error.failure_phase === 'provider_attempt' && error.provider_exchanges.length === 0) throw new Error(`Provider attempt for '${input.inputId}' failed without provider_exchange envelope.`);
+    const message = error.originalFailure instanceof Error ? error.originalFailure.message : error.message;
+    appendLlmTurnError(this.projectRoot, input, message);
+    appendLlmProviderExchangeRows(this.projectRoot, input, error.provider_exchanges, []);
+    this.settleWithError(message);
+  }
+
+  private settleWithError(error: string): void {
     this.outcome = { type: 'error', agentId: this.agentId, error };
     this.onTurnSettled();
     this.#activationSignal = null;
@@ -265,6 +288,7 @@ export class ConversationLLMActor extends BaseActor {
     this.outcome = null;
     this.#activationSignal = options.signal ?? null;
     this.onTurnStarting(input);
+    this.#providerBoundaryEntered = false;
     const promise = this.armTurn();
     this.parkedSendEvent('turn');
     return promise;

@@ -7,7 +7,7 @@ import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { appendLlmTurnFinished, appendToolDelivery, createSupervisorRuntimeApi, readActorSnapshots, readConversationMessages, readRecoveryDiagnostics, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
-import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 import { readRuntimeState } from '../../../src/runtime/state-api.js';
@@ -74,33 +74,38 @@ function doneProjectProvider(_evidenceId: string): LLMProviderPort {
 }
 
 function failedPlannerProvider(): LLMProviderPort {
-  return { completeTurn: jest.fn(async () => { throw new Error('planner provider failed'); }) };
+  return { completeTurn: jest.fn(async () => { throw new ProviderTurnFailure({ failure_phase: 'pre_provider', provider_exchanges: [], originalFailure: new Error('planner provider failed') }); }) };
 }
 
 function recordWrite(callId: string, path: string, content: string): LlmCompleteResult {
   return { kind: 'tool_calls' as const, tool_calls: [{ id: callId, type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path, content }) } }] };
 }
 
-function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
+function providerCompletion(result: LlmCompleteResult): ProviderTurnCompletion {
+  return { result, provider_exchanges: [] };
+}
+
+function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<LlmCompleteResult | ProviderTurnCompletion> | LlmCompleteResult | ProviderTurnCompletion): LLMProviderPort {
   const pending = new Map<string, LlmCompleteResult>();
   return {
     completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const pendingTerminal = pending.get(input.sessionId);
       if (pendingTerminal) {
         pending.delete(input.sessionId);
-        return pendingTerminal;
+        return providerCompletion(pendingTerminal);
       }
-      const result = await responder(input);
-      if (result.kind !== 'tool_calls') return result;
+      const completion = await responder(input);
+      const result = 'result' in completion ? completion.result : completion;
+      if (result.kind !== 'tool_calls') return providerCompletion(result);
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result') && input.role === 'planner') {
         pending.set(input.sessionId, result);
-        return recordWrite(`status-${input.sessionId}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId}`);
+        return providerCompletion(recordWrite(`status-${input.sessionId}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId}`));
       }
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result') && input.role === 'reviewer') {
         pending.set(input.sessionId, result);
-        return recordWrite(`review-${input.sessionId}`, 'record:///review.md?v=next', `Review for ${input.episodeContext.cardId}`);
+        return providerCompletion(recordWrite(`review-${input.sessionId}`, 'record:///review.md?v=next', `Review for ${input.episodeContext.cardId}`));
       }
-      return result;
+      return providerCompletion(result);
     }),
   };
 }
@@ -751,7 +756,7 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>(() => undefined)) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>(() => undefined)) };
     const api = createSupervisorRuntimeApi({
       projectRoot,
       promptTemplates: createTestPromptTemplateRegistry(),

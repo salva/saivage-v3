@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolCall } from '../../agents/llm-contracts.js';
+import type { ProviderExchangeAttempt, ProviderExchangePayload } from '../../contracts/provider-exchange.js';
+import { serializeProviderExchangePayload } from '../../contracts/provider-exchange.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
-import { appendConversationMessage, listConversationSessionIds, readConversationMessages } from './conversation-store.js';
+import { appendConversationMessage, appendProviderExchangeMessage, listConversationSessionIds, readConversationMessages } from './conversation-store.js';
 import { agentIdFromSessionId, cardIdFromSessionId } from './ids.js';
 
 const toolDeliveryRecordSchema = z.object({
@@ -69,17 +71,7 @@ export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationIn
 
 export function appendLlmTurnFinished(projectRoot: string, input: LlmInvocationInput, result: LlmCompleteResult): void {
   if (result.kind === 'message') {
-    appendConversationMessage(projectRoot, {
-      id: `${input.inputId}:message`,
-      session_id: input.sessionId,
-      role: 'assistant',
-      kind: 'text',
-      content: result.content,
-      round_id: roundId('assistant', input.inputId),
-      message_index: 1,
-      block_index: 0,
-      timestamp: new Date().toISOString(),
-    });
+    appendLlmTurnMessage(projectRoot, input, result.content);
     return;
   }
   result.tool_calls.forEach((toolCall, index) => {
@@ -87,8 +79,24 @@ export function appendLlmTurnFinished(projectRoot: string, input: LlmInvocationI
   });
 }
 
-export function appendLlmTurnError(projectRoot: string, input: LlmInvocationInput, error: string): void {
-  appendConversationMessage(projectRoot, {
+export function appendLlmTurnMessage(projectRoot: string, input: LlmInvocationInput, content: string): AgentMessage {
+  const message = agentMessageSchema.parse({
+      id: `${input.inputId}:message`,
+      session_id: input.sessionId,
+      role: 'assistant',
+      kind: 'text',
+      content,
+      round_id: roundId('assistant', input.inputId),
+      message_index: 1,
+      block_index: 0,
+      timestamp: new Date().toISOString(),
+    });
+  appendConversationMessage(projectRoot, message);
+  return message;
+}
+
+export function appendLlmTurnError(projectRoot: string, input: LlmInvocationInput, error: string): AgentMessage {
+  const message = agentMessageSchema.parse({
     id: `${input.inputId}:error`,
     session_id: input.sessionId,
     role: 'assistant',
@@ -98,6 +106,30 @@ export function appendLlmTurnError(projectRoot: string, input: LlmInvocationInpu
     message_index: 1,
     block_index: 0,
     timestamp: new Date().toISOString(),
+  });
+  appendConversationMessage(projectRoot, message);
+  return message;
+}
+
+export function appendLlmProviderExchangeRows(projectRoot: string, input: LlmInvocationInput, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[], assistantTurnBlockCount = 1): void {
+  if (attempts.length === 0) return;
+  const sorted = [...attempts].sort((a, b) => (a.attempt_index ?? -1) - (b.attempt_index ?? -1));
+  sorted.forEach((attempt, index) => {
+    if (attempt.source_input_id !== input.inputId) throw new Error(`provider_exchange source_input_id '${attempt.source_input_id}' does not match input '${input.inputId}'.`);
+    if (attempt.attempt_index !== index) throw new Error(`provider_exchange attempt indexes for '${input.inputId}' must be consecutive 0..N.`);
+    const payload = providerExchangePayload(attempt, assistantOutputIds);
+    const id = `${input.inputId}:provider-exchange:${attempt.attempt_index}`;
+    appendProviderExchangeMessage(projectRoot, agentMessageSchema.parse({
+      id,
+      session_id: input.sessionId,
+      role: 'system',
+      kind: 'provider_exchange',
+      content: serializeProviderExchangePayload(payload),
+      round_id: roundId('assistant', input.inputId),
+      message_index: 1,
+      block_index: assistantTurnBlockCount + attempt.attempt_index,
+      timestamp: attempt.completed_at,
+    }));
   });
 }
 
@@ -248,8 +280,14 @@ function appendSyntheticToolResult(projectRoot: string, record: { sessionId: str
   return message;
 }
 
-function appendToolCallMessage(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall, index: number): void {
-  appendConversationMessage(projectRoot, toolCallAgentMessage(input, toolCall, index));
+export function appendLlmTurnToolCall(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall): AgentMessage {
+  return appendToolCallMessage(projectRoot, input, toolCall, 0);
+}
+
+function appendToolCallMessage(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall, index: number): AgentMessage {
+  const message = toolCallAgentMessage(input, toolCall, index);
+  appendConversationMessage(projectRoot, message);
+  return message;
 }
 
 function toolCallAgentContent(toolCall: ToolCall): unknown {
@@ -286,4 +324,12 @@ export function appendModelRepairMessage(projectRoot: string, input: LlmInvocati
 
 function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {
   return `r-${kind}-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
+}
+
+function providerExchangePayload(attempt: ProviderExchangeAttempt, assistantOutputIds: string[]): ProviderExchangePayload {
+  if (attempt.attempt_index === undefined) throw new Error(`provider_exchange for '${attempt.source_input_id}' is missing attempt_index.`);
+  if (attempt.status === 'ok') {
+    return { ...attempt, attempt_index: attempt.attempt_index, assistant_output_ids: assistantOutputIds } as ProviderExchangePayload;
+  }
+  return { ...attempt, attempt_index: attempt.attempt_index } as ProviderExchangePayload;
 }

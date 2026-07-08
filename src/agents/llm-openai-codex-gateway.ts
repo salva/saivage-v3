@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
-import type { LlmCompleteOptions, LlmCompleteResult, ToolDefinition } from './llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
@@ -38,7 +38,7 @@ export class OpenAICodexGateway {
     messages: AgentMessage[],
     _sessionId: string,
     opts: LlmCompleteOptions,
-  ): Promise<LlmCompleteResult> {
+  ): Promise<ProviderTurnCompletion> {
     if (!this.apiKey) throw new LlmRequestError({ kind: 'auth_permanent', provider: candidate.provider, status: 401, message: 'OpenAI Codex provider not configured' });
 
     const body = buildOpenAICodexRequest(candidate, systemPrompt, messages, opts);
@@ -58,9 +58,9 @@ export class OpenAICodexGateway {
       contractName: opts.contractName,
       candidate,
       endpoint,
-      headers,
-      body,
+      requestParams: { stream: true, phase: opts.phase, offered_tools_count: opts.phase === 'terminal' ? 1 : opts.tools.length },
       terminalToolOffered: opts.terminalToolOffered,
+      sourceInputId: opts.inputId,
     });
     let recordedErr = false;
     let streamBuffer: string | undefined;
@@ -70,7 +70,7 @@ export class OpenAICodexGateway {
         if (handle) {
           recordedErr = true;
           const e = err as Error;
-          return handle.recordError({ errorName: e.name, message: e.message, bodyRaw: null }).then(() => { throw err; });
+          return handle.recordError({ errorName: e.name, message: e.message }).then(() => { throw err; });
         }
         throw err;
       });
@@ -82,9 +82,9 @@ export class OpenAICodexGateway {
           ?? defaultHttpClassifier(response, bodyText, ctx);
         if (handle && !recordedErr) {
           recordedErr = true;
-          await handle.recordError({ errorName: 'LlmRequestError', message: failure.message, status: response.status, bodyRaw: bodyText });
+          await handle.recordError({ errorName: 'LlmRequestError', message: failure.message, status: response.status });
         }
-        throw new LlmRequestError(failure);
+        throw providerFailure(new LlmRequestError(failure), opts.recorder);
       }
       if (!response.body) throw new LlmRequestError({ kind: 'server_transient', provider: candidate.provider, status: response.status, message: 'OpenAI Codex streaming response has no body' });
 
@@ -92,15 +92,17 @@ export class OpenAICodexGateway {
         const tee = teeStreamForRecorder(response.body);
         const result = await readOpenAICodexStream(tee.stream);
         streamBuffer = tee.getBuffer();
-        await handle.recordResponse({ status: response.status, bodyRaw: streamBuffer, bodyParsed: result }, firedTerminalFromCodexResult(result, opts));
-        return result;
+        await handle.recordResponse({ status: response.status, token_usage: result.usage }, firedTerminalFromCodexResult(result, opts));
+        return { result, provider_exchanges: opts.recorder?.settledAttempts() ?? [] };
       }
-      return await readOpenAICodexStream(response.body);
+      const result = await readOpenAICodexStream(response.body);
+      return { result, provider_exchanges: opts.recorder?.settledAttempts() ?? [] };
     } catch (err) {
-      if (handle && !recordedErr) await recordResponseError(handle, err, streamBuffer ?? null);
-      if (err instanceof LlmRequestError) throw err;
+      if (handle && !recordedErr) await recordResponseError(handle, err);
+      if (err instanceof ProviderTurnFailure) throw err;
+      if (err instanceof LlmRequestError) throw providerFailure(err, opts.recorder);
       const failure = classifyTransportFailure(err, { provider: candidate.provider, model: candidate.model });
-      throw new LlmRequestError(failure);
+      throw providerFailure(new LlmRequestError(failure), opts.recorder);
     }
   }
 
@@ -109,6 +111,10 @@ export class OpenAICodexGateway {
     if (this.baseUrl.endsWith('/codex')) return `${this.baseUrl}/responses`;
     return `${this.baseUrl}/codex/responses`;
   }
+}
+
+function providerFailure(error: unknown, recorder: LlmCompleteOptions['recorder']): ProviderTurnFailure {
+  return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: recorder?.settledAttempts() ?? [], originalFailure: error });
 }
 
 export function buildOpenAICodexRequest(

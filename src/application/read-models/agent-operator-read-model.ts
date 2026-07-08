@@ -1,8 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from '../../agents/session-ids.js';
 import { CardStore } from '../../cards/store-api.js';
-import { llmExchangeSchema } from '../../contracts/index.js';
+import { parseProviderExchangePayload } from '../../contracts/provider-exchange.js';
 import { listConversationSessionIds, readConversationMessages } from '../../runtime/actors/conversation-store.js';
 import { readActorSnapshots, type ActorSnapshotRecord } from '../../runtime/actors/snapshots.js';
 import type { AgentMessage, AgentRole, SessionStatus } from '../../schemas/index.js';
@@ -105,10 +103,8 @@ export class AgentOperatorReadModelService {
   }
 
   private readLatestModel(sessionId: string): string | null {
-    const path = join(this.projectRoot, '.saivage', 'agents', 'llm-exchanges', `${sessionId}.json`);
-    if (!existsSync(path)) return null;
-    const parsed = llmExchangeSchema.parse(JSON.parse(readFileSync(path, 'utf-8')));
-    return parsed.candidate.model;
+    const message = [...readConversationMessages(this.projectRoot, sessionId)].reverse().find((row) => row.kind === 'provider_exchange');
+    return message ? parseProviderExchangePayload(message.content).model : null;
   }
 
   private buildSessionSummary(sessionId: string, messages: AgentMessage[], snapshots: ActorSnapshotRecord[]): AgentOperatorSessionSummary | null {

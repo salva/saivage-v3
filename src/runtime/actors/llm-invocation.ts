@@ -1,5 +1,5 @@
 import type { AgentMessage, OperationalAgentRole } from '../../schemas/index.js';
-import type { LlmCompleteResult, ToolDefinition } from '../../agents/llm-contracts.js';
+import type { ProviderTurnCompletion, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
 
 export interface LlmInvocationInput {
@@ -18,5 +18,5 @@ export interface LlmInvocationInput {
 }
 
 export interface ProviderTurnPort {
-  completeTurn(input: LlmInvocationInput): Promise<LlmCompleteResult>;
+  completeTurn(input: LlmInvocationInput): Promise<ProviderTurnCompletion>;
 }

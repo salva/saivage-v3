@@ -6,7 +6,7 @@ import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { CardActor, PlanningCardProcessorActor, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
-import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
@@ -94,6 +94,10 @@ function recordWrite(callId: string, path: string, content: string) {
   };
 }
 
+function providerCompletion(result: LlmCompleteResult): ProviderTurnCompletion {
+  return { result, provider_exchanges: [] };
+}
+
 function invocationToolNames(input: LlmInvocationInput): string[] {
   return input.tools.map((tool) => tool.function.name).sort();
 }
@@ -117,7 +121,11 @@ function expectNotificationSeparatedFromTerminalError(error: string, notificatio
   expect(error).not.toContain(notificationPayload);
 }
 
-function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
+function providerTurnFailure(message: string): ProviderTurnFailure {
+  return new ProviderTurnFailure({ failure_phase: 'pre_provider', provider_exchanges: [], originalFailure: new Error(message) });
+}
+
+function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<LlmCompleteResult | ProviderTurnCompletion> | LlmCompleteResult | ProviderTurnCompletion): LLMProviderPort {
   const pending = new Map<string, LlmCompleteResult>();
   const recordWrites = new Map<string, number>();
   return {
@@ -129,24 +137,25 @@ function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<
           pending.delete(key);
         } else {
           pending.delete(key);
-          return pendingTerminal;
+          return providerCompletion(pendingTerminal);
         }
       }
-      const result = await responder(input);
-      if (result.kind !== 'tool_calls') return result;
+      const completion = await responder(input);
+      const result = 'result' in completion ? completion.result : completion;
+      if (result.kind !== 'tool_calls') return providerCompletion(result);
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result') && input.role === 'planner') {
         pending.set(key, result);
         const count = (recordWrites.get(key) ?? 0) + 1;
         recordWrites.set(key, count);
-        return recordWrite(`status-${key}-${count}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
+        return providerCompletion(recordWrite(`status-${key}-${count}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`));
       }
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result') && input.role === 'reviewer') {
         pending.set(key, result);
         const count = (recordWrites.get(key) ?? 0) + 1;
         recordWrites.set(key, count);
-        return recordWrite(`review-${key}-${count}`, 'record:///review.md?v=next', `Review for ${input.episodeContext.cardId ?? key}`);
+        return providerCompletion(recordWrite(`review-${key}-${count}`, 'record:///review.md?v=next', `Review for ${input.episodeContext.cardId ?? key}`));
       }
-      return result;
+      return providerCompletion(result);
     }),
   };
 }
@@ -938,7 +947,7 @@ describe('PlanningCardProcessorActor', () => {
       if (input.role !== 'reviewer') return plannerResult('done', 'done');
       reviewerTurns++;
       if (reviewerTurns <= 2) return { kind: 'message' as const, content: plainReviewerMessage };
-      throw new Error('model stopped after repeated plain reviewer messages');
+      throw providerTurnFailure('model stopped after repeated plain reviewer messages');
     });
     const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
@@ -992,21 +1001,21 @@ describe('PlanningCardProcessorActor', () => {
         if (input.role === 'planner') {
           if (!last) {
             actions.push('planner_write_status');
-            return recordWrite('planner-status-before-review', 'record:///status.md?v=next', 'Planner status before review.');
+            return providerCompletion(recordWrite('planner-status-before-review', 'record:///status.md?v=next', 'Planner status before review.'));
           }
           actions.push('planner_emit_done');
-          return plannerResult('done', 'ready for review');
+          return providerCompletion(plannerResult('done', 'ready for review'));
         }
         if (!last) {
           actions.push('reviewer_emit_without_review');
-          return reviewerResult({ status: 'done', summary: 'missing review first' });
+          return providerCompletion(reviewerResult({ status: 'done', summary: 'missing review first' }));
         }
         if (last.toolName === 'emit_result') {
           actions.push('reviewer_write_review_after_repair');
-          return recordWrite('reviewer-review-after-repair', 'record:///review.md?v=next', 'Reviewer assessment after repair.');
+          return providerCompletion(recordWrite('reviewer-review-after-repair', 'record:///review.md?v=next', 'Reviewer assessment after repair.'));
         }
         actions.push('reviewer_emit_after_review');
-        return reviewerResult({ status: 'done', summary: 'review ok after missing-record repair' });
+        return providerCompletion(reviewerResult({ status: 'done', summary: 'review ok after missing-record repair' }));
       }),
     };
     const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
@@ -1050,8 +1059,8 @@ describe('PlanningCardProcessorActor', () => {
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async () => {
         plannerTurns++;
-        if (plannerTurns <= 2) return { kind: 'message' as const, content: plainPlannerMessage };
-        throw new Error('model stopped after repeated plain planner messages');
+        if (plannerTurns <= 2) return providerCompletion({ kind: 'message' as const, content: plainPlannerMessage });
+        throw providerTurnFailure('model stopped after repeated plain planner messages');
       }),
     };
     const actor = new PlanningCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
@@ -1138,14 +1147,14 @@ describe('PlanningCardProcessorActor', () => {
         const last = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
         if (!last) {
           actions.push('emit_without_status');
-          return plannerResult('blocked', 'missing record first');
+          return providerCompletion(plannerResult('blocked', 'missing record first'));
         }
         if (last.toolName === 'emit_result') {
           actions.push('write_status_after_repair');
-          return recordWrite('planner-status-after-repair', 'record:///status.md?v=next', 'Planner status after repair.');
+          return providerCompletion(recordWrite('planner-status-after-repair', 'record:///status.md?v=next', 'Planner status after repair.'));
         }
         actions.push('emit_after_status');
-        return plannerResult('blocked', 'blocked after missing-record repair');
+        return providerCompletion(plannerResult('blocked', 'blocked after missing-record repair'));
       }),
     };
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-missing-status', message: 'planner missing status notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };

@@ -7,7 +7,8 @@ import { replayToolForRecovery, type InvocationSurface } from '../../tools/invoc
 import { readLlmActiveReconstruction } from './active-reconstruction.js';
 import { readActorSnapshot } from './snapshots.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
-import type { ProviderVisibleUserContextMessage } from './conversation-store.js';
+import { listConversationSessionIds, readConversationMessages, type ProviderVisibleUserContextMessage } from './conversation-store.js';
+import type { AgentMessage } from '../../schemas/index.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
@@ -47,6 +48,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   }
 
   override recoverActive(state: string, input: CardActivationInput, signal: AbortSignal): Promise<CardProcessorOutcome> {
+    this.seedInvocationInputCounterFromConversations();
     this.adoptRecoveredLlmSnapshots();
     return super.recoverActive(state, input, signal);
   }
@@ -120,8 +122,52 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     return `${prefix}:${this.cardId}:${this.#invocationInputCounter}`;
   }
 
+  private seedInvocationInputCounterFromConversations(): void {
+    let maxSuffix = 0;
+    for (const sessionId of listConversationSessionIds(this.projectRoot)) {
+      for (const message of readConversationMessages(this.projectRoot, sessionId)) {
+        for (const inputId of inputIdsFromMessage(message)) {
+          const suffix = this.parseOwnedInputSuffix(inputId);
+          if (suffix !== null) maxSuffix = Math.max(maxSuffix, suffix);
+        }
+      }
+    }
+    this.#invocationInputCounter = maxSuffix;
+  }
+
+  private parseOwnedInputSuffix(inputId: string): number | null {
+    for (const role of ['planner', 'terminal', 'reviewer']) {
+      const prefix = `${role}:${this.cardId}:`;
+      if (!inputId.startsWith(prefix)) continue;
+      const rest = inputId.slice(prefix.length);
+      const numeric = rest.match(/^\d+/)?.[0];
+      if (!numeric) return null;
+      const suffix = Number(numeric);
+      return Number.isSafeInteger(suffix) ? suffix : null;
+    }
+    return null;
+  }
+
   protected notificationContext(input: CardActivationInput, inputId: string): readonly ProviderVisibleUserContextMessage[] {
     const notifications = input.notificationDelivery.deliverNotificationsForInput(inputId);
     return notifications.map((notification) => ({ role: 'user', content: notification.message }));
   }
+}
+
+function inputIdsFromMessage(message: AgentMessage): string[] {
+  const ids = new Set<string>();
+  for (const delimiter of [':started', ':message', ':error', ':repair', ':tool-call:', ':provider-exchange:', ':tool:']) {
+    const index = message.id.indexOf(delimiter);
+    if (index > 0) ids.add(message.id.slice(0, index));
+  }
+  try {
+    const parsed = JSON.parse(message.content) as unknown;
+    if (typeof parsed === 'object' && parsed !== null) {
+      const record = parsed as Record<string, unknown>;
+      for (const key of ['input_id', 'inputId', 'source_input_id']) {
+        if (typeof record[key] === 'string') ids.add(record[key]);
+      }
+    }
+  } catch {}
+  return [...ids];
 }

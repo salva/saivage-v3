@@ -61,9 +61,9 @@ describe('conversation compactor orchestration', () => {
     appendRound(projectRoot, 1, 'old round one ' + 'a'.repeat(80));
     appendRound(projectRoot, 2, 'middle round two ' + 'b'.repeat(80));
     appendRound(projectRoot, 3, 'recent round three ' + 'c'.repeat(80));
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async (llmInput: LlmInvocationInput) => ({ kind: 'message' as const, content: `summary:${llmInput.inputId}` })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (llmInput: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] })) };
 
-    const rows = await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(140) });
+    const rows = await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
 
     expect(rows.every((row) => row.kind !== 'activity')).toBe(true);
     const summaries = rows.filter((row) => row.kind === 'context_compaction');
@@ -83,13 +83,13 @@ describe('conversation compactor orchestration', () => {
     const seenInputs: string[] = [];
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (llmInput: LlmInvocationInput) => {
       seenInputs.push((llmInput.contextMessages as AgentMessage[]).map((message) => message.content).join('\n'));
-      return { kind: 'message' as const, content: `summary:${llmInput.inputId}` };
+      return { result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] };
     }) };
 
-    await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(140) });
+    await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
     const firstSummaryContent = readActiveVersionMessages(projectRoot, 'planner:project').filter((row) => row.kind === 'context_compaction').map((row) => row.content).join('\n');
-    appendRound(projectRoot, 4, 'new recent round four ' + 'd'.repeat(160));
-    await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(180) });
+    appendRound(projectRoot, 4, 'new recent round four ' + 'd'.repeat(40));
+    await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(130) });
     const active = readActiveVersionMessages(projectRoot, 'planner:project');
     const secondSummaryRows = active.filter((row) => row.kind === 'context_compaction');
 

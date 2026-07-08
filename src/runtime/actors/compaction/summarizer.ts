@@ -1,10 +1,10 @@
-import type { LlmCompleteResult } from '../../../agents/llm-contracts.js';
+import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../agents/llm-contracts.js';
 import type { AgentMessage } from '../../../schemas/index.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { SummaryCacheEntry } from './summary-cache.js';
 
 export interface SummarizerProviderPort {
-  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmCompleteResult>;
+  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
 }
 
 export type SummarizerModelSpec = string;
@@ -17,14 +17,14 @@ export async function summarizeRound(args: {
   signal?: AbortSignal;
 }): Promise<string> {
   validateNoCompactionRows(args.rows, 'summarizeRound');
-  const result = await args.summarizerProvider.completeTurn(buildSummaryInput({
+  const completion = await args.summarizerProvider.completeTurn(buildSummaryInput({
     inputId: `summary-round:${args.round_id}`,
     sessionId: `summary:${args.round_id}`,
     modelSpec: args.modelSpec,
     systemPrompt: 'Summarize this Saivage conversation round as concise prose. Do not include recoverable-evidence pointer sections.',
     contextMessages: args.rows,
   }), args.signal ?? new AbortController().signal);
-  return validateSummaryResult(result, 'summarizeRound');
+  return validateSummaryResult(completion.result, 'summarizeRound');
 }
 
 export async function summarizeMerge(args: {
@@ -45,14 +45,14 @@ export async function summarizeMerge(args: {
     block_index: 0,
     timestamp: entry.created_at,
   }));
-  const result = await args.summarizerProvider.completeTurn(buildSummaryInput({
+  const completion = await args.summarizerProvider.completeTurn(buildSummaryInput({
     inputId: 'summary-merge',
     sessionId: 'summary:merge',
     modelSpec: args.modelSpec,
     systemPrompt: 'Merge these cached Saivage round summaries into one concise prose summary. Do not include recoverable-evidence pointer sections.',
     contextMessages,
   }), args.signal ?? new AbortController().signal);
-  return validateSummaryResult(result, 'summarizeMerge');
+  return validateSummaryResult(completion.result, 'summarizeMerge');
 }
 
 function buildSummaryInput(args: { inputId: string; sessionId: string; modelSpec: string; systemPrompt: string; contextMessages: AgentMessage[] }): LlmInvocationInput {
@@ -72,8 +72,8 @@ function buildSummaryInput(args: { inputId: string; sessionId: string; modelSpec
 }
 
 function validateNoCompactionRows(rows: AgentMessage[], caller: string): void {
-  const found = rows.find((row) => row.kind === 'context_compaction');
-  if (found) throw new Error(`${caller} must not receive existing context_compaction rows; found '${found.id}'.`);
+  const found = rows.find((row) => row.kind === 'context_compaction' || row.kind === 'provider_exchange');
+  if (found) throw new Error(`${caller} must not receive non-model-visible compaction rows; found '${found.id}' kind '${found.kind}'.`);
 }
 
 function validateSummaryResult(result: LlmCompleteResult, caller: string): string {

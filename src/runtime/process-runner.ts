@@ -495,7 +495,9 @@ function onStreamEnd(service: ProcessRunner, procId: string): void {
 
   const remaining = current - 1;
   if (remaining <= 0) {
-    finalizeProcess(service, procId);
+    service.pendingStreamCloses.set(procId, 0);
+    const child = service.activeProcesses.get(procId);
+    if (!child || resolveStatus(child) !== 'running') finalizeProcess(service, procId);
   } else {
     service.pendingStreamCloses.set(procId, remaining);
   }

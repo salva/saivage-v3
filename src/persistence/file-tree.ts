@@ -63,7 +63,6 @@ function defaultProjectConfig(name: string): ProjectConfig {
 const SAIVAGE_DIRS: string[] = [
   'skills',
   'outputs/cards',
-  'agents/llm-exchanges',
   'agents/conversations',
   'runtime',
   'tmp/state',
@@ -82,6 +81,7 @@ const LEGACY_REJECTED_ARTIFACTS: string[] = [
   'cards/blocks.json',
   'agents/tool-deliveries',
   'agents/tool-call-statuses',
+  'agents/llm-exchanges',
   'views',
 ];
 const SAIVAGE_WORK_DIRS: string[] = [

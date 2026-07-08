@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { llmExchangeSchema } from './llm-exchange.js';
+import { providerExchangePayloadSchema } from './provider-exchange.js';
 import { agentMessageSchema, agentSessionSchema } from '../schemas/index.js';
 import {
   ApiErrorSchema,
@@ -36,7 +36,7 @@ export const AgentConversationResponseSchema = z.object({
   activity_status: AgentActivityStatusSchema,
 });
 export const AgentLlmExchangeResponseSchema = z.object({
-  exchange: llmExchangeSchema,
+  exchange: providerExchangePayloadSchema,
 });
 
 

@@ -1,5 +1,5 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
-import type { LlmExchangeRecorder } from './llm-exchange-recorder.js';
+import type { ProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import { LlmRequestError } from './llm-errors.js';
 
 const STREAM_TEE_MAX_BYTES = 16 * 1024 * 1024;
@@ -50,13 +50,13 @@ export interface LlmRecorderRequest {
   contractName: string;
   candidate: Candidate;
   endpoint: string;
-  headers: Record<string, string>;
-  body: unknown;
+  requestParams: Record<string, unknown>;
   terminalToolOffered: readonly string[];
+  sourceInputId: string;
 }
 
 export async function beginRecordedExchange(
-  recorder: LlmExchangeRecorder | undefined,
+  recorder: ProviderExchangeRecorder | undefined,
   request: LlmRecorderRequest,
 ) {
   if (!recorder) return undefined;
@@ -69,15 +69,15 @@ export async function beginRecordedExchange(
       model: request.candidate.model,
       account: request.candidate.account ?? undefined,
     },
-    request: { endpoint: request.endpoint, method: 'POST', headers: request.headers, body: request.body },
+    requestParams: { endpoint: request.endpoint, method: 'POST', ...request.requestParams },
     terminalToolOffered: request.terminalToolOffered,
+    sourceInputId: request.sourceInputId,
   });
 }
 
 export async function recordResponseError(
-  handle: Awaited<ReturnType<LlmExchangeRecorder['beginExchange']>> | undefined,
+  handle: Awaited<ReturnType<ProviderExchangeRecorder['beginExchange']>> | undefined,
   err: unknown,
-  bodyRaw: string | null,
 ): Promise<void> {
   if (!handle) return;
   const e = err as Error;
@@ -88,6 +88,5 @@ export async function recordResponseError(
     errorName: e.name ?? 'Error',
     message: e.message ?? String(err),
     status,
-    bodyRaw,
   });
 }

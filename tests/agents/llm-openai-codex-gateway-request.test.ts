@@ -45,6 +45,7 @@ const SAMPLE_TOOL: ToolDefinition = {
 describe('buildOpenAICodexRequest wire shape', () => {
   it('terminal phase: flat tool shape, string tool_choice, disables parallel tool calls, no response_format', () => {
     const opts: LlmCompleteOptions = {
+      inputId: 'test:input:1',
       phase: 'terminal',
       contract_id: 'test.v1',
       contractName: 'planner',
@@ -74,6 +75,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
 
   it("tools phase with tool_choice 'auto': tool_choice serialized as the string 'auto'", () => {
     const opts: LlmCompleteOptions = {
+      inputId: 'test:input:1',
       phase: 'tools',
       contract_id: 'test.v1',
       contractName: 'planner',
@@ -90,6 +92,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
 
   it('no-tools (analyst message mode): omits tools, tool_choice, parallel_tool_calls', () => {
     const opts: LlmCompleteOptions = {
+      inputId: 'test:input:1',
       phase: 'tools',
       contract_id: 'test.v1',
       contractName: 'analyst',

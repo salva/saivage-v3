@@ -58,6 +58,7 @@ function buildCompactionWiring(invocationService: InvocationService, config: Sai
     bufferSizeEstimator: heuristicBufferSizeEstimator,
     summarizerProvider: {
       completeTurn: (input: Parameters<LLMProviderPort['completeTurn']>[0], signal: AbortSignal) => invocationService.invokeWithRecovery({
+        inputId: input.inputId,
         role: input.role,
         sessionId: input.sessionId,
         systemPrompt: input.systemPrompt,
@@ -76,6 +77,7 @@ function buildCompactionWiring(invocationService: InvocationService, config: Sai
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
     completeTurn: (input, signal) => invocationService.invokeWithRecovery({
+      inputId: input.inputId,
       role: input.role,
       sessionId: input.sessionId,
       systemPrompt: input.systemPrompt,

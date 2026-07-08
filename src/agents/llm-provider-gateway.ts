@@ -2,7 +2,7 @@ import type { AgentMessage } from '../schemas/index.js';
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import { capabilityRequestForLlmOptions, supportsCapabilityRequest } from './provider-capabilities.js';
-import type { LlmCompleteOptions, LlmCompleteResult, LlmInvocationClient } from './llm-contracts.js';
+import type { LlmCompleteOptions, ProviderTurnCompletion, LlmInvocationClient } from './llm-contracts.js';
 import { LlmRequestError } from './llm-errors.js';
 import { OpenAIChatGateway } from './llm-openai-chat-gateway.js';
 import { OpenAICodexGateway } from './llm-openai-codex-gateway.js';
@@ -30,7 +30,7 @@ export class LlmProviderGateway implements LlmInvocationClient {
     messages: AgentMessage[],
     sessionId: string,
     opts: LlmCompleteOptions,
-  ): Promise<LlmCompleteResult> {
+  ): Promise<ProviderTurnCompletion> {
     this.assertCandidateCapabilities(candidate, opts);
     if (candidate.provider === 'openai-codex') {
       return new OpenAICodexGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey }).complete(candidate, systemPrompt, messages, sessionId, opts);

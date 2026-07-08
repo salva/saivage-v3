@@ -10,13 +10,15 @@ import {
 } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
-import type { LlmCallFn, LlmCompleteResult, ToolDefinition } from './llm-contracts.js';
+import { ProviderTurnFailure, type LlmCallFn, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
+import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
 
 export interface InvocationRequest {
+  inputId: string;
   role: OperationalAgentRole;
   sessionId: string;
   systemPrompt: string;
@@ -65,7 +67,7 @@ export class InvocationService {
     return this.router.resolve(role, capabilityRequest);
   }
 
-  async invokeCall(request: InvocationRequest, candidate: Candidate): Promise<LlmCompleteResult> {
+  async invokeCall(request: InvocationRequest, candidate: Candidate): Promise<ProviderTurnCompletion> {
     const call = this.llmCallFn ?? this.llmGateway.createLlmCallFn();
     return call(
       candidate,
@@ -78,13 +80,15 @@ export class InvocationService {
         request.terminalToolNames,
         { temperature: request.modelParams.temperature, max_tokens: request.modelParams.maxTokens },
         request.abortSignal,
+        request.inputId,
         undefined,
       ),
     );
   }
 
-  async invokeWithRecovery(request: InvocationRequest): Promise<LlmCompleteResult> {
+  async invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion> {
     const chain = request.candidateChain ?? await this.resolveCandidates(request.role, request.capabilityRequest);
+    const settled: ProviderExchangeAttempt[] = [];
     if (chain.length === 0) {
       const decision = defaultInvocationRecoveryPolicy.decideNoCandidates({
         role: request.role,
@@ -96,7 +100,7 @@ export class InvocationService {
         capabilitySkips: this.router.getLastCapabilitySkips(),
         sessionId: request.sessionId,
       });
-      throw new Error(decision.message);
+      throw new ProviderTurnFailure({ failure_phase: 'pre_provider', provider_exchanges: [], originalFailure: new Error(decision.message), message: decision.message });
     }
 
     let lastTransportError: Error | null = null;
@@ -105,9 +109,10 @@ export class InvocationService {
       try {
         const result = await this.invokeCall(request, candidate);
         await this.candidateAvailability.markSucceeded(candidate);
-        return result;
+        return { result: result.result, provider_exchanges: normalizeAttempts(request.inputId, [...settled, ...result.provider_exchanges]) };
       } catch (err) {
-        const decision = defaultInvocationRecoveryPolicy.decideFailure(err, {
+        const originalFailure = err instanceof ProviderTurnFailure ? err.originalFailure : err;
+        const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
           role: request.role,
           candidate,
           attempt: 1,
@@ -118,17 +123,31 @@ export class InvocationService {
           capabilitySkips: this.router.getLastCapabilitySkips(),
           sessionId: request.sessionId,
         });
+        if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
+          if (err.provider_exchanges.length === 0) throw new Error(`Provider attempt for input '${request.inputId}' settled without a provider_exchange envelope.`);
+          settled.push(...err.provider_exchanges);
+        }
         if (decision.markFailed && decision.availability) await this.candidateAvailability.markFailed(candidate, decision.availability);
-        if (decision.action === 'abort_without_retry' || decision.action === 'fail_invocation') throw err;
-        lastTransportError = err instanceof Error ? err : new Error(String(err));
+        if (decision.action === 'abort_without_retry' || decision.action === 'fail_invocation') {
+          throw new ProviderTurnFailure({
+            failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
+            provider_exchanges: normalizeAttempts(request.inputId, settled),
+            originalFailure,
+          });
+        }
+        lastTransportError = originalFailure instanceof Error ? originalFailure : new Error(String(originalFailure));
       }
     }
 
-    if (lastTransportError) throw lastTransportError;
-    throw new Error(`No healthy candidates available for role '${request.role}'.`);
+    if (lastTransportError) throw new ProviderTurnFailure({ failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider', provider_exchanges: normalizeAttempts(request.inputId, settled), originalFailure: lastTransportError });
+    throw new ProviderTurnFailure({ failure_phase: 'pre_provider', provider_exchanges: [], originalFailure: new Error(`No healthy candidates available for role '${request.role}'.`) });
   }
 
   async flushRecorders(): Promise<void> {
     await this.llmGateway.flushRecorders();
   }
+}
+
+function normalizeAttempts(sourceInputId: string, attempts: ProviderExchangeAttempt[]): ProviderExchangeAttempt[] {
+  return attempts.map((attempt, index) => ({ ...attempt, source_input_id: sourceInputId, attempt_index: index }));
 }

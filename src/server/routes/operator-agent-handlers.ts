@@ -1,11 +1,10 @@
-import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/llm-exchange-log.js';
+import { parseProviderExchangePayload } from '../../contracts/provider-exchange.js';
+import { readConversationMessages } from '../../runtime/actors/conversation-store.js';
 import { AgentOperatorReadModelService, isSafeAgentSessionId } from '../../application/read-models/index.js';
 import type {
   OperatorContractHandlerMap,
   OperatorProjectContext,
 } from './operator-handler-context.js';
-
-function saivageDir(projectRoot: string): string { return `${projectRoot}/.saivage`; }
 
 type AgentOperatorHandlerOptions = OperatorProjectContext;
 
@@ -21,14 +20,11 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
       const sessionId = (params as unknown as { id: string }).id;
       if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
       try {
-        const exchange = await readLatestLlmExchange(saivageDir(projectRoot), sessionId);
+        const exchange = [...readConversationMessages(projectRoot, sessionId)].reverse().find((message) => message.kind === 'provider_exchange');
         if (!exchange) return { statusCode: 404, body: { error: 'No LLM exchange recorded for this session yet.' } };
-        return { body: { exchange } };
+        return { body: { exchange: parseProviderExchangePayload(exchange.content) } };
       } catch (err) {
-        if (err instanceof LlmExchangeCorruptedError) {
-          request.log.error({ err, sessionId, cause: err.cause }, 'Corrupted LLM exchange record');
-          return { statusCode: 500, body: { error: 'Corrupted LLM exchange record.' } };
-        }
+        request.log.error({ err, sessionId }, 'Failed to read provider exchange record');
         return { statusCode: 500, body: { error: 'Failed to read LLM exchange', message: err instanceof Error ? err.message : String(err) } };
       }
     },

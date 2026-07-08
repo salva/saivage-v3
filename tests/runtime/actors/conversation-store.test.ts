@@ -177,7 +177,7 @@ describe('conversation-store', () => {
       { provider: 'openai-chat', account: null, model: 'test-model' },
       'system prompt',
       [row],
-      { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test', contractName: 'test', terminalToolOffered: [] },
+      { inputId: 'test:input:1', phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test', contractName: 'test', terminalToolOffered: [] },
     );
     expect(chat.messages.filter((message) => message.role === 'user')).toEqual([{ role: 'user', content: row.content }]);
   });

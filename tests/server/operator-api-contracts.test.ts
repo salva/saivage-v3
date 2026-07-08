@@ -397,25 +397,23 @@ describe('operator API contract registry', () => {
     expect(operatorApiContracts['agents.llmExchange'].params?.parse({ id: 'planner-1' })).toEqual({ id: 'planner-1' });
     const parsed = parseOperatorResponse('agents.llmExchange', {
       exchange: {
-        sessionId: 'planner-1',
         contract_id: 'planner.v1',
-        contractName: 'planner',
-        capturedAt: '2026-01-01T00:00:00.000Z',
+        contract_name: 'planner',
         transport: 'generic',
-        candidate: { provider: 'test-provider', model: 'test-model' },
-        attempts: [{
-          attempt: 0,
-          startedAt: '2026-01-01T00:00:00.000Z',
-          completedAt: '2026-01-01T00:00:01.000Z',
-          status: 'ok',
-          terminalToolOffered: [],
-          terminalToolFired: null,
-          request: { endpoint: 'https://example.test/v1/chat', method: 'POST', headers: {}, body: { prompt: 'hi' } },
-          response: { status: 200, headers: {}, bodyRaw: '{"ok":true}', bodyParsed: { ok: true } },
-        }],
+        provider: 'test-provider',
+        model: 'test-model',
+        source_input_id: 'planner:card:1',
+        attempt_index: 0,
+        request_params: { temperature: 0 },
+        started_at: '2026-01-01T00:00:00.000Z',
+        completed_at: '2026-01-01T00:00:01.000Z',
+        status: 'ok',
+        response_status: 200,
+        terminal_tool_fired: null,
+        assistant_output_ids: ['planner:card:1:message'],
       },
     });
-    expect(parsed.exchange.sessionId).toBe('planner-1');
+    expect(parsed.exchange.source_input_id).toBe('planner:card:1');
     expect(() => parseOperatorResponse('agents.llmExchange', { exchange: { sessionId: 'planner-1' } })).toThrow();
     expect(() => parseOperatorResponse('agents.llmExchange', { llm_exchange: parsed.exchange })).toThrow();
   });

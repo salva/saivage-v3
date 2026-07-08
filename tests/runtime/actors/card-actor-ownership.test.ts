@@ -17,7 +17,7 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function deps(projectRoot: string, store: CardStore, lookup = new Map<string, CardActor>()): CardActorDeps {
-  const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })) };
+  const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })) };
   return {
     projectRoot,
     store,

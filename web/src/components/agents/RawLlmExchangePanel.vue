@@ -11,18 +11,16 @@
         >Refresh</button>
       </div>
       <div v-if="exchange" class="rlp-meta">
-        <span class="rlp-meta-item">Captured: <span class="rlp-meta-value">{{ exchange.capturedAt }}</span></span>
+        <span class="rlp-meta-item">Completed: <span class="rlp-meta-value">{{ exchange.completed_at }}</span></span>
         <span class="rlp-meta-sep">·</span>
         <span class="rlp-meta-item">Transport: <span class="rlp-meta-value">{{ exchange.transport }}</span></span>
         <span class="rlp-meta-sep">·</span>
-        <span class="rlp-meta-item">Model: <span class="rlp-meta-value">{{ exchange.candidate.model }}</span></span>
+        <span class="rlp-meta-item">Model: <span class="rlp-meta-value">{{ exchange.model }}</span></span>
         <span class="rlp-meta-sep">·</span>
-        <span class="rlp-meta-item">Attempts: <span class="rlp-meta-value">{{ exchange.attempts.length }}</span></span>
+        <span class="rlp-meta-item">Attempt: <span class="rlp-meta-value">{{ exchange.attempt_index }}</span></span>
       </div>
       <p class="rlp-redaction-banner">
-        Raw exchange after server-side redaction. Operator-domain text (prompts, tool args)
-        appears unmodified; credential-shaped values, secret-named keys, and credentials in
-        headers/URLs are replaced with [REDACTED].
+        Provider exchange metadata only. Raw HTTP request and response bodies are not persisted.
       </p>
     </header>
 
@@ -39,36 +37,21 @@
     </div>
 
     <template v-else>
-      <nav v-if="exchange.attempts.length > 1" class="tablist rlp-tabs" aria-label="Attempts">
-        <button
-          v-for="(att, idx) in exchange.attempts"
-          :key="att.attempt"
-          type="button"
-          class="pill rlp-attempt-tab"
-          :aria-pressed="idx === selectedIndex"
-          @click="selectedIndex = idx"
-        >Attempt {{ att.attempt }}</button>
-      </nav>
-
-      <div v-if="selectedAttempt" class="rlp-attempt-meta">
-        <span class="rlp-meta-item">Status: <span class="rlp-meta-value">{{ selectedAttempt.status }}</span></span>
+      <div class="rlp-attempt-meta">
+        <span class="rlp-meta-item">Status: <span class="rlp-meta-value">{{ exchange.status }}</span></span>
         <span
-          v-if="selectedAttempt.terminalToolFired"
+          v-if="exchange.terminal_tool_fired"
           class="rlp-terminal-tool-badge"
           :title="`terminal tool emitted on this attempt`"
-        >{{ selectedAttempt.terminalToolFired }}</span>
-        <span
-          v-if="selectedAttempt.terminalToolOffered && selectedAttempt.terminalToolOffered.length > 0"
-          class="rlp-meta-item"
-          :title="`terminal tools offered to the model on this attempt`"
-        >Offered: <span class="rlp-meta-value">{{ selectedAttempt.terminalToolOffered.join(', ') }}</span></span>
+        >{{ exchange.terminal_tool_fired }}</span>
+        <span class="rlp-meta-item">Input: <span class="rlp-meta-value">{{ exchange.source_input_id }}</span></span>
       </div>
 
-      <div v-if="selectedAttempt" class="rlp-panes">
+      <div class="rlp-panes">
         <div class="rlp-pane">
-          <h3 class="rlp-pane-title">Request</h3>
+          <h3 class="rlp-pane-title">Request parameters</h3>
           <CodeBlock
-            :code="formatJson(selectedAttempt.request)"
+            :code="formatJson(exchange.request_params)"
             language="json"
             copyable
             max-height="60vh"
@@ -77,66 +60,21 @@
         </div>
 
         <div class="rlp-pane">
-          <h3 class="rlp-pane-title">Response</h3>
+          <h3 class="rlp-pane-title">Settlement</h3>
 
-          <div v-if="selectedAttempt.error" class="rlp-error-box">
-            <div class="rlp-error-name">{{ selectedAttempt.error.errorName }}</div>
-            <div class="rlp-error-message">{{ selectedAttempt.error.message }}</div>
-            <CodeBlock
-              v-if="selectedAttempt.error.bodyRaw"
-              :code="selectedAttempt.error.bodyRaw"
-              language="text"
-              copyable
-              wrap
-              max-height="60vh"
-              aria-label="Last LLM error body, raw text"
-            />
+          <div v-if="exchange.status === 'error'" class="rlp-error-box">
+            <div class="rlp-error-name">{{ exchange.error.name }}</div>
+            <div class="rlp-error-message">{{ exchange.error.message }}</div>
           </div>
 
-          <template v-else-if="selectedAttempt.response">
-            <template v-if="isStreaming">
-              <CodeBlock
-                :code="selectedAttempt.response.bodyRaw ?? ''"
-                language="text"
-                copyable
-                wrap
-                max-height="60vh"
-                aria-label="Last LLM response, raw stream"
-              />
-              <details v-if="selectedAttempt.response.bodyParsed !== null" class="rlp-parsed-details">
-                <summary>Parsed result</summary>
-                <CodeBlock
-                  :code="formatJson(selectedAttempt.response.bodyParsed)"
-                  language="json"
-                  copyable
-                  max-height="60vh"
-                  aria-label="Last LLM response, parsed JSON"
-                />
-              </details>
-            </template>
-            <template v-else-if="selectedAttempt.response.bodyParsed !== null">
-              <CodeBlock
-                :code="formatJson(selectedAttempt.response.bodyParsed)"
-                language="json"
-                copyable
-                max-height="60vh"
-                aria-label="Last LLM response, JSON"
-              />
-            </template>
-            <template v-else>
-              <div class="rlp-notice">Response was not valid JSON — showing raw text.</div>
-              <CodeBlock
-                :code="selectedAttempt.response.bodyRaw ?? ''"
-                language="text"
-                copyable
-                wrap
-                max-height="60vh"
-                aria-label="Last LLM response, raw text"
-              />
-            </template>
-          </template>
-
-          <div v-else class="rlp-notice">No response captured for this attempt.</div>
+          <CodeBlock
+            v-else
+            :code="formatJson({ response_status: exchange.response_status, finish_reason: exchange.finish_reason, token_usage: exchange.token_usage, assistant_output_ids: exchange.assistant_output_ids })"
+            language="json"
+            copyable
+            max-height="60vh"
+            aria-label="Last LLM provider exchange metadata"
+          />
         </div>
       </div>
     </template>
@@ -144,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
 import { formatJson } from '../../utils/format-json';
@@ -161,30 +99,6 @@ const {
 } = storeToRefs(agentStore);
 
 const exchange = computed(() => currentLlmExchange.value);
-const selectedIndex = ref(0);
-
-watch(
-  () => exchange.value,
-  (ex) => {
-    selectedIndex.value = ex && ex.attempts.length > 0 ? ex.attempts.length - 1 : 0;
-  },
-  { immediate: true },
-);
-
-const selectedAttempt = computed(() => {
-  const ex = exchange.value;
-  if (!ex) return null;
-  return ex.attempts[selectedIndex.value] ?? ex.attempts[ex.attempts.length - 1] ?? null;
-});
-
-const isStreaming = computed(() => {
-  const ex = exchange.value;
-  const att = selectedAttempt.value;
-  if (!ex || !att || !att.response) return false;
-  if (ex.transport === 'codex') return true;
-  const raw = att.response.bodyRaw;
-  return typeof raw === 'string' && raw.includes('data: ');
-});
 
 async function onRefresh(): Promise<void> {
   await agentStore.fetchLlmExchange(props.sessionId);

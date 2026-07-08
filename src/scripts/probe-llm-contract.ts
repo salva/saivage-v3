@@ -71,7 +71,7 @@ function buildCandidate(provider: Provider, model: string): { candidate: Candida
 
 function buildOptionsForRole(role: OperationalAgentRole) {
   if (role === 'analyst') {
-    return buildLlmOptions(role, [PING_TOOL], [], { temperature: 0, max_tokens: 64 }, undefined, undefined);
+    return buildLlmOptions(role, [PING_TOOL], [], { temperature: 0, max_tokens: 64 }, undefined, 'probe:ping', undefined);
   }
   const contract =
     role === 'planner'
@@ -81,7 +81,7 @@ function buildOptionsForRole(role: OperationalAgentRole) {
         : createReviewerContract();
   const tools = contract.terminals.map((t) => t.toolDefinition);
   const offered = contract.terminals.map((t) => t.name);
-  return buildLlmOptions(role, tools, offered, { temperature: 0, max_tokens: 64 }, undefined, undefined);
+  return buildLlmOptions(role, tools, offered, { temperature: 0, max_tokens: 64 }, undefined, 'probe:contract', undefined);
 }
 
 function buildPingMessage(): AgentMessage {

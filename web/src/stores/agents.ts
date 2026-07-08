@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { AgentConversationEntry, AgentConversationResponse, AgentRole, AgentSession, ActivityStatus, FreshnessState, SessionStatus } from '../api/types';
 import { listAgentSessions, getAgentConversation, getAgentLlmExchange, ApiError } from '../api/client';
-import type { LlmExchange } from '../api/contracts';
+import type { ProviderExchangePayload } from '../api/contracts';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:agents');
@@ -43,7 +43,7 @@ export const useAgentStore = defineStore('agents', () => {
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
   const unauthorized = ref(false);
   const conversationWarning = ref<string | null>(null);
-  const currentLlmExchange = ref<LlmExchange | null>(null);
+  const currentLlmExchange = ref<ProviderExchangePayload | null>(null);
   const llmExchangeLoading = ref(false);
   const llmExchangeError = ref<string | null>(null);
   const llmExchangeSessionId = ref<string | null>(null);

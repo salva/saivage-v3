@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { appendSyncIdempotentByKey } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
+import { parseProviderExchangePayload } from '../../contracts/provider-exchange.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import {
   activeVersionPath,
@@ -50,6 +51,20 @@ export function listConversationSessionIds(projectRoot: string): string[] {
 export function appendConversationMessage(projectRoot: string, message: AgentMessage): void {
   const parsed = agentMessageSchema.parse(message);
   appendSyncIdempotentByKey(activeConversationVersionPath(projectRoot, parsed.session_id), parsed, 'id');
+}
+
+export function appendProviderExchangeMessage(projectRoot: string, message: AgentMessage): void {
+  const parsed = agentMessageSchema.parse(message);
+  if (parsed.kind !== 'provider_exchange') throw new Error(`appendProviderExchangeMessage requires kind provider_exchange, got '${parsed.kind}'.`);
+  parseProviderExchangePayload(parsed.content);
+  const path = activeConversationVersionPath(projectRoot, parsed.session_id);
+  const canonicalRow = JSON.stringify(parsed);
+  for (const existing of readConversationVersion(path)) {
+    if (existing.kind !== 'provider_exchange' || existing.id !== parsed.id) continue;
+    if (JSON.stringify(existing) === canonicalRow) return;
+    throw new Error(`provider_exchange duplicate id contract violation for session '${parsed.session_id}' message '${parsed.id}' in active conversation version.`);
+  }
+  appendSyncIdempotentByKey(path, parsed, 'id');
 }
 
 export type UserContextMessageCategory = 'planner_state' | 'notification' | 'reviewer_descendant' | 'continuation_hook';
@@ -115,7 +130,15 @@ export function buildContextTextMessage(sessionId: string, role: Extract<Message
 }
 
 export function conversationMessagesForModel(messages: AgentMessage[]): AgentMessage[] {
-  return messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'context_compaction');
+  return messages.filter(isModelVisibleConversationMessage);
+}
+
+export function isModelVisibleConversationMessage(message: AgentMessage): boolean {
+  return message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'context_compaction';
+}
+
+export function isConversationBudgetVisible(message: AgentMessage): boolean {
+  return isModelVisibleConversationMessage(message);
 }
 
 function activeConversationVersionPath(projectRoot: string, sessionId: string): string {

@@ -100,8 +100,8 @@ export type {
   WsEventType,
 } from '@saivage/contracts/operator-events';
 
-export { llmExchangeSchema } from '@saivage/contracts/llm-exchange';
-export type { LlmExchange } from '@saivage/contracts/llm-exchange';
+export { providerExchangePayloadSchema } from '@saivage/contracts/provider-exchange';
+export type { ProviderExchangePayload } from '@saivage/contracts/provider-exchange';
 
 export type {
   ActionableErrorEnvelope,

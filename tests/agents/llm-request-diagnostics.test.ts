@@ -36,6 +36,7 @@ const tool: ToolDefinition = {
 };
 
 const opts: LlmCompleteOptions = {
+  inputId: 'test:input:1',
   phase: 'tools',
   tools: [tool],
   tool_choice: { kind: 'auto' },

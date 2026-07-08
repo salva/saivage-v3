@@ -2,11 +2,11 @@ import { z } from 'zod';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { InvocationRequest } from '../../agents/invocation-service.js';
-import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
+import type { ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import type { LlmInvocationInput, ProviderTurnPort } from './llm-invocation.js';
 
 export interface InvocationTurnService {
-  invokeWithRecovery(request: InvocationRequest): Promise<LlmCompleteResult>;
+  invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion>;
 }
 
 const agentMessageArraySchema = z.array(agentMessageSchema);
@@ -14,8 +14,9 @@ const agentMessageArraySchema = z.array(agentMessageSchema);
 export class InvocationProviderTurnPort implements ProviderTurnPort {
   constructor(private readonly invocationService: InvocationTurnService) {}
 
-  async completeTurn(input: LlmInvocationInput): Promise<LlmCompleteResult> {
+  async completeTurn(input: LlmInvocationInput): Promise<ProviderTurnCompletion> {
     return this.invocationService.invokeWithRecovery({
+      inputId: input.inputId,
       role: input.role,
       sessionId: input.sessionId,
       systemPrompt: input.systemPrompt,

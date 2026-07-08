@@ -22,14 +22,15 @@ function input(overrides: Partial<LlmInvocationInput> = {}): LlmInvocationInput 
 describe('InvocationProviderTurnPort', () => {
   it('maps LlmInvocationInput to InvocationService.invokeWithRecovery', async () => {
     const service: InvocationTurnService = {
-      invokeWithRecovery: jest.fn(async () => ({ kind: 'message' as const, content: 'done' })),
+      invokeWithRecovery: jest.fn(async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] })),
     };
     const port = createInvocationProviderTurnPort(service);
 
     const result = await port.completeTurn(input());
 
-    expect(result).toEqual({ kind: 'message', content: 'done' });
+    expect(result).toEqual({ result: { kind: 'message', content: 'done' }, provider_exchanges: [] });
     expect(service.invokeWithRecovery).toHaveBeenCalledWith({
+      inputId: 'turn-1',
       role: 'planner',
       sessionId: 'planner:project',
       systemPrompt: 'plan',
@@ -43,7 +44,7 @@ describe('InvocationProviderTurnPort', () => {
 
   it('fails clearly on invalid context messages', async () => {
     const service: InvocationTurnService = {
-      invokeWithRecovery: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })),
+      invokeWithRecovery: jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })),
     };
     const port = createInvocationProviderTurnPort(service);
 

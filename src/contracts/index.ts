@@ -91,20 +91,18 @@ export {
 } from './operator-api-mcp.js';
 
 export {
-  exchangeAttemptSchema,
-  exchangeErrorMetaSchema,
-  exchangeRequestMetaSchema,
-  exchangeResponseMetaSchema,
-  llmExchangeSchema,
-} from './llm-exchange.js';
+  parseProviderExchangePayload,
+  providerExchangeErrorSchema,
+  providerExchangePayloadSchema,
+  providerExchangeStatusSchema,
+  providerExchangeTransportSchema,
+  serializeProviderExchangePayload,
+} from './provider-exchange.js';
 
 export type {
-  ExchangeAttempt,
-  ExchangeErrorMeta,
-  ExchangeRequestMeta,
-  ExchangeResponseMeta,
-  LlmExchange,
-} from './llm-exchange.js';
+  ProviderExchangeAttempt,
+  ProviderExchangePayload,
+} from './provider-exchange.js';
 
 export type {
   AvailabilityDecision,

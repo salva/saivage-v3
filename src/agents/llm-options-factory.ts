@@ -1,5 +1,5 @@
 import type { OperationalAgentRole } from '../schemas/index.js';
-import type { LlmExchangeRecorder } from './llm-exchange-recorder.js';
+import type { ProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import type {
   LlmCompleteOptionsTools,
   LlmModelParams,
@@ -12,9 +12,11 @@ export function buildLlmOptions(
   terminalToolOffered: readonly string[],
   modelParams: LlmModelParams,
   signal: AbortSignal | undefined,
-  recorder?: LlmExchangeRecorder,
+  inputId: string,
+  recorder?: ProviderExchangeRecorder,
 ): LlmCompleteOptionsTools {
   return {
+    inputId,
     temperature: modelParams.temperature,
     max_tokens: modelParams.max_tokens,
     signal,

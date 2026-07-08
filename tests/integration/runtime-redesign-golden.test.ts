@@ -40,19 +40,19 @@ function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<
       const pendingTerminal = pending.get(input.sessionId);
       if (pendingTerminal) {
         pending.delete(input.sessionId);
-        return pendingTerminal;
+        return { result: pendingTerminal, provider_exchanges: [] };
       }
       const result = await responder(input);
-      if (result.kind !== 'tool_calls') return result;
+      if (result.kind !== 'tool_calls') return { result, provider_exchanges: [] };
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result')) {
         pending.set(input.sessionId, result);
-        return recordWrite(`status-${input.sessionId}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId}`);
+        return { result: recordWrite(`status-${input.sessionId}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId}`), provider_exchanges: [] };
       }
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result')) {
         pending.set(input.sessionId, result);
-        return recordWrite(`review-${input.sessionId}`, 'record:///review.md?v=next', `Review for ${input.episodeContext.cardId}`);
+        return { result: recordWrite(`review-${input.sessionId}`, 'record:///review.md?v=next', `Review for ${input.episodeContext.cardId}`), provider_exchanges: [] };
       }
-      return result;
+      return { result, provider_exchanges: [] };
     }),
   };
 }

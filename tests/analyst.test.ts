@@ -477,14 +477,14 @@ describe('Analyst Runtime', () => {
   });
 
   it('rejects a concurrent second turn for the same analyst session', async () => {
-    let resolveProvider!: (result: { kind: 'message'; content: string }) => void;
+    let resolveProvider!: (result: { result: { kind: 'message'; content: string }; provider_exchanges: [] }) => void;
     const runtimeDeps = createTestAnalystRuntime({ projectRoot, cardStore: new CardStore(projectRoot) });
     runtimeDeps.provider = { completeTurn: async () => new Promise((resolve) => { resolveProvider = resolve; }) };
     const runtime = new AnalystRuntime({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(projectRoot), runtimeDeps });
     const first = runtime.submit('s16', { userContent: 'list all cards' });
     await expect(runtime.submit('s16', { userContent: 'list all cards' })).rejects.toThrow('already has an active turn');
     await new Promise((resolve) => setImmediate(resolve));
-    resolveProvider({ kind: 'message', content: 'Done.' });
+    resolveProvider({ result: { kind: 'message', content: 'Done.' }, provider_exchanges: [] });
     await expect(first).resolves.toMatchObject({ message: { content: 'Done.' } });
   });
 });
