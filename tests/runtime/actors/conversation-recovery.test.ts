@@ -102,15 +102,15 @@ describe('classifyConversation', () => {
     expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), toolError('planner:G-1:1', 'call-1')], terminalTools)).toBe('pending_provider');
   });
 
-  it('ignores invalid or unmatched tool_error rows for recovery settlement', () => {
-    expect(classifyConversation([
+  it('fails fast on malformed tool_error rows and does not match valid rows for other triples', () => {
+    expect(() => classifyConversation([
       toolCall('planner:G-1:1', 'call-1'),
       { ...toolError('planner:G-1:1', 'call-1'), id: 'planner:G-1:1:error:call-1' },
-    ], terminalTools)).toBe('awaiting_tool_result');
-    expect(classifyConversation([
+    ], terminalTools)).toThrow(/Malformed tool_error/);
+    expect(() => classifyConversation([
       toolCall('planner:G-1:1', 'call-1'),
       { ...toolError('planner:G-1:1', 'call-1'), tool: undefined },
-    ], terminalTools)).toBe('awaiting_tool_result');
+    ], terminalTools)).toThrow(/missing tool/);
     expect(classifyConversation([
       toolCall('planner:G-1:1', 'call-1'),
       toolError('planner:G-1:1', 'call-2'),

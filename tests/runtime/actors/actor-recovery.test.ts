@@ -555,6 +555,7 @@ describe('actor recovery plan', () => {
     const toolResults = readConversationMessages(projectRoot, `planner:${cardId}`).filter((message) => message.kind === 'tool_result');
 
     expect(report.incidents).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'fail_unrelinked_activation_wait', message: expect.stringContaining('no deterministic child-completion registration surface') })]));
+    expect(report.incidents).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'promote_orphan_running_card', cardId: child.id })]));
     expect(toolResults).toEqual([expect.objectContaining({ content: expect.stringContaining(child.id) })]);
   }));
 

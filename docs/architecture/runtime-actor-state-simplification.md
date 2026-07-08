@@ -75,11 +75,11 @@ Remove `runtime.paused` from the canonical runtime state. Pause is represented b
 
 ### 4.2 Remove `runtime_intent`
 
-Remove `runtime_intent` entirely. It must not represent current lifecycle or pending transitions. The current lifecycle is `runtime.status`. Control commands are recorded in the `runtime_commands` ledger as history, not as state authority. There is no pending-command field.
+Remove `runtime_intent` entirely. It must not represent current lifecycle or pending transitions. The current lifecycle is `runtime.status`. Runtime command/run/activation ledgers are no longer persisted state, so there is no pending-command field and no ledger-backed lifecycle authority.
 
 ### 4.3 Keep Execution Detail Separate
 
-Keep `active_card_run`, runtime run ledger, activation ledger, command ledger, and process records. They are execution detail and history, not separate lifecycle authorities.
+Keep `active_card_run` and process records as execution detail. Runtime command/run/activation ledgers are removed rather than kept as separate lifecycle authorities.
 
 ## 5. Invariants
 
@@ -250,7 +250,7 @@ This avoids misleading messages that tell the user to pause a stopped project.
 1. Change `RuntimeStatus` schema from `idle | running | paused | error` to `stopped | running | paused | error`.
 2. Remove `paused` from canonical `RuntimeState`.
 3. Remove `runtime_intent` entirely.
-4. Keep command/run ledgers as history only.
+4. Remove command/run/activation ledgers from persisted runtime state.
 5. Enforce the active-run invariant at runtime-state write boundaries (fail fast on contradictory persisted state).
 6. Ensure project initialization writes `status: 'stopped'`.
 

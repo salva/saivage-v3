@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
@@ -9,15 +8,12 @@ import { serializeProviderExchangePayload } from '../../contracts/provider-excha
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { appendConversationMessage, appendProviderExchangeMessage, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from './conversation-store.js';
-import { activeVersionPath, readConversationIndex } from './conversation-index.js';
 import { agentIdFromSessionId, cardIdFromSessionId } from './ids.js';
 import {
   loggedToolCallIdentity,
   loggedToolCallKey,
   loggedToolErrorIdentity,
   loggedToolResultIdentity,
-  sourceInputIdFromToolCallMessageId,
-  sourceInputIdFromToolResultMessageId,
 } from '../../schemas/message-identity.js';
 export {
   loggedToolCallKey,
@@ -333,21 +329,7 @@ export function appendProviderVisibleSyntheticFailedToolResult(projectRoot: stri
 }
 
 function readActiveVersionMessagesForSettlement(projectRoot: string, sessionId: string): AgentMessage[] {
-  try {
-    return readActiveVersionMessages(projectRoot, sessionId);
-  } catch {
-    const index = readConversationIndex(projectRoot, sessionId);
-    if (!index) return [];
-    const path = activeVersionPath(projectRoot, sessionId, index.active_version);
-    if (!existsSync(path)) throw new Error(`Conversation active version '${index.active_version}' for '${sessionId}' was not found.`);
-    return readFileSync(path, 'utf-8').split('\n').filter(Boolean).flatMap((line) => {
-      const raw = JSON.parse(line) as unknown;
-      const parsed = agentMessageSchema.safeParse(raw);
-      if (parsed.success) return [parsed.data];
-      if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as { kind?: unknown }).kind === 'tool_error') return [];
-      throw parsed.error;
-    });
-  }
+  return readActiveVersionMessages(projectRoot, sessionId);
 }
 
 function validToolCallIdentity(message: AgentMessage) {

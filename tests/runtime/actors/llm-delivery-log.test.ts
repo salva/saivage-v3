@@ -204,7 +204,7 @@ describe('llm delivery log recovery helpers', () => {
     ]);
   }));
 
-  it('ignores invalid tool_error rows and appends interrupted results for still-dangling calls', () => withTempProject((projectRoot) => {
+  it('fails fast on invalid tool_error rows during active-version settlement reads', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(projectRoot, input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-invalid-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
     appendFileSync(activeVersionPath(projectRoot, 'planner:G-1', 1), `${JSON.stringify({
       id: 'planner:G-1:1:tool-error:call-invalid-error',
@@ -219,11 +219,9 @@ describe('llm delivery log recovery helpers', () => {
       timestamp: new Date().toISOString(),
     })}\n`);
 
-    expect(appendToolErrorSettlementResults(projectRoot)).toEqual([]);
-    expect(abandonStalePendingToolCalls(projectRoot, 'stale')).toEqual([expect.objectContaining({ tool_call_id: 'call-invalid-error' })]);
-    const activeRows = jsonl(activeVersionPath(projectRoot, 'planner:G-1', 1));
-    const result = activeRows.find((row) => row.kind === 'tool_result');
-    expect(JSON.parse(String(result?.content))).toEqual({ success: false, error: 'stale', data: { tool: 'emit_result' } });
+    expect(() => appendToolErrorSettlementResults(projectRoot)).toThrow(/tool_error rows require tool/);
+    expect(() => abandonStalePendingToolCalls(projectRoot, 'stale')).toThrow(/tool_error rows require tool/);
+    expect(jsonl(activeVersionPath(projectRoot, 'planner:G-1', 1)).some((row) => row.kind === 'tool_result')).toBe(false);
   }));
 
   it('emits actionable payloads for activation, process, workspace, and generic interrupted calls', () => withTempProject((projectRoot) => {

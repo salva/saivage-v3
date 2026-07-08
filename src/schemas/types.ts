@@ -39,7 +39,7 @@ export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'ca
 export type CardAction = typeof cardActionValues[number];
 export type RuntimeDispatchOwnership =
   | { kind: 'direct'; source: 'project_root' | 'operator' | 'startup_repair' }
-  | { kind: 'activation'; parent_card_id: string; parent_session_id: string; parent_tool_call_id: string };
+  | { kind: 'activation'; parent_card_id: string; parent_tool_call: { session_id: string; source_input_id: string; tool_call_id: string } };
 export interface ActionableErrorEnvelope { code: string; message: string; acceptedValues?: string[]; currentState?: Record<string, unknown>; nextAction: string; docsRef?: string; runId?: string | null; sessionId?: string | null; cardId?: string | null; parentCardId?: string | null; childCardId?: string | null; }
 
 export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;

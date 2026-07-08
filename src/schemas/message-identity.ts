@@ -10,10 +10,11 @@ export function loggedToolCallKey(record: LoggedToolMessageIdentity): string {
   return [record.session_id, record.source_input_id, record.tool_call_id].join(':');
 }
 
-export function sourceInputIdFromToolCallMessageId(id: string): string {
-  const delimiter = ':tool-call:';
-  const index = id.indexOf(delimiter);
-  if (index <= 0) throw new Error(`Malformed tool_call message id '${id}': missing '${delimiter}'.`);
+export function sourceInputIdFromToolCallMessageId(id: string, toolCallId?: string): string {
+  const suffix = toolCallId ? `:tool-call:${toolCallId}` : ':tool-call:';
+  const index = toolCallId ? id.lastIndexOf(suffix) : id.indexOf(suffix);
+  if (index <= 0) throw new Error(`Malformed tool_call message id '${id}': missing '${suffix}'.`);
+  if (toolCallId && index + suffix.length !== id.length) throw new Error(`Malformed tool_call message id '${id}': unexpected trailing content.`);
   return id.slice(0, index);
 }
 
@@ -40,7 +41,7 @@ export function sourceInputIdFromToolErrorMessageId(id: string, toolCallId: stri
 
 export function loggedToolCallIdentity(message: AgentMessage): LoggedToolMessageIdentity | null {
   if (message.kind !== 'tool_call' || !message.tool_call_id) return null;
-  return { session_id: message.session_id, source_input_id: sourceInputIdFromToolCallMessageId(message.id), tool_call_id: message.tool_call_id };
+  return { session_id: message.session_id, source_input_id: sourceInputIdFromToolCallMessageId(message.id, message.tool_call_id), tool_call_id: message.tool_call_id };
 }
 
 export function loggedToolResultIdentity(message: AgentMessage): LoggedToolMessageIdentity | null {

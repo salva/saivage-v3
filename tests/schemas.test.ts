@@ -155,8 +155,9 @@ describe('Core schemas still validate expected records', () => {
     expect(runtimeStateSchema.safeParse({
       status: 'running', project_id: 'project', pid: 123, started_at: '2025-01-01T00:00:00.000Z', active_card_run: null, updated_at: '2025-01-01T00:00:00.000Z', runtime_commands: [], runtime_runs: [], runtime_activations: [],
     }).success).toBe(false);
-    expect(runtimeDispatchOwnershipSchema.safeParse({ kind: 'activation', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-1' }).success).toBe(true);
-    expect(runtimeDispatchOwnershipSchema.safeParse({ kind: 'activation', activation_id: 'act-1', parent_run_id: 'run-1', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-1' }).success).toBe(false);
+    expect(runtimeDispatchOwnershipSchema.safeParse({ kind: 'activation', parent_card_id: 'project', parent_tool_call: { session_id: 'planner:project', source_input_id: 'planner:project:1', tool_call_id: 'call-1' } }).success).toBe(true);
+    expect(runtimeDispatchOwnershipSchema.safeParse({ kind: 'activation', parent_card_id: 'project', parent_tool_call: { session_id: 'planner:project', tool_call_id: 'call-1' } }).success).toBe(false);
+    expect(runtimeDispatchOwnershipSchema.safeParse({ kind: 'activation', activation_id: 'act-1', parent_run_id: 'run-1', parent_card_id: 'project', parent_tool_call: { session_id: 'planner:project', source_input_id: 'planner:project:1', tool_call_id: 'call-1' } }).success).toBe(false);
   });
 
   it('enforces persisted tool_error identity', () => {

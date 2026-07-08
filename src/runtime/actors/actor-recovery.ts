@@ -274,23 +274,11 @@ function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorStart
   const incidents: ActorStartupRecoveryIncident[] = [];
   const preservedToolCallKeys = new Set<string>();
   const entries = buildLlmConversationRecoveryEntries(plan, deps.projectRoot);
-  const activationChildIds = new Set(entries.flatMap((entry) => {
-    const childId = danglingActivateCardChildId(entry);
-    return childId ? [childId] : [];
-  }));
-
   for (const processor of plan.processors) {
     const card = deps.store.read(processor.cardId);
     if (!processor.active || !card || card.status === 'running') continue;
     removeActorSnapshot(deps.projectRoot, processor.actorId);
     incidents.push({ actorId: processor.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_non_running_card_processor_snapshot', cardId: processor.cardId, message: `Startup recovery removed active processor snapshot '${processor.actorId}' because card '${processor.cardId}' is '${card.status}'.` });
-  }
-
-  for (const cardRecord of plan.cards) {
-    const card = deps.store.read(cardRecord.cardId);
-    if (cardRecord.activeReconstruction?.caller.kind !== 'parent') continue;
-    if (!card || card.status !== 'running' || card.id === 'project' || activationChildIds.has(card.id)) continue;
-    incidents.push({ actorId: cardRecord.snapshot.actor_id, kind: 'active_card', action: 'promote_orphan_running_card', cardId: card.id, message: `Startup recovery found running card '${card.id}' without a relinked parent activate_card edge; it remains running as root-level recoverable work.` });
   }
 
   for (const entry of entries) {
@@ -308,6 +296,17 @@ function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorStart
       removeActorSnapshot(deps.projectRoot, entry.actorId);
       incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_llm_without_active_processor', cardId: entry.cardId ?? undefined, message: `Startup recovery removed active LLM snapshot '${entry.actorId}' because its card has no active processor snapshot.` });
     }
+  }
+  const relinkedActivationChildIds = new Set(entries.flatMap((entry) => {
+    const key = danglingToolCallKey(entry);
+    const childId = danglingActivateCardChildId(entry);
+    return key && childId && preservedToolCallKeys.has(key) ? [childId] : [];
+  }));
+  for (const cardRecord of plan.cards) {
+    const card = deps.store.read(cardRecord.cardId);
+    if (cardRecord.activeReconstruction?.caller.kind !== 'parent') continue;
+    if (!card || card.status !== 'running' || card.id === 'project' || relinkedActivationChildIds.has(card.id)) continue;
+    incidents.push({ actorId: cardRecord.snapshot.actor_id, kind: 'active_card', action: 'promote_orphan_running_card', cardId: card.id, message: `Startup recovery found running card '${card.id}' without a relinked parent activate_card edge; it remains running as root-level recoverable work.` });
   }
   return { incidents, preservedToolCallKeys };
 }

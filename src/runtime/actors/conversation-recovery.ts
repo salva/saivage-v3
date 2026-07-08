@@ -44,8 +44,8 @@ export function classifyConversation(messages: readonly AgentMessage[], terminal
   for (let index = recoveryVisible.length - 1; index >= 0; index -= 1) {
     const message = recoveryVisible[index]!;
     if (message.kind !== 'tool_call') continue;
-    const identity = safeToolCallIdentity(message);
-    if (!identity || !recoverySettlements.has(loggedToolCallKey(identity))) return 'awaiting_tool_result';
+    const identity = toolCallIdentity(message);
+    if (!recoverySettlements.has(loggedToolCallKey(identity))) return 'awaiting_tool_result';
     break;
   }
 
@@ -59,10 +59,8 @@ export function classifyConversation(messages: readonly AgentMessage[], terminal
 function recoverySettlementKeys(messages: readonly AgentMessage[]): Set<string> {
   const keys = new Set<string>();
   for (const message of messages) {
-    const resultIdentity = safeToolResultIdentity(message);
-    if (resultIdentity) keys.add(loggedToolCallKey(resultIdentity));
-    const errorIdentity = safeToolErrorIdentity(message);
-    if (errorIdentity) keys.add(loggedToolCallKey(errorIdentity));
+    if (message.kind === 'tool_result') keys.add(loggedToolCallKey(toolResultIdentity(message)));
+    if (message.kind === 'tool_error') keys.add(loggedToolCallKey(toolErrorIdentity(message)));
   }
   return keys;
 }
@@ -71,27 +69,31 @@ function lastModelVisibleExchangeIsSettledTerminal(messages: readonly AgentMessa
   const modelVisible = messages.filter(isModelVisibleConversationMessage);
   const last = modelVisible.at(-1);
   if (!last || last.kind !== 'tool_result') return false;
-  const resultIdentity = safeToolResultIdentity(last);
-  if (!resultIdentity) return false;
+  const resultIdentity = toolResultIdentity(last);
   const resultKey = loggedToolCallKey(resultIdentity);
   for (let index = modelVisible.length - 2; index >= 0; index -= 1) {
     const call = modelVisible[index]!;
     if (call.kind !== 'tool_call') continue;
     if (!call.tool || !terminalToolNames.has(call.tool)) return false;
-    const callIdentity = safeToolCallIdentity(call);
-    return callIdentity !== null && loggedToolCallKey(callIdentity) === resultKey;
+    return loggedToolCallKey(toolCallIdentity(call)) === resultKey;
   }
   return false;
 }
 
-function safeToolCallIdentity(message: AgentMessage) {
-  try { return loggedToolCallIdentity(message); } catch { return null; }
+function toolCallIdentity(message: AgentMessage) {
+  const identity = loggedToolCallIdentity(message);
+  if (!identity) throw new Error(`Validated tool_call message '${message.id}' is missing tool_call_id.`);
+  return identity;
 }
 
-function safeToolResultIdentity(message: AgentMessage) {
-  try { return loggedToolResultIdentity(message); } catch { return null; }
+function toolResultIdentity(message: AgentMessage) {
+  const identity = loggedToolResultIdentity(message);
+  if (!identity) throw new Error(`Validated tool_result message '${message.id}' is missing tool_call_id.`);
+  return identity;
 }
 
-function safeToolErrorIdentity(message: AgentMessage) {
-  try { return loggedToolErrorIdentity(message); } catch { return null; }
+function toolErrorIdentity(message: AgentMessage) {
+  const identity = loggedToolErrorIdentity(message);
+  if (!identity) throw new Error(`Validated tool_error message '${message.id}' is missing tool or tool_call_id.`);
+  return identity;
 }
