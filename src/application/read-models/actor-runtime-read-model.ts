@@ -1,7 +1,7 @@
 import { readActorSnapshots, readRecoveryDiagnostics, type ActorRecoveryDiagnostic, type ActorRecoveryDiagnosticAction } from '../../runtime/actors/index.js';
-import { parseCardActorId, parseLlmActorId, toPublicAgentPhase, toPublicCardActorState } from '../../runtime/actors/index.js';
-import type { LlmActorRole, PublicAgentPhase, PublicCardActorState } from '../../runtime/actors/index.js';
-import type { ActorPauseMode } from '../../runtime/actors/actor-vocabulary.js';
+import { parseCardActorId, parseLlmActorId } from '../../runtime/actors/index.js';
+import { toPublicAgentPhase, toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
+import type { ActorPauseMode, LlmActorRole, PublicAgentPhase, PublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import { CardStore } from '../../cards/card-store.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import type { RuntimeStatus } from '../../schemas/index.js';

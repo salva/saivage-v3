@@ -4,7 +4,7 @@ import type { OperationalAgentRole } from '../../schemas/index.js';
 import type { ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
 import type { CardActivationCaller } from './card-actor.js';
-import { llmActorRoleSchema } from './actor-vocabulary.js';
+import { llmActorRoleSchema } from '../../schemas/actor-vocabulary.js';
 import { parseCardActorId, parseLlmActorId, parseProcessorActorId, processorActorId } from './ids.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import type { ActorSnapshotRecord } from './snapshots.js';

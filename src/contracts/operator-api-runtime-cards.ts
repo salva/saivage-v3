@@ -20,7 +20,7 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { ServerAvailabilitySchema } from './operator-api-availability.js';
-import { actorPauseModeSchema, publicAgentPhaseSchema, publicCardActorStateSchema, llmActorRoleSchema } from '../runtime/actors/actor-vocabulary.js';
+import { actorPauseModeSchema, llmActorRoleSchema, publicAgentPhaseSchema, publicCardActorStateSchema } from '../schemas/actor-vocabulary.js';
 import { runtimeStatusSchema } from '../schemas/index.js';
 
 export const CardNotFoundErrorSchema = ApiErrorSchema.extend({

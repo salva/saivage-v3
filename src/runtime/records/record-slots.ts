@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { AgentRole } from '../../schemas/index.js';
-import { buildScopedPathUrl } from '../../workspace/scoped-path-url.js';
+import { buildScopedPathUrl } from '../../contracts/scoped-path-url.js';
 
 export type RecordSlotVersionStatus = 'open' | 'closed' | 'discarded';
 

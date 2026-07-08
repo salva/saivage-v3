@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { buildScopedPathUrl, getSafeFileForAgent, parseScopedPathUrl, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
+import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
+import { getSafeFileForAgent, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;

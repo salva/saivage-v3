@@ -3,7 +3,7 @@ import { join, relative, resolve } from 'node:path';
 import type { AgentRole } from '../schemas/index.js';
 import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, type OpenRecordSlot } from '../runtime/records/record-slots.js';
 import { resolveContainedProjectPath } from './file-access-security.js';
-import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from './scoped-path-url.js';
+import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 
 export type ScopedPathMode = 'read' | 'write' | 'search';
 export type ScopedPathErrorFactory = (message: string) => Error;

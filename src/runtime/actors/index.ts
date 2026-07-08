@@ -1,5 +1,4 @@
 export * from './ids.js';
-export * from './actor-vocabulary.js';
 export * from './snapshots.js';
 export * from './llm-delivery-log.js';
 export * from './conversation-store.js';

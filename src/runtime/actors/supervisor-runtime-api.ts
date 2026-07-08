@@ -5,7 +5,7 @@ import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorRecoveryPlan
 import { cardActorId, plannerActorId, parseLlmActorId } from './ids.js';
 import { CardActor, type CardActivationOutcome, type CardActorDeps, type CardActorStorePort } from './card-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
-import { toPublicAgentPhase, toPublicCardActorState } from './actor-vocabulary.js';
+import { toPublicAgentPhase, toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import { appendNotificationToActorSnapshot } from './snapshots.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';

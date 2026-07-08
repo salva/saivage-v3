@@ -1,8 +1,8 @@
-import { llmActorRoles } from './actor-vocabulary.js';
-import type { ActorKind, LlmActorRole } from './actor-vocabulary.js';
+import { llmActorRoles } from '../../schemas/actor-vocabulary.js';
+import type { ActorKind, LlmActorRole } from '../../schemas/actor-vocabulary.js';
 
-export { actorKindSchema, actorKinds, llmActorRoleSchema, llmActorRoles } from './actor-vocabulary.js';
-export type { ActorKind, LlmActorRole } from './actor-vocabulary.js';
+export { actorKindSchema, actorKinds, llmActorRoleSchema, llmActorRoles } from '../../schemas/actor-vocabulary.js';
+export type { ActorKind, LlmActorRole } from '../../schemas/actor-vocabulary.js';
 
 export function cardActorId(cardId: string): string {
   return `card:${cardId}`;

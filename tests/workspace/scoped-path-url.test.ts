@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { buildScopedPathUrl, parseScopedPathUrl } from '../../src/workspace/index.js';
+import { buildScopedPathUrl, parseScopedPathUrl } from '../../src/contracts/scoped-path-url.js';
 
 describe('scoped path URL helper', () => {
   it('round-trips canonical triple-slash scoped path URLs', () => {

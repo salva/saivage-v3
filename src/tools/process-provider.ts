@@ -2,11 +2,12 @@ import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 
+import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { AgentRole, ProcessRecord, ProcessStatus } from '../schemas/index.js';
-import { buildScopedPathUrl, parseScopedPathUrl, resolveContainedProjectPath } from '../workspace/index.js';
+import { resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
 const MAX_TAIL_BYTES = 2048;

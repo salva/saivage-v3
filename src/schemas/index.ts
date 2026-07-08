@@ -1,4 +1,29 @@
 export {
+  actorKindSchema,
+  actorKinds,
+  actorPauseModeSchema,
+  actorPauseModes,
+  llmActorPhaseSchema,
+  llmActorPhases,
+  llmActorRoleSchema,
+  llmActorRoles,
+  parseLlmActorPhase,
+  publicAgentPhaseSchema,
+  publicAgentPhases,
+  publicCardActorStateSchema,
+  publicCardActorStates,
+  toPublicAgentPhase,
+  toPublicCardActorState,
+} from './actor-vocabulary.js';
+export type {
+  ActorKind,
+  ActorPauseMode,
+  LlmActorPhase,
+  LlmActorRole,
+  PublicAgentPhase,
+  PublicCardActorState,
+} from './actor-vocabulary.js';
+export {
   EventRegistry,
   eventKindValues,
   runtimeEventKindValues,

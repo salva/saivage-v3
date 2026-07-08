@@ -29,11 +29,6 @@ export {
   listRecentReviews,
 } from './quarantine.js';
 export {
-  buildScopedPathUrl,
-  parseScopedPathUrl,
-  type ParsedScopedPathUrl,
-} from './scoped-path-url.js';
-export {
   assertRecordWrite,
   parseScopedPathScheme,
   resolveRecordWriteTarget,

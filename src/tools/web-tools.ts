@@ -6,12 +6,12 @@ import net from 'node:net';
 import { z } from 'zod';
 
 import type { AgentRole } from '../schemas/index.js';
+import { buildScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { describe } from './tool-definition.js';
 import type { ToolContext, ToolResult as AnalystToolResult } from './analyst-tool-types.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
-import { buildScopedPathUrl } from '../workspace/index.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;

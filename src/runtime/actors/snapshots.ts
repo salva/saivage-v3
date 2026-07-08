@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
 import { actorKindFromId, parseCardActorId } from './ids.js';
-import { actorKindSchema, actorKinds } from './actor-vocabulary.js';
+import { actorKindSchema, actorKinds } from '../../schemas/actor-vocabulary.js';
 import type { ActorKind } from './ids.js';
 import type { CardNotification } from './card-actor.js';
 

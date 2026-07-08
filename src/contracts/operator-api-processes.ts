@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { buildScopedPathUrl, parseScopedPathUrl } from '../workspace/index.js';
+import { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 import {
   ApiErrorSchema,
   publicContract,

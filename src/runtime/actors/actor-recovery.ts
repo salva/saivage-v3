@@ -8,7 +8,7 @@ import type { CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { readCardActiveReconstruction, readLlmActiveReconstruction, readProcessorActiveReconstruction } from './active-reconstruction.js';
 import { parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
-import type { LlmActorRole } from './actor-vocabulary.js';
+import type { LlmActorRole } from '../../schemas/actor-vocabulary.js';
 import { cardActivationOutcomePatch, type CardActivationOutcome } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
 import { abandonStalePendingToolCalls, appendTerminalProjectedToolResult, loggedToolCallKey, readLoggedToolCall } from './llm-delivery-log.js';
@@ -47,7 +47,7 @@ export interface ActorRecoveryTerminalProjectionDeps {
   generatedAt?: string;
 }
 
-export type { LlmActorRole as LlmRecoveryRole } from './actor-vocabulary.js';
+export type { LlmActorRole as LlmRecoveryRole } from '../../schemas/actor-vocabulary.js';
 type LlmRecoveryRole = LlmActorRole;
 
 export interface CardActorRecoveryRecord {
