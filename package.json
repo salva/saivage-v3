@@ -68,7 +68,7 @@
     "docs:build": "vitepress build docs",
     "docs:verify": "bash scripts/docs-verify.sh",
     "build": "tsc && node scripts/copy-prompt-defaults.js && npm run docs:build && cd web && npm run build",
-    "web:test:operator-smoke": "cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts",
+    "web:test:operator-smoke": "cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts && cd .. && npx playwright test -c tests/playwright/playwright.config.ts tests/playwright/operator-direct-load-routes.spec.ts",
     "web:test:card-history-panel": "cd web && npx vitest run src/__tests__/card-history-panel.test.ts",
     "test:web:operator-smoke": "npm run web:test:operator-smoke",
     "validate:docs": "npm run docs:verify",

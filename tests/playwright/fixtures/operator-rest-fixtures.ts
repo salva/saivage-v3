@@ -290,12 +290,13 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         cwd: '/work/saivage-e2e-checkers',
         card_id: 'card-smoke',
         session_id: 'planner-smoke',
+        owner_id: null,
         owner: 'planner',
         started_at: now,
         ended_at: now,
         exit_code: 0,
         timed_out: false,
-        logs: { stdout: '.saivage/tmp/processes/proc-smoke.stdout.log', stderr: '.saivage/tmp/processes/proc-smoke.stderr.log' },
+        logs: { stdout: 'work:///processes/proc-smoke/stdout.log', stderr: 'work:///processes/proc-smoke/stderr.log' },
       }] });
     }
     if (request.method() === 'GET' && url.pathname === '/api/notifications') return json(route, { notifications: [], total: 0 });

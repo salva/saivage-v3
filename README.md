@@ -81,7 +81,7 @@ npm run validate:ui
 npm run validate:release
 ```
 
-`npm run validate:docs` is the docs-only validation profile: it runs the documentation drift guards (`npm run docs:verify`) and intentionally excludes `npm test` and `web:test:operator-smoke` so documentation-only changes can validate without the full backend Jest suite or the browser operator-smoke gate. The heavier `npm run validate:routine`, `validate:ui-smoke`, and `validate:release` profiles layered above it add typecheck, the UI smoke, build, and full test coverage respectively.
+`npm run validate:docs` is the docs-only validation profile: it runs the documentation drift guards (`npm run docs:verify`) and intentionally excludes `npm test` and `web:test:operator-smoke` so documentation-only changes can validate without the full backend Jest suite or the browser operator-smoke gate. The heavier `npm run validate:routine`, `validate:ui-smoke`, and `validate:release` profiles layered above it add typecheck, the UI smoke, build, and full test coverage respectively. The `web:test:operator-smoke` gate includes the production browser direct-load route smoke for the operator `/dashboard`, `/cards`, `/agents`, `/files`, and `/debug` views.
 
 The GitHub Actions `dependency-hygiene` job runs `npm run audit:security` and, on schedule or manual full-sweep, `npm run deps:review`. Run those dependency-governance checks directly with:
 
