@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { activePromptPairs, type PromptCardTypeKey, type PromptRoleKey } from '../schemas/index.js';
 
-export type AgentRoleKey = 'planner' | 'executor' | 'reviewer' | 'analyst';
-export type PromptCardTypeKey = 'project' | 'goal' | 'architecture' | 'code' | 'test' | 'doc' | 'data' | 'research' | 'ops' | 'analyst';
+export type AgentRoleKey = PromptRoleKey;
+export type { PromptCardTypeKey } from '../schemas/index.js';
 
 export interface PromptTemplateVariables {
   readonly [key: string]: string;
@@ -28,23 +29,6 @@ export interface PromptToolDisplay {
 type TemplateToken =
   | { readonly kind: 'literal'; readonly text: string }
   | { readonly kind: 'placeholder'; readonly key: string };
-
-type ActivePromptPair = readonly [cardType: PromptCardTypeKey, role: AgentRoleKey];
-
-const ACTIVE_PROMPT_PAIRS = [
-  ['project', 'planner'],
-  ['project', 'reviewer'],
-  ['goal', 'planner'],
-  ['goal', 'reviewer'],
-  ['architecture', 'executor'],
-  ['code', 'executor'],
-  ['test', 'executor'],
-  ['doc', 'executor'],
-  ['data', 'executor'],
-  ['research', 'executor'],
-  ['ops', 'executor'],
-  ['analyst', 'analyst'],
-] as const satisfies readonly ActivePromptPair[];
 
 const ALLOWED_PLACEHOLDERS: Readonly<Record<AgentRoleKey, ReadonlySet<string>>> = {
   planner: new Set(['cardId', 'cardTitle', 'cardBrief', 'contractDescription', 'toolList']),
@@ -187,7 +171,7 @@ export function createPromptTemplateRegistry(options: PromptTemplateRegistryOpti
   const defaultRoot = options.defaultRoot ?? bundledDefaultsRoot();
   const tokensByPair = new Map<string, readonly TemplateToken[]>();
 
-  for (const [cardType, role] of ACTIVE_PROMPT_PAIRS) {
+  for (const [cardType, role] of activePromptPairs) {
     const path = effectiveTemplatePath(defaultRoot, options.overrideRoot, cardType, role);
     const template = readFileSync(path, 'utf8');
     if (template.length === 0) {

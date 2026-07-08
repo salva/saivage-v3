@@ -9,6 +9,16 @@ import { propagateAnalystBriefEdit, propagateChange } from '../../src/runtime/ch
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
+const uuidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+
+function expectChangeNotificationId(id: string, cardId: string): void {
+  expect(id).toMatch(new RegExp(`^change:${cardId}:\\d{4}-\\d{2}-\\d{2}T.*:${uuidPattern}$`, 'i'));
+}
+
+function notificationIdFromCall(call: unknown): string {
+  return (call as [string, { id: string }])[1].id;
+}
+
 function makeCard(overrides: Partial<NewCardInput> & { id: string; type: NewCardInput['type']; parent: string | null; depth: number; title: string }): NewCardInput & { id: string } {
   return {
     brief: overrides.title,
@@ -112,6 +122,8 @@ describe('changed propagation', () => {
     expect(notifyCard).toHaveBeenCalledTimes(2);
     expect(notifyCard).toHaveBeenCalledWith(cardCId, expect.objectContaining({ message: 'Card changed: analyst edit', reason: 'card_changed' }));
     expect(notifyCard).toHaveBeenCalledWith(goalAId, expect.objectContaining({ message: 'Card changed: analyst edit', reason: 'card_changed' }));
+    expectChangeNotificationId(notificationIdFromCall(notifyCard.mock.calls[0]), cardCId);
+    expectChangeNotificationId(notificationIdFromCall(notifyCard.mock.calls[1]), goalAId);
   });
 
   it('notifies own-goal analyst corrections and records status transition', () => {
@@ -134,6 +146,7 @@ describe('changed propagation', () => {
     expect(result.flipped).toEqual([]);
     expect(notifyCard).toHaveBeenCalledTimes(1);
     expect(notifyCard).toHaveBeenCalledWith(goalBId, expect.objectContaining({ message: 'Card changed: analyst edited goal' }));
+    expectChangeNotificationId(notificationIdFromCall(notifyCard.mock.calls[0]), goalBId);
   });
 
   it('does not flip cancelled cards back to changed', () => {

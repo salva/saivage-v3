@@ -6,7 +6,7 @@ Assessment id: {{assessmentId}}
 Card brief:
 {{cardBrief}}
 
-Assess whether the completed subtree satisfies the goal's acceptance criteria. Be thorough, not lenient. Cite card ids as evidence and write detailed findings to `record:///review.md?v=next`.
+Assess whether the completed goal subtree satisfies this goal's acceptance criteria. Be thorough, not lenient. Cite card ids as evidence and write detailed findings to `record:///review.md?v=next`.
 
 Reviewer terminal contract:
 {{contractDescription}}

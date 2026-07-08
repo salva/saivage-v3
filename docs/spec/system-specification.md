@@ -41,9 +41,9 @@ The Analyst does not perform delivery work directly. It does not replace the exe
 
 Planner, executor, and reviewer are worker agent roles.
 
-- A planner owns one goal subtree and decides how to decompose, activate, and report that goal.
+- A planner owns one planning card subtree and decides how to decompose, activate, and report that project or goal.
 - An executor performs one terminal card activation.
-- A reviewer assesses a completed goal after runtime acceptance gates pass.
+- A reviewer assesses a completed planning card after runtime acceptance gates pass: goal reviewers assess completed goal subtrees, and the project reviewer assesses the completed project/root tree outcome.
 
 These roles are dispatched by the runtime. They do not directly invoke each other.
 
@@ -82,7 +82,7 @@ The system does not provide:
 
 Cards are the durable units of project work. They form a parent-child tree rooted at the project card.
 
-A card can describe a project, a goal, or a terminal task. Goal cards are worked by planners. Terminal cards are worked by executors. Reviewers assess completed goals.
+A card can describe a project, a goal, or a terminal task. Project and goal cards are worked by planners. Terminal cards are worked by executors. Reviewers assess completed project or goal planning cards.
 
 Every card has structured state and authored document records. Structured state includes identity, type, parent, order, title, lifecycle status, dependencies, retries, metrics, and other scheduler-visible fields. The current goal, instructions, and acceptance criteria live in the latest closed `record:///brief.md` record for the card rather than separate long-form card fields.
 
@@ -195,13 +195,13 @@ In every case, the runtime queues a notification to the modified card so that th
 
 When an inactive descendant changes through an Analyst brief edit, the runtime walks the direct ancestor path up to the first running ancestor or the project root. Only `done` and `failed` ancestors on that path become `changed`; `backlog`, `changed`, and `blocked` ancestors remain unchanged, and a running ancestor remains `running` and stops propagation. The runtime queues fire-and-forget card notifications to the edited card plus every `goal`/`project` ancestor on the walked path through the first running ancestor, with duplicate recipients removed. Notification callback results do not affect the already-accepted edit.
 
-If a goal is under review and the goal or any descendant changes before the reviewer pass commits, the reviewer pass is invalidated. The goal returns to planner ownership with correction/change context; stale reviewer approval must not mark the goal `done`.
+If a planning card is under review and that card or any descendant changes before the reviewer pass commits, the reviewer pass is invalidated. The planning card returns to planner ownership with correction/change context; stale reviewer approval must not mark the card `done`.
 
 The `changed` state does not by itself dispatch work. For activation and cancellation purposes, `changed` behaves like `backlog`: the responsible planner can reactivate the changed child or cancel it, but the runtime does not clear `changed` merely because the status exists.
 
 ## 10. Planner Completion Gates
 
-A planner can report a goal `done`, `failed`, or `blocked`. Planner, executor, and reviewer terminal reports are accepted only through the unified `emit_result` terminal tool, with each role's contract validating the statuses that role may emit. Plain prose, ad-hoc JSON, or unsupported tool calls must not be treated as accepted card outcomes.
+A planner can report a project or goal `done`, `failed`, or `blocked`. Planner, executor, and reviewer terminal reports are accepted only through the unified `emit_result` terminal tool, with each role's contract validating the statuses that role may emit. Plain prose, ad-hoc JSON, or unsupported tool calls must not be treated as accepted card outcomes.
 
 Terminal `emit_result` validation validates only the terminal call, required records, completion gates, and reviewer rework. It must not inspect or gate on pending main-agent notifications after the model has emitted `emit_result`. If a terminal report is invalid, the failed `emit_result` tool result carries the terminal repair guidance: invalid arguments ask the model to call `emit_result` again with valid JSON; missing `status.md` or `review.md` asks it to create the required record and call `emit_result` again; completion-gate failures report the descendant/evidence condition that blocks `done`; reviewer rework reports the reviewer guidance. Pending notifications are not terminal validation errors and must not be combined into those repair messages.
 
@@ -211,11 +211,11 @@ Before accepting `done`, the runtime must verify:
 - required evidence references are valid;
 - reviewer assessment passes after readiness and evidence gates pass.
 
-If any executable descendant remains `changed`, `blocked`, `backlog`, `running`, `failed`, or otherwise non-compatible with successful completion, the parent cannot close the goal. Only `done` and `cancelled` descendants are completion-compatible and do not block `done`. `blocked` is unresolved rather than final: the parent planner must fix the blocking condition and reactivate the card, send a notification explaining the unblocked condition before reactivation, edit the card so it becomes `changed` under the changed-card rules in section 9, cancel the card, or report `blocked` itself so the responsibility moves upward. `failed` blocks `done` until the parent takes explicit action, such as replacing the failed work, editing the card into `changed`, cancelling the failed child where supported, or reporting/escalating failure upward. The runtime reports a readiness error that identifies the descendant state that must be handled.
+If any executable descendant remains `changed`, `blocked`, `backlog`, `running`, `failed`, or otherwise non-compatible with successful completion, the parent cannot close the planning card. Only `done` and `cancelled` descendants are completion-compatible and do not block `done`. `blocked` is unresolved rather than final: the parent planner must fix the blocking condition and reactivate the card, send a notification explaining the unblocked condition before reactivation, edit the card so it becomes `changed` under the changed-card rules in section 9, cancel the card, or report `blocked` itself so the responsibility moves upward. `failed` blocks `done` until the parent takes explicit action, such as replacing the failed work, editing the card into `changed`, cancelling the failed child where supported, or reporting/escalating failure upward. The runtime reports a readiness error that identifies the descendant state that must be handled.
 
-Goal planning state must reflect the latest accepted planner and reviewer state before the enclosing goal can close.
+Planning-card state must reflect the latest accepted planner and reviewer state before the project or goal can close.
 
-If a reviewer interrupts a completion by requesting corrections, the goal returns to planner ownership with reviewer feedback in context. The parent planner remains behind the same `activate_card` barrier until that child activation ultimately reports `done`, `failed`, or `blocked`, or until runtime cancellation resolves it as `cancelled`. The planner rework continuation is a failed planner `emit_result` repair turn: the failed tool result contains reviewer guidance only, while any queued notifications for that next planner turn are delivered as separate provider-input context rows.
+If a reviewer interrupts a completion by requesting corrections, the assessed planning card returns to planner ownership with reviewer feedback in context. When the assessed card is a child goal, the parent planner remains behind the same `activate_card` barrier until that child activation ultimately reports `done`, `failed`, or `blocked`, or until runtime cancellation resolves it as `cancelled`. The planner rework continuation is a failed planner `emit_result` repair turn: the failed tool result contains reviewer guidance only, while any queued notifications for that next planner turn are delivered as separate provider-input context rows.
 
 Notifications have no acknowledgement gate. A valid terminal report is not deferred merely because main-agent notifications are pending after the report was emitted. Notifications are delivered only at safe pre-provider-call points: initial planner/executor turns, continuations after non-terminal tool results, continuations after failed terminal `emit_result` repair tool results, and continuations after plain-text repair directives. If terminal validation succeeds and no further provider call is made, notifications that arrived after the last safe point remain queued for future delivery and do not block completion.
 
@@ -335,9 +335,9 @@ Actor snapshots may include `active_reconstruction` records for active card, pro
 
 ## 18. Reviewer Assessment
 
-Reviewer assessment happens after the planner reports a goal ready for completion and after runtime readiness and evidence gates pass. For now, the reviewer receives the project card data, the goal subtree being assessed, and the return value from the planner agent. The reviewer records an assessment for that snapshot.
+Reviewer assessment happens after the planner reports a planning card ready for completion and after runtime readiness and evidence gates pass. Goal reviewers receive the project card data, the goal subtree being assessed, and the return value from the planner agent. The project reviewer assesses the completed project/root tree outcome against the project card brief and acceptance criteria. The reviewer records an assessment for that snapshot.
 
-Reviewer approval is valid only for the card tree snapshot it assessed. The invalidation rule is defined with changed-card propagation: if the goal or any descendant changes before approval commits, the runtime detects the stale assessment through actual card/subtree/record currentness changes and returns the goal to planner ownership. Reviewer sessions must never drain the card's main-agent notification queue; notifications queued during review remain pending for the next planner/executor safe provider-input delivery. Pending main-agent notification state alone does not invalidate reviewer success (see [Implementation Plan P5](../architecture/micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
+Reviewer approval is valid only for the card tree snapshot it assessed. The invalidation rule is defined with changed-card propagation: if the assessed planning card or any descendant changes before approval commits, the runtime detects the stale assessment through actual card/subtree/record currentness changes and returns the assessed card to planner ownership. Reviewer sessions must never drain the card's main-agent notification queue; notifications queued during review remain pending for the next planner/executor safe provider-input delivery. Pending main-agent notification state alone does not invalidate reviewer success (see [Implementation Plan P5](../architecture/micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
 
 Reviewer results are stored locally with the assessed card. If the reviewer result is negative, it is injected back into the planner context through the response to the planner's completion-return tool call. If the reviewer result is positive, the reviewer text is attached to the card for recordkeeping but is otherwise ignored by the planner flow.
 
@@ -402,13 +402,13 @@ The system satisfies this specification when:
 - card `result` reflects accepted main-agent results only, while `working_status` is a separate free field for agent usage;
 - card documents are record-backed: structured card state is read through `get_card`, while `brief.md`, `status.md`, and `review.md` are versioned record slots;
 - Analyst card mutations require runtime status `stopped` or `paused`, with `write` or `edit` on `record:///brief.md?card=<id>&v=next` as the supported path for updating card goal/instructions/acceptance content;
-- goal completion rejects any executable descendant state that is not compatible with accepted completion;
-- reviewer approval is invalidated if the assessed goal or any descendant changes before approval commits;
+- project/goal completion rejects any executable descendant state that is not compatible with accepted completion;
+- reviewer approval is invalidated if the assessed planning card or any descendant changes before approval commits;
 - negative reviewer results are stored with the card and injected into planner context, while positive reviewer text is attached for recordkeeping only;
 - notifications are card-addressed, ephemeral, immutable, and non-inspectable as objects;
 - undelivered notifications remain with deleted or archived card representations and are no longer delivered through the active runtime;
 - restart/reset of planner state is not required;
-- planner sessions are goal-lived and resume as the same logical session when the same goal is reactivated;
+- planner sessions are planning-card-lived and resume as the same logical session when the same project or goal card is reactivated;
 - process execution follows launch, monitor, bounded wait, and explicit termination semantics;
 - process concurrency is unlimited by the functional specification for now;
 - the Analyst can inspect, diagnose, configure, repair, navigate the workspace, and mutate supported card state through canonical services, including secret inspection when needed;

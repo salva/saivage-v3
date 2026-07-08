@@ -40,6 +40,11 @@ export {
   agentInvocationRoleValues,
   operationalAgentRoleValues,
   cardTypeValues,
+  planningCardTypeValues,
+  terminalCardTypeValues,
+  isPlanningCardType,
+  isTerminalCardType,
+  activePromptPairs,
   cardStatusValues,
   cardActionValues,
   urgencyValues,
@@ -70,6 +75,9 @@ export {
 } from './lifecycle.js';
 export type {
   CardType,
+  PromptCardTypeKey,
+  PromptRoleKey,
+  PromptSlot,
   CardStatus,
   CardAction,
   RuntimeCommandName,

@@ -21,6 +21,16 @@ import type { LlmInvocationInput, LLMProviderPort } from '../src/runtime/actors/
 import type { ToolContext } from '../src/tools/analyst-tool-types.js';
 import { createTestPromptTemplateRegistry } from './helpers/prompt-template-registry.js';
 
+const uuidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+
+function expectNotifyNotificationId(id: string, kind: string): void {
+  expect(id).toMatch(new RegExp(`^notify:${kind}:\\d{4}-\\d{2}-\\d{2}T.*:${uuidPattern}$`, 'i'));
+}
+
+function notificationIdFromCall(call: unknown): string {
+  return (call as [string, { id: string }])[1].id;
+}
+
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort): CardActorDeps {
   return { projectRoot, store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
@@ -97,7 +107,9 @@ describe('queueNotification recipient resolution', () => {
     const result = queueNotification(projectRoot, { kind: 'card', cardId: child.id }, 'card_changed', 'card body', { actor: 'runtime', surface: 'runtime' }, store, notifyCard);
 
     expect(result).toMatchObject({ ok: true, cardDeliveries: [{ cardId: child.id, result: { ok: true } }], sessionDeliveries: [`executor:${child.id}`] });
+    expectNotifyNotificationId(result.notificationId, 'card_changed');
     expect(notifyCard).toHaveBeenCalledWith(child.id, expect.objectContaining({ message: 'card body', reason: 'card_changed' }));
+    expect(notificationIdFromCall(notifyCard.mock.calls[0])).toBe(result.notificationId);
     expect(deliveries).toEqual([expect.objectContaining({ context: { target: 'session', sessionId: `executor:${child.id}` }, entry: expect.objectContaining({ kind: 'card_changed', body: 'card body' }) })]);
   });
 

@@ -153,8 +153,7 @@ export class CardLifecycleCommands {
     }
     this.config.validateTransition(card.status, newStatus);
     if (card.status === newStatus) return card;
-    const stamp = now();
-    const lifecycle = buildSetStatusLifecycle(card, newStatus, stamp);
+    const lifecycle = buildSetStatusLifecycle(card, newStatus);
     return this.config.applyPatch(id, { status: newStatus, lifecycle }, 'status', {
       actor: 'runtime',
       surface: 'runtime',

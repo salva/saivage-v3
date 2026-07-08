@@ -1,4 +1,4 @@
-import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
+import { isTerminalCardType, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
 import { valuesEqual } from './value-equality.js';
@@ -76,16 +76,6 @@ const EXPLICIT_LIFECYCLE_WRITE_REASONS: ReadonlySet<string> = new Set([
   'terminal lifecycle repair',
 ]);
 
-const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
-  'architecture',
-  'code',
-  'test',
-  'doc',
-  'data',
-  'research',
-  'ops',
-]);
-
 const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'done',
   'failed',
@@ -119,7 +109,7 @@ const TRACKED_FIELDS = [
 ] as const satisfies ReadonlyArray<keyof CardRecord>;
 
 export function isTerminalType(type: CardType): boolean {
-  return TERMINAL_TYPES.has(type);
+  return isTerminalCardType(type);
 }
 
 export function isTerminalState(state: CardStatus): boolean {
@@ -143,7 +133,6 @@ export function validateTransition(from: CardStatus, to: CardStatus): void {
 export function buildSetStatusLifecycle(
   card: CardRecord,
   newStatus: CardStatus,
-  _stamp: string,
 ): CardRecord['lifecycle'] {
   switch (newStatus) {
     case 'backlog':

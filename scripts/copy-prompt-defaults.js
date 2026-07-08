@@ -4,23 +4,10 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } fr
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tokenizePromptTemplate } from './prompt-placeholder-validator.js';
+import { activePromptPairs } from '../src/schemas/index.js';
+import { createPromptTemplateRegistry } from '../src/utils/prompt-api.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-const activePairs = [
-  ['project', 'planner'],
-  ['project', 'reviewer'],
-  ['goal', 'planner'],
-  ['goal', 'reviewer'],
-  ['architecture', 'executor'],
-  ['code', 'executor'],
-  ['test', 'executor'],
-  ['doc', 'executor'],
-  ['data', 'executor'],
-  ['research', 'executor'],
-  ['ops', 'executor'],
-  ['analyst', 'analyst'],
-];
 
 function walkFiles(root, current = root) {
   const files = [];
@@ -36,7 +23,7 @@ function assertPromptTree(root) {
   if (!existsSync(root) || !statSync(root).isDirectory()) {
     throw new Error(`Prompt defaults directory is missing: ${relative(repoRoot, root)}`);
   }
-  const expected = activePairs.map(([cardType, role]) => join(cardType, `${role}.md`)).sort();
+  const expected = activePromptPairs.map(([cardType, role]) => join(cardType, `${role}.md`)).sort();
   const actual = walkFiles(root);
   if (actual.length !== expected.length || actual.some((file, index) => file !== expected[index])) {
     throw new Error(`Prompt defaults directory must contain exactly: ${expected.join(', ')}`);
@@ -44,6 +31,7 @@ function assertPromptTree(root) {
   for (const file of actual) {
     tokenizePromptTemplate(file, join(root, file));
   }
+  createPromptTemplateRegistry({ defaultRoot: root });
 }
 
 function copyTree(sourceRoot, outputRoot) {

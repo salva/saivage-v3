@@ -1,6 +1,36 @@
 export const cardTypeValues = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
 export type CardType = typeof cardTypeValues[number];
 
+export const planningCardTypeValues = ['project', 'goal'] as const satisfies readonly CardType[];
+export const terminalCardTypeValues = ['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const satisfies readonly CardType[];
+
+const planningCardTypes: ReadonlySet<CardType> = new Set<CardType>(planningCardTypeValues);
+const terminalCardTypes: ReadonlySet<CardType> = new Set<CardType>(terminalCardTypeValues);
+
+export function isPlanningCardType(type: CardType): boolean {
+  return planningCardTypes.has(type);
+}
+
+export function isTerminalCardType(type: CardType): boolean {
+  return terminalCardTypes.has(type);
+}
+
+export type PromptCardTypeKey = CardType | 'analyst';
+export type PromptRoleKey = 'planner' | 'executor' | 'reviewer' | 'analyst';
+export type PromptSlot = readonly [cardType: PromptCardTypeKey, role: PromptRoleKey];
+
+const planningPromptPairs = planningCardTypeValues.flatMap((cardType) => [
+  [cardType, 'planner'] as const,
+  [cardType, 'reviewer'] as const,
+]);
+const terminalPromptPairs = terminalCardTypeValues.map((cardType) => [cardType, 'executor'] as const);
+
+export const activePromptPairs = [
+  ...planningPromptPairs,
+  ...terminalPromptPairs,
+  ['analyst', 'analyst'] as const,
+] as const satisfies readonly PromptSlot[];
+
 export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled'] as const;
 export type CardStatus = typeof cardStatusValues[number];
 

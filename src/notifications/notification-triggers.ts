@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createNotificationDeliveryService } from './notification-delivery.js';
 import type { CardStore } from '../cards/store-api.js';
 import type { AgentRole, ControlActionSurface, NoteAuthor } from '../schemas/index.js';
@@ -100,7 +101,7 @@ function resolveRecipientCardIds(projectRoot: string, recipient: Recipient): str
 function buildCardNotification(kind: string, body: string): CardNotification {
   const createdAt = new Date().toISOString();
   return {
-    id: `notify:${kind}:${createdAt}:${Math.random().toString(36).slice(2, 8)}`,
+    id: `notify:${kind}:${createdAt}:${randomUUID()}`,
     message: body,
     created_at: createdAt,
     reason: kind,

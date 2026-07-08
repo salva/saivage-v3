@@ -5,21 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { copyPromptDefaults } from '../../scripts/copy-prompt-defaults.js';
 import { assertPromptPlaceholders, tokenizePromptTemplate } from '../../scripts/prompt-placeholder-validator.js';
-
-const activePairs = [
-  ['project', 'planner'],
-  ['project', 'reviewer'],
-  ['goal', 'planner'],
-  ['goal', 'reviewer'],
-  ['architecture', 'executor'],
-  ['code', 'executor'],
-  ['test', 'executor'],
-  ['doc', 'executor'],
-  ['data', 'executor'],
-  ['research', 'executor'],
-  ['ops', 'executor'],
-  ['analyst', 'analyst'],
-];
+import { activePromptPairs } from '../../src/schemas/index.js';
 
 function fail(message) {
   throw new Error(message);
@@ -47,7 +33,7 @@ function walkFiles(root, current = root) {
 }
 
 function writeFixtureTree(root) {
-  for (const [cardType, role] of activePairs) {
+  for (const [cardType, role] of activePromptPairs) {
     const path = join(root, cardType, `${role}.md`);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `${cardType}/${role} {{toolList}}`);

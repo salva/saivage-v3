@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -7,24 +7,11 @@ import {
   createPromptTemplateRegistry,
   PromptTemplateRenderError,
   type AgentRoleKey,
-  type PromptCardTypeKey,
   type PromptTemplateVariables,
 } from '../../../src/utils/prompt-api.js';
+import { activePromptPairs, type PromptCardTypeKey } from '../../../src/schemas/index.js';
 
-const activePairs = [
-  ['project', 'planner'],
-  ['project', 'reviewer'],
-  ['goal', 'planner'],
-  ['goal', 'reviewer'],
-  ['architecture', 'executor'],
-  ['code', 'executor'],
-  ['test', 'executor'],
-  ['doc', 'executor'],
-  ['data', 'executor'],
-  ['research', 'executor'],
-  ['ops', 'executor'],
-  ['analyst', 'analyst'],
-] as const satisfies readonly (readonly [PromptCardTypeKey, AgentRoleKey])[];
+const activePairs = activePromptPairs;
 
 function variables(role: AgentRoleKey, overrides: PromptTemplateVariables = {}): PromptTemplateVariables {
   const common = {
@@ -87,6 +74,23 @@ describe('PromptTemplateRegistry', () => {
       expect(rendered).not.toContain('{{');
       expect(rendered).not.toContain('}}');
     }
+    expect(activePairs).toContainEqual(['analyst', 'analyst']);
+  });
+
+  it('keeps project prompt defaults project-specific', () => {
+    const projectPlanner = readFileSync('src/prompts/project/planner.md', 'utf8');
+    const projectReviewer = readFileSync('src/prompts/project/reviewer.md', 'utf8');
+    const goalPlanner = readFileSync('src/prompts/goal/planner.md', 'utf8');
+    const goalReviewer = readFileSync('src/prompts/goal/reviewer.md', 'utf8');
+
+    expect(projectPlanner).toContain('canonical project card');
+    expect(projectPlanner).toContain('top-level project card');
+    expect(projectPlanner).not.toContain('Planner for goal card');
+    expect(projectPlanner).not.toContain('one goal subtree');
+    expect(projectReviewer).toContain('completed project/root tree');
+    expect(projectReviewer).not.toContain("goal's acceptance criteria");
+    expect(projectPlanner).not.toBe(goalPlanner);
+    expect(projectReviewer).not.toBe(goalReviewer);
   });
 
   it('uses file-level overlay replacements and falls back when overlay files are missing', () => {
