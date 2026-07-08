@@ -2,25 +2,28 @@ import { describe, it, expect, afterEach, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import * as YAML from 'yaml';
 import { createServer } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { getProjectNotificationDeliveryAdapters } from '../../src/notifications/notification-delivery.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 const roots: string[] = [];
 
 function makeRoot(config: Record<string, unknown>): string {
   const root = mkdtempSync(join(tmpdir(), 'saivage-telegram-startup-'));
   roots.push(root);
+  initProjectTree(root);
   const saivageDir = join(root, '.saivage');
   mkdirSync(join(saivageDir, 'agents', 'sessions'), { recursive: true });
   mkdirSync(join(saivageDir, 'agents', 'messages'), { recursive: true });
-  writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({
+  writeFileSync(join(saivageDir, 'saivage.yaml'), YAML.stringify({
     models: { default: ['test-model'] },
     providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     runtime: {},
     server: { host: '127.0.0.1', port: 18080 },
     ...config,
-  }, null, 2));
+  }));
   return root;
 }
 

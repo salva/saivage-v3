@@ -17,14 +17,14 @@ const DOMAIN_PACKAGES = new Set([
 const CONTRACT_FORBIDDEN = new Set(['server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
 const AGENT_RUNTIME_RESTRICTED = new Set(['runtime']);
 const SCHEMA_FORBIDDEN = new Set(['events', 'server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
-const RUNTIME_AGENT_IMPORT_EXCEPTIONS = new Set(['agents/analyst-stage6.js', 'agents/session-persistence.js', 'agents/system-prompt.js', 'agents/skills-engine.js', 'agents/config-schema.js']);
+const RUNTIME_AGENT_IMPORT_EXCEPTIONS = new Set(['agents/analyst-stage6.js', 'agents/session-persistence.js', 'agents/skills-engine.js', 'agents/config-schema.js']);
 const AGENT_RUNTIME_IMPORT_EXCEPTIONS = new Set(['src/agents/analyst-tools.ts', 'src/agents/analyst-stage6.ts', 'src/agents/analyst-handler.ts']);
 const PREEXISTING_DEEP_IMPORT_EXCEPTIONS = new Set([
   'src/agents/analyst-secret-classifier.ts->workspace/secret-paths.js',
 ]);
 const PREEXISTING_SERVER_IMPORT_EXCEPTIONS = new Set();
 const ROOT_IMPORT_FORBIDDEN_PACKAGES = new Set(['agents', 'runtime', 'cards', 'mcp', 'server']);
-const EXPLICIT_PUBLIC_ENTRYPOINT_RE = /^(?:config|session|analyst|execution|tool|state|control|process|store|lifecycle|artifact|manager|protocol|status|server)-api(?:\.js|\.ts)?$/;
+const EXPLICIT_PUBLIC_ENTRYPOINT_RE = /^(?:config|session|analyst|execution|tool|state|control|process|store|lifecycle|artifact|manager|protocol|status|server|prompt)-api(?:\.js|\.ts)?$/;
 
 function walk(dir) {
   const out = [];

@@ -255,7 +255,7 @@ Config, events, and modules for features that were never built and are not in th
 
     `config-schema.ts` defines `supervisorSectionSchema` with five fields, none of which are read by any production code. This is the upstream cause of the dead stuck-supervisor event chain. The micro-actor `RuntimeSupervisorActor` is an unrelated name collision — it has no stuck-detection.
 
-    **Deployment blocker:** as of 2026-07-02, checked-in and local target-project configs (`diedrico`, `diedrico-lessons`, `getrich`, `getrich-v2`, `pm`, `pueblicos`, `saivage-e2e-checkers`) still contain a top-level `supervisor` key. The schema is strict, so removing the key will reject these configs on startup. This cleanup must either update all deployed `.saivage/saivage.json` files in the same change, or the cleanup must be sequenced after confirming no running deployment reads the old key.
+    **Deployment blocker:** as of 2026-07-02, checked-in and local target-project configs (`diedrico`, `diedrico-lessons`, `getrich`, `getrich-v2`, `pm`, `pueblicos`, `saivage-e2e-checkers`) still contain a top-level `supervisor` key. The schema is strict, so removing the key will reject these configs on startup. This cleanup must either update all deployed `.saivage/saivage.yaml` files in the same change, or the cleanup must be sequenced after confirming no running deployment reads the old key.
 
     Status: completed in the Stage 2 config cleanup slice; listed local target-project configs were updated in the same change.
 
@@ -433,7 +433,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    The Analyst prompt's static `<TOOL_LIST>` is based on control-tool definitions, while the actual surface is composed from providers. Derive from `InvocationSurface` or document the static list as control-tools-only.
 
-   Status: partially completed in `04dd30ee`. `getAnalystSystemPrompt(tools)` now renders the composed invocation surface definitions in production (`src/agents/analyst-handler.ts` line 305); the dead `getAvailableAnalystToolNames` helper was removed. **Rework needed (K.2):** `getAnalystSystemPrompt` at `src/agents/analyst-prompt.ts` line 70 still defaults to static `ANALYST_TOOL_DEFINITIONS` when called with no args, and two tests (`tests/agents/analyst-tool-surface.test.ts` and `tests/agents/analyst-system-prompt.test.ts`) use that default. This leaves a reusable footgun that can reintroduce the exact stale-tool-list issue. The `tools` argument must be made required, and the tests updated to pass explicit definitions.
+   Status: resolved/superseded. Analyst prompt text is now rendered through `PromptTemplateRegistry` from the composed analyst invocation surface, project context, vocabulary snippet, and role template; the old static Analyst prompt helper path was removed.
 
 3. **Reduce duplicate role/tool policy lists.**
 
@@ -531,9 +531,9 @@ These items were discovered during a full review of the Stage 3–4 work. They m
    ```
    `toolFailure` (`src/tools/analyst-tool-helpers.ts` line 75) now accepts a failure message and optional safe public diagnostics, preserving explicitly safe IDs, statuses, field names, counts, and mismatch arrays in failure `data`. Dead error classification was removed. The `?? 'failed'` / `?? 'Web tool failed.'` fallbacks added for optional `error` were removed.
 
-2. Completed: make `getAnalystSystemPrompt(tools)` require its argument.
+2. Completed, then superseded: remove the static Analyst prompt helper entirely in favor of `PromptTemplateRegistry` rendering.
 
-   Remove the `= ANALYST_TOOL_DEFINITIONS` default at `src/agents/analyst-prompt.ts:70`. Update the two tests that call it with no args (`tests/agents/analyst-tool-surface.test.ts` and `tests/agents/analyst-system-prompt.test.ts`) to pass explicit definitions. This prevents accidental reintroduction of the stale static tool list.
+   The prior helper-default cleanup was superseded by deleting the helper and moving analyst prompt rendering to the registry. Analyst prompt tests now exercise rendered registry output with explicit tool-list variables.
 
 3. Completed: fix pre-existing web Vitest failures.
 
@@ -633,7 +633,7 @@ Tasks (backlog groups F, G, H, K):
 3. Completed (`04dd30ee`): collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
 4. Completed (`a1c3c411`, `80783f66`, `855aceeb`): remove duplicate `RoleToolsPolicy`, rename `tool-catalog.ts` → `tool-definition.ts`, and remove dead `ToolRuntime`.
 5. Completed: tighten `ToolResult` back to a discriminated union with optional `data` on failures; make `toolFailure` carry only explicit safe public diagnostics; remove dead error classification.
-6. Completed: make `getAnalystSystemPrompt(tools)` require its argument; update tests.
+6. Completed, then superseded: remove the static Analyst prompt helper entirely in favor of `PromptTemplateRegistry` rendering; update tests.
 7. Completed (`c6269faa`): remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*` in `current-run.ts`.
 8. Completed: narrow over-broad `catch {}` in record-slot close/recover paths.
 9. Completed: fix pre-existing web Vitest failures so the web gate is green.

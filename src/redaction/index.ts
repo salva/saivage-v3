@@ -52,6 +52,7 @@ const SECRET_KEY_PATTERN =
 
 const JSON_SECRET_VALUE_RE =
   /("(?:[^"\\]|\\.)*")(\s*):(\s*)"((?:[^"\\]|\\.)*)"/gi;
+const YAML_SECRET_VALUE_RE = /(^[ \t]*([A-Za-z][A-Za-z0-9_-]*)[ \t]*:[ \t]*)([^\n#][^\n]*)(?=$|\n)/gmi;
 const ESCAPED_JSON_SECRET_VALUE_RE = /(\\")([^"\\]+)(\\")(\s*:\s*)(\\")([^"\\]*)(\\")/gi;
 const INLINE_SECRET_ASSIGNMENT_RE = /\b([A-Za-z][A-Za-z0-9_-]*(?:(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[A-Za-z0-9_-]*)?)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 const CREDENTIAL_LITERAL_RE = /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|rt_[^\s"\\]+|tok_[^\s"\\]+)\b/g;
@@ -118,7 +119,7 @@ function redactCredentialLiterals(content: string): string {
 
 function redactSecrets(content: string): string {
   if (!content) return content;
-  return redactCredentialLiterals(redactJsonSecretValues(content));
+  return redactCredentialLiterals(redactYamlSecretValues(redactJsonSecretValues(content)));
 }
 
 function redactProviderLikeText(content: string): string {
@@ -137,6 +138,17 @@ function redactJsonSecretValues(content: string): string {
     }
 
     return `${keyPart}${wsBefore}:${wsAfter}"${SECRET_REDACTION_PLACEHOLDER}"`;
+  });
+}
+
+function redactYamlSecretValues(content: string): string {
+  if (!content) return content;
+
+  return content.replace(YAML_SECRET_VALUE_RE, (match, prefix: string, key: string, valuePart: string) => {
+    const trimmed = valuePart.trim();
+    if (!isSecretKey(key) || shouldPreserveValue(trimmed)) return match;
+    const quote = trimmed.startsWith('"') && trimmed.endsWith('"') ? '"' : trimmed.startsWith("'") && trimmed.endsWith("'") ? "'" : '';
+    return `${prefix}${quote}${SECRET_REDACTION_PLACEHOLDER}${quote}`;
   });
 }
 

@@ -10,6 +10,7 @@ import { activeVersionPath, conversationDir, writeConversationIndex } from '../.
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { actorSnapshotPath } from '../../src/runtime/actors/snapshots.js';
+import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 
 const { AnalystRuntime } = await import('../../src/agents/analyst-handler.js');
 
@@ -19,7 +20,7 @@ function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's01-analyst-handler-'));
   const sd = join(root, '.saivage');
   initProjectTree(root);
-  writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
+  writeFileSync(join(sd, 'saivage.yaml'), JSON.stringify({
     models: { default: [TEST_MODEL], analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }, null, 2));
@@ -71,7 +72,7 @@ describe('AnalystHandler F05 contract', () => {
     const root = setupRoot();
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => messageResponse('Hello user.'));
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-msg', { userContent: 'hi' });
       expect(response.message.content).toBe('Hello user.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
@@ -94,7 +95,7 @@ describe('AnalystHandler F05 contract', () => {
         ownerKind: 'operator',
         launchReason: 'analyst workspace run_command',
       });
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, processRunner }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, processRunner }) });
 
       await runtime.shutdownSessionProcesses(sessionId);
 
@@ -113,7 +114,7 @@ describe('AnalystHandler F05 contract', () => {
         ]);
         return messageResponse('Done.');
       });
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-multi', { userContent: 'list everything' });
       expect(response.message.content).toBe('Done.');
       const rows = readPersistedRows(root, 's-multi');
@@ -145,7 +146,7 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps });
       const response = await runtime.submit('s-bad-json', { userContent: 'list cards' });
 
       expect(response.message.content).toBe('Done.');
@@ -170,7 +171,7 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps });
       const response = await runtime.submit('s-activity', { userContent: 'list cards' }, () => { throw new Error('activity boom'); });
 
       expect(response.message.content).toBe('Done.');
@@ -185,7 +186,7 @@ describe('AnalystHandler F05 contract', () => {
     try {
       let resolveFetch!: (response: Response) => void;
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Promise<Response>((resolve) => { resolveFetch = resolve; }));
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
 
       const first = runtime.submit('analyst:global', { userContent: 'hi' });
       await expect(runtime.submit('analyst:global', { userContent: 'again' })).rejects.toThrow('already has an active turn');
@@ -220,7 +221,7 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       await runtime.submit('s-filter', { userContent: 'hi' });
 
       expect(modelInputContents.some((content) => content.includes('provider debug diagnostic'))).toBe(false);
@@ -271,7 +272,7 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       await runtime.submit('s-active-version', { userContent: 'hi' });
 
       expect(modelInputContents.some((content) => content.includes('active row must reach provider'))).toBe(true);

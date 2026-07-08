@@ -37,7 +37,7 @@ runtime/build used to recreate target-project state; it is not the reset target.
 
 Preserve these files when present in the target project:
 
-- `.saivage/saivage.json`
+- `.saivage/saivage.yaml`
 - `.saivage/auth-profiles.json`
 - User-named source documents, commonly `docs/SPEC.md` and `docs/PLAN.md`
 - Any project source files outside generated `.saivage/` and `.saivage-work/`
@@ -78,7 +78,7 @@ cd /home/salva/g/ml/saivage-v3
 node --input-type=module -e 'import { initProjectTree } from "./dist/src/utils/file-tree.js"; initProjectTree("/home/salva/g/ml/getrich-v2");'
 ```
 
-6. Restore `.saivage/saivage.json` and `.saivage/auth-profiles.json`.
+6. Restore `.saivage/saivage.yaml` and `.saivage/auth-profiles.json`.
 
 7. Restart the service, then ask the canonical analyst to create the project card from the preserved spec documents and start the process. Use the analyst route/control surface instead of manually creating project/backlog cards.
 
@@ -117,7 +117,7 @@ cd /home/salva/g/ml/saivage-v3
 node --input-type=module -e 'import { initProjectTree } from "./dist/src/utils/file-tree.js"; initProjectTree("/home/salva/g/ml/pueblicos");'
 ```
 
-6. Restore preserved `.saivage/saivage.json`, `.saivage/auth-profiles.json` if present, and source spec documents.
+6. Restore preserved `.saivage/saivage.yaml`, `.saivage/auth-profiles.json` if present, and source spec documents.
 
 7. Restart the service, then ask the analyst/control surface to recreate the project card from the preserved source documents and start the process.
 
@@ -132,7 +132,7 @@ curl -fsS http://10.0.3.52:8080/health
 
 1. Identify the host project path and service owner from current workspace handoff notes or by inspecting the container.
 2. Stop only the matching service; do not stop unrelated Saivage deployments.
-3. Preserve `.saivage/saivage.json`, `.saivage/auth-profiles.json` if present, and the source documents the user named as authoritative.
+3. Preserve `.saivage/saivage.yaml`, `.saivage/auth-profiles.json` if present, and the source documents the user named as authoritative.
 4. Move generated `.saivage/` and `.saivage-work/` state into a timestamped backup under `/home/salva/g/ml/tmp/`.
 5. Recreate the project-local runtime tree with `initProjectTree(<target-path>)` from this repo's built `dist/` output.
 6. Restore preserved config, credentials, and source documents.

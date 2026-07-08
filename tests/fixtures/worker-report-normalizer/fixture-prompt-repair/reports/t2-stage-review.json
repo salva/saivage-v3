@@ -4,16 +4,15 @@
   "status": "passed",
   "checklist_results": [
     {
-      "item": "Prompt asset packaging is deterministic and source-controlled.",
+      "item": "Prompt template packaging is deterministic and source-controlled.",
       "required": true,
       "passed": true,
       "evidence": [
-        "t1-fix-prompt-asset-deploy",
-        "scripts/copy-prompt-assets.js",
+        "t1-install-prompt-template-registry",
+        "scripts/copy-prompt-defaults.js",
         "package.json",
-        "src/prompts/example-reviewer.md",
-        "src/prompts/example-planner.md",
-        "src/prompts/example-executor.md"
+        "src/utils/prompt-defaults.yaml",
+        "src/utils/prompt-api.ts"
       ]
     }
   ],

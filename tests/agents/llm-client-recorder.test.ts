@@ -284,7 +284,7 @@ describe('AgentLlmInvocationGateway recorder wiring', () => {
       const { mkdirSync, writeFileSync } = await import('node:fs');
       mkdirSync(join(root, '.saivage'), { recursive: true });
       writeFileSync(
-        join(root, '.saivage', 'saivage.json'),
+        join(root, '.saivage', 'saivage.yaml'),
         JSON.stringify({
           models: { default: ['test-model'] },
           providers: {

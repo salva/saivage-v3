@@ -20,6 +20,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import * as YAML from 'yaml';
 
 import { initProjectTree, readProjectFileAtomic } from '../../src/persistence/file-tree.js';
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
@@ -54,8 +55,8 @@ afterEach(() => {
 
 function writeSaivageConfig(json: Record<string, unknown>) {
   writeFileSync(
-    join(saivageDir, 'saivage.json'),
-    JSON.stringify(json, null, 2),
+    join(saivageDir, 'saivage.yaml'),
+    YAML.stringify(json),
     'utf-8',
   );
 }
@@ -81,7 +82,7 @@ describe('content safety helpers', () => {
     expect(result.safeContent).toBeUndefined();
   });
 
-  it('getSafeFileForAgent redacts secrets in saivage.json', () => {
+  it('getSafeFileForAgent redacts secrets in saivage.yaml', () => {
     writeSaivageConfig({
       models: { planner: ['gpt-5.5'] },
       providers: {
@@ -94,7 +95,7 @@ describe('content safety helpers', () => {
       name: 'test-project',
     });
 
-    const result = getSafeFileForAgent('.saivage/saivage.json', rawJson);
+    const result = getSafeFileForAgent('.saivage/saivage.yaml', rawJson);
 
     expect(result.blocked).toBe(false);
     expect(result.safeContent).toBeDefined();
@@ -159,7 +160,7 @@ describe('sensitive file checks with file-tree', () => {
       },
     });
 
-    const content = readProjectFileAtomic(root, '.saivage/saivage.json', {
+    const content = readProjectFileAtomic(root, '.saivage/saivage.yaml', {
       redactSecrets: true,
     });
 
@@ -179,7 +180,7 @@ describe('sensitive file checks with file-tree', () => {
     });
 
     // Default (no opts) — should NOT redact
-    const content = readProjectFileAtomic(root, '.saivage/saivage.json');
+    const content = readProjectFileAtomic(root, '.saivage/saivage.yaml');
     expect(content).toContain('sk-secret-12345');
     expect(content).not.toContain('[REDACTED]');
   });
@@ -190,10 +191,10 @@ describe('sensitive file checks with file-tree', () => {
     }).toThrow(/Failed to read/);
   });
 
-  it('readProjectFileAtomic does not block saivage.json reads', () => {
+  it('readProjectFileAtomic blocks obsolete saivage.json reads', () => {
     writeSaivageConfig({ name: 'test' });
-    const content = readProjectFileAtomic(root, '.saivage/saivage.json');
-    expect(content).toContain('"test"');
+    writeFileSync(join(saivageDir, 'saivage.json'), '{"name":"test"}', 'utf-8');
+    expect(() => readProjectFileAtomic(root, '.saivage/saivage.json')).toThrow(/blocked for security reasons/);
   });
 });
 

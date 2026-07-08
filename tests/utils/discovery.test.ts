@@ -16,7 +16,7 @@ afterEach(() => {
 
 function createProjectAt(root: string): void {
   mkdirSync(join(root, '.saivage'), { recursive: true });
-  writeFileSync(join(root, '.saivage', 'saivage.json'), '{"name":"test-project"}', 'utf-8');
+  writeFileSync(join(root, '.saivage', 'saivage.yaml'), 'name: test-project\n', 'utf-8');
 }
 
 describe('findProjectRoot', () => {
@@ -44,7 +44,7 @@ describe('findProjectRoot', () => {
     expect(result).toBe(tmpDir);
   });
 
-  it('returns null when no .saivage/saivage.json exists anywhere up the tree', () => {
+  it('returns null when no .saivage/saivage.yaml exists anywhere up the tree', () => {
     const deepDir = join(tmpDir, 'x', 'y', 'z');
     mkdirSync(deepDir, { recursive: true });
 
@@ -52,9 +52,9 @@ describe('findProjectRoot', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null from a directory with .saivage/ but no saivage.json', () => {
+  it('returns null from a directory with .saivage/ but no saivage.yaml', () => {
     mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
-    // no saivage.json inside
+    // no saivage.yaml inside
 
     const result = findProjectRoot(tmpDir);
     expect(result).toBeNull();
@@ -70,7 +70,7 @@ describe('findProjectRoot', () => {
     // Create a project at tmpDir level
     createProjectAt(tmpDir);
 
-    // Create a subdirectory that has its own .saivage/saivage.json
+    // Create a subdirectory that has its own .saivage/saivage.yaml
     const childProject = join(tmpDir, 'child-project');
     createProjectAt(childProject);
 

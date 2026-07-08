@@ -1,6 +1,6 @@
 // F05 B6: Live contract-shape probe for each configured provider × role.
 //
-// Reads <projectRoot>/.saivage/saivage.json only. Does NOT read
+// Reads <projectRoot>/.saivage/saivage.yaml only. Does NOT read
 // .saivage/auth-profiles.json — providers that need OAuth refresh will simply
 // be reported as skipped (no_api_key) rather than implicitly authenticated.
 //

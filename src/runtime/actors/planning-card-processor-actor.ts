@@ -11,7 +11,7 @@ import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contra
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { buildPlannerStateContextText } from '../../agents/planner-state-context.js';
-import { invokeToolForLlm, surfaceToolDefinitions, type ToolResult } from '../../tools/invocation.js';
+import { invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../../tools/invocation.js';
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { NotifyCardResult } from '../runtime-api.js';
@@ -22,6 +22,7 @@ import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
+import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -56,13 +57,15 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
+  private readonly promptTemplates: PromptTemplateRegistry;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
     this.notifyCard = args.notifyCard;
     this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
+    this.promptTemplates = args.promptTemplates;
   }
 
   _on_enter__planning(): void {
@@ -86,7 +89,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     if (llm.state() === 'idle') discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'status.md', reason: 'new_activation' });
     const surface = this.plannerInvocationSurface(input.card.id);
-    const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
+    const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, surface, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
     let reviewerReworkAttempts = 0;
     const result = await runContractRepairLoop<PlannerProcessorOutcome>({
       initialOutcome: outcome,
@@ -123,7 +126,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         return control.done(projected);
       },
       onNonTerminalTool: async (toolOutcome) => {
-        const toolResult = await this.handleToolCall(input.card, toolOutcome, signal);
+        const toolResult = await this.handleToolCall(surface, toolOutcome, signal);
         return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (inputId) => this.plannerNotificationContext(input, inputId));
       },
     });
@@ -131,7 +134,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return result.value;
   }
 
-  private buildLlmInput(input: CardActivationInput, contract = createPlannerContract()): LlmInvocationInput {
+  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createPlannerContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('planner');
     const sessionId = plannerActorId(this.cardId);
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
@@ -151,9 +154,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       agentId: sessionId,
       role: 'planner',
       sessionId,
-      systemPrompt: this.plannerPrompt(input.card),
+      systemPrompt: this.plannerPrompt(input.card, surface, contract),
       contextMessages: [...loaded, plannerState, ...notifications],
-      tools: [...surfaceToolDefinitions(this.plannerInvocationSurface(input.card.id)), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
+      tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
       capabilityRequest: { requiresTools: true },
@@ -161,8 +164,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     };
   }
 
-  private async handleToolCall(parent: CardRecord, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
-    const surface = this.plannerInvocationSurface(parent.id);
+  private async handleToolCall(surface: InvocationSurface, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
     if (!surface.tools.has(outcome.toolName)) return { success: false, error: `Unsupported planner tool call '${outcome.toolName}'.` };
     return invokeToolForLlm(surface, outcome.toolName, outcome.args, signal);
   }
@@ -218,7 +220,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     while (true) {
       const currentness = this.captureReviewerCurrentness(input);
       const surface = this.reviewerInvocationSurface(input.card.id, sessionId);
-      const outcome = await this.resolveInitialOutcome(llm, () => this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness), surface, (name) => reviewerContract.isTerminalToolName(name), signal);
+      const outcome = await this.resolveInitialOutcome(llm, () => this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness, surface, reviewerContract), surface, (name) => reviewerContract.isTerminalToolName(name), signal);
       const review = await runContractRepairLoop<PlannerProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => reviewerContract.isTerminalToolName(name),
@@ -250,7 +252,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           return control.done(evaluateReviewerTerminalOutcome({ outcome: terminalOutcome }));
         },
         onNonTerminalTool: async (toolOutcome) => {
-          const toolResult = await this.handleReviewerToolCall(input.card, sessionId, toolOutcome, signal);
+          const toolResult = await this.handleReviewerToolCall(surface, sessionId, toolOutcome, signal);
           return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal);
         },
       });
@@ -260,8 +262,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string, currentness: ReviewerCurrentnessSnapshot): LlmInvocationInput {
-    const contract = createReviewerContract();
+  private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string, currentness: ReviewerCurrentnessSnapshot, surface: InvocationSurface, contract = createReviewerContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('reviewer');
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
     appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
@@ -271,9 +272,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       agentId: reviewerActorId(input.card.id),
       role: 'reviewer',
       sessionId,
-      systemPrompt: this.reviewerPrompt(input.card, assessmentId),
+      systemPrompt: this.reviewerPrompt(input.card, assessmentId, surface, contract),
       contextMessages: [...loaded, descendantContext],
-      tools: [...surfaceToolDefinitions(this.reviewerInvocationSurface(input.card.id, sessionId)), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
+      tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
       capabilityRequest: { requiresTools: true },
@@ -398,16 +399,32 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return [root, ...this.descendants(cardId)];
   }
 
-  private plannerPrompt(card: CardRecord): string {
-    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use reorder_child to reorder immediate children. Use queue_notification to leave targeted context for another agent session. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked.\n\nWrite your current invocation status to:\nrecord:///status.md?v=next\n\nDo not call emit_result until the status file exists. End by calling emit_result with status done, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`;
+  private plannerPrompt(card: CardRecord, surface: InvocationSurface, contract = createPlannerContract()): string {
+    return this.promptTemplates.render('planner', {
+      cardId: card.id,
+      cardTitle: card.title,
+      cardBrief: cardBriefForPrompt(this.projectRoot, card),
+      contractDescription: contract.describe(),
+      toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
+      goalDepth: '',
+      maxDepth: '',
+      skills: '',
+    });
   }
 
-  private reviewerPrompt(card: CardRecord, assessmentId: string): string {
-    return `Review card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nAssessment id: ${assessmentId}\n\nWrite your review to:\nrecord:///review.md?v=next\n\nDo not call emit_result until the review file exists. End by calling emit_result with status done, rework, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`;
+  private reviewerPrompt(card: CardRecord, assessmentId: string, surface: InvocationSurface, contract = createReviewerContract()): string {
+    return this.promptTemplates.render('reviewer', {
+      cardId: card.id,
+      cardTitle: card.title,
+      cardBrief: cardBriefForPrompt(this.projectRoot, card),
+      assessmentId,
+      contractDescription: contract.describe(),
+      toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
+      skills: '',
+    });
   }
 
-  private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
-    const workspaceSurface = this.reviewerInvocationSurface(card.id, sessionId);
+  private async handleReviewerToolCall(workspaceSurface: InvocationSurface, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
     if (workspaceSurface.tools.has(outcome.toolName)) return invokeToolForLlm(workspaceSurface, outcome.toolName, outcome.args, signal);
     return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };
   }

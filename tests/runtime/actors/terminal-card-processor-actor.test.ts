@@ -10,6 +10,7 @@ import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-terminal-processor-'));
@@ -99,7 +100,7 @@ function processRunner(projectRoot: string): ProcessRunner {
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort, runner = processRunner(projectRoot)): CardActorDeps {
-  return { projectRoot, store, provider, processRunner: runner, notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, store, provider, promptTemplates: createTestPromptTemplateRegistry(projectRoot), processRunner: runner, notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function actorFromCard(projectRoot: string, store: CardStore, card: ReturnType<typeof setup>['card'], processor: TerminalCardProcessorActor, provider: LLMProviderPort, runner?: ProcessRunner): CardActor {
@@ -109,7 +110,7 @@ function actorFromCard(projectRoot: string, store: CardStore, card: ReturnType<t
 }
 
 function terminalProcessor(projectRoot: string, cardId: string, provider: LLMProviderPort, store?: CardStore, runner = processRunner(projectRoot)): TerminalCardProcessorActor {
-  return new TerminalCardProcessorActor({ projectRoot, cardId, provider, processRunner: runner, store });
+  return new TerminalCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), cardId, provider, processRunner: runner, store });
 }
 
 async function eventually(assertion: () => void, attempts = 40): Promise<void> {

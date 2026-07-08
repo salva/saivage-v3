@@ -18,6 +18,7 @@ import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
+import { executorTypeGuidance, formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' | 'blocked' }>;
 
@@ -40,12 +41,14 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private activeProcessOwnerId: string | null = null;
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly processRunner: ProcessRunner;
+  private readonly promptTemplates: PromptTemplateRegistry;
 
-  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; processRunner: ProcessRunner; gate?: RuntimeGate; store?: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
+  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store?: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
     super(args);
     this.store = args.store;
     this.processRunner = args.processRunner;
     this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
+    this.promptTemplates = args.promptTemplates;
   }
 
   _on_enter__executing(): void {
@@ -126,7 +129,16 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       agentId: sessionId,
       role: 'executor',
       sessionId,
-      systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${cardBriefForPrompt(this.projectRoot, input.card)}\n\nUse process and file tools when needed. Write your current invocation status to:\nrecord:///status.md?v=next\n\nDo not call emit_result until the status file exists. End by calling emit_result with status done, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`,
+      systemPrompt: this.promptTemplates.render('executor', {
+        cardId: input.card.id,
+        cardTitle: input.card.title,
+        cardBrief: cardBriefForPrompt(this.projectRoot, input.card),
+        contractDescription: contract.describe(),
+        toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
+        cardType: input.card.type ?? '',
+        cardTypeGuidance: executorTypeGuidance(input.card.type),
+        skills: '',
+      }),
       contextMessages: [...loaded, ...notifications],
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),

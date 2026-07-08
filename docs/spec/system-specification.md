@@ -360,6 +360,10 @@ The Analyst can reconfigure:
 - MCP server entries;
 - runtime settings;
 - server settings.
+- agent prompts for planner, executor, reviewer, and analyst roles through the
+  `prompts` section in `.saivage/saivage.yaml`.
+
+Project configuration lives in `.saivage/saivage.yaml`. Agent prompt overrides are YAML block scalar strings under `prompts`; omitted roles use built-in defaults. The rendered per-role template is the complete provider-visible system prompt for that role, subject to the existing one-per-session persistence deduplication rule.
 
 Configuration changes apply to subsequent relevant work without server restart unless the specific change requires a restart. Runtime components should reevaluate dynamically changeable settings at their relevant use/admission boundaries rather than requiring restart or long-lived cached configuration. If a restart is required, the Analyst must say so and ask before restarting.
 

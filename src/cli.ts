@@ -3,6 +3,7 @@ import { existsSync, rmSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
+import * as YAML from 'yaml';
 import { evaluateAuthz } from './agents/tool-api.js';
 import { startApp } from './boot/index.js';
 import { recordControlAction, stableStringify, initProjectTree, isInitialized, findProjectRoot } from './persistence/index.js';
@@ -23,7 +24,7 @@ Usage:
   saivage reset
       Remove .saivage/cards, .saivage/runtime, and .saivage/notes.
       Preserves credentials and project files such as .saivage/auth-profiles.json,
-      .saivage/project.json, .saivage/saivage.json, and research/future-objectives.
+      .saivage/project.json, .saivage/saivage.yaml, and research/future-objectives.
       Refuses while the runtime lockfile is present.
   saivage help
 `;
@@ -31,7 +32,7 @@ function parseCommand(rawArgs: string[]): { command: string; options: CliOptions
 async function handleInit(options: CliOptions): Promise<void> { const projectRoot = process.cwd(); if (!options.force && isInitialized(projectRoot)) { console.log(`Project already initialized at ${projectRoot}`); return; } initProjectTree(projectRoot); console.log(`Project initialized at ${projectRoot}`); }
 async function handleStart(_options: CliOptions, args: string[]): Promise<void> { const app = await startApp({ argv: args }); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
 async function handleStatus(): Promise<void> { const projectRoot = findProjectRoot(); if (projectRoot === null) { console.log('Not in a Saivage project'); return; } const state = readRuntimeState(projectRoot); if (state === null) { console.log(`Project root: ${projectRoot}`); console.log('Runtime state: not initialized (no state.json)'); return; } const holder = readLiveLockHolder(projectRoot); console.log(`Project root: ${projectRoot}`); console.log(`Status:       ${state.status}`); console.log(`PID:          ${holder ? holder.pid : '(not running)'}`); console.log(`Current card: ${deriveCurrentCardId(state) ?? '(none)'}`); console.log(`Started at:   ${state.started_at}`); }
-async function restBaseUrl(projectRoot: string): Promise<string> { const cfgPath = join(projectRoot, '.saivage', 'saivage.json'); let host = '127.0.0.1'; let port = 8080; if (existsSync(cfgPath)) { try { const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8')) as { server?: { host?: string; port?: number } }; host = cfg.server?.host === '0.0.0.0' ? '127.0.0.1' : (cfg.server?.host ?? host); port = cfg.server?.port ?? port; } catch { void 0; } } return `http://${host}:${port}`; }
+async function restBaseUrl(projectRoot: string): Promise<string> { const cfgPath = join(projectRoot, '.saivage', 'saivage.yaml'); let host = '127.0.0.1'; let port = 8080; if (existsSync(cfgPath)) { try { const cfg = YAML.parse(readFileSync(cfgPath, 'utf-8')) as { server?: { host?: string; port?: number } }; host = cfg.server?.host === '0.0.0.0' ? '127.0.0.1' : (cfg.server?.host ?? host); port = cfg.server?.port ?? port; } catch { void 0; } } return `http://${host}:${port}`; }
 async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resume'): Promise<void> { const verdict = evaluateAuthz({ actor: 'user', surface: 'cli', safety_class: 'low' }); if (verdict === 'deny') { recordControlAction(projectRoot, { actor: 'user', surface: 'cli', action: `runtime.${action}`, target_kind: 'runtime', target_id: 'project', params_summary: stableStringify({ action }), outcome: 'denied', outcome_summary: 'authz denied' }); throw new Error('Denied by authorization policy.'); }
   if (isLocked(projectRoot)) {
     const base = await restBaseUrl(projectRoot);

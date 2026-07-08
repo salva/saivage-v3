@@ -2,6 +2,7 @@ import { EventBus } from '../../src/events/bus.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as YAML from 'yaml';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { AnalystRuntime, type AnalystRuntimeDeps } from '../../src/agents/analyst-api.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
@@ -16,16 +17,17 @@ import { loadEnvironment } from '../../src/config/environment.js';
 import { appendNotificationToActorSnapshot, cardActorId } from '../../src/runtime/actors/index.js';
 import type { CardNotification } from '../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestPromptTemplateRegistry } from './prompt-template-registry.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
 export function ensureTestSaivageConfig(projectRoot: string): void {
   const saivageDir = join(projectRoot, '.saivage');
   mkdirSync(saivageDir, { recursive: true });
-  writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({
+  writeFileSync(join(saivageDir, 'saivage.yaml'), YAML.stringify({
     models: { default: [TEST_MODEL], analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
-  }, null, 2));
+  }));
 }
 
 export function loadTestConfig(projectRoot: string) {
@@ -182,7 +184,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       };
     },
     get analystRuntime() {
-      analystRuntimeService ??= new AnalystRuntime({ projectRoot, config: loadTestConfig(projectRoot), runtimeDeps: this.analystDeps });
+      analystRuntimeService ??= new AnalystRuntime({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), config: loadTestConfig(projectRoot), runtimeDeps: this.analystDeps });
       return analystRuntimeService;
     },
     setAnalystRequestServerRestart(requestServerRestart) {

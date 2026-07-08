@@ -41,7 +41,7 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     const cardStore = new CardStore(tmpDir);
 
     writeFileSync(
-      join(tmpDir, '.saivage', 'saivage.json'),
+      join(tmpDir, '.saivage', 'saivage.yaml'),
       JSON.stringify({
         server: { port: 0, host: '127.0.0.1' },
         models: { default: ['test-model'] },
@@ -146,8 +146,8 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
       expect(res.status).toBe(403);
     });
 
-    it('redacts secrets in saivage.json via file API', async () => {
-      const res = await fetch(url('/api/files/content?path=.saivage/saivage.json'), {
+    it('redacts secrets in saivage.yaml via file API', async () => {
+      const res = await fetch(url('/api/files/content?path=.saivage/saivage.yaml'), {
         headers: { authorization: `Bearer ${authToken}` },
       });
       expect(res.status).toBe(200);
@@ -324,12 +324,15 @@ describe('Security — Quarantine and Stash End-to-End', () => {
       expect(isStashPathAllowed(stashDir, '/etc/passwd')).toBe(false);
     });
 
-    it('getSafeFileForAgent blocks auth-profiles.json and redacts saivage.json', () => {
+    it('getSafeFileForAgent blocks auth-profiles.json, blocks obsolete saivage.json, and redacts saivage.yaml', () => {
       const blockedResult = getSafeFileForAgent('.saivage/auth-profiles.json', '{"secret":"x"}');
       expect(blockedResult.blocked).toBe(true);
 
+      const obsoleteResult = getSafeFileForAgent('.saivage/saivage.json', '{"apiKey":"sk-secret-value"}');
+      expect(obsoleteResult.blocked).toBe(true);
+
       const saivageContent = '{"apiKey": "sk-secret-value", "name": "test-project"}';
-      const redactResult = getSafeFileForAgent('.saivage/saivage.json', saivageContent);
+      const redactResult = getSafeFileForAgent('.saivage/saivage.yaml', saivageContent);
       expect(redactResult.blocked).toBe(false);
       expect(redactResult.safeContent).toBeDefined();
       expect(redactResult.safeContent!).not.toContain('sk-secret-value');

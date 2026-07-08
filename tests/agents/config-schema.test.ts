@@ -1,19 +1,20 @@
 /**
- * Tests for config-schema.ts — loading and validating saivage.json
+ * Tests for config-schema.ts — loading and validating saivage.yaml
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from '@jest/globals';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import * as YAML from 'yaml';
 
 const TEST_ROOT = join(tmpdir(), `saivage-config-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
-const CONFIG_PATH = join(SAIVAGE_DIR, 'saivage.json');
+const CONFIG_PATH = join(SAIVAGE_DIR, 'saivage.yaml');
 
 function setupConfig(json: Record<string, unknown>) {
   mkdirSync(SAIVAGE_DIR, { recursive: true });
-  writeFileSync(CONFIG_PATH, JSON.stringify(json, null, 2), 'utf-8');
+  writeFileSync(CONFIG_PATH, YAML.stringify(json), 'utf-8');
 }
 
 function cleanup() {
@@ -69,9 +70,9 @@ describe('config-schema', () => {
       expect(() => loadConfig(TEST_ROOT)).toThrow(/Configuration not found/);
     });
 
-    it('should throw on invalid JSON', () => {
+    it('should throw on invalid YAML', () => {
       mkdirSync(SAIVAGE_DIR, { recursive: true });
-      writeFileSync(CONFIG_PATH, 'not json', 'utf-8');
+      writeFileSync(CONFIG_PATH, 'models: [', 'utf-8');
       expect(() => loadConfig(TEST_ROOT)).toThrow(/Failed to parse/);
     });
 

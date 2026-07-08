@@ -9,7 +9,7 @@ Usage:
   saivage reset
       Remove .saivage/cards, .saivage/runtime, and .saivage/notes.
       Preserves credentials and project files such as .saivage/auth-profiles.json,
-      .saivage/project.json, .saivage/saivage.json, and project objective files under
+      .saivage/project.json, .saivage/saivage.yaml, and project objective files under
       research/future-objectives/.
       Refuses while the runtime lockfile is present at
       .saivage-work/tmp/runtime/runtime.lock.

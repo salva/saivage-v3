@@ -8,6 +8,7 @@ import { CardActor, LLMActor, MAX_NOTIFICATION_DELIVERY_MARKERS, appendNotificat
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
+import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-card-actor-'));
@@ -32,7 +33,7 @@ function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled'
 }
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, store, provider: { completeTurn: jest.fn() as never }, processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(projectRoot), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function cardActive(cardId: string): Record<string, unknown> {
@@ -335,6 +336,7 @@ describe('CardActor', () => {
     });
     const runtime = createSupervisorRuntimeApi({
       projectRoot,
+      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
       actorStore: store,
       provider: { completeTurn: jest.fn() as never },
       processRunner: new ProcessRunner(projectRoot),
@@ -355,6 +357,7 @@ describe('CardActor', () => {
     createProject(store);
     const runtime = createSupervisorRuntimeApi({
       projectRoot,
+      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
       actorStore: store,
       provider: { completeTurn: jest.fn() as never },
       processRunner: new ProcessRunner(projectRoot),

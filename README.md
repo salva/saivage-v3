@@ -18,22 +18,26 @@ cd "$TARGET_PROJECT"
 "$SAIVAGE_BIN" init
 ```
 
-Before starting, configure model roles in `$TARGET_PROJECT/.saivage/saivage.json`. `start` fail-fasts at boot unless every dispatched model role (`planner`, `executor`, `reviewer`, and `analyst`) resolves. Each role resolves, in order, through one of three paths: `models.<role>` as a model name or a non-empty list for that role; `models.routing[role]` pointing to `models.profiles[<name>]`, whose `preferred` and `allowed` arrays merge; or `models.default` as a shared fallback. The minimal recommended quick-start path is the third one: a single `models.default` plus a provider entry that can serve it satisfies all four roles. Operators who want per-role or routing-profile control use the first two paths; see the Source-Derived Reference section in [the architecture summary](docs/architecture/system-architecture.md) for the full config-schema inventory.
+Before starting, configure model roles in `$TARGET_PROJECT/.saivage/saivage.yaml`. `start` fail-fasts at boot unless every dispatched model role (`planner`, `executor`, `reviewer`, and `analyst`) resolves. Each role resolves, in order, through one of three paths: `models.<role>` as a model name or a non-empty list for that role; `models.routing[role]` pointing to `models.profiles[<name>]`, whose `preferred` and `allowed` arrays merge; or `models.default` as a shared fallback. The minimal recommended quick-start path is the third one: a single `models.default` plus a provider entry that can serve it satisfies all four roles. Operators who want per-role or routing-profile control use the first two paths; see the Source-Derived Reference section in [the architecture summary](docs/architecture/system-architecture.md) for the full config-schema inventory.
 
 Minimal model configuration (quick-start path only):
 
-```json
-{
-  "models": {
-    "default": ["gpt-4.1"]
-  },
-  "providers": {
-    "openai": { "models": ["gpt-4.1"], "apiKey": "<your-api-key>" }
-  },
-  "server": { "port": 8080, "host": "0.0.0.0" },
-  "runtime": {}
-}
+```yaml
+models:
+  default: ["gpt-4.1"]
+providers:
+  openai:
+    models: ["gpt-4.1"]
+    apiKey: "<your-api-key>"
+server:
+  port: 8080
+  host: "0.0.0.0"
+runtime: {}
 ```
+
+Agent prompts are customizable inline via `prompts:` in `.saivage/saivage.yaml`. Copy a role block from `dist/src/utils/prompt-defaults.yaml` into the config and edit the YAML literal block scalar; omitted roles keep the built-in defaults.
+
+Existing deployments must rename `.saivage/saivage.json` to `.saivage/saivage.yaml` with `mv`, not `cp`. If both files exist, startup fails and directs the operator to delete the obsolete JSON because it may still contain provider credentials. After the rename, operators may rewrite the file to idiomatic YAML and optionally add `prompts:` overrides. `${ENV_VAR}` interpolation does not apply inside `prompts:`; use `{{variable}}` placeholders there.
 
 Start Saivage from the target project directory:
 

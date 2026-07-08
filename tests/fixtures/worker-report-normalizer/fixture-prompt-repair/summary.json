@@ -3,12 +3,12 @@
   "result": "completed",
   "summary": "Synthetic prompt repair fixture completed.",
   "tasks_completed": [
-    "t1-fix-prompt-asset-deploy",
+    "t1-install-prompt-template-registry",
     "t2-stage-review"
   ],
   "tasks_failed": [],
   "outcomes_achieved": [
-    "Prompt assets are packaged deterministically."
+    "Prompt templates are packaged deterministically."
   ],
   "outcomes_missed": [],
   "issues": []

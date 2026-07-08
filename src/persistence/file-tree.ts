@@ -39,7 +39,7 @@ export function readProjectFileAtomic(
   } catch (err) {
     throw new Error(`Failed to read "${cleanPath}": ${(err as Error).message}`);
   }
-  if (opts?.redactSecrets && projectRelativePath === '.saivage/saivage.json')
+  if (opts?.redactSecrets && projectRelativePath === '.saivage/saivage.yaml')
     content = redactTextForOutbound(content, 'operator.api', {
       source: 'file-tree.read-project-file',
     });
@@ -180,8 +180,8 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
     JSON.stringify([], null, 2) + '\n',
   );
   writeFileAtomic(
-    join(saivageDir, 'saivage.json'),
-    JSON.stringify({ server: { port: 8080, host: '0.0.0.0' }, runtime: {} }, null, 2) + '\n',
+    join(saivageDir, 'saivage.yaml'),
+    'server:\n  host: "0.0.0.0"\n  port: 8080\nruntime: {}\n',
   );
   new CardStore(projectRoot).create({
     type: 'project',

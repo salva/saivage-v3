@@ -95,12 +95,12 @@ describe('workspace VFS', () => {
     mkdirSync(join(projectRoot, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
     mkdirSync(join(projectRoot, 'docs'), { recursive: true });
     writeFileSync(join(projectRoot, 'docs', 'SPEC.md'), 'spec', 'utf8');
-    writeFileSync(join(projectRoot, '.saivage', 'saivage.json'), 'hidden', 'utf8');
+    writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), 'hidden', 'utf8');
     writeFileSync(join(projectRoot, '.saivage-work', 'tmp', 'runtime', 'runtime.lock'), 'hidden', 'utf8');
     writeFileSync(join(projectRoot, '.env'), 'secret', 'utf8');
 
     expect(collect(projectRoot, 'project:///docs/SPEC.md')).toEqual([{ absolutePath: join(projectRoot, 'docs', 'SPEC.md'), displayPath: 'docs/SPEC.md', matchPath: 'docs/SPEC.md' }]);
-    expect(collect(projectRoot, 'project:///.saivage/saivage.json')).toEqual([]);
+    expect(collect(projectRoot, 'project:///.saivage/saivage.yaml')).toEqual([]);
     expect(collect(projectRoot, 'project:///.saivage-work/tmp/runtime/runtime.lock')).toEqual([]);
     expect(collect(projectRoot, 'project:///.env')).toEqual([]);
   }));

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { parseArgs } from 'node:util';
+import * as YAML from 'yaml';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js';
 import { validateModelRoles } from './validate-model-roles.js';
@@ -154,19 +155,50 @@ function parseLogLevel(raw: string | undefined): LogLevel | undefined {
   return parsed.data;
 }
 
-function readConfigFile(configPath: string, env: EnvironmentSource): { config: SaivageConfig; warnings: string[] } {
+function legacyJsonPathDiagnostic(defaultYamlPath: string, legacyJsonPath: string): EnvironmentLoadError {
+  return new EnvironmentLoadError(
+    `The config path ${legacyJsonPath} is obsolete. The canonical project config file is .saivage/saivage.yaml. Use ${defaultYamlPath} (or another YAML config path) instead. Saivage will not read or parse the old JSON path.`,
+    { field: 'configPath', expected: '.saivage/saivage.yaml or another YAML config path', received: '.saivage/saivage.json', source: 'file' },
+  );
+}
+
+function legacyJsonRenameDiagnostic(defaultYamlPath: string, legacyJsonPath: string): EnvironmentLoadError {
+  return new EnvironmentLoadError(
+    `Configuration file ${defaultYamlPath} was not found, but the obsolete ${legacyJsonPath} exists. The canonical project config file is now .saivage/saivage.yaml. Rename ${legacyJsonPath} to ${defaultYamlPath} (the file content is valid YAML 1.2 — JSON is a strict subset — so no other change is needed) and restart.`,
+    { field: 'configPath', expected: '.saivage/saivage.yaml (rename the existing .saivage/saivage.json)', received: '.saivage/saivage.json present, .saivage/saivage.yaml missing', source: 'file' },
+  );
+}
+
+function legacyJsonBothExistDiagnostic(defaultYamlPath: string, legacyJsonPath: string): EnvironmentLoadError {
+  return new EnvironmentLoadError(
+    `Both ${defaultYamlPath} and ${legacyJsonPath} exist. The canonical project config file is .saivage/saivage.yaml; .saivage/saivage.json is obsolete and may still contain provider credentials. Delete ${legacyJsonPath} (or move it outside .saivage/ if you need a backup) and restart.`,
+    { field: 'configPath', expected: '.saivage/saivage.yaml (sole canonical config file)', received: 'both .saivage/saivage.yaml and .saivage/saivage.json present', source: 'file' },
+  );
+}
+
+function readConfigFile(configPath: string, projectRoot: string, env: EnvironmentSource): { config: SaivageConfig; warnings: string[] } {
+  const defaultYamlPath = resolve(projectRoot, '.saivage/saivage.yaml');
+  const legacyJsonPath = resolve(projectRoot, '.saivage/saivage.json');
+  const usesLegacyJsonPath = configPath === legacyJsonPath;
+  const defaultYamlExists = existsSync(defaultYamlPath);
+  const legacyJsonExists = existsSync(legacyJsonPath);
+
+  if (usesLegacyJsonPath) throw legacyJsonPathDiagnostic(defaultYamlPath, legacyJsonPath);
+  if (legacyJsonExists && defaultYamlExists) throw legacyJsonBothExistDiagnostic(defaultYamlPath, legacyJsonPath);
+  if (legacyJsonExists && !defaultYamlExists) throw legacyJsonRenameDiagnostic(defaultYamlPath, legacyJsonPath);
+
   if (!existsSync(configPath)) {
-    throw new EnvironmentLoadError(`Configuration not found at ${configPath}`, { field: 'configPath', expected: 'existing saivage.json file', received: 'missing file', source: 'file' });
+    throw new EnvironmentLoadError(`Configuration not found at ${configPath}`, { field: 'configPath', expected: 'existing saivage.yaml file', received: 'missing file', source: 'file' });
   }
 
   let rawObj: unknown;
   try {
-    rawObj = JSON.parse(readFileSync(configPath, 'utf-8'));
+    rawObj = YAML.parse(readFileSync(configPath, 'utf-8'));
   } catch (err) {
-    throw new EnvironmentLoadError(`Failed to parse saivage.json: ${err instanceof Error ? err.message : String(err)}`, { field: 'config', expected: 'valid JSON', received: 'invalid JSON', source: 'file' });
+    throw new EnvironmentLoadError(`Failed to parse saivage.yaml: ${err instanceof Error ? err.message : String(err)}`, { field: 'config', expected: 'valid YAML', received: 'invalid YAML', source: 'file' });
   }
 
-  const { value: interpolated, warnings } = interpolateValue(rawObj, env);
+  const { value: interpolated, warnings } = interpolateValue(rawObj, env, { skipRootKeys: new Set(['prompts']) });
   const parsed = saivageConfigSchema.safeParse(interpolated);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ');
@@ -178,8 +210,8 @@ function readConfigFile(configPath: string, env: EnvironmentSource): { config: S
 export function loadEnvironment(argv: readonly string[], env: EnvironmentSource): Environment {
   const cli = parseCli(argv);
   const projectRoot = resolve(cli.projectRoot ?? env['SAIVAGE_PROJECT_ROOT'] ?? process.cwd());
-  const configPath = resolve(cli.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.json`);
-  const { config, warnings } = readConfigFile(configPath, env);
+  const configPath = resolve(cli.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`);
+  const { config, warnings } = readConfigFile(configPath, projectRoot, env);
 
   const envPort = parsePort(env['SAIVAGE_PORT'], 'env');
   const cliPort = parsePort(cli.port, 'cli');
@@ -227,7 +259,8 @@ export function loadEnvironment(argv: readonly string[], env: EnvironmentSource)
     const missing = roleCheck.missingRoles.join(', ');
     const lines = [`Configuration validation failed: missing model role(s): ${missing}.`];
     for (const r of roleCheck.missingRoles) {
-      lines.push(`  models.${r} = (unset) — set "models.${r}" to a model name or a non-empty array of model names, or route it via "models.routing['${r}']" to a "models.profiles[<name>]" entry (preferred + allowed), in .saivage/saivage.json`);
+      // This diagnostic must point at the canonical YAML config; legacy JSON is named only by transition-gate errors above.
+      lines.push(`  models.${r} = (unset) — set "models.${r}" to a model name or a non-empty array of model names, or route it via "models.routing['${r}']" to a "models.profiles[<name>]" entry (preferred + allowed), in .saivage/saivage.yaml`);
     }
     lines.push('  or set "models.default" as a shared fallback (used by every role that does not resolve directly or via routing)');
     const present = Object.entries(roleCheck.configuredRoles).map(([r, ms]) => `${r} = ${JSON.stringify(ms)}`);

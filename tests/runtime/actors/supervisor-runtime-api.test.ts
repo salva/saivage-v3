@@ -14,6 +14,7 @@ import { readRuntimeState } from '../../../src/runtime/state-api.js';
 import { createRuntimeStateMutationPort } from '../../../src/runtime/mutations.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
+import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-api-'));
@@ -179,7 +180,7 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
@@ -214,7 +215,7 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
     createRuntimeStateMutationPort(projectRoot).apply({ kind: 'patchRuntimeState', patch: { status: 'error' } });
@@ -232,7 +233,7 @@ describe('SupervisorRuntimeApi', () => {
         finish = () => resolve({ kind: 'tool_calls', tool_calls: [{ id: 'planner-result-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'resumed work' }) } }] });
       }));
     const gate = new RuntimeGate();
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider, processRunner: testProcessRunner(projectRoot), runtimeGate: gate, now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider, processRunner: testProcessRunner(projectRoot), runtimeGate: gate, now: () => '2026-06-12T00:00:00.000Z' });
 
     const start = await api.startProject('operator');
     expect(start.success).toBe(true);
@@ -254,7 +255,7 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     const result = await api.startProject('operator');
     expect(result.success).toBe(true);
@@ -272,7 +273,7 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: failedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: failedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     const result = await api.startProject('operator');
     expect(result.success).toBe(true);
@@ -303,7 +304,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'G-recover', active_reconstruction: llmActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -325,6 +326,7 @@ describe('SupervisorRuntimeApi', () => {
     });
     const api = new SupervisorRuntimeApi({
       projectRoot,
+      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
       actorStore: store,
       provider: blockedPlannerProvider(),
       processRunner,
@@ -364,7 +366,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'G-recover', active_reconstruction: processorActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -392,7 +394,7 @@ describe('SupervisorRuntimeApi', () => {
     appendPlannerToolCall(projectRoot, 'G-stale', 'activate_card', { card_id: 'child-stale' }, 'call-stale');
     appendPlannerToolCall(projectRoot, 'G-delivered', 'activate_card', { card_id: 'child-delivered' }, 'call-delivered');
     appendToolDelivery(projectRoot, { agent_id: 'planner:G-delivered', session_id: 'planner:G-delivered', source_input_id: 'planner:G-delivered:1', delivery_input_id: 'planner:G-delivered:1:tool:1', tool_call_id: 'call-delivered', tool_name: 'activate_card', result: { success: true } });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -426,7 +428,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'project', active_reconstruction: processorActive('project') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -470,7 +472,7 @@ describe('SupervisorRuntimeApi', () => {
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     appendExecutorToolCall(projectRoot, card.id, 'run_command', { command: 'echo recovered', wait: true });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -507,7 +509,7 @@ describe('SupervisorRuntimeApi', () => {
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     appendPlannerToolCall(projectRoot, 'project', 'emit_result', { status: 'blocked', summary: 'needs operator' });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -553,7 +555,7 @@ describe('SupervisorRuntimeApi', () => {
     });
     appendPlannerToolCall(projectRoot, 'project', 'emit_result', { status: 'done', summary: 'project done' });
     appendReviewerToolCall(projectRoot, 'project', { status: 'done', summary: 'review ok' });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -601,7 +603,7 @@ describe('SupervisorRuntimeApi', () => {
     });
     appendPlannerToolCall(projectRoot, 'project', 'emit_result', { status: 'done', summary: 'project done' });
     appendReviewerToolCall(projectRoot, 'project', { status: 'done', summary: 'review ok' });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -638,7 +640,7 @@ describe('SupervisorRuntimeApi', () => {
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     appendPlannerToolCall(projectRoot, 'project', 'activate_card', { card_id: child.id });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -654,6 +656,7 @@ describe('SupervisorRuntimeApi', () => {
     createProject(store);
     const api = createSupervisorRuntimeApi({
       projectRoot,
+      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
       rootCards: store,
       actorStore: store,
       provider: blockedPlannerProvider(),
@@ -680,6 +683,7 @@ describe('SupervisorRuntimeApi', () => {
     const provider = doneProjectProvider(evidence.id);
     const api = createSupervisorRuntimeApi({
       projectRoot,
+      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
       rootCards: store,
       actorStore: store,
       provider,
@@ -702,6 +706,7 @@ describe('SupervisorRuntimeApi', () => {
   it('throws on startProject when the project card record is missing', async () => withTempProject(async (projectRoot) => {
     const api = createSupervisorRuntimeApi({
       projectRoot,
+      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
       actorStore: inertStore,
       provider: blockedPlannerProvider(),
       processRunner: testProcessRunner(projectRoot),
@@ -734,7 +739,7 @@ describe('SupervisorRuntimeApi', () => {
       },
     });
     mutations.apply({ kind: 'patchRuntimeState', patch: { status: 'running' } });
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -749,6 +754,7 @@ describe('SupervisorRuntimeApi', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>(() => undefined)) };
     const api = createSupervisorRuntimeApi({
       projectRoot,
+      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
       rootCards: store,
       actorStore: store,
       provider,

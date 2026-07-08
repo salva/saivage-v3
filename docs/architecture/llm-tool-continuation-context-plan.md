@@ -209,7 +209,7 @@ Live GetRich v2 validation:
 
 1. Build Saivage v3.
 2. Restart `saivage-v3-getrich.service`.
-3. Reset GetRich v2 preserving only `docs/SPEC.md`, `docs/PLAN.md`, `.saivage/saivage.json`, and `.saivage/auth-profiles.json`.
+3. Reset GetRich v2 preserving only `docs/SPEC.md`, `docs/PLAN.md`, `.saivage/saivage.yaml`, and `.saivage/auth-profiles.json`.
 4. Run the full project-start E2E.
 5. Inspect Debug -> Agents -> `executor:card-4` -> Raw LLM Exchange.
 6. Confirm continuation requests include tool output from previous turns.

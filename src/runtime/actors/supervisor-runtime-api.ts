@@ -20,6 +20,7 @@ import { readRuntimeState } from '../state-api.js';
 import type { ProcessRunner } from '../process-runner.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from '../runtime-control-state.js';
+import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 
 type RuntimeRunAppendInput = Omit<RuntimeRunRecord, 'run_id' | 'started_at' | 'updated_at'> & { run_id?: string; started_at?: string; updated_at?: string };
 
@@ -39,6 +40,7 @@ export interface SupervisorRuntimeApiOptions {
   summarizerProvider?: LLMProviderPort;
   bufferSizeEstimator?: BufferSizeEstimator;
   processRunner: ProcessRunner;
+  promptTemplates: PromptTemplateRegistry;
   runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
 }
@@ -421,6 +423,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       bufferSizeEstimator: this.options.bufferSizeEstimator,
       gate: this.runtimeGate,
       processRunner: this.options.processRunner,
+      promptTemplates: this.options.promptTemplates,
       mcpManagerProvider: this.options.mcpManagerProvider,
       notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification),
       lookup: this.cardActors,

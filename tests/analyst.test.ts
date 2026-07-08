@@ -48,6 +48,7 @@ import {
   URGENCY_VALUES,
 } from '../src/tools/tool-definition.js';
 import { cardStatusSchema, cardTypeSchema, urgencySchema } from '../src/schemas/validators.js';
+import { createTestPromptTemplateRegistry } from './helpers/prompt-template-registry.js';
 import {
   createTestAnalystRuntime,
   createTestRuntimeApplication,
@@ -65,7 +66,7 @@ function setupProject(projectRoot: string): void {
   const sd = join(projectRoot, '.saivage');
   initProjectTree(projectRoot);
   writeFileSync(
-    join(sd, 'saivage.json'),
+    join(sd, 'saivage.yaml'),
     JSON.stringify({
       server: { port: 8080, host: '127.0.0.1' },
       models: { default: ['test-model'] },
@@ -479,7 +480,7 @@ describe('Analyst Runtime', () => {
     let resolveProvider!: (result: { kind: 'message'; content: string }) => void;
     const runtimeDeps = createTestAnalystRuntime({ projectRoot, cardStore: new CardStore(projectRoot) });
     runtimeDeps.provider = { completeTurn: async () => new Promise((resolve) => { resolveProvider = resolve; }) };
-    const runtime = new AnalystRuntime({ projectRoot, config: loadTestConfig(projectRoot), runtimeDeps });
+    const runtime = new AnalystRuntime({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(projectRoot), config: loadTestConfig(projectRoot), runtimeDeps });
     const first = runtime.submit('s16', { userContent: 'list all cards' });
     await expect(runtime.submit('s16', { userContent: 'list all cards' })).rejects.toThrow('already has an active turn');
     await new Promise((resolve) => setImmediate(resolve));

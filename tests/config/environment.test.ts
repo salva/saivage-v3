@@ -1,16 +1,16 @@
 import { describe, it, expect, afterEach } from '@jest/globals';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EnvironmentLoadError, loadEnvironment } from '../../src/config/environment.js';
+import { writeSaivageConfig } from '../helpers/project-config.js';
 
 const roots: string[] = [];
 
 function makeProject(config: unknown): string {
   const root = mkdtempSync(join(tmpdir(), 'saivage-env-test-'));
   roots.push(root);
-  mkdirSync(join(root, '.saivage'), { recursive: true });
-  writeFileSync(join(root, '.saivage', 'saivage.json'), JSON.stringify(config, null, 2), 'utf-8');
+  writeSaivageConfig(root, config);
   return root;
 }
 

@@ -1,10 +1,10 @@
 {
-  "task_id": "t1-fix-prompt-asset-deploy",
+  "task_id": "t1-install-prompt-template-registry",
   "stage_id": "fixture-prompt-repair",
   "status": "completed",
   "checklist_results": [
     {
-      "item": "Inspect prompt packaging and implement deterministic asset copy behavior.",
+      "item": "Inspect prompt template loading and implement deterministic default-template packaging.",
       "required": true,
       "passed": true
     },
@@ -14,12 +14,12 @@
       "passed": true
     },
     {
-      "item": "Keep prompt paths stable across build output.",
+      "item": "Keep default template paths stable across build output.",
       "required": true,
       "passed": true
     },
     {
-      "item": "Verify packaged prompt files are included.",
+      "item": "Verify packaged default prompt templates are included.",
       "required": true,
       "passed": true
     },
@@ -29,7 +29,7 @@
       "passed": true
     },
     {
-      "item": "Avoid ad-hoc runtime-only prompt copies.",
+      "item": "Avoid ad-hoc runtime-only prompt template copies.",
       "required": true,
       "passed": true
     }

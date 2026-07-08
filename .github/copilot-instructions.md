@@ -16,4 +16,4 @@ GitHub Copilot does not auto-load OpenCode skills. When a task matches a workflo
 
 Do not add symlinked or duplicate tool-specific skill trees; keep `.github/skills/` as the shared project-local source of truth.
 
-Do not print tokens, provider configs, `.saivage/auth-profiles.json`, `.saivage/saivage.json`, env files, or backups. API bearer tokens must not be placed in URLs.
+Do not print tokens, provider configs, `.saivage/auth-profiles.json`, `.saivage/saivage.yaml`, env files, or backups. API bearer tokens must not be placed in URLs.

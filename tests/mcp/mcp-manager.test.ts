@@ -2,7 +2,7 @@
  * Stage 9 — MCP Manager Tests
  *
  * Tests cover:
- *   1. Config loading from saivage.json
+ *   1. Config loading from saivage.yaml
  *   2. Disabled servers are skipped
  *   3. Error handling (unknown server, missing command, missing URL)
  *   4. Health check returns false for unknown/disabled servers
@@ -19,6 +19,7 @@ import { describe, it, expect, beforeEach, afterEach, beforeAll, jest } from '@j
 import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import * as YAML from 'yaml';
 import { loadEnvironment } from '../../src/config/environment.js';
 
 // ── Mocks ─────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ function writeSaivageJson(projectRoot: string, overrides: Record<string, unknown
     },
     ...overrides,
   };
-  writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify(config, null, 2));
+  writeFileSync(join(saivageDir, 'saivage.yaml'), YAML.stringify(config));
 }
 
 function loadTestConfig(projectRoot: string) {
@@ -198,7 +199,7 @@ describe('McpManager config loading', () => {
     McpManager = mod.McpManager;
   });
 
-  it('loads mcpServers from saivage.json', () => {
+  it('loads mcpServers from saivage.yaml', () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {
       mcpServers: {

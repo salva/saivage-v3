@@ -15,6 +15,7 @@ import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
+import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 
 export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
 
@@ -85,6 +86,7 @@ export interface CardActorDeps {
   gate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   processRunner: ProcessRunner;
+  promptTemplates: PromptTemplateRegistry;
   notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
   lookup: Map<string, CardActor>;
 }
@@ -423,6 +425,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       compactionConfig: owner.deps.compactionConfig,
       summarizerProvider: owner.deps.summarizerProvider,
       bufferSizeEstimator: owner.deps.bufferSizeEstimator,
+      promptTemplates: owner.deps.promptTemplates,
     });
   }
   return new TerminalCardProcessorActor({
@@ -437,6 +440,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
     compactionConfig: owner.deps.compactionConfig,
     summarizerProvider: owner.deps.summarizerProvider,
     bufferSizeEstimator: owner.deps.bufferSizeEstimator,
+    promptTemplates: owner.deps.promptTemplates,
   });
 }
 

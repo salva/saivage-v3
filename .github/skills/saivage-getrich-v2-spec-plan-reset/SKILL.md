@@ -11,10 +11,10 @@ Use this skill only for the `saivage-v3-getrich-v2` deployment that runs Saivage
 
 - `/home/salva/g/ml/getrich-v2/docs/SPEC.md`
 - `/home/salva/g/ml/getrich-v2/docs/PLAN.md`
-- `/home/salva/g/ml/getrich-v2/.saivage/saivage.json`
+- `/home/salva/g/ml/getrich-v2/.saivage/saivage.yaml`
 - `/home/salva/g/ml/getrich-v2/.saivage/auth-profiles.json`
 
-Do not print secrets or provider configuration values from `saivage.json` or `auth-profiles.json` in chat or logs.
+Do not print secrets or provider configuration values from `saivage.yaml` or `auth-profiles.json` in chat or logs.
 
 ## Reset Workflow
 
@@ -41,7 +41,7 @@ mkdir -p "${backup}/full" "${preserve}/docs" "${preserve}/.saivage"
 cp -a "${root}/." "${backup}/full/"
 cp -a "${root}/docs/SPEC.md" "${preserve}/docs/SPEC.md"
 cp -a "${root}/docs/PLAN.md" "${preserve}/docs/PLAN.md"
-cp -a "${root}/.saivage/saivage.json" "${preserve}/.saivage/saivage.json"
+cp -a "${root}/.saivage/saivage.yaml" "${preserve}/.saivage/saivage.yaml"
 cp -a "${root}/.saivage/auth-profiles.json" "${preserve}/.saivage/auth-profiles.json"
 printf '%s\n' "${backup}" > /home/salva/g/ml/tmp/getrich-v2-latest-spec-plan-config-reset.txt
 ```
@@ -59,7 +59,7 @@ cp -a "${preserve}/docs/PLAN.md" "${root}/docs/PLAN.md"
 
 ```bash
 node --input-type=module -e 'import { initProjectTree } from "/home/salva/g/ml/saivage-v3/dist/src/persistence/file-tree.js"; initProjectTree("/home/salva/g/ml/getrich-v2");'
-cp -a "${preserve}/.saivage/saivage.json" "${root}/.saivage/saivage.json"
+cp -a "${preserve}/.saivage/saivage.yaml" "${root}/.saivage/saivage.yaml"
 cp -a "${preserve}/.saivage/auth-profiles.json" "${root}/.saivage/auth-profiles.json"
 ```
 

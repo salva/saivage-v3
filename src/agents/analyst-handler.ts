@@ -3,7 +3,7 @@ import type { ToolContext } from '../tools/analyst-tool-types.js';
 import {
   ANALYST_NO_MODEL_REPLY,
   AnalystOfflineError,
-  getAnalystSystemPrompt,
+  formatVocabularySnippet,
 } from './analyst-prompt.js';
 import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
@@ -29,6 +29,7 @@ import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import { BaseActor, type ActorDefinition } from '../runtime/micro-actor/index.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
+import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prompt-api.js';
 
 
 export interface WorkspaceContext {
@@ -179,7 +180,7 @@ export class AnalystSessionActor extends BaseActor {
   private started = false;
   private lastOutcome: AnalystSessionReadModel['lastOutcome'] = null;
 
-  constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }) {
+  constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }) {
     super();
     this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider });
     if (readConversationMessages(args.projectRoot, args.sessionId).some((message) => message.kind === 'system_prompt')) {
@@ -388,7 +389,12 @@ export class AnalystSessionActor extends BaseActor {
       agentId: this.llm.agentId,
       role: 'analyst',
       sessionId: this.sessionId,
-      systemPrompt: `${getAnalystSystemPrompt(tools)}\n\n${this.buildProjectContext()}`,
+      systemPrompt: this.args.promptTemplates.render('analyst', {
+        toolList: formatPromptToolList(tools),
+        vocabularySnippet: formatVocabularySnippet(),
+        projectContext: this.buildProjectContext(),
+        skills: '',
+      }),
       contextMessages,
       turnMessages: newMessages,
       tools,
@@ -464,7 +470,7 @@ export class AnalystSessionActor extends BaseActor {
 export class AnalystRuntime {
   private readonly sessions = new Map<string, AnalystSessionActor>();
 
-  constructor(private readonly args: { projectRoot: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; requestServerRestart?: () => Promise<void> }) {}
+  constructor(private readonly args: { projectRoot: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; requestServerRestart?: () => Promise<void> }) {}
 
   setRequestServerRestart(requestServerRestart: (() => Promise<void>) | undefined): void {
     this.args.requestServerRestart = requestServerRestart;

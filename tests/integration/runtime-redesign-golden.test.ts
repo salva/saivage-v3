@@ -11,6 +11,7 @@ import type { LLMProviderPort, LlmInvocationInput } from '../../src/runtime/acto
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 import { readRuntimeState } from '../../src/runtime/state-api.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 
@@ -68,6 +69,7 @@ describe('runtime redesign final golden behavior', () => {
 
       const api = createSupervisorRuntimeApi({
         projectRoot,
+        promptTemplates: createTestPromptTemplateRegistry(projectRoot),
         rootCards: cardStore,
         actorStore: cardStore,
         provider: blockedPlannerProvider(),
@@ -108,14 +110,27 @@ describe('runtime redesign final golden behavior', () => {
       'docs/architecture/system-architecture.md',
       'docs/spec/operator-ui.md',
       'docs/spec/system-specification.md',
-      'src/agents/system-prompt.ts',
+      'src/utils/prompt-defaults.yaml',
+      'src/utils/prompt-api.ts',
       'src/agents/analyst-prompt.ts',
     ];
     const combined = activeFiles.map((file) => readFileSync(file, 'utf-8')).join('\n');
+    const defaultsYaml = readFileSync('src/utils/prompt-defaults.yaml', 'utf-8');
+    const registrySource = readFileSync('src/utils/prompt-api.ts', 'utf-8');
     expect(combined).toContain('start_project');
     expect(combined).toContain('stop_project');
     expect(combined).toContain('activate_card');
     expect(combined).toContain('Analyst');
+    expect(defaultsYaml).toMatch(/^planner: \|/m);
+    expect(defaultsYaml).toMatch(/^executor: \|/m);
+    expect(defaultsYaml).toMatch(/^reviewer: \|/m);
+    expect(defaultsYaml).toMatch(/^analyst: \|/m);
+    expect(defaultsYaml).toContain('{{contractDescription}}');
+    expect(defaultsYaml).toContain('{{toolList}}');
+    expect(defaultsYaml).toContain('{{skills}}');
+    expect(registrySource).toContain('PromptTemplateRegistry');
+    expect(registrySource).toContain('validatePlaceholders');
+    expect(registrySource).toContain('unknown placeholder');
     expect(combined).toContain('operator UI');
     expect(combined).toContain('card tree');
     expect(combined).toMatch(/status[^.]+not[^.]+execution trigger|status[^.]+never an execution trigger|status changes?[^.]+never enqueue|not automatically dispatched by the status change/i);

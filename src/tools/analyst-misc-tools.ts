@@ -38,7 +38,7 @@ export async function queue_notification(ctx: ToolContext, params: { recipient: 
 }
 
 export async function show_config(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  try { const path = join(ctx.projectRoot, '.saivage', 'saivage.json'); assertAnalystInspectionTarget(path); const result = getRedactedConfig(ctx.projectRoot); if (!result.success) return toolFailure(result.message, { reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message }); return { success: true, data: { config: redactAnalystSecretValue(result.config) } }; }
+  try { const path = join(ctx.projectRoot, '.saivage', 'saivage.yaml'); assertAnalystInspectionTarget(path); const result = getRedactedConfig(ctx.projectRoot); if (!result.success) return toolFailure(result.message, { reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message }); return { success: true, data: { config: redactAnalystSecretValue(result.config) } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 

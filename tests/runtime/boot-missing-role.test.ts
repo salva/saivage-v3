@@ -1,10 +1,11 @@
 import { describe, it, expect, afterEach } from '@jest/globals';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EnvironmentLoadError, loadEnvironment } from '../../src/config/environment.js';
 import { startApp, type App } from '../../src/boot/index.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { writeSaivageConfig } from '../helpers/project-config.js';
 
 const roots: string[] = [];
 const liveApps: App[] = [];
@@ -18,7 +19,7 @@ function makeProject(modelsSection: unknown, initializeProjectTree = false): str
     models: modelsSection,
     providers: {},
   };
-  writeFileSync(join(root, '.saivage', 'saivage.json'), JSON.stringify(cfg, null, 2), 'utf-8');
+  writeSaivageConfig(root, cfg);
   return root;
 }
 
@@ -45,6 +46,8 @@ describe('boot fail-fast on missing dispatched model roles', () => {
     expect(error.message).toContain('models.routing[');
     expect(error.message).toContain('models.profiles[');
     expect(error.message).toContain('models.default');
+    expect(error.message).toContain('.saivage/saivage.yaml');
+    expect(error.message).not.toContain('.saivage/saivage.json');
     expect(error.expected).toContain('model name or non-empty array');
     expect(error.expected).toContain('models.routing');
     expect(error.expected).toContain('models.default');

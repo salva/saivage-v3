@@ -6,7 +6,7 @@ Status: current operator procedures for runtime maintenance.
 
 `compacting` in an agent activity row means the runtime is inside the pre-provider-call summarizer window for that session. It is transient: the actor has crossed the configured context threshold, is writing a new active conversation version, and will clear the status before the provider call proceeds.
 
-If compaction fails, treat it as a loud provider-turn failure rather than silent truncation. To restore pre-compaction behavior for future turns, disable `compaction.enabled` in `.saivage/saivage.json` and restart the service; this keeps card-lifetime load-back and transcript encapsulation but stops automatic summarization. If the session itself is unusable, start a fresh card/session instead of manually deleting conversation rows.
+If compaction fails, treat it as a loud provider-turn failure rather than silent truncation. To restore pre-compaction behavior for future turns, disable `compaction.enabled` in `.saivage/saivage.yaml` and restart the service; this keeps card-lifetime load-back and transcript encapsulation but stops automatic summarization. If the session itself is unusable, start a fresh card/session instead of manually deleting conversation rows.
 
 Audit compacted history under `.saivage/agents/conversations/<encoded-session-id>/`. `index.json` names the active version and frozen versions; numbered `<N>.jsonl` files contain immutable raw or compacted versions; `summaries.jsonl` contains cached per-round summaries used to rebuild merged summaries. Frozen versions are audit evidence and should not be edited during normal operation.
 

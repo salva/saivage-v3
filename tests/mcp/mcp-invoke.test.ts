@@ -10,6 +10,7 @@ import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn as realSpawn } from 'node:child_process';
+import * as YAML from 'yaml';
 import { loadEnvironment } from '../../src/config/environment.js';
 
 let nextPid = 12345;
@@ -64,17 +65,13 @@ function writeSaivageJson(root: string, overrides: Record<string, unknown>): voi
   const sd = join(root, '.saivage');
   mkdirSync(sd, { recursive: true });
   writeFileSync(
-    join(sd, 'saivage.json'),
-    JSON.stringify(
-      {
-        server: { port: 8080, host: '127.0.0.1' },
-        models: { default: ['test-model'] },
-        providers: { test: { priority: 10, models: ['test-model'], apiKey: 'sk' } },
-        ...overrides,
-      },
-      null,
-      2,
-    ),
+    join(sd, 'saivage.yaml'),
+    YAML.stringify({
+      server: { port: 8080, host: '127.0.0.1' },
+      models: { default: ['test-model'] },
+      providers: { test: { priority: 10, models: ['test-model'], apiKey: 'sk' } },
+      ...overrides,
+    }),
   );
 }
 

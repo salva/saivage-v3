@@ -14,7 +14,7 @@ const v3RuntimeTargets = [
 
 describe('v3 runtime target configs', () => {
   it.each(v3RuntimeTargets)('$name loads through loadEnvironment when present', ({ root }) => {
-    const configPath = resolve(root, '.saivage/saivage.json');
+    const configPath = resolve(root, '.saivage/saivage.yaml');
     if (!existsSync(configPath)) return;
 
     expect(() => {

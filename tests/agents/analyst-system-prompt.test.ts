@@ -1,16 +1,25 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
-import { getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/analyst-tool-registry.js';
+import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
+import { formatPromptToolList } from '../../src/utils/prompt-api.js';
 
 describe('analyst workspace-context prompt contract', () => {
   it('includes the deictic-resolution paragraph in the rendered system prompt', () => {
-    const prompt = getAnalystSystemPrompt(ANALYST_TOOL_DEFINITIONS);
+    const prompt = createTestPromptTemplateRegistry(process.cwd()).render('analyst', {
+      toolList: formatPromptToolList(ANALYST_TOOL_DEFINITIONS),
+      vocabularySnippet: formatVocabularySnippet(),
+      projectContext: '{"projectRoot":"test"}',
+      skills: '',
+    });
     expect(prompt).toContain('Resolve deictic phrases');
-    expect(prompt).toContain('[workspace-context] header');
+    expect(prompt).toContain('workspace context');
     expect(prompt).toContain('none — no entity is currently in focus');
     expect(prompt).toContain('ask exactly one clarifying question');
+    expect(prompt).toContain('{"projectRoot":"test"}');
+    expect(prompt).toContain('Registered tools:');
   });
 
   it('renders the no-entity workspace-context fixture deterministically', () => {

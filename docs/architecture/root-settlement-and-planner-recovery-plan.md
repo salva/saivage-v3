@@ -424,7 +424,7 @@ If this slice is deployed to the GetRich v2 container, build on the host, restar
 - Keep `CardActor` cleanup separate from behavior changes.
 - Add planner recovery tools after lifecycle mutation rules are respected by design and tests.
 - Do not add future-facing abstractions unless a concrete implementation path uses them immediately.
-- After planner recovery tools land, reset/restart a live GetRich v2 run only if needed for validation, preserving `docs/SPEC.md`, `docs/PLAN.md`, `.saivage/saivage.json`, and `.saivage/auth-profiles.json`.
+- After planner recovery tools land, reset/restart a live GetRich v2 run only if needed for validation, preserving `docs/SPEC.md`, `docs/PLAN.md`, `.saivage/saivage.yaml`, and `.saivage/auth-profiles.json`.
 
 ## Open Questions
 

@@ -7,6 +7,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
+import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 
 const { AnalystRuntime } = await import('../../src/agents/analyst-handler.js');
 
@@ -30,7 +31,7 @@ function writeConfig(root: string, analystModels: string[]): void {
   const models = analystModels.length > 0
     ? { default: analystModels, analyst: analystModels }
     : { default: ['__unconfigured__'], analyst: ['__unconfigured__'] };
-  writeFileSync(join(root, '.saivage', 'saivage.json'), JSON.stringify({
+  writeFileSync(join(root, '.saivage', 'saivage.yaml'), JSON.stringify({
     models,
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }, null, 2));
@@ -78,7 +79,7 @@ describe('AnalystRuntime invocation service integration', () => {
     const root = setupRoot();
     try {
       const spy = mockContentResponses('Here are your cards.');
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       await runtime.submit('s-real-post', { userContent: 'list my cards' });
       const calls = fetchCalls(spy);
       expect(calls).toHaveLength(1);
@@ -96,7 +97,7 @@ describe('AnalystRuntime invocation service integration', () => {
     const root = setupRoot([]);
     try {
       const spy = jest.spyOn(globalThis, 'fetch');
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-no-candidate', { userContent: 'list my cards' });
       expect(response.message.content).toContain("no model candidate is configured for role 'analyst'");
       expect(response.message.content).not.toContain('failed to authenticate');
@@ -110,7 +111,7 @@ describe('AnalystRuntime invocation service integration', () => {
     const root = setupRoot();
     try {
       const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-auth-failed', { userContent: 'list my cards' });
       expect(response.message.content).toContain('Analyst LLM unavailable: LLM authentication failed (HTTP 401)');
       expect(response.message.content).not.toContain('analyst is offline');
@@ -126,7 +127,7 @@ describe('AnalystRuntime invocation service integration', () => {
     const root = setupRoot();
     try {
       const spy = mockContentResponses('Goal goal-7 is visible.', 'Which following item did you mean?');
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       await runtime.submit('s-context', { userContent: 'show me goal-7' });
       await runtime.submit('s-context', { userContent: 'and the one after it' });
       const secondBody = fetchCalls(spy)[1].body;
@@ -146,7 +147,7 @@ describe('AnalystRuntime invocation service integration', () => {
     try {
       const clarification = 'Which cancelled cards should I delete?';
       mockContentResponses(clarification);
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-content-only', { userContent: 'delete the cancelled cards' });
       expect(response.toolInvocations ?? []).toHaveLength(0);
       expect(response.message.content).toBe(clarification);

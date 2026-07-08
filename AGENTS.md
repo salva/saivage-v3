@@ -100,6 +100,6 @@ large or cross-cutting refactor.
 
 ## Safety
 
-- Do not print tokens, provider configs, `.saivage/auth-profiles.json`, `.saivage/saivage.json`, env files, or backups.
+- Do not print tokens, provider configs, `.saivage/auth-profiles.json`, `.saivage/saivage.yaml`, env files, or backups.
 - API bearer tokens must not be placed in URLs.
 - Treat `.saivage/stages/**` and `.saivage/runtime/**` as live/generated runtime state unless the task targets them.

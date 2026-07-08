@@ -16,6 +16,7 @@ import { InvocationService } from '../agents/invocation-service.js';
 import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
+import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -98,10 +99,11 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const processRunner = new ProcessRunner(projectRoot);
   const runtimeGate = new RuntimeGate();
+  const promptTemplates = createPromptTemplateRegistry({ projectRoot, promptsConfig: config.prompts });
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager }),
     candidateAvailability,
     eventLogger,
     errorLogger,
@@ -132,7 +134,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     cardStore,
     processRunner,
     get analystRuntime() {
-      analystRuntimeCache ??= new AnalystRuntime({ projectRoot, config, runtimeDeps: getAnalystDeps() });
+      analystRuntimeCache ??= new AnalystRuntime({ projectRoot, config, runtimeDeps: getAnalystDeps(), promptTemplates });
       return analystRuntimeCache;
     },
     setAnalystRequestServerRestart(requestServerRestart) {

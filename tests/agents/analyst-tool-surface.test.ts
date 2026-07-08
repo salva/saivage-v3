@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as YAML from 'yaml';
 
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { ANALYST_CONTROL_TOOLS, ANALYST_SHARED_PROVIDER_TOOL_NAMES, ANALYST_TOOL_DEFINITIONS } from '../../src/tools/analyst-tool-registry.js';
-import { getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
 import { cancel_card, create_card, delete_card, reorder_child } from '../../src/tools/analyst-card-tools.js';
 import { reconfigure } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
@@ -23,6 +23,9 @@ import { createRuntimeApplication } from '../../src/application/runtime-composit
 import { EventBus } from '../../src/events/bus.js';
 import { EventLogger, ErrorLogger } from '../../src/observability/index.js';
 import type { CardLifecycleState, CardStatus } from '../../src/schemas/index.js';
+import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
+import { formatPromptToolList } from '../../src/utils/prompt-api.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -57,11 +60,11 @@ function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's02-surface-'));
   const sd = join(root, '.saivage');
   initProjectTree(root);
-  writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
+  writeFileSync(join(sd, 'saivage.yaml'), YAML.stringify({
     models: { default: [TEST_MODEL], analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     server: { port: 8080, host: '127.0.0.1' },
-  }, null, 2));
+  }));
   materializeProjectCard(root);
   initRuntimeState(root);
   return root;
@@ -71,11 +74,11 @@ function setupEmptyRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's02-empty-surface-'));
   const sd = join(root, '.saivage');
   initProjectTree(root);
-  writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
+  writeFileSync(join(sd, 'saivage.yaml'), YAML.stringify({
     models: { default: [TEST_MODEL], analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     server: { port: 8080, host: '127.0.0.1' },
-  }, null, 2));
+  }));
   initRuntimeState(root);
   return root;
 }
@@ -131,8 +134,13 @@ function createProductionShapedAnalystSurface(root: string, store: CardStore): R
   return buildRoleSurface('analyst', { projectRoot: root, toolContext: ctx, store, processRunner: ctx.processRunner, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => undefined });
 }
 
-function staticCapabilityProse(prompt: string): string {
-  return prompt.slice(prompt.indexOf('Capability classes and registered tools:'), prompt.indexOf('<TOOL_LIST>'));
+function renderAnalystPrompt(root: string, tools = ANALYST_TOOL_DEFINITIONS): string {
+  return createTestPromptTemplateRegistry(root).render('analyst', {
+    toolList: formatPromptToolList(tools),
+    vocabularySnippet: formatVocabularySnippet(),
+    projectContext: '{"projectRoot":"test"}',
+    skills: '',
+  });
 }
 
 describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
@@ -143,9 +151,9 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     expect(names).not.toContain('write_file');
     expect(names).not.toContain('terminate_process');
     for (const removed of ['edit_card','get_card_output','abort_goal_subtree','restart_card_or_subtree','restart_goal','mark_goal_needs_corrections']) expect(names).not.toContain(removed);
-    const prompt = getAnalystSystemPrompt(ANALYST_TOOL_DEFINITIONS);
-    for (const capability of ['Inspect','Navigate the workspace area','Manage cards','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
-    expect(prompt).toContain('record:///brief.md');
+    const prompt = renderAnalystPrompt(process.cwd());
+    for (const capability of ['Inspect','Navigate','Manage cards','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
+    expect(prompt).toContain('Registered tools:');
   });
 
   it('renders the Analyst prompt from the production-shaped invocation surface including provider tools', () => {
@@ -156,34 +164,28 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
       const toolNames = tools.map((tool) => tool.function.name);
       expect(toolNames).toEqual(expect.arrayContaining([...ANALYST_SHARED_PROVIDER_TOOL_NAMES]));
 
-      const prompt = getAnalystSystemPrompt(tools);
+      const prompt = renderAnalystPrompt(root, tools);
       for (const providerTool of ['read', 'write', 'edit', 'apply_patch', 'glob', 'grep', 'run_command', 'webfetch', 'skill', 'mcp_tool_call']) {
         expect(prompt).toContain(`- ${providerTool}:`);
       }
 
-      const prose = staticCapabilityProse(prompt);
       const registeredNames = new Set(toolNames);
-      expect(prose).toContain('Workspace repair: use read, write, edit, glob, and grep');
-      expect(prose).toMatch(/grep[^.]*record:\/\//);
-      expect(prose).toContain('Records are discovered via glob record:///<cardId>');
-      expect(prose).toContain('read, written, or edited as documents via record:///<filename>?card=<id>&v=<n>');
-      expect(prose).toContain('content-searched via grep record:///<cardId>');
       for (const staticProviderReference of ['read', 'write', 'edit', 'apply_patch', 'glob', 'grep', 'run_command', 'webfetch', 'skill', 'mcp_tool_call']) {
         expect(registeredNames.has(staticProviderReference)).toBe(true);
-        expect(prose).toMatch(new RegExp(`\\b${staticProviderReference}\\b`));
+        expect(prompt).toMatch(new RegExp(`- ${staticProviderReference}:`));
       }
       const grepToolLine = prompt.split('\n').find((line) => line.startsWith('- grep:'));
       expect(grepToolLine).toContain('under project:///, record:///, tmp:///, read-only work:///, or system:/// paths');
       expect(grepToolLine).toContain('grep record:///<cardId> searches the latest closed versions of exposed record slots');
       expect(grepToolLine).toContain('returns record URLs as path');
-      for (const retiredTool of RETIRED_ACTIVE_SURFACE_TOOLS) expect(prose).not.toMatch(new RegExp(`\\b${retiredTool}\\b`));
+      for (const retiredTool of RETIRED_ACTIVE_SURFACE_TOOLS) expect(prompt).not.toMatch(new RegExp(`- ${retiredTool}:`));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('exposes Analyst shared provider tools through the active invocation surface', () => {
     const root = setupRoot();
     try {
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
 
       const names = runtime.getAvailableToolNames();
       expect(names).toEqual(expect.arrayContaining(['list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'skill', 'mcp_tool_call', 'websearch', 'webfetch', 'run_command']));
@@ -319,7 +321,7 @@ describe('Contract C1 unsupported-action reply', () => {
         if (call === 1) return toolResponse('not_a_tool', {});
         return messageResponse('That action is not supported by the Analyst on this surface.');
       });
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
       const response = await runtime.submit('s-c1', { userContent: 'perform unsupported action' });
       expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
       expect(response.toolInvocations ?? []).toHaveLength(1);
@@ -364,7 +366,7 @@ describe('Contract C2 partial-success reporting', () => {
         if (call === 1) return toolResponse('delete_card', { ids: codeIds });
         return messageResponse('Partial delete completed; one card could not be deleted.');
       });
-      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(root), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
       const response = await runtime.submit('s-c2', { userContent: 'delete code cards' });
       expect(response.toolInvocations ?? []).toHaveLength(1);
       expect(response.toolInvocations?.[0].tool).toBe('delete_card');
@@ -396,7 +398,7 @@ describe('Reconfigure MCP live manager refresh', () => {
 
       const edited = await reconfigure(ctx, { action: 'mcp_edit', name: 'test-server', command: '/bin/true', args: [] });
       expect(edited.success).toBe(true);
-      const onDisk = JSON.parse(readFileSync(join(root, '.saivage', 'saivage.json'), 'utf-8')) as { mcpServers: Record<string, { command: string }> };
+      const onDisk = YAML.parse(readFileSync(join(root, '.saivage', 'saivage.yaml'), 'utf-8')) as { mcpServers: Record<string, { command: string }> };
       expect(onDisk.mcpServers['test-server'].command).toBe('/bin/true');
       expect(mcpManager.getStatus().find((status) => status.name === 'test-server')).toBeDefined();
 

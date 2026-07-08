@@ -8,7 +8,7 @@ JSON line per row.
 ## Invocation
 
 Run inside (or against) a project that has a populated
-`.saivage/saivage.json`:
+`.saivage/saivage.yaml`:
 
 ```bash
 node /opt/saivage-v3/dist/src/scripts/probe-llm-contract.js [projectRoot]
@@ -16,7 +16,7 @@ node /opt/saivage-v3/dist/src/scripts/probe-llm-contract.js [projectRoot]
 
 If `projectRoot` is omitted, `process.cwd()` is used.
 
-The script reads only `<projectRoot>/.saivage/saivage.json`. It never reads
+The script reads only `<projectRoot>/.saivage/saivage.yaml`. It never reads
 `.saivage/auth-profiles.json`; providers that rely on OAuth refresh therefore
 appear as `status: "skipped", reason: "no_api_key"`.
 

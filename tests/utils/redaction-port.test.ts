@@ -194,7 +194,7 @@ describe('redacted outbound sinks', () => {
     try {
       mkdirSync(join(root, '.saivage', 'agents', 'sessions'), { recursive: true });
       mkdirSync(join(root, '.saivage', 'agents', 'messages'), { recursive: true });
-      writeFileSync(join(root, '.saivage', 'saivage.json'), JSON.stringify({ telegram: { botToken: RAW_TELEGRAM, allowedUserIds: [1] } }));
+      writeFileSync(join(root, '.saivage', 'saivage.yaml'), JSON.stringify({ telegram: { botToken: RAW_TELEGRAM, allowedUserIds: [1] } }));
       globalThis.fetch = jest.fn(() => Promise.reject(new Error(`network https://api.telegram.org/bot${RAW_TELEGRAM}/getUpdates?token=${RAW_QUERY}`))) as unknown as typeof fetch;
       const bot = new TelegramBot(root, createTestRuntimeApplication().analystRuntime, { models: { default: ['model'] }, providers: {}, telegram: { botToken: RAW_TELEGRAM, allowedUserIds: [1] } } as never);
       const promise = (bot as unknown as { _telegramApiWithRetry<T>(method: string, params: Record<string, unknown>, signal: AbortSignal): Promise<T | undefined> })._telegramApiWithRetry('getUpdates', {}, new AbortController().signal);

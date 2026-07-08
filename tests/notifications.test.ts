@@ -19,9 +19,10 @@ import type { CardRecord } from '../src/schemas/types.js';
 import type { NewCardInput } from '../src/cards/lifecycle.js';
 import type { LlmInvocationInput, LLMProviderPort } from '../src/runtime/actors/index.js';
 import type { ToolContext } from '../src/tools/analyst-tool-types.js';
+import { createTestPromptTemplateRegistry } from './helpers/prompt-template-registry.js';
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort): CardActorDeps {
-  return { projectRoot, store, provider, processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, store, provider, promptTemplates: createTestPromptTemplateRegistry(projectRoot), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeCard(overrides: Partial<NewCardInput> & { id?: string; type: NewCardInput['type']; title: string }): NewCardInput & { id?: string } {
@@ -59,7 +60,7 @@ describe('queueNotification recipient resolution', () => {
   beforeEach(() => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-notifications-'));
     initProjectTree(projectRoot);
-    writeFileSync(join(projectRoot, '.saivage', 'saivage.json'), JSON.stringify({
+    writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), JSON.stringify({
       models: { default: ['test-analyst-model'], analyst: ['test-analyst-model'] },
       providers: { test: { models: ['test-analyst-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     }));
@@ -202,14 +203,20 @@ describe('queueNotification recipient resolution', () => {
     expect(store.read(goal.id)?.status).toBe('changed');
 
     const capturedInputs: LlmInvocationInput[] = [];
+    let turn = 0;
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => {
         capturedInputs.push(input);
-        return { kind: 'message' as const, content: 'plain text forces activation to settle without terminal success' };
+        turn++;
+        if (turn === 1) {
+          return { kind: 'tool_calls' as const, tool_calls: [{ id: 'write-status', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?v=next', content: 'status' }) } }] };
+        }
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'emit-failed', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'failed', summary: 'done capturing notification' }) } }] };
       }),
     };
     const processor = new PlanningCardProcessorActor({
       projectRoot,
+      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
       cardId: goal.id,
       store,
       children: { get: () => null },

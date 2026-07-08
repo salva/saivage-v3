@@ -6,6 +6,7 @@ import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { CardActor, type CardActorDeps, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-card-actor-ownership-'));
@@ -21,6 +22,7 @@ function deps(projectRoot: string, store: CardStore, lookup = new Map<string, Ca
     projectRoot,
     store,
     provider,
+    promptTemplates: createTestPromptTemplateRegistry(projectRoot),
     processRunner: new ProcessRunner(projectRoot),
     notifyCard: () => ({ ok: true }),
     lookup,

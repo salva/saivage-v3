@@ -149,10 +149,10 @@ describe('FilesView', () => {
 
   it('shows redaction notice for successful redacted preview', async () => {
     vi.mocked(getFileContent).mockResolvedValue({
-      path: '.saivage/saivage.json',
+      path: '.saivage/saivage.yaml',
       size: 100,
-      contentType: 'application/json',
-      content: '{"apiKey":"[REDACTED]"}',
+      contentType: 'application/yaml',
+      content: 'apiKey: "[REDACTED]"',
       redacted: true,
       sensitivity: 'sensitive-redacted',
     });
@@ -161,7 +161,7 @@ describe('FilesView', () => {
         if (path === '.saivage') {
           return {
             path: '.saivage',
-            files: [{ name: 'saivage.json', path: '.saivage/saivage.json', type: 'file', size: 100, modifiedAt: '2025-06-01T12:00:00Z' }],
+            files: [{ name: 'saivage.yaml', path: '.saivage/saivage.yaml', type: 'file', size: 100, modifiedAt: '2025-06-01T12:00:00Z' }],
           };
         }
         if (path === '.saivage-work') return mockOutputRootFiles;

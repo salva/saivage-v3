@@ -63,6 +63,8 @@ Card tree rows show only the depth-indented state ball, human-friendly display-p
 
 The Analyst panel is the user's mutation path. The user asks for changes in natural language; the Analyst invokes canonical services.
 
+Planner, executor, reviewer, and analyst prompts are configurable by editing `prompts` blocks in `.saivage/saivage.yaml`; rendered prompts still appear through the normal agent transcript and Debug conversation surfaces.
+
 The chat composer must be reachable without opening a drawer or switching page modes. The user should be able to inspect the workspace and talk to the Analyst at the same time.
 
 Card management is Analyst-owned and runtime-state-gated. When runtime status is `stopped` or `paused`, the Analyst may use supported semantic card operations such as creating cards, reordering direct children where supported, cancelling dormant work, and delete/archive-backed removal. The Analyst updates a card's goal/instructions/acceptance content by using `write` for `record:///brief.md?card=<id>` or an equivalent concrete `record:///brief.md` URL. Scoped file URLs shown by the UI use canonical triple-slash form (`project:///`, `record:///`, `tmp:///`, `work:///`, `system:///`). The UI may show the relevant record URLs and metadata, but it must not perform these mutations directly.

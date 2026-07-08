@@ -22,7 +22,7 @@ the target projects it manages. It is not the general workspace LXC playbook.
 - Fall back to classic LXC commands only for container lifecycle, broken SSH access, reading `/var/lib/lxc/<name>/config`, or when a container has no IP.
 - Use classic LXC commands on this host: `sudo lxc-ls --fancy`, `sudo lxc-info -n <container>`, and `sudo lxc-attach -n <container> -- <command>`.
 - Do not use `lxc exec` or `lxc list`; this host uses classic LXC tooling.
-- Secret-bearing files such as `.saivage/saivage.json`, `.saivage/auth-profiles.json`, env files, shell history, or token files may be inspected or edited when needed. Do not print secret values in chat or logs.
+- Secret-bearing files such as `.saivage/saivage.yaml`, `.saivage/auth-profiles.json`, env files, shell history, or token files may be inspected or edited when needed. Do not print secret values in chat or logs.
 - API bearer tokens must not be placed in URLs.
 - Use `/home/salva/g/ml/tmp/` for temporary artifacts.
 

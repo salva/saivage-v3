@@ -16,7 +16,7 @@ const AUTH_TOKEN = 'availability-test-token';
 function setupProject(root: string, withRuntimeState = true): void {
   const sd = join(root, '.saivage');
   initProjectTree(root);
-  writeFileSync(join(sd, 'saivage.json'), JSON.stringify({ server: { host: '127.0.0.1', port: 8080 }, models: { default: ['test-model'] }, providers: {} }, null, 2));
+  writeFileSync(join(sd, 'saivage.yaml'), JSON.stringify({ server: { host: '127.0.0.1', port: 8080 }, models: { default: ['test-model'] }, providers: {} }, null, 2));
   if (withRuntimeState) initRuntimeState(root);
 }
 

@@ -10,6 +10,7 @@ import type { InvocationService } from '../../src/agents/invocation-service.js';
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 import { readRuntimeState } from '../../src/runtime/state-api.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-micro-actor-runtime-factory-'));
@@ -48,6 +49,7 @@ describe('createMicroActorRuntimeApi', () => {
       eventBus: new EventBus(),
       cardStore,
       invocationService,
+      promptTemplates: createTestPromptTemplateRegistry(projectRoot),
       processRunner: new ProcessRunner(projectRoot),
       now: () => '2026-06-12T00:00:00.000Z',
     });

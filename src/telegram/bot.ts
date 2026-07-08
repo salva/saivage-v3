@@ -3,7 +3,7 @@
  *
  * Provides:
  * - TelegramBot class using polling mode (long polling via getUpdates)
- * - User filtering via allowedUserIds from saivage.json
+ * - User filtering via allowedUserIds from saivage.yaml
  * - Markdown-to-HTML conversion for Telegram's HTML parse mode
  * - Message splitting at paragraph boundaries (4096 char limit)
  * - Per-chat analyst sessions using analyst-handler.ts

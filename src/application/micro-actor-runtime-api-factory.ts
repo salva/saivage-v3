@@ -11,12 +11,14 @@ import type { AgentMessage } from '../schemas/index.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
+import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
   eventBus: EventBus;
   cardStore: CardStore & ProjectRootCardReader;
   invocationService: InvocationService;
+  promptTemplates: PromptTemplateRegistry;
   config?: SaivageConfig;
   processRunner: ProcessRunner;
   runtimeGate?: RuntimeGate;
@@ -37,6 +39,7 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     summarizerProvider: compaction?.summarizerProvider,
     bufferSizeEstimator: compaction?.bufferSizeEstimator,
     processRunner: deps.processRunner,
+    promptTemplates: deps.promptTemplates,
     runtimeGate: deps.runtimeGate,
     mcpManagerProvider: deps.mcpManagerProvider,
     now: deps.now,
