@@ -40,9 +40,6 @@ describe('RuntimeState.last_tick_at round-trip', () => {
       updated_at: new Date().toISOString(),
       pid: 123,
       last_tick_at: null,
-      runtime_commands: [],
-      runtime_runs: [],
-      runtime_activations: [],
     };
     expect(() => runtimeStateSchema.parse(baseOk)).not.toThrow();
     expect(() => runtimeStateSchema.parse({ ...baseOk, last_tick_at: 'not-a-datetime' })).toThrow();

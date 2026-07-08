@@ -58,8 +58,7 @@ describe('read-only positive checklist', () => {
 
     // DashboardView: runtime refresh and passive navigation links remain while start/stop controls are gone.
     expect(dashboardViewSource).toContain('@click="refreshRuntime"');
-    expect(dashboardViewSource).toContain('@click="goToCard(run.card_id)"');
-    expect(dashboardViewSource).toContain('@click="goToAgent(currentRun.session_id)"');
+    expect(dashboardViewSource).toContain('@click="goToCard(currentCardId)"');
     expect(dashboardViewSource).not.toMatch(/runtime-command start-project|runtime-command stop-project/);
 
     // FilesView: read-only file refresh, breadcrumb/directory navigation, safe preview, and close remain.

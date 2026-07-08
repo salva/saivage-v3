@@ -9,8 +9,5 @@ export function createDefaultRuntimeState(pid: number = process.pid, nowIso: str
     active_card_run: null,
     updated_at: nowIso,
     last_tick_at: null,
-    runtime_commands: [],
-    runtime_runs: [],
-    runtime_activations: [],
   };
 }

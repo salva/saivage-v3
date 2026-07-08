@@ -1,7 +1,7 @@
 /**
  * Pinia store for runtime state.
  *
- * Tracks the Saivage runtime snapshot plus command/run/activation summary state,
+ * Tracks the Saivage runtime snapshot,
  * card index, and lifecycle status.
  * Live updates are driven by SyncClient invalidation + REST refetch.
  */
@@ -14,9 +14,6 @@ import type {
   CardIndex,
   ServerAvailability,
   FreshnessState,
-  RuntimeRunRecord,
-  RuntimeActivationRecord,
-  RuntimeCommandRecord,
   ActionableErrorEnvelope,
 } from '../api/types';
 import {
@@ -57,17 +54,12 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const lastWsEventAt = ref<string | null>(null);
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
   const unauthorized = ref(false);
-  const currentRun = ref<RuntimeRunRecord | null>(null);
-  const activeChildRuns = ref<RuntimeRunRecord[]>([]);
-  const activations = ref<RuntimeActivationRecord[]>([]);
-  const lastCommand = ref<RuntimeCommandRecord | null>(null);
   const lastActionableError = ref<ActionableErrorEnvelope | null>(null);
 
   const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'stopped');
   const isRunning = computed(() => status.value === 'running');
   const currentCardId = computed(() => selectCurrentCardId(runtime.value));
   const currentAgentSessionId = computed(() => selectCurrentAgentSessionId(runtime.value));
-  const rootRun = computed(() => currentRun.value);
   const commandDisabledReason = computed(() => {
     if (loading.value) return 'Runtime state is still loading.';
     if (unauthorized.value) return 'Runtime commands require a valid API token.';
@@ -117,10 +109,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
 
   function applyRuntimeSummaryFromState(nextRuntime: RuntimeState | null): void {
     const summary = selectRuntimeSummary(nextRuntime);
-    currentRun.value = summary.currentRun;
-    activeChildRuns.value = summary.activeChildRuns;
-    activations.value = summary.activations;
-    lastCommand.value = summary.lastCommand;
     lastActionableError.value = summary.lastActionableError;
   }
 
@@ -169,11 +157,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     projectId: readonly(projectId),
     cardIndex: readonly(cardIndex),
     serverAvailability: readonly(serverAvailability),
-    currentRun: readonly(currentRun),
-    rootRun,
-    activeChildRuns: readonly(activeChildRuns),
-    activations: readonly(activations),
-    lastCommand: readonly(lastCommand),
     lastActionableError: readonly(lastActionableError),
     loading: readonly(loading),
     error: readonly(error),

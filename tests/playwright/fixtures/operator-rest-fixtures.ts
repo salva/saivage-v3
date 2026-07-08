@@ -10,9 +10,6 @@ const runtimeRunning = {
   started_at: now,
   active_card_run: null,
   updated_at: now,
-  runtime_commands: [],
-  runtime_runs: [],
-  runtime_activations: [],
 };
 
 const card = {

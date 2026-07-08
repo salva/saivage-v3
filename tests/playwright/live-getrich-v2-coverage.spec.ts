@@ -369,14 +369,14 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(body.cards.some((c: { id: string }) => c.id === 'project')).toBe(true);
   });
 
-  test('GET /api/state exposes runtime_runs and runtime_activations as arrays', async ({ request }) => {
+  test('GET /api/state exposes minimal runtime state without runtime ledgers', async ({ request }) => {
     const res = await request.get('/api/state');
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(typeof body.runtime).toBe('object');
-    expect(Array.isArray(body.runtime.runtime_runs)).toBe(true);
-    expect(Array.isArray(body.runtime.runtime_activations)).toBe(true);
-    expect(Array.isArray(body.runtime.runtime_commands)).toBe(true);
+    expect(body.runtime).not.toHaveProperty('runtime_runs');
+    expect(body.runtime).not.toHaveProperty('runtime_activations');
+    expect(body.runtime).not.toHaveProperty('runtime_commands');
     expect(typeof body.serverAvailability).toBe('object');
     expect(typeof body.serverAvailability.components).toBe('object');
   });

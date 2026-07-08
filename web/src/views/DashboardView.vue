@@ -21,13 +21,13 @@
         <ViewState v-else-if="errorMsg" state="error" title="Failed to load runtime" :message="errorMsg" />
 
         <template v-else>
-          <section v-if="lastActionableError || currentRun || doneGoals || failedBlocked" class="status-section mission-summary">
+          <section v-if="lastActionableError || currentCardId || doneGoals || failedBlocked" class="status-section mission-summary">
             <StatusBanner v-if="lastActionableError" tone="danger" :title="lastActionableError.message" :message="`Next: ${lastActionableError.nextAction}`" role="alert" />
-            <div v-if="currentRun" class="mission-active">
+            <div v-if="currentCardId" class="mission-active">
               <span class="status-key">Active card</span>
-              <button class="mission-active-link" @click="goToCard(currentRun.card_id)">
+              <button class="mission-active-link" @click="goToCard(currentCardId)">
                 <span class="mission-active-title">{{ activeCardTitle }}</span>
-                <span class="mission-active-phase">{{ currentRun.phase }}</span>
+                <span class="mission-active-phase">{{ runtime?.active_card_run?.phase ?? 'active' }}</span>
               </button>
             </div>
             <div class="mission-stats">
@@ -48,59 +48,8 @@
                 <span class="status-key">Live State</span>
                 <span class="status-value">{{ liveUpdateLabel }}</span>
               </div>
-              <div class="status-item">
-                <span class="status-key">Last Command</span>
-                <span class="status-value">{{ lastCommand ? `${lastCommand.command} · ${lastCommand.status}` : 'none' }}</span>
-              </div>
             </div>
             <p class="operator-help">{{ liveUpdateDetail }}</p>
-          </section>
-
-          <section class="status-section">
-            <h3 class="section-label">Root Run</h3>
-            <div class="status-grid">
-              <div class="status-item">
-                <span class="status-key">Runtime</span>
-                <StatusBadge :status="statusForRuntimeStatus(statusLabel)" show-dot />
-              </div>
-              <div class="status-item">
-                <span class="status-key">Current Run</span>
-                <span v-if="currentRun" class="status-value clickable" @click="goToCard(currentRun.card_id)">
-                  {{ currentRun.card_id }} · {{ currentRun.phase }}
-                </span>
-                <span v-else class="status-value dim">none</span>
-              </div>
-              <div class="status-item">
-                <span class="status-key">Session</span>
-                <span v-if="currentRun?.session_id" class="status-value clickable" @click="goToAgent(currentRun.session_id)">{{ currentRun.session_id.slice(0, 12) }}...</span>
-                <span v-else-if="currentAgentSessionId" class="status-value clickable" @click="goToAgent(currentAgentSessionId)">{{ currentAgentSessionId.slice(0, 12) }}...</span>
-                <span v-else class="status-value dim">none</span>
-              </div>
-            </div>
-          </section>
-
-          <section class="status-section runtime-record-list">
-            <h3 class="section-label">
-              Active Child Runs
-              <span v-if="activeChildRuns.length" class="section-badge">{{ activeChildRuns.length }}</span>
-            </h3>
-            <div v-if="activeChildRuns.length === 0" class="status-value dim list-empty">none</div>
-            <button v-for="run in activeChildRuns" :key="run.run_id" class="record-row" @click="goToCard(run.card_id)">
-              <span>{{ run.card_id }}</span>
-              <span>{{ run.phase }} · {{ run.runtime_status }}</span>
-            </button>
-          </section>
-
-          <section class="status-section runtime-record-list">
-            <h3 class="section-label">
-              Activation Edges
-              <span v-if="activations.length" class="section-badge">{{ activations.length }}</span>
-            </h3>
-            <div v-if="activations.length === 0" class="status-value dim list-empty">none</div>
-            <button v-for="activation in activations.slice(-5).reverse()" :key="activation.activation_id" class="record-row" @click="goToCard(activation.child_card_id)">
-              <span>{{ activation.parent_card_id }} → {{ activation.child_card_id }}</span>
-              <span>{{ activation.status }} · {{ activation.precondition }}</span>
-            </button>
           </section>
 
           <section class="status-section">
@@ -176,12 +125,11 @@ import { useRuntimeStore } from '../stores/runtime';
 import { useCardStore } from '../stores/cards';
 import { useDashboardReadModel } from '../composables/useDashboardReadModel';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
-import { statusForRuntimeStatus, type Tone } from '../utils/status';
+import type { Tone } from '../utils/status';
 import Panel from '../components/ui/Panel.vue';
 import PanelHeader from '../components/ui/PanelHeader.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 import ViewState from '../components/ui/ViewState.vue';
-import StatusBadge from '../components/ui/StatusBadge.vue';
 
 const runtimeStore = useRuntimeStore();
 const cardsStore = useCardStore();
@@ -193,15 +141,10 @@ const {
   loading: runtimeLoading,
   statusLabel,
   currentCardId,
-  currentAgentSessionId,
-  currentRun,
-  activeChildRuns,
-  activations,
   doneGoals,
   failedBlocked,
   isStale: runtimeIsStale,
   unauthorized: runtimeUnauthorized,
-  lastCommand,
   lastActionableError,
   liveUpdateLabel,
   liveUpdateDetail,
@@ -224,7 +167,7 @@ const { goalChildren, runtimeBannerMessage, runtimeBannerClass, barWidth } = use
 
 const runtimeBannerTone = computed<Tone>(() => runtimeBannerClass.value === 'runtime-status-banner-error' ? 'danger' : 'warning');
 const activeCardTitle = computed(() => {
-  const id = currentRun.value?.card_id ?? currentCardId.value;
+  const id = currentCardId.value;
   if (!id) return id ?? 'none';
   const card = cardsStore.cards.find((c) => c.id === id);
   return card?.title ?? id;
@@ -240,10 +183,6 @@ function shortTimeTitle(ts?: string | null): string {
 
 function goToCard(id: string): void {
   router.push({ name: 'card-detail', params: { id } });
-}
-
-function goToAgent(id: string): void {
-  router.push({ name: 'agent-detail', params: { id } });
 }
 
 async function refreshRuntime(): Promise<void> {

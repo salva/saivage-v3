@@ -52,9 +52,6 @@ describe('GET /api/runtime/status pid overlay', () => {
         started_at: now,
         active_card_run: null,
         updated_at: now,
-        runtime_commands: [],
-        runtime_runs: [],
-        runtime_activations: [],
       },
     };
     writeFileSync(runtimeStatePath(root), JSON.stringify(payload));

@@ -1,8 +1,5 @@
 import type {
   ActionableErrorEnvelope,
-  RuntimeActivationRecord,
-  RuntimeCommandRecord,
-  RuntimeRunRecord,
   RuntimeState,
   RuntimeStatus,
   ServerAvailability,
@@ -10,10 +7,6 @@ import type {
 } from '../api/types';
 
 export interface RuntimeSummaryProjection {
-  currentRun: RuntimeRunRecord | null;
-  activeChildRuns: RuntimeRunRecord[];
-  activations: RuntimeActivationRecord[];
-  lastCommand: RuntimeCommandRecord | null;
   lastActionableError: ActionableErrorEnvelope | null;
 }
 
@@ -23,29 +16,12 @@ export type LiveUpdateState = 'live' | 'connecting' | 'offline' | 'unauthorized'
 export function selectRuntimeSummary(runtime: RuntimeState | null): RuntimeSummaryProjection {
   if (!runtime) {
     return {
-      currentRun: null,
-      activeChildRuns: [],
-      activations: [],
-      lastCommand: null,
       lastActionableError: null,
     };
   }
 
-  const runs = runtime.runtime_runs ?? [];
-  const currentRun = runs.find((run) => run.kind === 'root' && !run.finished_at)
-    ?? runs.find((run) => run.kind === 'root')
-    ?? null;
-  const activeChildRuns = runs.filter((run) => run.kind === 'child' && !run.finished_at);
-  const activations = runtime.runtime_activations ?? [];
-  const commands = runtime.runtime_commands ?? [];
-  const lastCommand = commands.length > 0 ? commands[commands.length - 1] : null;
-
   return {
-    currentRun,
-    activeChildRuns,
-    activations,
-    lastCommand,
-    lastActionableError: lastCommand?.error ?? activations.find((activation) => activation.error)?.error ?? null,
+    lastActionableError: null,
   };
 }
 

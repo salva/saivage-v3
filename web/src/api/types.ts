@@ -18,9 +18,6 @@ import type {
   McpToolsResponse as ContractMcpToolsResponse,
   NoteAuthor,
   OperatorApiSuccess,
-  RuntimeActivationRecord,
-  RuntimeCommandRecord,
-  RuntimeRunRecord,
   RuntimeState as ContractRuntimeState,
   ServerAvailability,
   SessionStatus,
@@ -50,14 +47,6 @@ export type {
   McpStatusState,
   McpToolDefinition,
   NoteAuthor,
-  RuntimeActivationRecord,
-  RuntimeActivationStatus,
-  RuntimeCommandName,
-  RuntimeCommandRecord,
-  RuntimeCommandStatus,
-  RuntimeRunKind,
-  RuntimeRunPhase,
-  RuntimeRunRecord,
   LiveSyncClientFrame,
   LiveSyncInvalidateFrame,
   LiveSyncInvalidateTarget,
@@ -133,17 +122,11 @@ export interface ActionableErrorEnvelope {
   childCardId?: string | null;
 }
 
-export interface RuntimeSummary {
-  currentRun: RuntimeRunRecord | null;
-  activeChildRuns: RuntimeRunRecord[];
-  activations: RuntimeActivationRecord[];
-  lastCommand: RuntimeCommandRecord | null;
-}
+export interface RuntimeSummary {}
 
 
 export interface RuntimeCommandErrorResponse {
   success: false;
-  command?: RuntimeCommandRecord;
   actionable_error: ActionableErrorEnvelope;
 }
 

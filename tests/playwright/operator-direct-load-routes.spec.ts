@@ -5,7 +5,7 @@ import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim
 const syntheticToken = 'synthetic-direct-load-token';
 
 const directRouteCases = [
-  { path: '/dashboard', root: '[data-testid="route-dashboard"]', bodyText: /Runtime Status|Root Run/i },
+  { path: '/dashboard', root: '[data-testid="route-dashboard"]', bodyText: /Runtime Status|Restart \/ Recovery Evidence/i },
   { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /Any status|Synthetic dashboard smoke card/i },
   { path: '/agents', root: '[data-testid="route-agents"]', bodyText: /agent sessions|analyst|planner/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata|plan\.json/i },

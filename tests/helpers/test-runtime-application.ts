@@ -42,10 +42,6 @@ export function createTestSaivageConfig(): SaivageConfig {
 
 function testRuntimeTimestamp(): string { return new Date(0).toISOString(); }
 
-function testRuntimeCommand(command: 'start_project' | 'stop_project'): Awaited<ReturnType<RuntimeApi['startProject']>>['command'] {
-  return { command_id: `test-${command}`, command, status: command === 'start_project' ? 'accepted' : 'completed', requested_at: testRuntimeTimestamp(), completed_at: command === 'start_project' ? null : testRuntimeTimestamp(), source: 'runtime' };
-}
-
 interface TestAnalystRuntime {
   eventLogger?: AnalystRuntimeDeps['eventLogger'];
   candidateAvailability?: AnalystRuntimeDeps['candidateAvailability'];
@@ -79,19 +75,20 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: C
     },
     async startProject(): ReturnType<RuntimeApi['startProject']> {
       const timestamp = testRuntimeTimestamp();
-      const command = testRuntimeCommand('start_project');
       return {
-        success: true,
-        command,
-        run: { run_id: 'test-root-run', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', command_id: command.command_id, phase: 'planner', runtime_status: 'running', started_at: timestamp, updated_at: timestamp },
+        runtime: { status: 'running', project_id: 'project', pid: process.pid, started_at: timestamp, active_card_run: null, updated_at: timestamp, last_tick_at: null },
+        status: 'running',
+        started: true,
+        stopped: false,
       };
     },
     async stopProject(): ReturnType<RuntimeApi['stopProject']> {
       const timestamp = testRuntimeTimestamp();
-      const command = testRuntimeCommand('stop_project');
       return {
-        success: true,
-        command,
+        runtime: { status: 'stopped', project_id: 'project', pid: process.pid, started_at: timestamp, active_card_run: null, updated_at: timestamp, last_tick_at: null },
+        status: 'stopped',
+        started: false,
+        stopped: true,
       };
     },
     subscribe: eventBus.subscribe.bind(eventBus),

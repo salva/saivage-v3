@@ -51,11 +51,8 @@ export {
   ProviderSummarySchema,
   ProvidersListResponseSchema,
   ProvidersUnavailableErrorSchema,
-  RuntimeActivationRecordSchema,
   RuntimeCardRunsResponseSchema,
-  RuntimeCommandRecordSchema,
   RuntimeGetStateResponseSchema,
-  RuntimeRunRecordSchema,
   RuntimeStatusResponseSchema,
   RuntimeSummarySchema,
   ServerAvailabilitySchema,
@@ -228,7 +225,6 @@ export type {
 } from './operator-events.js';
 
 export type {
-  RuntimeActivationLedgerPort,
   PlannerStatus,
   PlannerResult,
   ExecutorResult,

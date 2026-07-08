@@ -8,7 +8,7 @@ import {
   resumeRuntimeControl,
 } from '../../src/runtime/control-api.js';
 import { initRuntimeState, runtimeStatePath } from '../../src/runtime/state.js';
-import { readRuntimeState as directReadRuntimeState, updateRuntimeState as directUpdateRuntimeState, appendRuntimeRun as directAppendRuntimeRun, upsertRuntimeActivation as directUpsertRuntimeActivation } from '../../src/runtime/state.js';
+import { readRuntimeState as directReadRuntimeState, updateRuntimeState as directUpdateRuntimeState } from '../../src/runtime/state.js';
 import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl } from '../../src/runtime/control.js';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';

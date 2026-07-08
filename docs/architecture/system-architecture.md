@@ -37,7 +37,7 @@ The detailed micro-actor module architecture is specified in [Declarative micro-
 
 The runtime is the only dispatcher. Agents request work through tools; they do not directly invoke other agents.
 
-Planner/card state owns hierarchy, objectives, dependencies, evidence, status, result data, working status, and history. Runtime execution state owns root intent, command/run/activation ledgers, active-card-run state, process records, and recovery metadata.
+Planner/card state owns hierarchy, objectives, dependencies, evidence, status, result data, working status, and history. Runtime execution state owns only current runtime status/cursor data, process records, and recovery metadata; command, run, and activation ledgers are not persisted runtime state.
 
 Changing planner/card state does not by itself dispatch work. Root work starts through explicit runtime control; child work starts through parent-planner `activate_card`.
 
@@ -51,7 +51,7 @@ Durable card status is one of exactly `backlog`, `running`, `blocked`, `changed`
 
 Ancestors hold activation context for their active child. That context is actor data, not a separate card state.
 
-The runtime persists enough active-card-run and activation-ledger information to unwind one child activation outcome back to its parent planner.
+The runtime persists the active-card-run cursor for current work. Activation edges are derived from parent conversation `activate_card` tool calls and card/actor state, not from a runtime activation ledger.
 
 Activation validation happens before dispatch. A parent planner can activate only an immediate child in `backlog`, `changed`, or `blocked`. Activation transitions the child to `running`; child main-agent `done`, `failed`, or `blocked` outcomes update the child card before the parent planner receives the activation tool result. Runtime cancellation can instead resolve the parent-visible activation as `cancelled`; processors do not emit `cancelled`. `done` cards are not activatable unless later modification changes them to `changed`; `failed` cards are not activatable and require explicit planner/operator handling such as cancellation, replacement, edit-to-`changed`, or escalation.
 
@@ -89,15 +89,15 @@ Run:
 
 1. Analyst receives a user request to run, start, continue, or resume.
 2. If the runtime is paused, the runtime opens the global provider-admission gate so provider waiters proceed before new autonomous work is admitted.
-3. If no root run exists, `SupervisorRuntimeApi` records durable running intent and creates the root runtime run.
-4. If the project is already running, `SupervisorRuntimeApi` returns an already-running warning and creates no duplicate root run.
+3. `SupervisorRuntimeApi` records current running state in `RuntimeState.active_card_run` and opens the runtime gate.
+4. If the project is already running, `SupervisorRuntimeApi` returns a current-state result with an error and creates no duplicate work.
 5. When needed, `SupervisorRuntimeApi` activates the parentless project card through the runtime/composition root.
 
 Child execution:
 
 1. Planner calls `activate_card(child_id)`.
 2. Runtime validates parent ownership and child readiness.
-3. Runtime records an activation edge from parent run/tool call to child run.
+3. Runtime records the activation edge as the parent conversation `activate_card` tool call and current actor state.
 4. Runtime dispatches the child to planner/executor/reviewer flow.
 5. Runtime returns exactly one activation outcome to the parent planner.
 

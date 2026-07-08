@@ -4,20 +4,11 @@ import { runtimeStateSchema } from '../schemas/index.js';
 import type { ZodType } from 'zod';
 import { explainLegacyStateRejection } from '../persistence/index.js';
 import { AtomicJsonFile, ProjectLock, PersistenceReadError, PersistenceValidationError } from '../persistence/index.js';
-import type { RuntimeActivationRecord, RuntimeActivationStatus, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import type { RuntimeState } from '../schemas/index.js';
 import { createDefaultRuntimeState } from './default-state.js';
 
 const AUTHORITATIVE_STATE_FILE = 'runtime.json';
 const runtimeStatePersistenceSchema = runtimeStateSchema as ZodType<RuntimeState>;
-
-export const UNRESOLVED_RUNTIME_ACTIVATION_STATUSES = new Set<RuntimeActivationStatus>([
-  'pending',
-  'running',
-]);
-
-export function isUnresolvedRuntimeActivationStatus(status: RuntimeActivationStatus): boolean {
-  return UNRESOLVED_RUNTIME_ACTIVATION_STATUSES.has(status);
-}
 
 export class RuntimeStateInvariantError extends Error {
   constructor(message: string) {
@@ -148,60 +139,4 @@ export function updateRuntimeStateLockedDeriving<T>(
     throw new Error('Runtime state locked reducer did not set a result.');
   }
   return result;
-}
-
-function runtimeRecordId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-export function appendRuntimeCommand(projectRoot: string, command: RuntimeCommandName, source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'runtime'): RuntimeCommandRecord {
-  const at = new Date().toISOString();
-  const record: RuntimeCommandRecord = { command_id: runtimeRecordId('cmd'), command, status: 'accepted', requested_at: at, completed_at: null, source, error: null };
-  return updateRuntimeStateLockedDeriving(projectRoot, (state) => ({
-    state: { ...state, runtime_commands: [...state.runtime_commands, record], updated_at: at },
-    result: record,
-  }));
-}
-
-export function appendRuntimeRun(projectRoot: string, input: Omit<RuntimeRunRecord, 'run_id' | 'started_at' | 'updated_at'> & { run_id?: string; started_at?: string; updated_at?: string }): RuntimeRunRecord {
-  const at = new Date().toISOString();
-  const record: RuntimeRunRecord = { ...input, run_id: input.run_id ?? runtimeRecordId('run'), started_at: input.started_at ?? at, updated_at: input.updated_at ?? at };
-  return updateRuntimeStateLockedDeriving(projectRoot, (state) => ({
-    state: { ...state, runtime_runs: [...state.runtime_runs.filter((run) => run.run_id !== record.run_id), record], updated_at: at },
-    result: record,
-  }));
-}
-
-export function updateRuntimeRun(projectRoot: string, runId: string, changes: Partial<RuntimeRunRecord>): RuntimeRunRecord | null {
-  const at = new Date().toISOString();
-  return updateRuntimeStateLockedDeriving(projectRoot, (state) => {
-    const existing = state.runtime_runs.find((run) => run.run_id === runId);
-    if (!existing) return { state, result: null };
-    const updated = { ...existing, ...changes, updated_at: at };
-    return {
-      state: { ...state, runtime_runs: state.runtime_runs.map((run) => run.run_id === runId ? updated : run), updated_at: at },
-      result: updated,
-    };
-  });
-}
-
-export function upsertRuntimeActivation(projectRoot: string, input: Omit<RuntimeActivationRecord, 'activation_id' | 'requested_at' | 'updated_at'> & { activation_id?: string; requested_at?: string; updated_at?: string }): RuntimeActivationRecord {
-  const at = new Date().toISOString();
-  const record: RuntimeActivationRecord = { ...input, activation_id: input.activation_id ?? runtimeRecordId('act'), requested_at: input.requested_at ?? at, updated_at: input.updated_at ?? at };
-  return updateRuntimeStateLockedDeriving(projectRoot, (state) => {
-    const existing = input.activation_id
-      ? state.runtime_activations.find((activation) => activation.activation_id === input.activation_id)
-      : state.runtime_activations.find((activation) => activation.idempotency_key === input.idempotency_key && !['completed', 'failed', 'blocked', 'cancelled'].includes(activation.status));
-    if (existing) {
-      const updated = { ...existing, ...input, activation_id: existing.activation_id, requested_at: existing.requested_at, updated_at: at };
-      return {
-        state: { ...state, runtime_activations: state.runtime_activations.map((activation) => activation.activation_id === existing.activation_id ? updated : activation), updated_at: at },
-        result: updated,
-      };
-    }
-    return {
-      state: { ...state, runtime_activations: [...state.runtime_activations, record], updated_at: at },
-      result: record,
-    };
-  });
 }

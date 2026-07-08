@@ -38,20 +38,8 @@ export async function start_project(ctx: ToolContext, params: Record<string, nev
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.start_project', safety_class: 'low', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
     if (!ctx.runtime) return toolFailure('Active runtime is not available.');
     const data = await ctx.runtime.startProject('analyst');
-    if (data.success) return { success: true, data };
-    return toolFailure(data.error.message, {
-      command_id: data.command.command_id,
-      command: data.command.command,
-      status: data.command.status,
-      error_code: data.error.code,
-      accepted_values: data.error.acceptedValues ?? [],
-      run_id: data.error.runId ?? null,
-      session_id: data.error.sessionId ?? null,
-      card_id: data.error.cardId ?? null,
-      parent_card_id: data.error.parentCardId ?? null,
-      child_card_id: data.error.childCardId ?? null,
-      docs_ref: data.error.docsRef ?? null,
-    });
+    if (!data.error) return { success: true, data };
+    return toolFailure(data.error, { status: data.status, started: data.started, stopped: data.stopped });
   } });
 }
 

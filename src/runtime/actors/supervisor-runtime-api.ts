@@ -1,16 +1,16 @@
 import { EventBus } from '../../events/index.js';
-import { cardRecordSchema, createActionableErrorEnvelope, type CardRecord } from '../../schemas/index.js';
+import { cardRecordSchema, type CardRecord } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorRecoveryPlan, type ActorStartupRecoveryReport } from './actor-recovery.js';
 import { cardActorId, plannerActorId, parseLlmActorId } from './ids.js';
-import { CardActor, type CardActivationOutcome, type CardActorDeps, type CardActorStorePort } from './card-actor.js';
+import { CardActor, type CardActorDeps, type CardActorStorePort } from './card-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { toPublicAgentPhase, toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import { appendNotificationToActorSnapshot } from './snapshots.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import type { NotifyCardResult, RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
-import type { RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
+import type { RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
 import type { ActorActiveWork, ActorPauseMode, ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
@@ -21,8 +21,6 @@ import type { ProcessRunner } from '../process-runner.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from '../runtime-control-state.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
-
-type RuntimeRunAppendInput = Omit<RuntimeRunRecord, 'run_id' | 'started_at' | 'updated_at'> & { run_id?: string; started_at?: string; updated_at?: string };
 
 export interface ProjectRootCardReader {
   read(cardId: string): { id: string; type: string } | null;
@@ -51,9 +49,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private readonly runtimeState: RuntimeStateMutationPort;
   private readonly runtimeGate: RuntimeGate;
   private started = false;
-  private commandCounter = 0;
   private currentCardId: string | null = null;
-  private activeRun: RuntimeRunRecord | null = null;
   private startupRecoveryReport: ActorStartupRecoveryReport | null = null;
   private readonly cardActors = new Map<string, CardActor>();
 
@@ -99,7 +95,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     await this.options.processRunner.stopRuntimeOwned('runtime shutdown', { graceMs: 5000 });
     this.started = false;
     this.currentCardId = null;
-    this.activeRun = null;
   }
 
   pause(): void {
@@ -114,7 +109,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (!this.started) throw new Error('Cannot resume runtime before it is started.');
     const status = this.runtimeStatus() ?? 'stopped';
     if (status !== 'paused') throw new Error(`Cannot resume runtime from '${status}'.`);
-    const activeRunStartedAt = this.activeRun?.started_at ?? this.now();
+    const activeRunStartedAt = readRuntimeState(this.options.projectRoot)?.active_card_run?.started_at ?? this.now();
     this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildResumeRuntimeStatePatch(readRuntimeState(this.options.projectRoot)), status: 'running', active_card_run: this.activeCardRun(activeRunStartedAt), updated_at: this.now() } });
     this.runtimeGate.open();
   }
@@ -137,53 +132,28 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     return { ok: true };
   }
 
-  async startProject(source: RuntimeCommandSource = 'operator'): Promise<StartProjectResult> {
+  async startProject(_source: RuntimeCommandSource = 'operator'): Promise<StartProjectResult> {
     await this.start();
-    const rejection = this.startProjectRejection(source);
+    const rejection = this.startProjectRejection(_source);
     if (rejection) return rejection;
 
-    const command = this.runtimeState.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source });
     const startedAt = this.now();
     this.runtimeGate.open();
     this.currentCardId = PROJECT_CARD_ID;
-    const run = this.runtimeState.apply({ kind: 'appendRuntimeRun', run: this.runRecordInput(command.command_id, startedAt, null, 'pending', 'running') });
-    this.activeRun = run;
-    this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'running', active_card_run: this.activeCardRun(startedAt), updated_at: startedAt } });
-    void this.runRootProject(command, run);
-    return {
-      success: true,
-      command,
-      run,
-    };
+    const runtime = this.runtimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...(readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt)), status: 'running', active_card_run: this.activeCardRun(startedAt), updated_at: startedAt } });
+    void this.runRootProject(startedAt);
+    return { runtime, status: runtime.status, started: true, stopped: false };
   }
 
-  async stopProject(source: RuntimeCommandSource = 'operator'): Promise<StopProjectResult> {
+  async stopProject(_source: RuntimeCommandSource = 'operator'): Promise<StopProjectResult> {
     await this.start();
-    const command = this.command('stop_project', 'completed', source);
     const stoppedAt = this.now();
-    const runToCancel = this.activeRun;
     this.cardActors.get(PROJECT_CARD_ID)?.cancel({ reason: 'runtime_project_cancelled', cancelled_at: stoppedAt });
     await this.options.processRunner.stopRuntimeOwned('runtime_project_cancelled', { graceMs: 5000 });
-    const run = runToCancel
-      ? this.runtimeState.apply({
-          kind: 'updateRuntimeRun',
-          runId: runToCancel.run_id,
-          updates: {
-            phase: 'cancelled',
-            runtime_status: 'cancelled',
-            finished_at: stoppedAt,
-            outcome: { kind: 'completed', result: 'cancelled', finished_at: stoppedAt },
-          },
-        }) ?? undefined
-      : undefined;
     this.currentCardId = null;
-    this.activeRun = null;
-    this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'stopped', active_card_run: null, updated_at: stoppedAt } });
-    return {
-      success: true,
-      command,
-      run,
-    };
+    const current = readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(stoppedAt);
+    const runtime = this.runtimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...current, status: 'stopped', active_card_run: null, updated_at: stoppedAt } });
+    return { runtime, status: runtime.status, started: false, stopped: true };
   }
 
   subscribe(options: SubscriptionOptions): Subscription {
@@ -228,57 +198,14 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     };
   }
 
-  private command(command: RuntimeCommandRecord['command'], status: RuntimeCommandRecord['status'], source: RuntimeCommandSource): RuntimeCommandRecord {
-    this.commandCounter++;
-    const at = this.now();
-    return {
-      command_id: `runtime-command-${this.commandCounter}`,
-      command,
-      status,
-      requested_at: at,
-      completed_at: at,
-      source,
-      error: null,
-    };
-  }
-
-  private startProjectRejection(source: RuntimeCommandSource): StartProjectResult | null {
-    if (this.runtimeStatus() === 'running') return this.rejectStart(source, 'runtime_already_running', 'Cannot start runtime: project execution is already running.', 'Wait for the active run to finish or stop it before starting again.');
-    if (this.activeRun?.runtime_status === 'running') return this.rejectStart(source, 'runtime_run_already_active', `Cannot start runtime: run '${this.activeRun.run_id}' is already active.`, 'Wait for the active run to finish or stop it before starting again.');
+  private startProjectRejection(_source: RuntimeCommandSource): StartProjectResult | null {
+    if (this.runtimeStatus() === 'running') return this.rejectStart('Cannot start runtime: project execution is already running.');
     return null;
   }
 
-  private rejectStart(source: RuntimeCommandSource, code: string, message: string, nextAction: string): StartProjectResult {
-    const command = this.runtimeState.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source });
-    const error = createActionableErrorEnvelope({
-      code,
-      message,
-      currentState: { runtimeStatus: this.runtimeStatus(), activeRunId: this.activeRun?.run_id ?? null },
-      nextAction,
-      docsRef: 'docs/architecture/micro-actor-runtime-design.md',
-      runId: this.activeRun?.run_id ?? null,
-      cardId: PROJECT_CARD_ID,
-    });
-    const rejected = this.runtimeState.apply({ kind: 'rejectRuntimeCommand', command, error, at: this.now() });
-    return { success: false, command: rejected, error };
-  }
-
-  private runRecordInput(commandId: string, startedAt: string, finishedAt: string | null, phase: RuntimeRunRecord['phase'], runtimeStatus: RuntimeRunRecord['runtime_status']): RuntimeRunAppendInput {
-    return {
-      kind: 'root',
-      card_id: PROJECT_CARD_ID,
-      ownership: { kind: 'direct', source: 'project_root' },
-      parent_run_id: null,
-      command_id: commandId,
-      activation_id: null,
-      phase,
-      runtime_status: runtimeStatus,
-      session_id: plannerActorId(PROJECT_CARD_ID),
-      started_at: startedAt,
-      updated_at: finishedAt ?? startedAt,
-      finished_at: finishedAt,
-      outcome: null,
-    };
+  private rejectStart(message: string): StartProjectResult {
+    const runtime = readRuntimeState(this.options.projectRoot);
+    return { runtime, status: runtime?.status ?? 'stopped', started: false, stopped: runtime?.status !== 'running', error: message };
   }
 
   private activeCardRun(startedAt: string): RuntimeState['active_card_run'] {
@@ -299,78 +226,32 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     };
   }
 
-  private async runRootProject(_command: RuntimeCommandRecord, run: RuntimeRunRecord): Promise<void> {
+  private async runRootProject(startedAt: string): Promise<void> {
     try {
       const actor = this.cardActor(PROJECT_CARD_ID);
-      const outcome = await actor.activate({ kind: 'root' });
-      this.finalizePersistedRootRun(run, outcome, this.now());
+      await actor.activate({ kind: 'root' });
     } catch (err) {
-      try {
-        this.failPersistedRootRun(run, err, this.now());
-      } catch {
-        // Runtime command dispatch must never surface as an unhandled rejection.
-      }
+      const at = this.now();
+      const current = readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt);
+      this.runtimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...current, status: 'error', active_card_run: null, updated_at: at } });
     } finally {
-      if (this.activeRun?.run_id === run.run_id) {
-        this.currentCardId = null;
-        this.activeRun = null;
-        this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'stopped', active_card_run: null, updated_at: this.now() } });
-      }
+      this.currentCardId = null;
+      const current = readRuntimeState(this.options.projectRoot);
+      if (current?.status === 'running') this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'stopped', active_card_run: null, updated_at: this.now() } });
     }
-  }
-
-  private finalizePersistedRootRun(run: RuntimeRunRecord, outcome: CardActivationOutcome, finishedAt: string): RuntimeRunRecord | null {
-    const existing = this.persistedRun(run.run_id);
-    if (existing && this.isTerminalRun(existing)) return existing;
-    const updates = this.finalRootRunUpdates(run, outcome, finishedAt);
-    const updated = this.runtimeState.apply({ kind: 'updateRuntimeRun', runId: run.run_id, updates });
-    if (this.activeRun?.run_id === run.run_id && updated) this.activeRun = updated;
-    return updated;
-  }
-
-  private failPersistedRootRun(run: RuntimeRunRecord, err: unknown, finishedAt: string): RuntimeRunRecord | null {
-    const existing = this.persistedRun(run.run_id);
-    if (existing && this.isTerminalRun(existing)) return existing;
-    const error = err instanceof Error ? err.message : String(err);
-    const updated = this.runtimeState.apply({
-      kind: 'updateRuntimeRun',
-      runId: run.run_id,
-      updates: { phase: 'failed', runtime_status: 'stopped', finished_at: finishedAt, outcome: { kind: 'completed', result: 'failed', error: error || 'Runtime root execution failed.', finished_at: finishedAt } },
-    });
-    if (this.activeRun?.run_id === run.run_id && updated) this.activeRun = updated;
-    return updated;
-  }
-
-  private finalRootRunUpdates(_run: RuntimeRunRecord, outcome: CardActivationOutcome, finishedAt: string): Partial<RuntimeRunRecord> {
-    if (outcome.status === 'done') return { phase: 'completed', runtime_status: 'stopped', finished_at: finishedAt, outcome: { kind: 'completed', result: 'done', finished_at: finishedAt } };
-    if (outcome.status === 'failed') return { phase: 'failed', runtime_status: 'stopped', finished_at: finishedAt, outcome: { kind: 'completed', result: 'failed', error: outcome.summary, finished_at: finishedAt } };
-    if (outcome.status === 'cancelled') return { phase: 'cancelled', runtime_status: 'cancelled', finished_at: finishedAt, outcome: { kind: 'completed', result: 'cancelled', finished_at: finishedAt } };
-    return { phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: outcome.summary } };
-  }
-
-  private persistedRun(runId: string): RuntimeRunRecord | null {
-    return readRuntimeState(this.options.projectRoot)?.runtime_runs.find((run) => run.run_id === runId) ?? null;
-  }
-
-  private isTerminalRun(run: RuntimeRunRecord): boolean {
-    return run.runtime_status !== 'running' || ['completed', 'failed', 'blocked', 'cancelled', 'stopped'].includes(run.phase);
   }
 
   private reconcileStaleRootRuns(): void {
     const state = readRuntimeState(this.options.projectRoot);
     if (!state) return;
     const at = this.now();
-    for (const run of state.runtime_runs) {
-      if (run.kind !== 'root' || run.runtime_status !== 'running') continue;
-      this.runtimeState.apply({
-        kind: 'updateRuntimeRun',
-        runId: run.run_id,
-        updates: { phase: 'failed', runtime_status: 'stopped', finished_at: at, outcome: { kind: 'completed', result: 'failed', error: 'Runtime process restarted before this run completed.', finished_at: at } },
-      });
-    }
-    if (state.runtime_runs.some((run) => run.kind === 'root' && run.runtime_status === 'running') || state.status !== 'stopped' || state.active_card_run) {
+    if (state.status !== 'stopped' || state.active_card_run) {
       this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'stopped', active_card_run: null, updated_at: at } });
     }
+  }
+
+  private activeRuntimeState(nowIso: string): RuntimeState {
+    return { status: 'running', project_id: 'project', pid: process.pid, started_at: nowIso, active_card_run: this.activeCardRun(nowIso), updated_at: nowIso, last_tick_at: null };
   }
 
   private cardActor(cardId: string): CardActor {

@@ -22,9 +22,6 @@ function runtimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
     started_at: '2026-01-01T00:00:00.000Z',
     active_card_run: null,
     updated_at: '2026-01-01T00:00:00.000Z',
-    runtime_commands: [],
-    runtime_runs: [],
-    runtime_activations: [],
     ...overrides,
   } as RuntimeState;
 }

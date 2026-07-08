@@ -61,9 +61,6 @@ export class CardsReadModelService {
       active_card_run: null,
       updated_at: now,
       last_tick_at: status.lastTickAt,
-      runtime_commands: [],
-      runtime_runs: [],
-      runtime_activations: [],
     };
   }
 

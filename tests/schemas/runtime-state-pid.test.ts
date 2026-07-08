@@ -7,9 +7,6 @@ const baseRuntimeState = () => ({
   started_at: '2026-05-23T00:00:00.000Z',
   active_card_run: null,
   updated_at: '2026-05-23T00:00:00.000Z',
-  runtime_commands: [],
-  runtime_runs: [],
-  runtime_activations: [],
 });
 
 describe('runtimeStateSchema requires a positive integer pid', () => {

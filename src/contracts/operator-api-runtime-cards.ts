@@ -6,9 +6,6 @@ import {
   cardHistoryEntrySchema,
   cardHistoryHeaderSchema,
   runtimeStateSchema,
-  runtimeCommandRecordSchema,
-  runtimeRunRecordSchema,
-  runtimeActivationRecordSchema,
 } from '../schemas/index.js';
 import {
   ApiErrorSchema,
@@ -27,16 +24,7 @@ export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
   cardId: z.string().optional(),
 });
 
-export const RuntimeSummarySchema = z.object({
-  currentRun: runtimeRunRecordSchema.nullable(),
-  activeChildRuns: z.array(runtimeRunRecordSchema),
-  activations: z.array(runtimeActivationRecordSchema),
-  lastCommand: runtimeCommandRecordSchema.nullable(),
-});
-
-export const RuntimeRunRecordSchema = runtimeRunRecordSchema;
-export const RuntimeActivationRecordSchema = runtimeActivationRecordSchema;
-export const RuntimeCommandRecordSchema = runtimeCommandRecordSchema;
+export const RuntimeSummarySchema = z.object({}).strict();
 export const CardPermissionFieldsSchema = z.object({ allowedActions: z.array(cardActionSchema).optional() });
 
 export const CardIdParamsSchema = z.object({ id: z.string().min(1) });
@@ -92,9 +80,6 @@ export const RuntimeStatusResponseSchema = z.object({
   goalCount: z.number().int().nonnegative(),
   lastTickAt: z.string().nullable(),
   pid: z.number().int().positive(),
-  lastCommand: runtimeCommandRecordSchema.nullable(),
-  activeRun: runtimeRunRecordSchema.nullable(),
-  latestRun: runtimeRunRecordSchema.nullable(),
   actorRuntime: z.object({
     pauseMode: actorPauseModeSchema,
     activeWork: z.enum(['none', 'model_invocation', 'shutdown', 'unknown']),

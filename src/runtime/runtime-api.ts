@@ -1,21 +1,18 @@
 import type { Subscription, SubscriptionOptions } from '../events/index.js';
-import type { ActionableErrorEnvelope, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../schemas/index.js';
+import type { RuntimeState, RuntimeStatus } from '../schemas/index.js';
 import type { ActorRuntimeReadModel } from '../application/read-models/actor-runtime-read-model.js';
 import type { CardNotification } from './actors/card-actor.js';
 
 export type RuntimeCommandSource = 'operator' | 'tool' | 'runtime' | 'analyst';
-export type StartProjectResult =
-  | {
-      success: true;
-      command: RuntimeCommandRecord;
-      run: RuntimeRunRecord;
-    }
-  | { success: false; command: RuntimeCommandRecord; error: ActionableErrorEnvelope };
-export interface StopProjectResult {
-  success: true;
-  command: RuntimeCommandRecord;
-  run?: RuntimeRunRecord;
+export interface RuntimeControlStateResult {
+  runtime: RuntimeState | null;
+  status: RuntimeStatus;
+  started: boolean;
+  stopped: boolean;
+  error?: string;
 }
+export type StartProjectResult = RuntimeControlStateResult;
+export type StopProjectResult = RuntimeControlStateResult;
 
 export type NotifyCardResult =
   | { ok: true }

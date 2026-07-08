@@ -20,7 +20,7 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await expect(page.getByText('Dashboard').first()).toBeVisible();
   await expect(page.getByText('saivage-v3')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Runtime Console' })).toBeVisible();
-  await expect(page.getByText('Root Run')).toBeVisible();
+  await expect(page.getByText('Runtime Status')).toBeVisible();
   await expect(page.getByText('planner-smok...')).toBeVisible();
   await expect(page.getByText('Total Cards')).toBeVisible();
   await expect(page.getByText(syntheticToken)).toHaveCount(0);
