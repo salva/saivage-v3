@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 import {
   buildActorRecoveryPlan,
+  appendConversationMessage,
   appendLlmTurnFinished,
   projectActorRecovery,
   readConversationMessages,
@@ -524,6 +525,54 @@ describe('actor recovery plan', () => {
     expect(toolResults).toEqual([expect.objectContaining({ content: expect.stringContaining('inspect child card state before retrying') })]);
   }));
 
+  it('fails a running child activation wait when parent continuation registration is unavailable', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    const child = store.create({ type: 'code', parent: cardId, depth: 2, title: 'child', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+    store.setStatus(child.id, 'running');
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'activate_card') });
+    saveSnapshot(projectRoot, `card:${child.id}`, 'card', 'running', { cardId: child.id, active_reconstruction: { ...cardActive(child.id), caller: { kind: 'parent', cardId, sessionId: `planner:${cardId}` } } });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'activate_card', { card_id: child.id });
+
+    const report = runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
+    const toolResults = readConversationMessages(projectRoot, `planner:${cardId}`).filter((message) => message.kind === 'tool_result');
+
+    expect(report.incidents).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'fail_unrelinked_activation_wait', message: expect.stringContaining('no deterministic child-completion registration surface') })]));
+    expect(toolResults).toEqual([expect.objectContaining({ content: expect.stringContaining(child.id) })]);
+  }));
+
+  it('settles tool_error rows and removes stale provider snapshots before reissue', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId, active_reconstruction: llmActive(cardId, `planner:${cardId}:1`) });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'read', { path: 'README.md' }, 'call-1', false);
+    appendConversationMessage(projectRoot, {
+      id: `planner:${cardId}:1:tool-error:call-1`,
+      session_id: `planner:${cardId}`,
+      role: 'tool',
+      kind: 'tool_error',
+      content: 'read failed',
+      tool: 'read',
+      tool_call_id: 'call-1',
+      round_id: 'r-user-11111111111111111111111111111111',
+      message_index: 2,
+      block_index: 0,
+      timestamp: '2026-06-12T00:00:00.000Z',
+    });
+
+    const report = runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
+    const toolResults = readConversationMessages(projectRoot, `planner:${cardId}`).filter((message) => message.kind === 'tool_result');
+
+    expect(report.incidents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'cleanup_provider_snapshot_for_tool_error_settlement', cardId }),
+      expect.objectContaining({ action: 'settle_recovery_tool_error', cardId }),
+    ]));
+    expect(toolResults).toEqual([expect.objectContaining({ content: expect.stringContaining('read failed') })]);
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain(`planner:${cardId}`);
+  }));
+
   it('appends a recovery repair directive for assistant text pending conversations', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
@@ -533,7 +582,7 @@ describe('actor recovery plan', () => {
 
     const report = runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
 
-    expect(report.incidents).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'repair_assistant_text_pending', cardId })]));
+    expect(report.incidents).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'repair_assistant_text_pending_provider_snapshot', cardId })]));
     expect(readConversationMessages(projectRoot, `planner:${cardId}`).map((message) => message.kind)).toContain('model_repair');
   }));
 
