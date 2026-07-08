@@ -1,11 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { abandonStalePendingToolCalls, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalProjectedToolResult, loggedToolCallKey, readLoggedToolCall, sourceInputIdFromToolCallMessageId, sourceInputIdFromToolErrorMessageId, sourceInputIdFromToolResultMessageId } from '../../../src/runtime/actors/llm-delivery-log.js';
+import { abandonStalePendingToolCalls, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalProjectedToolResult, appendToolErrorSettlementResults, loggedToolCallKey, readLoggedToolCall, sourceInputIdFromToolCallMessageId, sourceInputIdFromToolErrorMessageId, sourceInputIdFromToolResultMessageId } from '../../../src/runtime/actors/llm-delivery-log.js';
 import { appendConversationMessage, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
-import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
+import { activeVersionPath, writeCompactedConversationVersion } from '../../../src/runtime/actors/conversation-index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
@@ -38,6 +38,28 @@ function jsonl(path: string): Array<Record<string, unknown>> {
   if (!existsSync(path)) return [];
   return readFileSync(path, 'utf-8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
 }
+
+function appendToolError(projectRoot: string, sessionId: string, sourceInputId: string, toolCallId: string, tool = 'emit_result', content = 'tool failed'): void {
+  appendConversationMessage(projectRoot, {
+    id: `${sourceInputId}:tool-error:${toolCallId}`,
+    session_id: sessionId,
+    role: 'tool',
+    kind: 'tool_error',
+    content,
+    tool,
+    tool_call_id: toolCallId,
+    round_id: 'r-user-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    message_index: 2,
+    block_index: 0,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+function toolResults(projectRoot: string, sessionId: string): AgentToolResult[] {
+  return readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_result') as AgentToolResult[];
+}
+
+type AgentToolResult = ReturnType<typeof readConversationMessages>[number] & { kind: 'tool_result' };
 
 describe('llm delivery log recovery helpers', () => {
   it('logs the outbound system prompt before turn activity when requested', () => withTempProject((projectRoot) => {
@@ -131,10 +153,102 @@ describe('llm delivery log recovery helpers', () => {
     expect(incidents.map((incident) => incident.source_input_id)).toEqual(['planner:G-1:1']);
     const toolResults = readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_result');
     expect(toolResults).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'planner:G-1:1:tool:0:tool-result:call_dup', content: JSON.stringify({ success: false, error: 'stale' }) }),
+      expect.objectContaining({ id: 'planner:G-1:1:tool:0:tool-result:call_dup', content: JSON.stringify({ success: false, error: 'stale', data: { tool: 'emit_result' } }) }),
       expect.objectContaining({ id: 'planner:G-1:2:tool:1:tool-result:call_dup', content: JSON.stringify({ success: true }) }),
     ]));
     expect(toolResults.some((message) => message.id === 'planner:G-1:2:tool:0:tool-result:call_dup')).toBe(false);
+  }));
+
+  it('ignores inactive-version tool calls after compaction when abandoning stale calls', () => withTempProject((projectRoot) => {
+    appendLlmTurnFinished(projectRoot, input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-frozen', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    writeCompactedConversationVersion({
+      projectRoot,
+      sessionId: 'planner:G-1',
+      sourceVersion: 1,
+      content: '',
+      compactedThrough: { message_id: 'summary', round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', timestamp: new Date().toISOString() },
+      summaryIds: [],
+      compactionGeneration: 1,
+      bands: { merge_line: 1, summary_line: 1, trigger: 1, snap: 'keep_straddler_verbatim' },
+    });
+
+    expect(abandonStalePendingToolCalls(projectRoot)).toEqual([]);
+    expect(jsonl(activeVersionPath(projectRoot, 'planner:G-1', 2))).toEqual([]);
+  }));
+
+  it('appends provider-visible failed results for valid tool_error-only settlements', () => withTempProject((projectRoot) => {
+    appendLlmTurnFinished(projectRoot, input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendToolError(projectRoot, 'planner:G-1', 'planner:G-1:1', 'call-error', 'emit_result', 'provider-side tool failure');
+
+    expect(abandonStalePendingToolCalls(projectRoot)).toEqual([]);
+    const settled = appendToolErrorSettlementResults(projectRoot);
+    expect(settled).toEqual([expect.objectContaining({ source_input_id: 'planner:G-1:1', tool_call_id: 'call-error', error: 'provider-side tool failure' })]);
+    expect(appendToolErrorSettlementResults(projectRoot)).toEqual([]);
+    const results = toolResults(projectRoot, 'planner:G-1');
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: 'planner:G-1:1:tool:0:tool-result:call-error', tool_call_id: 'call-error' });
+    expect(JSON.parse(results[0]!.content)).toMatchObject({ success: false, error: 'provider-side tool failure', data: { tool: 'emit_result' } });
+    expect(conversationMessagesForModel(readConversationMessages(projectRoot, 'planner:G-1')).map((message) => message.kind)).toEqual(['tool_call', 'tool_result']);
+  }));
+
+  it('matches tool_error settlements by full source-input triple and leaves collisions dangling', () => withTempProject((projectRoot) => {
+    appendLlmTurnFinished(projectRoot, input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendLlmTurnFinished(projectRoot, input('planner:G-1:2'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done' }) } }] });
+    appendToolError(projectRoot, 'planner:G-1', 'planner:G-1:2', 'call_dup');
+
+    expect(appendToolErrorSettlementResults(projectRoot).map((record) => record.source_input_id)).toEqual(['planner:G-1:2']);
+    expect(abandonStalePendingToolCalls(projectRoot, 'stale').map((record) => record.source_input_id)).toEqual(['planner:G-1:1']);
+    expect(toolResults(projectRoot, 'planner:G-1').map((message) => message.id).sort()).toEqual([
+      'planner:G-1:1:tool:0:tool-result:call_dup',
+      'planner:G-1:2:tool:0:tool-result:call_dup',
+    ]);
+  }));
+
+  it('ignores invalid tool_error rows and appends interrupted results for still-dangling calls', () => withTempProject((projectRoot) => {
+    appendLlmTurnFinished(projectRoot, input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-invalid-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendFileSync(activeVersionPath(projectRoot, 'planner:G-1', 1), `${JSON.stringify({
+      id: 'planner:G-1:1:tool-error:call-invalid-error',
+      session_id: 'planner:G-1',
+      role: 'tool',
+      kind: 'tool_error',
+      content: 'invalid row',
+      tool_call_id: 'call-invalid-error',
+      round_id: 'r-user-cccccccccccccccccccccccccccccccc',
+      message_index: 2,
+      block_index: 0,
+      timestamp: new Date().toISOString(),
+    })}\n`);
+
+    expect(appendToolErrorSettlementResults(projectRoot)).toEqual([]);
+    expect(abandonStalePendingToolCalls(projectRoot, 'stale')).toEqual([expect.objectContaining({ tool_call_id: 'call-invalid-error' })]);
+    const activeRows = jsonl(activeVersionPath(projectRoot, 'planner:G-1', 1));
+    const result = activeRows.find((row) => row.kind === 'tool_result');
+    expect(JSON.parse(String(result?.content))).toEqual({ success: false, error: 'stale', data: { tool: 'emit_result' } });
+  }));
+
+  it('emits actionable payloads for activation, process, workspace, and generic interrupted calls', () => withTempProject((projectRoot) => {
+    const calls = [
+      { id: 'call-activate', name: 'activate_card', args: { child_card_id: 'code-1' } },
+      { id: 'call-process', name: 'wait_process', args: { process_id: 'proc-1' } },
+      { id: 'call-workspace', name: 'write_file', args: { path: 'src/index.ts' } },
+      { id: 'call-generic', name: 'custom_tool', args: { value: true } },
+    ];
+    calls.forEach((call, index) => appendLlmTurnFinished(projectRoot, input(`planner:G-1:${index + 1}`), { kind: 'tool_calls', tool_calls: [{ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] }));
+
+    expect(abandonStalePendingToolCalls(projectRoot, 'stale')).toHaveLength(4);
+    const payloads = Object.fromEntries(toolResults(projectRoot, 'planner:G-1').map((message) => [message.tool_call_id, JSON.parse(message.content)]));
+    expect(payloads['call-activate']).toMatchObject({ success: false, data: { tool: 'activate_card', child_card_id: 'code-1', instruction: 'inspect child card state before retrying' } });
+    expect(payloads['call-process']).toMatchObject({ success: false, data: { tool: 'wait_process', process_id: 'proc-1', instruction: 'process no longer exists, launch a new one if needed' } });
+    expect(payloads['call-workspace']).toMatchObject({ success: false, data: { tool: 'write_file', target_path: 'src/index.ts' } });
+    expect(payloads['call-generic']).toEqual({ success: false, error: 'stale', data: { tool: 'custom_tool' } });
+  }));
+
+  it('preserves relinked activation triples during interrupted settlement', () => withTempProject((projectRoot) => {
+    appendLlmTurnFinished(projectRoot, input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-preserved-activation', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ child_card_id: 'code-1' }) } }] });
+    const preserve = new Set([loggedToolCallKey({ session_id: 'planner:G-1', source_input_id: 'planner:G-1:1', tool_call_id: 'call-preserved-activation' })]);
+
+    expect(abandonStalePendingToolCalls(projectRoot, 'stale', preserve)).toEqual([]);
+    expect(toolResults(projectRoot, 'planner:G-1')).toEqual([]);
   }));
 
   it('preserves reviewer pending tool calls by session-scoped key', () => withTempProject((projectRoot) => {

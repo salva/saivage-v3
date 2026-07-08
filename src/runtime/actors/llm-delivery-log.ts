@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
@@ -7,9 +8,23 @@ import type { ProviderExchangeAttempt, ProviderExchangePayload } from '../../con
 import { serializeProviderExchangePayload } from '../../contracts/provider-exchange.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
-import { appendConversationMessage, appendProviderExchangeMessage, listConversationSessionIds, readConversationMessages } from './conversation-store.js';
+import { appendConversationMessage, appendProviderExchangeMessage, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from './conversation-store.js';
+import { activeVersionPath, readConversationIndex } from './conversation-index.js';
 import { agentIdFromSessionId, cardIdFromSessionId } from './ids.js';
-export { sourceInputIdFromToolErrorMessageId } from '../../schemas/message-identity.js';
+import {
+  loggedToolCallIdentity,
+  loggedToolCallKey,
+  loggedToolErrorIdentity,
+  loggedToolResultIdentity,
+  sourceInputIdFromToolCallMessageId,
+  sourceInputIdFromToolResultMessageId,
+} from '../../schemas/message-identity.js';
+export {
+  loggedToolCallKey,
+  sourceInputIdFromToolCallMessageId,
+  sourceInputIdFromToolErrorMessageId,
+  sourceInputIdFromToolResultMessageId,
+} from '../../schemas/message-identity.js';
 
 const toolDeliveryRecordSchema = z.object({
   delivery_id: z.string().min(1),
@@ -32,6 +47,12 @@ export interface AbandonedToolCallRecord {
   tool_call_id: string;
   tool_name: string;
   error: string;
+}
+
+export interface SyntheticFailedToolResultPayload {
+  success: false;
+  error: string;
+  data?: unknown;
 }
 
 export interface LoggedToolCall {
@@ -173,25 +194,30 @@ export function appendTerminalProjectedToolResult(projectRoot: string, record: {
 export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runtime restarted before the pending tool call reached a terminal delivery state.', preserveKeys: ReadonlySet<string> = new Set()): AbandonedToolCallRecord[] {
   const abandoned: AbandonedToolCallRecord[] = [];
   for (const sessionId of listConversationSessionIds(projectRoot)) {
-    const messages = readConversationMessages(projectRoot, sessionId);
+    const messages = readActiveVersionMessagesForSettlement(projectRoot, sessionId);
     const settledKeys = new Set<string>();
     for (const message of messages) {
-      if (message.kind !== 'tool_result' || !message.tool_call_id) continue;
-      const sourceInputId = sourceInputIdFromToolResultMessageId(message.id, message.tool_call_id);
-      settledKeys.add(loggedToolCallKey({ session_id: sessionId, source_input_id: sourceInputId, tool_call_id: message.tool_call_id }));
+      const result = validToolResultIdentity(message);
+      if (result) settledKeys.add(loggedToolCallKey(result));
+      const error = validToolErrorIdentity(message);
+      if (error) settledKeys.add(loggedToolCallKey(error));
     }
     for (const message of messages) {
       if (message.kind !== 'tool_call' || !message.tool_call_id) continue;
       if (!message.tool) throw new Error(`Logged tool call '${message.id}' in session '${sessionId}' is missing a tool name.`);
-      const sourceInputId = sourceInputIdFromToolCallMessageId(message.id);
-      const key = loggedToolCallKey({ session_id: sessionId, source_input_id: sourceInputId, tool_call_id: message.tool_call_id });
+      const callIdentity = validToolCallIdentity(message);
+      if (!callIdentity) throw new Error(`Logged tool call '${message.id}' in session '${sessionId}' has malformed identity.`);
+      const sourceInputId = callIdentity.source_input_id;
+      const key = loggedToolCallKey(callIdentity);
       if (settledKeys.has(key) || preserveKeys.has(key)) continue;
-      appendSyntheticToolResult(projectRoot, {
+      const payload = syntheticFailedToolResultPayload(message, reason);
+      appendProviderVisibleSyntheticFailedToolResult(projectRoot, {
         sessionId,
         sourceInputId,
         toolCallId: message.tool_call_id,
         toolName: message.tool,
-        result: { success: false, error: reason },
+        error: payload.error,
+        data: payload.data,
       });
       settledKeys.add(key);
       abandoned.push({
@@ -207,27 +233,46 @@ export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runt
   return abandoned;
 }
 
-export function loggedToolCallKey(record: { session_id: string; source_input_id: string; tool_call_id: string }): string {
-  return [record.session_id, record.source_input_id, record.tool_call_id].join(':');
-}
-
-export function sourceInputIdFromToolCallMessageId(id: string): string {
-  const delimiter = ':tool-call:';
-  const index = id.indexOf(delimiter);
-  if (index <= 0) throw new Error(`Malformed tool_call message id '${id}': missing '${delimiter}'.`);
-  return id.slice(0, index);
-}
-
-export function sourceInputIdFromToolResultMessageId(id: string, toolCallId?: string): string {
-  const suffix = toolCallId ? `:tool-result:${toolCallId}` : ':tool-result:';
-  const suffixIndex = toolCallId ? id.lastIndexOf(suffix) : id.indexOf(suffix);
-  if (suffixIndex <= 0) throw new Error(`Malformed tool_result message id '${id}': missing '${suffix}'.`);
-  const deliveryInputId = id.slice(0, suffixIndex);
-  const deliveryMarker = deliveryInputId.lastIndexOf(':tool:');
-  if (deliveryMarker <= 0) throw new Error(`Malformed tool_result message id '${id}': missing delivery input ':tool:<counter>' segment.`);
-  const counter = deliveryInputId.slice(deliveryMarker + ':tool:'.length);
-  if (!/^\d+$/.test(counter)) throw new Error(`Malformed tool_result message id '${id}': delivery counter '${counter}' is not numeric.`);
-  return deliveryInputId.slice(0, deliveryMarker);
+export function appendToolErrorSettlementResults(projectRoot: string): AbandonedToolCallRecord[] {
+  const appended: AbandonedToolCallRecord[] = [];
+  for (const sessionId of listConversationSessionIds(projectRoot)) {
+    const messages = readActiveVersionMessagesForSettlement(projectRoot, sessionId);
+    const resultKeys = new Set<string>();
+    const errorByKey = new Map<string, AgentMessage>();
+    for (const message of messages) {
+      const result = validToolResultIdentity(message);
+      if (result) resultKeys.add(loggedToolCallKey(result));
+      const error = validToolErrorIdentity(message);
+      if (error) errorByKey.set(loggedToolCallKey(error), message);
+    }
+    for (const message of messages) {
+      if (message.kind !== 'tool_call' || !message.tool) continue;
+      const callIdentity = validToolCallIdentity(message);
+      if (!callIdentity) throw new Error(`Logged tool call '${message.id}' in session '${sessionId}' has malformed identity.`);
+      const key = loggedToolCallKey(callIdentity);
+      const toolError = errorByKey.get(key);
+      if (!toolError || resultKeys.has(key)) continue;
+      const errorText = toolError.content || `Recovered prior ${toolError.tool ?? message.tool} tool error before provider reissue.`;
+      appendProviderVisibleSyntheticFailedToolResult(projectRoot, {
+        sessionId,
+        sourceInputId: callIdentity.source_input_id,
+        toolCallId: callIdentity.tool_call_id,
+        toolName: message.tool,
+        error: errorText,
+        data: syntheticFailedToolResultPayload(message, errorText).data,
+      });
+      resultKeys.add(key);
+      appended.push({
+        agent_id: agentIdFromSessionId(sessionId),
+        card_id: cardIdFromSessionId(sessionId),
+        source_input_id: callIdentity.source_input_id,
+        tool_call_id: callIdentity.tool_call_id,
+        tool_name: message.tool,
+        error: errorText,
+      });
+    }
+  }
+  return appended;
 }
 
 export function toolCallAgentMessage(input: LlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {
@@ -279,6 +324,71 @@ function appendSyntheticToolResult(projectRoot: string, record: { sessionId: str
   });
   appendConversationMessage(projectRoot, message);
   return message;
+}
+
+export function appendProviderVisibleSyntheticFailedToolResult(projectRoot: string, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): AgentMessage {
+  const payload: SyntheticFailedToolResultPayload = { success: false, error: record.error };
+  if (record.data !== undefined) payload.data = record.data;
+  return appendSyntheticToolResult(projectRoot, { ...record, result: payload });
+}
+
+function readActiveVersionMessagesForSettlement(projectRoot: string, sessionId: string): AgentMessage[] {
+  try {
+    return readActiveVersionMessages(projectRoot, sessionId);
+  } catch {
+    const index = readConversationIndex(projectRoot, sessionId);
+    if (!index) return [];
+    const path = activeVersionPath(projectRoot, sessionId, index.active_version);
+    if (!existsSync(path)) throw new Error(`Conversation active version '${index.active_version}' for '${sessionId}' was not found.`);
+    return readFileSync(path, 'utf-8').split('\n').filter(Boolean).flatMap((line) => {
+      const raw = JSON.parse(line) as unknown;
+      const parsed = agentMessageSchema.safeParse(raw);
+      if (parsed.success) return [parsed.data];
+      if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as { kind?: unknown }).kind === 'tool_error') return [];
+      throw parsed.error;
+    });
+  }
+}
+
+function validToolCallIdentity(message: AgentMessage) {
+  try { return loggedToolCallIdentity(message); } catch { return null; }
+}
+
+function validToolResultIdentity(message: AgentMessage) {
+  try { return loggedToolResultIdentity(message); } catch { return null; }
+}
+
+function validToolErrorIdentity(message: AgentMessage) {
+  try { return loggedToolErrorIdentity(message); } catch { return null; }
+}
+
+function syntheticFailedToolResultPayload(message: AgentMessage, reason: string): SyntheticFailedToolResultPayload {
+  const toolName = message.tool ?? 'unknown_tool';
+  const args = toolArguments(message);
+  if (toolName === 'activate_card') {
+    const childCardId = stringArg(args, 'child_card_id') ?? stringArg(args, 'card_id');
+    return { success: false, error: 'Activation was interrupted during runtime recovery.', data: { tool: toolName, child_card_id: childCardId, instruction: 'inspect child card state before retrying' } };
+  }
+  if (toolName === 'run_command' || toolName === 'wait_process' || toolName === 'kill_process') {
+    const processId = stringArg(args, 'process_id') ?? stringArg(args, 'processId') ?? stringArg(args, 'id');
+    return { success: false, error: 'Process tool call was interrupted; process no longer exists.', data: { tool: toolName, process_id: processId, instruction: 'process no longer exists, launch a new one if needed' } };
+  }
+  const targetPath = stringArg(args, 'path') ?? stringArg(args, 'file_path') ?? stringArg(args, 'target_path');
+  if (targetPath) return { success: false, error: 'Workspace tool call was interrupted; inspect the target path before retrying.', data: { tool: toolName, target_path: targetPath } };
+  return { success: false, error: reason, data: { tool: toolName } };
+}
+
+function toolArguments(message: AgentMessage): Record<string, unknown> {
+  try {
+    return parseToolCallMessage(JSON.parse(message.content)).args;
+  } catch {
+    return {};
+  }
+}
+
+function stringArg(args: Record<string, unknown>, key: string): string | undefined {
+  const value = args[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 export function appendLlmTurnToolCall(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall): AgentMessage {
