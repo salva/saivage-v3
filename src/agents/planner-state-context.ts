@@ -144,8 +144,8 @@ export function buildPlannerStateContextText(input: PlannerStateContextInput): s
     candidate_next_action: inferNextAction(children, runtimeState),
   };
 
-  return '## Current Planner State (compacted turn)\n\n' +
-    'This is reconstructed authoritative state for the current goal. Do not rely on earlier transcript content for current child state.\n\n' +
+  return '## Current Planner State Snapshot\n\n' +
+    'This is reconstructed authoritative state for the current goal at activation start. Do not rely on earlier transcript content for current child state.\n\n' +
     '```json\n' +
     `${JSON.stringify(state, null, 2)}\n` +
     '```\n\n' +
