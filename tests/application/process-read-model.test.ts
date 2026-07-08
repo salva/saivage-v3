@@ -30,7 +30,6 @@ function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
     launch_reason: null,
     owner_kind: 'agent',
     background_policy: null,
-    process_group_id: 123,
     failure_classification: null,
     ...overrides,
   };

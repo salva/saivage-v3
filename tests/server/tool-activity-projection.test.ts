@@ -7,10 +7,11 @@ describe('tool activity projection', () => {
     const projected = projectAnalystToolInvocationActivity({
       tool: 'run_command',
       params: { command: 'npm test' },
-      result: { success: true, data: { process_id: 'proc-1', exit_code: null, status: 'running', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 1, stderr_bytes: 0, stdout_tail: 'ok', stderr_tail: '', tail_truncated: false, stdout: 'old', stderr: 'old', truncated: true } },
+      result: { success: true, data: { process_id: 'proc-1', exit_code: null, status: 'running', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 1, stderr_bytes: 0, stdout: 'old', stderr: 'old', truncated: true } },
     });
 
-    expect((projected.result as { data: Record<string, unknown> }).data).toEqual(expect.objectContaining({ process_id: 'proc-1', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_tail: 'ok', tail_truncated: false }));
+    expect((projected.result as { data: Record<string, unknown> }).data).toEqual(expect.objectContaining({ process_id: 'proc-1', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 1, stderr_bytes: 0 }));
+    expect((projected.result as { data: Record<string, unknown> }).data).not.toHaveProperty('stdout_tail');
     expect((projected.result as { data: Record<string, unknown> }).data).not.toHaveProperty('stdout');
     expect((projected.result as { data: Record<string, unknown> }).data).not.toHaveProperty('stderr');
     expect((projected.result as { data: Record<string, unknown> }).data).not.toHaveProperty('truncated');

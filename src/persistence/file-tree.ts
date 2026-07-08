@@ -82,6 +82,7 @@ const LEGACY_REJECTED_ARTIFACTS: string[] = [
   'agents/tool-deliveries',
   'agents/tool-call-statuses',
   'agents/llm-exchanges',
+  'runtime/processes.json',
   'views',
 ];
 const SAIVAGE_WORK_DIRS: string[] = [

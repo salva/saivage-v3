@@ -104,7 +104,7 @@ describe('compaction primitives', () => {
       toolCall('web1', 'webfetch', { url: 'https://example.com/big' }),
       toolResult('web1', 'webfetch', { success: true, data: { stash_url: 'work:///tmp/stash/webfetch-1.txt', bytes: 4200, text: 'large web body' } }),
       toolCall('proc1', 'run_command', { command: 'pytest tests/foo' }),
-      toolResult('proc1', 'run_command', { success: true, data: { stdout_url: 'work:///processes/p-1/stdout.log', stderr_url: 'work:///processes/p-1/stderr.log', stdout_bytes: 12000, stderr_bytes: 300, stdout_tail: 'large stdout', stderr_tail: 'large stderr' } }),
+      toolResult('proc1', 'run_command', { success: true, data: { stdout_url: 'work:///processes/p-1/stdout.log', stderr_url: 'work:///processes/p-1/stderr.log', stdout_bytes: 12000, stderr_bytes: 300 } }),
     ];
 
     const descriptors = recoverableEvidenceDescriptors(rows);

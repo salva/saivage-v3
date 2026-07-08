@@ -66,7 +66,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   async start(): Promise<void> {
     if (this.started) return;
-    await this.options.processRunner.reconcile();
 
     const rootError = this.tryReadRootCardRecord();
     if (rootError !== null) {

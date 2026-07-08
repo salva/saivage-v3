@@ -34,7 +34,6 @@ function processRecord(projectRoot: string, overrides: Partial<ProcessRecord> = 
     launch_reason: null,
     owner_kind: 'runtime',
     background_policy: null,
-    process_group_id: null,
     failure_classification: null,
     ...overrides,
   };

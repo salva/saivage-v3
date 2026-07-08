@@ -12,8 +12,6 @@ export const liveSyncEventKinds = [
   'notification_added',
   'control_action_recorded',
   'analyst_tool_invoked',
-  'process_reconciled_dead',
-  'process_reattach_rejected',
 ] as const satisfies readonly OperatorBroadcastEventKind[];
 
 export type LiveSyncEventKind = typeof liveSyncEventKinds[number];
@@ -77,11 +75,6 @@ export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyn
       add({ resource: 'timeline' });
       break;
 
-    case 'process_reconciled_dead':
-    case 'process_reattach_rejected':
-      add({ resource: 'processes' });
-      add({ resource: 'timeline' });
-      break;
   }
 
   return targets;

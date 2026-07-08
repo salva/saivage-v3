@@ -117,33 +117,28 @@ describe('Core schemas still validate expected records', () => {
   });
 
 
-  it('accepts process reconciliation audit events through the catalog schemas', () => {
-    expect(loggedEventSchemaByKind.process_reconciled_dead.safeParse({
-      id: 'evt-1',
-      kind: 'process_reconciled_dead',
-      timestamp: '2025-01-01T00:00:00.000Z',
-      process_id: 'proc-1',
-      card_id: 'card-1',
-      goal_id: 'goal-1',
-      session_id: 'sess-1',
-      pid: 123,
-      probe_status: 'not_running',
-      terminal_reason: 'lost',
-      failure_classification: 'lost',
-      detail: 'restart identity probe mismatch',
-    }).success).toBe(true);
-    expect(loggedEventSchemaByKind.process_reattach_rejected.safeParse({
-      id: 'evt-2',
-      kind: 'process_reattach_rejected',
-      timestamp: '2025-01-01T00:00:00.000Z',
-      process_id: 'proc-2',
-      card_id: 'card-2',
-      terminal_reason: 'lost',
-      failure_classification: 'lost',
-      reattach_error: 'process reattach failed',
-      detail: 'process reattach failed',
-      command: 'echo sk-live-secret',
-    }).success).toBe(true);
+  it('rejects removed process record reconciliation fields and enum values', () => {
+    const base = {
+      id: 'proc-1',
+      card_id: 'goal-1',
+      owner_id: null,
+      command: 'npm test',
+      command_hash: 'a'.repeat(64),
+      cwd: '/tmp',
+      cwd_canonical: '/tmp',
+      status: 'running',
+      started_at: '2025-01-01T00:00:00.000Z',
+      started_at_monotonic: 1,
+      required_for_card_completion: false,
+      output_dir: '/tmp/out',
+      stdout_path: '/tmp/out/stdout.log',
+      stderr_path: '/tmp/out/stderr.log',
+    };
+    expect(processRecordSchema.safeParse({ ...base, terminal_reason: 'lost' }).success).toBe(false);
+    expect(processRecordSchema.safeParse({ ...base, terminal_reason: 'kill_unattached' }).success).toBe(false);
+    expect(processRecordSchema.safeParse({ ...base, failure_classification: 'lost' }).success).toBe(false);
+    expect(processRecordSchema.safeParse({ ...base, reattach_error: 'legacy' }).success).toBe(false);
+    expect(processRecordSchema.safeParse({ ...base, process_group_id: 123 }).success).toBe(false);
   });
 
   it('accepts a valid runtime state', () => {

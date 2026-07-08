@@ -319,16 +319,13 @@ describe('SupervisorRuntimeApi', () => {
     ]));
   }));
 
-  it('reconciles persisted processes before actor startup recovery', async () => withTempProject(async (projectRoot) => {
+  it('starts actor recovery without process reconciliation', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
     const order: string[] = [];
     const processRunner = testProcessRunner(projectRoot);
-    jest.spyOn(processRunner, 'reconcile').mockImplementation(async () => {
-      order.push('process-reconcile');
-      return { matched: [], lost: [], skewed: [] };
-    });
+    expect('reconcile' in processRunner).toBe(false);
     const api = new SupervisorRuntimeApi({
       projectRoot,
       promptTemplates: createTestPromptTemplateRegistry(),
@@ -343,7 +340,7 @@ describe('SupervisorRuntimeApi', () => {
 
     await api.start();
 
-    expect(order.slice(0, 2)).toEqual(['process-reconcile', 'actor-recovery']);
+    expect(order[0]).toBe('actor-recovery');
   }));
 
   it('persists only outstanding recovery diagnostics after handled cleanup', async () => withTempProject(async (projectRoot) => {

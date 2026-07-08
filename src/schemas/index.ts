@@ -151,8 +151,6 @@ export type {
   AgentEventKind,
   BaseEvent,
   RuntimeDiagnosticEvent,
-  ProcessReconciledDeadEvent,
-  ProcessReattachRejectedEvent,
   RuntimeActionableErrorEvent,
   SubscriberErrorEvent,
   CardHistoryAppendedEvent,

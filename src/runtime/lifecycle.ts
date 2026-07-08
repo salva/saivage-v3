@@ -115,14 +115,6 @@ export class RuntimeLifecycleScope {
         if (policy === 'detach') return 'detached';
         if (child.killed || child.exitCode !== null || child.signalCode !== null) return 'noop';
         try {
-          if (child.pid) {
-            try {
-              process.kill(-child.pid, 'SIGTERM');
-            } catch {
-              child.kill('SIGTERM');
-            }
-            return 'killed';
-          }
           return child.kill('SIGTERM') ? 'killed' : 'noop';
         } catch (error) {
           return { id: id ?? '', kind: 'child_process', label, status: 'failed', error: errorMessage(error) };

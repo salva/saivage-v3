@@ -1,16 +1,13 @@
-import { readFileSync, statSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 
 import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
-import { redactTextForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { AgentRole, ProcessRecord, ProcessStatus } from '../schemas/index.js';
 import { resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
-
-const MAX_TAIL_BYTES = 2048;
 
 interface ProcessToolResult {
   process_id: string;
@@ -20,9 +17,6 @@ interface ProcessToolResult {
   stderr_url: string;
   stdout_bytes: number;
   stderr_bytes: number;
-  stdout_tail: string;
-  stderr_tail: string;
-  tail_truncated: boolean;
 }
 
 export interface ProcessProviderContext {
@@ -101,24 +95,11 @@ function scopedCwd(projectRoot: string, raw: string | undefined): string {
   return resolved.absolutePath;
 }
 
-function lineAlignedTail(text: string, truncated: boolean): string {
-  if (!truncated) return text;
-  const newline = text.search(/\r?\n/);
-  if (newline < 0) return text;
-  const skip = text[newline] === '\r' && text[newline + 1] === '\n' ? newline + 2 : newline + 1;
-  return text.slice(skip);
-}
-
-function logTail(path: string, source: string): { bytes: number; tail: string; truncated: boolean } {
+function logBytes(path: string): number {
   try {
-    const size = statSync(path).size;
-    const buffer = readFileSync(path);
-    const window = buffer.subarray(Math.max(0, buffer.length - MAX_TAIL_BYTES));
-    const truncated = size > MAX_TAIL_BYTES;
-    const tail = redactTextForOutbound(lineAlignedTail(window.toString('utf8'), truncated), 'operator.api', { source });
-    return { bytes: size, tail, truncated };
+    return statSync(path).size;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { bytes: 0, tail: '', truncated: false };
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0;
     throw err;
   }
 }
@@ -132,19 +113,14 @@ function assertOwned(ctx: ProcessProviderContext, processId: string): ProcessRec
 
 function processResult(ctx: ProcessProviderContext, processId: string): ProcessToolResult {
   const record = assertOwned(ctx, processId);
-  const stdout = logTail(record.stdout_path, 'process-provider.tail.stdout');
-  const stderr = logTail(record.stderr_path, 'process-provider.tail.stderr');
   return {
     process_id: record.id,
     exit_code: record.exit_code ?? null,
     status: record.status,
     stdout_url: buildScopedPathUrl('work', ['processes', record.id, 'stdout.log']),
     stderr_url: buildScopedPathUrl('work', ['processes', record.id, 'stderr.log']),
-    stdout_bytes: stdout.bytes,
-    stderr_bytes: stderr.bytes,
-    stdout_tail: stdout.tail,
-    stderr_tail: stderr.tail,
-    tail_truncated: stdout.truncated || stderr.truncated,
+    stdout_bytes: logBytes(record.stdout_path),
+    stderr_bytes: logBytes(record.stderr_path),
   };
 }
 
@@ -180,7 +156,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
     tools: [
       defineTool({
         name: 'run_command',
-        description: 'Run a shell command. Results use process_id, exit_code, status, stdout_url, stderr_url, and stdout/stderr tails; pass work:/// stdout_url/stderr_url to read or grep to page through full output. Set wait=false to start a background process for later wait_process or kill_process.',
+        description: 'Run a shell command. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
         inputSchema: runCommandSchema,
         executor: async (args, signal) => {
           try {
@@ -213,7 +189,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
       }),
       defineTool({
         name: 'wait_process',
-        description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and stdout/stderr tails; pass the work:/// output URLs to read or grep. Use timeout_ms=0 for non-blocking inspection.',
+        description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. Use timeout_ms=0 for non-blocking inspection.',
         inputSchema: waitProcessSchema,
         executor: async (args, signal) => {
           try {
@@ -231,7 +207,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
       }),
       defineTool({
         name: 'kill_process',
-        description: 'Signal a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and stdout/stderr tails; pass the work:/// output URLs to read or grep.',
+        description: 'Signal a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep.',
         inputSchema: killProcessSchema,
         executor: async (args) => {
           try {

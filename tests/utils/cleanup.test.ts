@@ -5,7 +5,7 @@
  * - cleanCardTmp removes only cards/<id>/tmp/
  * - cleanStaleStash removes old files, keeps new files
  * - Cleanup never touches durable records, downloads, quarantine
- * - cleanStaleProcessOutput respects running registry status
+ * - cleanStaleProcessOutput respects live in-memory process ids and conversation references
  * - Stale previews/uploads are cleaned up
  */
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
@@ -138,18 +138,26 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(existsSync(procDir)).toBe(false);
   });
 
-  it('cleanStaleProcessOutput: ignores malformed legacy process registry files as cleanup blockers', async () => {
+  it('cleanStaleProcessOutput: preserves provided live process ids', async () => {
     const swd = saivageWorkDir();
-    const procId = 'proc-legacy-running-1';
+    const procId = 'proc-live-1';
     const procDir = join(swd, 'processes', procId);
     mkdirSync(procDir, { recursive: true });
-    const registryPath = join(root, '.saivage', 'runtime', 'processes.json');
-    writeFileSync(registryPath, JSON.stringify([{ id: procId, status: 'running' }], null, 2));
     await sleep(150);
 
-    expect(cleanStaleProcessOutput({ saivageWorkDir: swd, store, preserve: new Set(), maxAgeMs: 1 })).toBe(0);
+    expect(cleanStaleProcessOutput({ saivageWorkDir: swd, store, preserve: new Set(), maxAgeMs: 1, liveProcessIds: new Set([procId]) })).toBe(0);
     expect(existsSync(procDir)).toBe(true);
-    expect(existsSync(registryPath)).toBe(true);
+  });
+
+  it('cleanStaleProcessOutput: uses stdout/stderr mtimes for freshness', async () => {
+    const swd = saivageWorkDir();
+    const procDir = join(swd, 'processes', 'proc-fresh-output');
+    mkdirSync(procDir, { recursive: true });
+    await sleep(50);
+    writeFileSync(join(procDir, 'stdout.log'), 'fresh');
+
+    expect(cleanStaleProcessOutput({ saivageWorkDir: swd, store, preserve: new Set(), maxAgeMs: 25 })).toBe(0);
+    expect(existsSync(procDir)).toBe(true);
   });
 
   it('cleanAll: returns summary counts', () => {

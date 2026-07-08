@@ -2,15 +2,12 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import type { RuntimeResourceHandle } from './lifecycle.js';
 import { createRuntimeLifecycleScope, type RuntimeLifecycleScope } from './lifecycle.js';
 import {
-  existsSync,
-  readFileSync,
   mkdirSync,
   createWriteStream,
   type WriteStream,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
-import { writeFileAtomic, explainLegacyStateRejection } from '../persistence/index.js';
 import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
 import { now } from '../utils/clock.js';
@@ -42,17 +39,6 @@ export interface ProcessListFilter {
   status?: ProcessStatus | ProcessStatus[];
 }
 
-export interface ProcessReconcileOptions {
-  nowMonotonicMs?: number;
-  maxClockSkewMs?: number;
-}
-
-export interface ProcessReconcileResult {
-  matched: string[];
-  lost: string[];
-  skewed: string[];
-}
-
 export interface ProcessStopReport {
   attempted: string[];
   stopped: string[];
@@ -60,7 +46,6 @@ export interface ProcessStopReport {
 }
 
 const PROCESSES_DIR = '.saivage-work/processes';
-const RUNTIME_PROCESSES_FILE = '.saivage/runtime/processes.json';
 
 export class ProcessRunner {
   private processRecords: Map<string, ProcessRecord> | null = null;
@@ -81,10 +66,9 @@ export class ProcessRunner {
   stopRuntimeOwned(reason: string, options: { graceMs?: number } = {}): Promise<ProcessStopReport> { return stopMatching(this, (record) => record.owner_kind !== 'operator', reason, options.graceMs ?? 5000); }
   list(filter?: ProcessListFilter): ProcessRecord[] { return listProcessesForRunner(this, filter); }
   get(procId: string): ProcessRecord | null { return getProcessForRunner(this, procId); }
-  reconcile(options: ProcessReconcileOptions = {}): Promise<ProcessReconcileResult> { return reconcileProcessRecordsForRunner(this, options); }
 
   getTransientRegistry(): Map<string, ProcessRecord> {
-    if (!this.processRecords) this.processRecords = durableRegistry(this.projectRoot);
+    if (!this.processRecords) this.processRecords = new Map();
     return this.processRecords;
   }
 
@@ -141,10 +125,6 @@ function nowMonotonic(): number {
   return Math.floor(performance.timeOrigin + performance.now());
 }
 
-function runtimeProcessesPath(projectRoot: string): string {
-  return join(projectRoot, RUNTIME_PROCESSES_FILE);
-}
-
 function processesDir(projectRoot: string): string {
   return join(projectRoot, PROCESSES_DIR);
 }
@@ -155,33 +135,6 @@ function processDir(projectRoot: string, procId: string): string {
 
 function commandHash(service: ProcessRunner, command: string): string {
   return createHash('sha256').update(service.getCommandHashSalt()).update('\0').update(command).digest('hex');
-}
-
-function durableRegistry(projectRoot: string): Map<string, ProcessRecord> {
-  const registry = new Map<string, ProcessRecord>();
-  const path = runtimeProcessesPath(projectRoot);
-  if (!existsSync(path)) return registry;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(path, 'utf-8'));
-  } catch (error) {
-    explainLegacyStateRejection(projectRoot, 'ProcessRecord registry', error instanceof Error ? error.message : String(error));
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    explainLegacyStateRejection(projectRoot, 'ProcessRecord registry', 'registry must be an object with schema_version and records');
-  }
-  const body = parsed as { schema_version?: unknown; records?: unknown };
-  if (body.schema_version !== 1 || !Array.isArray(body.records)) {
-    explainLegacyStateRejection(projectRoot, 'ProcessRecord registry', 'unsupported ProcessRecord registry shape');
-  }
-  for (const record of body.records as ProcessRecord[]) {
-    registry.set(record.id, record);
-  }
-  return registry;
-}
-
-function persistRegistry(projectRoot: string, registry: Map<string, ProcessRecord>): void {
-  writeFileAtomic(runtimeProcessesPath(projectRoot), JSON.stringify({ schema_version: 1, records: Array.from(registry.values()) }, null, 2) + '\n');
 }
 
 function transientRegistry(service: ProcessRunner): Map<string, ProcessRecord> {
@@ -207,54 +160,15 @@ function resolveExitCode(proc: ChildProcess): number | null {
 }
 
 function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): boolean {
-  if (!child.pid) return false;
   try {
-    process.kill(-child.pid, signal);
-    return true;
-  } catch {
-    try {
-      return child.kill(signal);
-    } catch {
-      return false;
-    }
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function processGroupId(record: ProcessRecord): number | null {
-  const pgid = record.process_group_id ?? record.pid ?? null;
-  return pgid && pgid > 0 ? pgid : null;
-}
-
-function signalProcessGroup(pgid: number, signal: NodeJS.Signals): boolean {
-  try {
-    process.kill(-pgid, signal);
-    return true;
+    return child.kill(signal);
   } catch {
     return false;
   }
 }
 
-function isProcessGroupAlive(pgid: number): boolean {
-  try {
-    process.kill(-pgid, 0);
-    return true;
-  } catch (error) {
-    const code = typeof error === 'object' && error !== null && 'code' in error ? (error as { code?: unknown }).code : null;
-    return code !== 'ESRCH';
-  }
-}
-
-async function waitForProcessGroupExit(pgid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (isProcessGroupAlive(pgid)) {
-    if (Date.now() >= deadline) return false;
-    await sleep(Math.min(50, Math.max(1, deadline - Date.now())));
-  }
-  return true;
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function waitForDurableOutput(service: ProcessRunner, procId: string): Promise<void> {
@@ -273,7 +187,6 @@ function loadRegistryForRunner(service: ProcessRunner): Map<string, ProcessRecor
 function upsertRegistryRecord(service: ProcessRunner, record: ProcessRecord): void {
   const registry = transientRegistry(service);
   registry.set(record.id, record);
-  persistRegistry(service.projectRoot, registry);
 }
 
 function ensureProcessDir(projectRoot: string, procId: string): string {
@@ -371,7 +284,7 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
     cwd,
     env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
+    detached: false,
   });
 
   if (child.stdout) {
@@ -391,7 +304,7 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
   service.activeProcesses.set(id, child);
   service.outputStreams.set(id, streams);
   const scope = processScope(service);
-  rememberProcessResource(service, id, scope.registerChildProcess(child, 'detach', `child:${id}`, `child:${id}`));
+  rememberProcessResource(service, id, scope.registerChildProcess(child, 'kill', `child:${id}`, `child:${id}`));
   rememberProcessResource(service, id, scope.registerStream(streams.stdout, `stdout:${id}`, `stream:stdout:${id}`));
   rememberProcessResource(service, id, scope.registerStream(streams.stderr, `stderr:${id}`, `stream:stderr:${id}`));
 
@@ -420,7 +333,6 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
     launch_reason: options.launchReason ?? null,
     owner_kind: options.ownerKind,
     background_policy: options.backgroundPolicy ?? null,
-    process_group_id: child.pid ?? null,
     failure_classification: null,
   };
 
@@ -527,7 +439,7 @@ function waitProcessForRunner(
       }
 
       if (record.status === 'running') {
-        throw new Error(`Cannot wait for unattached running process ${procId}. Reconcile or stop the process scope first.`);
+        throw new Error(`Cannot wait for running process ${procId} without a live child handle.`);
       }
 
       void waitForDurableOutput(service, procId).finally(() => {
@@ -602,7 +514,7 @@ function waitProcessForRunner(
       }
     };
 
-    const onExit = () => {};
+    const onExit = () => doResolve(false);
     const onClose = () => doResolve(false);
     const onError = () => doResolve(false);
 
@@ -638,91 +550,7 @@ async function stopProcess(service: ProcessRunner, procId: string, reason: strin
     return latest;
   }
 
-  return terminateUnattachedRunning(service, record, reason, graceMs);
-}
-
-function markLost(service: ProcessRunner, record: ProcessRecord, reason: string): ProcessRecord {
-  const updated: ProcessRecord = {
-    ...record,
-    status: 'failed',
-    completed_at: record.completed_at ?? now(),
-    exit_code: record.exit_code ?? null,
-    signal: record.signal ?? null,
-    terminal_reason: 'lost',
-    failure_classification: 'lost',
-    reattach_error: reason,
-  };
-  upsertRegistryRecord(service, updated);
-  return updated;
-}
-
-function markKilled(service: ProcessRunner, record: ProcessRecord, signal: NodeJS.Signals, reason: string): ProcessRecord {
-  const updated: ProcessRecord = {
-    ...record,
-    status: 'killed',
-    completed_at: now(),
-    exit_code: record.exit_code ?? null,
-    signal,
-    terminal_reason: 'kill_unattached',
-    failure_classification: record.failure_classification ?? null,
-    reattach_error: reason,
-  };
-  upsertRegistryRecord(service, updated);
-  return updated;
-}
-
-async function terminateUnattachedRunning(service: ProcessRunner, record: ProcessRecord, reason: string, graceMs: number): Promise<ProcessRecord> {
-  const pgid = processGroupId(record);
-  if (!pgid) return markLost(service, record, `${reason}: missing process group id`);
-
-  signalProcessGroup(pgid, 'SIGTERM');
-  if (await waitForProcessGroupExit(pgid, graceMs)) {
-    return markKilled(service, record, 'SIGTERM', reason);
-  }
-
-  signalProcessGroup(pgid, 'SIGKILL');
-  if (await waitForProcessGroupExit(pgid, 2000)) {
-    return markKilled(service, record, 'SIGKILL', reason);
-  }
-
-  return markLost(service, record, `${reason}: process group still alive after SIGKILL`);
-}
-
-async function reconcileOwnedRecord(service: ProcessRunner, record: ProcessRecord): Promise<'killed' | 'lost'> {
-  const updated = await terminateUnattachedRunning(service, record, 'startup process reconciliation', 5000);
-  return updated.status === 'killed' ? 'killed' : 'lost';
-}
-
-async function reconcileProcessRecordsForRunner(service: ProcessRunner, options: ProcessReconcileOptions = {}): Promise<ProcessReconcileResult> {
-  const result: ProcessReconcileResult = { matched: [], lost: [], skewed: [] };
-  const records = Array.from(loadRegistryForRunner(service).values()).filter((record) => record.status === 'running');
-  const currentMonotonic = options.nowMonotonicMs ?? nowMonotonic();
-  const maxClockSkewMs = options.maxClockSkewMs ?? 60_000;
-
-  for (const record of records) {
-    if (record.started_at_monotonic > currentMonotonic + maxClockSkewMs) {
-      result.skewed.push(record.id);
-      markLost(service, record, 'started_at_monotonic is in the future beyond clock-skew tolerance');
-      result.lost.push(record.id);
-      continue;
-    }
-
-    const pgid = processGroupId(record);
-    if (!pgid || !isProcessGroupAlive(pgid)) {
-      markLost(service, record, 'startup process group is not running');
-      result.lost.push(record.id);
-      continue;
-    }
-
-    if (record.owner_kind === 'operator') {
-      result.matched.push(record.id);
-      continue;
-    }
-
-    const status = await reconcileOwnedRecord(service, record);
-    if (status === 'lost') result.lost.push(record.id);
-  }
-  return result;
+  return record;
 }
 
 function listProcessesForRunner(
@@ -776,8 +604,7 @@ async function stopMatching(service: ProcessRunner, predicate: (record: ProcessR
       signalProcessTree(child, 'SIGTERM');
       continue;
     }
-    const pgid = processGroupId(record);
-    if (pgid) signalProcessGroup(pgid, 'SIGTERM');
+    report.failed.push({ id: record.id, error: 'running process has no live child handle' });
   }
 
   await Promise.all(records.map(async (record) => {
@@ -785,10 +612,7 @@ async function stopMatching(service: ProcessRunner, predicate: (record: ProcessR
       const child = service.activeProcesses.get(record.id);
       if (child && resolveStatus(child) === 'running') {
         await waitProcessForRunner(service, record.id, graceMs);
-        return;
       }
-      const pgid = processGroupId(record);
-      if (pgid) await waitForProcessGroupExit(pgid, graceMs);
     } catch (error) {
       report.failed.push({ id: record.id, error: error instanceof Error ? error.message : String(error) });
     }
@@ -800,10 +624,7 @@ async function stopMatching(service: ProcessRunner, predicate: (record: ProcessR
     const child = service.activeProcesses.get(record.id);
     if (child && resolveStatus(child) === 'running') {
       signalProcessTree(child, 'SIGKILL');
-      continue;
     }
-    const pgid = processGroupId(latest);
-    if (pgid && isProcessGroupAlive(pgid)) signalProcessGroup(pgid, 'SIGKILL');
   }
 
   await Promise.all(records.map(async (record) => {
@@ -812,16 +633,6 @@ async function stopMatching(service: ProcessRunner, predicate: (record: ProcessR
       const child = service.activeProcesses.get(record.id);
       if (child && resolveStatus(child) === 'running') {
         await waitProcessForRunner(service, record.id, 2000);
-      } else {
-        const latest = getProcessForRunner(service, record.id) ?? record;
-        const pgid = processGroupId(latest);
-        if (pgid && !isProcessGroupAlive(pgid)) {
-          markKilled(service, latest, 'SIGTERM', reason);
-        } else if (pgid && await waitForProcessGroupExit(pgid, 2000)) {
-          markKilled(service, latest, 'SIGKILL', reason);
-        } else if (latest.status === 'running') {
-          markLost(service, latest, `${reason}: process group still running after SIGKILL`);
-        }
       }
 
       await waitForDurableOutput(service, record.id);

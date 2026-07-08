@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import type { ProcessRecord } from '../../src/schemas/index.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -58,12 +57,27 @@ describe('ProcessRunner', () => {
     expect(reloaded).toMatchObject({ status: 'failed', exit_code: 42 });
   });
 
-  it('persists and reloads ProcessRecord registry under .saivage/runtime/processes.json', async () => {
+  it('does not persist or reload ProcessRecord registry files', async () => {
+    mkdirSync(join(root, '.saivage', 'runtime'), { recursive: true });
+    writeFileSync(join(root, '.saivage', 'runtime', 'processes.json'), JSON.stringify({ schema_version: 1, records: [{ id: 'legacy' }] }));
+
+    expect(new ProcessRunner(root).list()).toEqual([]);
+
     const rec = spawn('echo registry', 'card-reg');
     await runner.wait(rec.id, 1000);
 
     expect(existsSync(join(root, '.saivage', 'runtime', 'processes.json'))).toBe(true);
-    expect(new ProcessRunner(root).get(rec.id)).toMatchObject({ id: rec.id, status: 'exited' });
+    expect(new ProcessRunner(root).get(rec.id)).toBeNull();
+  });
+
+  it('spawning a process does not create .saivage/runtime/processes.json', async () => {
+    const registryPath = join(root, '.saivage', 'runtime', 'processes.json');
+    expect(existsSync(registryPath)).toBe(false);
+
+    const rec = spawn('echo registry-free', 'card-reg-free');
+    await runner.wait(rec.id, 1000);
+
+    expect(existsSync(registryPath)).toBe(false);
   });
 
   it('honors spawn spec ownership and lifecycle metadata', async () => {
@@ -83,6 +97,8 @@ describe('ProcessRunner', () => {
     expect(rec.owner_id).toBe('session-test-123');
     expect(rec.agent_session_id).toBe('session-test-123');
     expect(rec.owner_kind).toBe('agent');
+    expect(rec).not.toHaveProperty('process_group_id');
+    expect(rec).not.toHaveProperty('reattach_error');
     await runner.wait(rec.id, 1000);
   });
 
@@ -114,47 +130,21 @@ describe('ProcessRunner', () => {
     expect(runner.get(rec.id)).toMatchObject({ status: 'killed' });
   });
 
-  it('reconciles stale running records as lost', async () => {
-    const rec: ProcessRecord = {
-      id: 'proc-reconcile',
-      card_id: 'card-reconcile',
-      owner_id: 'owner:card-reconcile',
-      owner_kind: 'agent',
-      command: 'sleep 5',
-      command_hash: 'a'.repeat(64),
-      cwd: root,
-      cwd_canonical: root,
-      status: 'running',
-      pid: 999999,
-      started_at: new Date().toISOString(),
-      started_at_monotonic: 10,
-      completed_at: null,
-      exit_code: null,
-      signal: null,
-      terminal_reason: null,
-      required_for_card_completion: true,
-      output_dir: join(root, '.saivage-work/processes/proc-reconcile'),
-      stdout_path: join(root, '.saivage-work/processes/proc-reconcile/stdout.log'),
-      stderr_path: join(root, '.saivage-work/processes/proc-reconcile/stderr.log'),
-      agent_session_id: null,
-      goal_id: null,
-      launch_reason: null,
-      background_policy: null,
-      process_group_id: null,
-      failure_classification: null,
-    };
-    runner.setTransientRegistry(new Map([[rec.id, rec]]));
+  it('kill resolves after the immediate child exits even when descendant stdio stays open', async () => {
+    const rec = spawn(`${process.execPath} -e 'require("child_process").spawn(process.execPath, ["-e", "setTimeout(() => process.exit(0), 4000); setInterval(() => {}, 1000)"], { stdio: ["ignore", "inherit", "inherit"] }); setInterval(() => {}, 1000)'`, 'card-held-stdio');
+    await sleep(100);
 
-    const result = await runner.reconcile({ nowMonotonicMs: rec.started_at_monotonic + 1 });
+    const started = Date.now();
+    const killed = await runner.kill(rec.id, 'test kill held stdio', { graceMs: 1000 });
 
-    expect(result.lost).toEqual([rec.id]);
-    expect(runner.get(rec.id)).toMatchObject({ status: 'failed', failure_classification: 'lost' });
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(killed?.status).toBe('killed');
   });
 
-  it('fails fast when waiting on an unattached running record', async () => {
+  it('starts a fresh runtime with an empty in-memory registry', async () => {
     const rec = spawn('sleep 5', 'card-unattached');
-    const detached = new ProcessRunner(root);
 
-    await expect(detached.wait(rec.id, 10)).rejects.toThrow(`Cannot wait for unattached running process ${rec.id}`);
+    expect(new ProcessRunner(root).list()).toEqual([]);
+    await runner.kill(rec.id, 'test cleanup', { graceMs: 100 });
   });
 });

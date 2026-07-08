@@ -45,7 +45,7 @@ describe('Process Runner Smoke Tests', () => {
     expect(readFileSync(proc!.stdout_path, 'utf-8')).toContain('line3');
   });
 
-  it('lists and filters durable process records', async () => {
+  it('lists and filters in-memory process records', async () => {
     const { root: r, runner } = setup();
     await startAndWait(runner, 'echo test-a', 'card-a');
     await startAndWait(runner, 'echo test-b', 'card-b');
@@ -54,7 +54,7 @@ describe('Process Runner Smoke Tests', () => {
     expect(runner.list()).toHaveLength(2);
     expect(runner.list({ cardId: 'card-a' })).toHaveLength(1);
     expect(runner.list({ status: 'exited' }).length).toBeGreaterThanOrEqual(2);
-    expect(existsSync(join(r, '.saivage', 'runtime', 'processes.json'))).toBe(true);
+    expect(existsSync(join(r, '.saivage', 'runtime', 'processes.json'))).toBe(false);
   });
 
   it('waitProcess timeout does not expose termination control and the process can still finish normally', async () => {

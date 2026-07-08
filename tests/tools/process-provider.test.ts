@@ -16,11 +16,11 @@ function expectUnifiedProcessResult(data: unknown, processId?: string): void {
     stderr_url: expect.stringMatching(/^work:\/\/\/processes\/[^/]+\/stderr\.log$/),
     stdout_bytes: expect.any(Number),
     stderr_bytes: expect.any(Number),
-    stdout_tail: expect.any(String),
-    stderr_tail: expect.any(String),
-    tail_truncated: expect.any(Boolean),
   }));
   expect(data as Record<string, unknown>).toHaveProperty('exit_code');
+  expect(data as Record<string, unknown>).not.toHaveProperty('stdout_tail');
+  expect(data as Record<string, unknown>).not.toHaveProperty('stderr_tail');
+  expect(data as Record<string, unknown>).not.toHaveProperty('tail_truncated');
 }
 
 function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
@@ -38,7 +38,7 @@ describe('process provider', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expectUnifiedProcessResult(result.data);
-      expect(result.data).toEqual(expect.objectContaining({ exit_code: 0, status: 'exited', stdout_tail: 'hello' }));
+      expect(result.data).toEqual(expect.objectContaining({ exit_code: 0, status: 'exited', stdout_bytes: 5 }));
       expect(result.data).not.toHaveProperty('stdout');
       expect(result.data).not.toHaveProperty('stderr');
       expect(result.data).not.toHaveProperty('log_path');
@@ -68,7 +68,7 @@ describe('process provider', () => {
     const processRunner = new ProcessRunner(root);
     const surface = buildInvocationSurface('executor', [createProcessProvider({ projectRoot: root, processRunner, ownerId: 'activation-1', cardId: 'card-1', ownerKind: 'agent' })]);
     const controller = new AbortController();
-    const pending = invokeTool(surface, 'run_command', { command: 'printf before && sleep 5', timeout_ms: 10_000 }, controller.signal);
+    const pending = invokeTool(surface, 'run_command', { command: `exec ${process.execPath} -e 'process.stdout.write("before"); setInterval(() => {}, 1000)'`, timeout_ms: 10_000 }, controller.signal);
     setTimeout(() => controller.abort(new Error('stop')), 50);
 
     const result = await pending;
@@ -80,18 +80,18 @@ describe('process provider', () => {
     }
   }));
 
-  it('returns zero-byte tails when live log files do not exist yet', async () => withRoot(async (root) => {
+  it('returns zero-byte counts when live log files do not exist yet', async () => withRoot(async (root) => {
     const processRunner = new ProcessRunner(root);
     const missing = join(root, '.saivage-work', 'processes', 'proc-missing');
     processRunner.setTransientRegistry(new Map([['proc-missing', {
-      id: 'proc-missing', card_id: 'card-1', owner_id: 'activation-1', command: 'sleep 1', command_hash: 'a'.repeat(64), cwd: root, cwd_canonical: root, status: 'running', pid: 123, started_at: '2026-01-01T00:00:00.000Z', started_at_monotonic: 1, completed_at: null, exit_code: null, signal: null, terminal_reason: null, required_for_card_completion: true, output_dir: missing, stdout_path: join(missing, 'stdout.log'), stderr_path: join(missing, 'stderr.log'), agent_session_id: 'activation-1', goal_id: null, launch_reason: null, owner_kind: 'agent', background_policy: null, process_group_id: 123, failure_classification: null,
+      id: 'proc-missing', card_id: 'card-1', owner_id: 'activation-1', command: 'sleep 1', command_hash: 'a'.repeat(64), cwd: root, cwd_canonical: root, status: 'running', pid: 123, started_at: '2026-01-01T00:00:00.000Z', started_at_monotonic: 1, completed_at: null, exit_code: null, signal: null, terminal_reason: null, required_for_card_completion: true, output_dir: missing, stdout_path: join(missing, 'stdout.log'), stderr_path: join(missing, 'stderr.log'), agent_session_id: 'activation-1', goal_id: null, launch_reason: null, owner_kind: 'agent', background_policy: null, failure_classification: null,
     } satisfies ProcessRecord]]));
     const surface = buildInvocationSurface('executor', [createProcessProvider({ projectRoot: root, processRunner, ownerId: 'activation-1', cardId: 'card-1', ownerKind: 'agent' })]);
 
     const result = await invokeTool(surface, 'wait_process', { process_id: 'proc-missing', timeout_ms: 0 });
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data).toEqual(expect.objectContaining({ stdout_bytes: 0, stderr_bytes: 0, stdout_tail: '', stderr_tail: '', tail_truncated: false }));
+    if (result.success) expect(result.data).toEqual(expect.objectContaining({ stdout_bytes: 0, stderr_bytes: 0 }));
   }));
 
   it('rejects process control from a different owner', async () => withRoot(async (root) => {

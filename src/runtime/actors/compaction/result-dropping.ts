@@ -25,7 +25,6 @@ export function dropRecoverableResultBodies(messages: AgentMessage[]): AgentMess
     if (typeof data.stdout_url === 'string' || typeof data.stderr_url === 'string') {
       const compacted: Record<string, unknown> = { success: content.success, note: 'compacted process output; use read to recover full content' };
       for (const [key, value] of Object.entries(data)) {
-        if (key === 'stdout_tail' || key === 'stderr_tail') continue;
         compacted[key] = value;
       }
       return withContent(message, { success: content.success, data: compacted });

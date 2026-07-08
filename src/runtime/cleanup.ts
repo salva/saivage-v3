@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, normalize } from 'node:path';
 import type { CardStore } from '../cards/store-api.js';
-import type { ProcessRecord } from '../schemas/index.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -27,6 +26,8 @@ export interface CleanStaleProcessOptions {
   preserve: Set<string>;
   /** Maximum age of completed process dirs before cleanup, in ms (default: 24h) */
   maxAgeMs?: number;
+  /** Process ids known to be live in the current in-memory runtime */
+  liveProcessIds?: ReadonlySet<string>;
 }
 
 type ConversationIndexForCleanup = {
@@ -244,19 +245,19 @@ export function cleanStaleUploads(
 // ── Public API: cleanStaleProcessOutput ───────────────────────
 
 /**
- * Remove completed (exited/failed/killed) process output directories
- * from .saivage-work/processes/ whose output is no longer needed.
+  * Remove stale process output directories from .saivage-work/processes/
+  * whose output is no longer needed.
  *
  * A process directory is eligible for cleanup when:
- * 1. The process status is NOT 'running'.
- * 2. The process directory is older than maxAgeMs.
- * CRITICAL: Never removes running process dirs.
+  * 1. The process id is not present in liveProcessIds.
+  * 2. No conversation URL references the output directory.
+  * 3. The latest mtime of the directory/stdout/stderr is older than maxAgeMs.
  *
  * @param options - Options including saivageWorkDir, store, and maxAgeMs
  * @returns Number of process directories cleaned
  */
 export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): number {
-  const { saivageWorkDir, preserve, maxAgeMs = 24 * 60 * 60 * 1000 } = options;
+  const { saivageWorkDir, preserve, maxAgeMs = 24 * 60 * 60 * 1000, liveProcessIds = new Set<string>() } = options;
   const processesDir = safeResolve(saivageWorkDir, 'processes');
   if (!processesDir) return 0;
   if (!existsSync(processesDir)) return 0;
@@ -265,9 +266,6 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
   const absWork = resolve(saivageWorkDir);
   const expectedProcesses = normalize(join(absWork, 'processes'));
   if (processesDir !== expectedProcesses) return 0;
-
-  const runningProcessIds = loadRunningProcessIds(saivageWorkDir);
-  if (!runningProcessIds) return 0;
 
   let cleaned = 0;
   const cutoff = Date.now() - maxAgeMs;
@@ -282,23 +280,17 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
   for (const entry of entries) {
     const procDir = join(processesDir, entry);
 
-    // Skip non-directories
-    let st;
-    try {
-      st = statSync(procDir);
-    } catch {
-      continue;
-    }
-    if (!st.isDirectory()) continue;
+    const latestMtimeMs = latestProcessOutputMtimeMs(procDir);
+    if (latestMtimeMs === null) continue;
 
-    // Never remove output for registry-running processes.
-    if (runningProcessIds.has(entry)) continue;
+    // Never remove output for in-memory live processes.
+    if (liveProcessIds.has(entry)) continue;
 
     // Never remove output referenced by any conversation version.
     if (preserve.has(normalize(resolve(procDir)))) continue;
 
     // Skip if too new
-    if (st.mtimeMs >= cutoff) continue;
+    if (latestMtimeMs >= cutoff) continue;
 
     try {
       rmSync(procDir, { recursive: true, force: true });
@@ -334,6 +326,7 @@ export function cleanAll(
     processMaxAgeMs?: number;
     previewsMaxAgeMs?: number;
     uploadsMaxAgeMs?: number;
+    liveProcessIds?: ReadonlySet<string>;
   },
 ): CleanupResult {
   const result: CleanupResult = {
@@ -372,6 +365,7 @@ export function cleanAll(
     store,
     preserve,
     maxAgeMs: options?.processMaxAgeMs,
+    liveProcessIds: options?.liveProcessIds,
   });
 
   // 4. Clean stale previews
@@ -412,24 +406,22 @@ export function referencedRecoverableUrls(projectRoot: string): Set<string> {
 
 // ── Internal Helpers ──────────────────────────────────────────
 
-function loadRunningProcessIds(saivageWorkDir: string): Set<string> | null {
-  const projectRoot = resolve(saivageWorkDir, '..');
-  const running = new Set<string>();
-  const registryPath = join(projectRoot, '.saivage', 'runtime', 'processes.json');
-  if (!existsSync(registryPath)) return running;
-  let parsed: { records?: ProcessRecord[] };
+function latestProcessOutputMtimeMs(procDir: string): number | null {
+  let dirStat;
   try {
-    parsed = JSON.parse(readFileSync(registryPath, 'utf8')) as { records?: ProcessRecord[] };
+    dirStat = statSync(procDir);
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.records)) return null;
-  for (const record of parsed.records) {
-    if (record.status === 'running') {
-      running.add(record.id);
-    }
+  if (!dirStat.isDirectory()) return null;
+
+  let latest = dirStat.mtimeMs;
+  for (const name of ['stdout.log', 'stderr.log']) {
+    const path = join(procDir, name);
+    if (!existsSync(path)) continue;
+    latest = Math.max(latest, statSync(path).mtimeMs);
   }
-  return running;
+  return latest;
 }
 
 function parseConversationIndexForCleanup(indexPath: string): ConversationIndexForCleanup {

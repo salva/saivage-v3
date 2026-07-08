@@ -4,8 +4,6 @@ import { buildLoggedEventSchema, EventRegistry, eventKindValues, payloadSchemaBy
 describe('EventRegistry', () => {
   it('keeps only currently emitted event kinds', () => {
     expect(eventKindValues).toEqual([
-      'process_reconciled_dead',
-      'process_reattach_rejected',
       'runtime_diagnostic',
       'runtime_actionable_error',
       'subscriber_error',
@@ -30,6 +28,8 @@ describe('EventRegistry', () => {
       'llm_invocation_summary',
       'runtime_activation',
       'stuck_supervisor_started',
+      'process_reconciled_dead',
+      'process_reattach_rejected',
     ]));
   });
 
