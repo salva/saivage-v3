@@ -60,6 +60,8 @@ curl http://localhost:8080/health
 | [Architecture](docs/architecture/system-architecture.md) | current architecture summary | How the functional model is organized into runtime, agents, storage, API, and UI subsystems. |
 | [README](README.md) | current validation and documentation authority map | Quick start, validation profiles, and this canonical documentation map. |
 
+Startup recovery currently includes a nested actor consistency pass: card status remains the outer durable truth, active-version conversations are classified per planner/reviewer/executor session, unrelinked dangling tool calls receive explicit failed `tool_result` rows, and runtime state remains a minimal current-status/cursor record rather than command/run/activation ledgers.
+
 ## Key concepts
 
 | Link | Authority status | Reader guidance |

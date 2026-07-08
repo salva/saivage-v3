@@ -1,17 +1,18 @@
+import { createHash } from 'node:crypto';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
 import { readActorSnapshots, removeActorSnapshot } from './snapshots.js';
 import type { ActorSnapshotRecord } from './snapshots.js';
-import type { CardRecord, CardStatus } from '../../schemas/index.js';
+import { agentMessageSchema, type AgentMessage, type CardRecord, type CardStatus } from '../../schemas/index.js';
 import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { readCardActiveReconstruction, readLlmActiveReconstruction, readProcessorActiveReconstruction } from './active-reconstruction.js';
-import { parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
+import { agentIdFromSessionId, cardIdFromSessionId, parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
 import type { LlmActorRole } from '../../schemas/actor-vocabulary.js';
-import { cardActivationOutcomePatch, type CardActivationOutcome } from './card-actor.js';
+import { cardActivationOutcomePatch, type CardActivationOutcome, type CardNotification } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
-import { abandonStalePendingToolCalls, appendTerminalProjectedToolResult, loggedToolCallKey, readLoggedToolCall } from './llm-delivery-log.js';
+import { abandonStalePendingToolCalls, appendTerminalProjectedToolResult, appendToolErrorSettlementResults, readLoggedToolCall } from './llm-delivery-log.js';
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
@@ -19,8 +20,15 @@ import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { closeOpenRecordSlot, ExpectedRecordSlotCloseError } from '../records/record-slots.js';
 import { firstIncompleteDescendant, projectPlannerTerminalOutcome } from './planning-card-processor-actor.js';
+import type { PlannerChildActorPort } from './planning-card-processor-actor.js';
 import { projectTerminalExecutorOutcome } from './terminal-card-processor-actor.js';
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
+import type { ProcessRunner } from '../process-runner.js';
+import type { RuntimeGate } from '../runtime-gate.js';
+import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
+import type { NotifyCardResult } from '../runtime-api.js';
+import { appendConversationMessage, listConversationSessionIds, readActiveVersionMessages } from './conversation-store.js';
+import { classifyConversation, type ConversationImplicitState } from './conversation-recovery.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
@@ -41,10 +49,15 @@ export interface ActorRecoveryOutcomeConversion {
   reason: string;
 }
 
-export interface ActorRecoveryTerminalProjectionDeps {
+export interface ActorStartupRecoveryDeps {
   projectRoot: string;
   store: ActorRecoveryOutcomeStore;
   generatedAt?: string;
+  processRunner?: ProcessRunner;
+  mcpManagerProvider?: () => McpToolInvocationPort | undefined;
+  children?: PlannerChildActorPort;
+  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
+  runtimeGate?: RuntimeGate;
 }
 
 export type { LlmActorRole as LlmRecoveryRole } from '../../schemas/actor-vocabulary.js';
@@ -105,6 +118,17 @@ export interface ActorRecoveryPlan {
 export interface ActorRecoveryProjection {
   diagnostics: ActorRecoveryDiagnostic[];
   actions: ActorRecoveryDiagnosticAction[];
+}
+
+interface LlmConversationRecoveryEntry {
+  actorId: string;
+  role: LlmRecoveryRole;
+  cardId: string | null;
+  sessionId: string;
+  llm: LlmActorRecoveryRecord | null;
+  conversation: ConversationImplicitState;
+  terminalToolNames: ReadonlySet<string>;
+  messages: readonly AgentMessage[];
 }
 
 export interface ActorStartupRecoveryIncident {
@@ -218,40 +242,117 @@ export function clearRecoveryDiagnostics(projectRoot: string): void {
   });
 }
 
-export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorRecoveryTerminalProjectionDeps): ActorStartupRecoveryReport {
+export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorStartupRecoveryDeps): ActorStartupRecoveryReport {
   const generatedAt = deps.generatedAt ?? new Date().toISOString();
   const cancelledCleanup = cleanupCancelledCardSnapshots(deps.projectRoot, plan, deps.store);
   const effectivePlan = cancelledCleanup.length > 0 ? buildActorRecoveryPlan(deps.projectRoot, deps.store) : plan;
+  const nestedIncidents = recoverNestedActorConsistency(effectivePlan, { ...deps, generatedAt });
   const recoveries = recoverActorStartupOutcomes(effectivePlan, { ...deps, generatedAt });
   cleanupRecoveredActorSnapshots(deps.projectRoot, recoveries);
-  const abandonedToolCalls = abandonStalePendingToolCalls(deps.projectRoot, undefined, activePendingToolCallKeys(effectivePlan));
+  const toolErrorSettlements = appendToolErrorSettlementResults(deps.projectRoot);
+  const abandonedToolCalls = abandonStalePendingToolCalls(deps.projectRoot, undefined, nestedIncidents.preservedToolCallKeys);
   const postCleanupPlan = buildActorRecoveryPlan(deps.projectRoot, deps.store);
   const outstanding = writeRecoveryDiagnostics(deps.projectRoot, postCleanupPlan, generatedAt);
   return {
     generated_at: generatedAt,
     incidents: [
       ...cancelledCleanup,
+      ...nestedIncidents.incidents,
       ...recoveries.map((recovery) => ({ actorId: recovery.actorIds[0] ?? recovery.cardId, kind: 'converted_actor_snapshots' as const, action: 'project_or_convert_startup_outcome', cardId: recovery.cardId, message: recovery.reason })),
+      ...toolErrorSettlements.map((record) => ({ actorId: record.agent_id, kind: 'stale_tool_call' as const, action: 'settle_recovery_tool_error', message: record.error, cardId: record.card_id ?? cardIdFromAgentId(record.agent_id) })),
       ...abandonedToolCalls.map((record) => ({ actorId: record.agent_id, kind: 'stale_tool_call' as const, action: 'abandon_stale_pending_tool_call', message: record.error, cardId: record.card_id ?? cardIdFromAgentId(record.agent_id) })),
     ].sort((a, b) => a.actorId.localeCompare(b.actorId) || a.action.localeCompare(b.action)),
     outstanding,
   };
 }
 
+function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorStartupRecoveryDeps & { generatedAt: string }): { incidents: ActorStartupRecoveryIncident[]; preservedToolCallKeys: Set<string> } {
+  const incidents: ActorStartupRecoveryIncident[] = [];
+  const entries = buildLlmConversationRecoveryEntries(plan, deps.projectRoot);
+  for (const entry of entries) {
+    const card = entry.cardId ? deps.store.read(entry.cardId) : null;
+    const processor = entry.cardId ? plan.processors.find((candidate) => candidate.cardId === entry.cardId) ?? null : null;
+    if (card && card.status !== 'running') {
+      if (entry.llm?.active) {
+        removeActorSnapshot(deps.projectRoot, entry.actorId);
+        incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_non_running_card_llm_snapshot', cardId: entry.cardId ?? undefined, message: `Startup recovery removed active LLM snapshot '${entry.actorId}' because card '${card.id}' is '${card.status}'.` });
+      }
+      continue;
+    }
+    if (entry.conversation === 'assistant_text_pending') {
+      appendPlainTextRecoveryRepair(deps.projectRoot, entry);
+      incidents.push({ actorId: entry.actorId, kind: 'stale_tool_call', action: 'repair_assistant_text_pending', cardId: entry.cardId ?? undefined, message: `Startup recovery appended a model repair directive for assistant text in session '${entry.sessionId}'.` });
+      continue;
+    }
+    if (entry.conversation === 'awaiting_tool_result' && danglingActivateCardCall(entry)) {
+      incidents.push({ actorId: entry.actorId, kind: 'stale_tool_call', action: 'fail_unrelinked_activation_wait', cardId: entry.cardId ?? undefined, message: `Startup recovery could not reconstruct a concrete activate_card continuation for session '${entry.sessionId}'; the dangling call will receive an actionable failed tool result.` });
+    }
+    if (entry.llm?.active && card?.status === 'running' && !processor?.active && (entry.llm.snapshot.state_value === 'calling_provider' || entry.llm.snapshot.state_value === 'waiting_tool')) {
+      removeActorSnapshot(deps.projectRoot, entry.actorId);
+      incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_llm_without_active_processor', cardId: entry.cardId ?? undefined, message: `Startup recovery removed active LLM snapshot '${entry.actorId}' because its card has no active processor snapshot.` });
+    }
+  }
+  return { incidents, preservedToolCallKeys: new Set() };
+}
+
+function buildLlmConversationRecoveryEntries(plan: ActorRecoveryPlan, projectRoot: string): LlmConversationRecoveryEntry[] {
+  const bySession = new Map<string, LlmConversationRecoveryEntry>();
+  for (const llm of plan.llms) {
+    const sessionId = llm.activeReconstruction?.input.sessionId ?? llm.actorId;
+    bySession.set(sessionId, buildLlmConversationRecoveryEntry(projectRoot, llm.actorId, llm.role, llm.cardId, sessionId, llm));
+  }
+  for (const sessionId of listConversationSessionIds(projectRoot)) {
+    if (bySession.has(sessionId)) continue;
+    const roleCard = roleCardFromSession(sessionId);
+    bySession.set(sessionId, buildLlmConversationRecoveryEntry(projectRoot, agentIdFromSessionId(sessionId), roleCard.role, roleCard.cardId, sessionId, null));
+  }
+  return [...bySession.values()].sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+}
+
+function buildLlmConversationRecoveryEntry(projectRoot: string, actorId: string, role: LlmRecoveryRole, cardId: string | null, sessionId: string, llm: LlmActorRecoveryRecord | null): LlmConversationRecoveryEntry {
+  const terminalToolNames = terminalToolNamesForRole(role);
+  const messages = readActiveVersionMessages(projectRoot, sessionId);
+  return { actorId, role, cardId, sessionId, llm, terminalToolNames, messages, conversation: classifyConversation(messages, terminalToolNames) };
+}
+
+function roleCardFromSession(sessionId: string): { role: LlmRecoveryRole; cardId: string | null } {
+  const parsed = parseLlmActorId(agentIdFromSessionId(sessionId));
+  return { role: parsed.role, cardId: cardIdFromSessionId(sessionId) ?? parsed.cardId };
+}
+
+function terminalToolNamesForRole(role: LlmRecoveryRole): ReadonlySet<string> {
+  if (role === 'planner') return new Set(createPlannerContract().terminals.map((terminal) => terminal.name));
+  if (role === 'reviewer') return new Set(createReviewerContract().terminals.map((terminal) => terminal.name));
+  if (role === 'executor') return new Set(createExecutorContract().terminals.map((terminal) => terminal.name));
+  return new Set();
+}
+
+function danglingActivateCardCall(entry: LlmConversationRecoveryEntry): boolean {
+  if (entry.conversation !== 'awaiting_tool_result') return false;
+  const lastCall = [...entry.messages].reverse().find((message) => message.kind === 'tool_call');
+  return lastCall?.tool === 'activate_card';
+}
+
+function appendPlainTextRecoveryRepair(projectRoot: string, entry: LlmConversationRecoveryEntry): void {
+  const last = entry.messages.at(-1);
+  const seed = last?.id ?? `${entry.sessionId}:recovery`;
+  appendConversationMessage(projectRoot, agentMessageSchema.parse({
+    id: `${seed}:startup-repair`,
+    session_id: entry.sessionId,
+    role: 'user',
+    kind: 'model_repair',
+    content: 'Startup recovery found an assistant plain-text response where a tool call or terminal action was required. Continue by using the available tools and repair the turn.',
+    round_id: `r-user-${createHash('sha256').update(`${seed}:startup-repair`).digest('hex').slice(0, 32)}`,
+    message_index: 3,
+    block_index: 0,
+    timestamp: new Date().toISOString(),
+  }));
+}
+
 function cleanupRecoveredActorSnapshots(projectRoot: string, recoveries: ActorRecoveryOutcomeConversion[]): void {
   for (const recovery of recoveries) {
     for (const actorId of recovery.actorIds) removeActorSnapshot(projectRoot, actorId);
   }
-}
-
-function activePendingToolCallKeys(plan: ActorRecoveryPlan): Set<string> {
-  const keys = new Set<string>();
-  for (const llm of plan.llms) {
-    const waiting = llm.activeReconstruction?.waiting_tool_call;
-    if (!llm.active || !waiting || !llm.activeReconstruction) continue;
-    keys.add(loggedToolCallKey({ session_id: llm.activeReconstruction.input.sessionId, source_input_id: waiting.sourceInputId, tool_call_id: waiting.toolCallId }));
-  }
-  return keys;
 }
 
 export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRecoveryPlan, store: ActorRecoveryOutcomeStore): ActorStartupRecoveryIncident[] {
@@ -275,11 +376,11 @@ export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRe
   return incidents.sort((a, b) => a.actorId.localeCompare(b.actorId));
 }
 
-export function recoverActorStartupOutcomes(plan: ActorRecoveryPlan, deps: ActorRecoveryTerminalProjectionDeps): ActorRecoveryOutcomeConversion[] {
+export function recoverActorStartupOutcomes(plan: ActorRecoveryPlan, deps: ActorStartupRecoveryDeps): ActorRecoveryOutcomeConversion[] {
   return recoverProjectedTerminalToolOutcomes(plan, deps);
 }
 
-export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, deps: ActorRecoveryTerminalProjectionDeps): ActorRecoveryOutcomeConversion[] {
+export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, deps: ActorStartupRecoveryDeps): ActorRecoveryOutcomeConversion[] {
   const recovered: ActorRecoveryOutcomeConversion[] = [];
   const generatedAt = deps.generatedAt ?? new Date().toISOString();
   for (const llm of plan.llms) {
@@ -320,7 +421,7 @@ export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, de
 
 function projectReviewerRecoveryOutcome(
   plan: ActorRecoveryPlan,
-  deps: ActorRecoveryTerminalProjectionDeps,
+  deps: ActorStartupRecoveryDeps,
   planner: LlmActorRecoveryRecord,
   processor: ProcessorActorRecoveryRecord,
   cardSnapshot: CardActorRecoveryRecord,
@@ -362,7 +463,7 @@ function projectReviewerRecoveryOutcome(
 }
 
 function projectTerminalRecoveryOutcome(
-  deps: ActorRecoveryTerminalProjectionDeps,
+  deps: ActorStartupRecoveryDeps,
   processor: ProcessorActiveReconstructionRecord,
   card: CardRecord,
   _cardReconstruction: CardActiveReconstructionRecord,

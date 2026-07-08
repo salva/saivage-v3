@@ -153,14 +153,14 @@ Model-facing scoped filesystem references use canonical triple-slash URLs: `proj
 
 For directory schemes, `project:///`, `work:///`, and `system:///` resolve to the project root, `.saivage-work`, and `/` respectively. `tmp:///` and `record:///` still require their mandatory leading segments. The VFS distinguishes two record namespaces: document URLs such as `record:///<filename>?card=<id>&v=<n>` (or bare `record:///<filename>` using the agent's current card and latest version) are used by `read`, `write`, and `edit`; card-id URLs such as `record:///<cardId>` are used by `list`/`glob` and by `read` when the segment is not a record slot filename. Card-id record namespaces split by operation: `list record:///<cardId>` (and `read` of a card-id record URL) return the metadata projection of all exposed slots with nullable `latest`, including unclosed slots, for inspection; `glob record:///<cardId>` and `grep record:///<cardId>` enumerate only records that have a latest closed version with readable content, returning record URLs. All three hide raw version files and the internal `card.json` slot. Record URLs are derived from card id, slot filename, and version when projected; they are not persisted in record slot index entries. `glob` and `grep` share the internal `collectScopedFiles` enumeration substrate so per-scheme walk and display-path policy live in one place; `grep` searches file content across all scoped schemes, including record card-id latest closed versions.
 
-Startup recovery is root-cascade based. The process runner registry is in-memory only and starts empty after every runtime restart; previous process ids are unknown, no PID/process-group records are reconciled, and OS-process reattachment remains excluded. Startup validates the project root card record and throws if it is missing or schema-invalid. Recovery then runs the pre-reconstruction `runActorStartupRecovery` pass for terminal projection, cancelled/terminal-projected snapshot cleanup, stale-tool-call abandonment, and sanitized diagnostics, constructs running card actors with deferred processor start, and calls `recoverCurrentCardState()` on the root card only. Recovery cascades through replayed `activate_card` calls; processors start lazily when reached, recovered LLM snapshots are adopted inside `processor.recoverActive`, in-flight provider calls are reissued, and waiting tool calls are resolved inline through `resolveInitialOutcome` and tool replay. Safe terminal decisions may be projected from complete durable terminal records. A `blocked` card status may still arise from safe terminal projection when the persisted planner terminal is itself `blocked`.
+Startup recovery is root-cascade based with a pre-reconstruction nested consistency pass. The process runner registry is in-memory only and starts empty after every runtime restart; previous process ids are unknown, no PID/process-group records are reconciled, and OS-process reattachment remains excluded. Startup validates the project root card record and throws if it is missing or schema-invalid. Recovery then runs `runActorStartupRecovery`: it classifies active-version conversations per LLM role/session, projects complete durable terminal outcomes where safe, removes active inner snapshots that conflict with the card's durable status, settles recovery-only `tool_error` rows before provider reissue, appends actionable failed `tool_result` rows for dangling unrelinked tools, and writes sanitized diagnostics. Dangling `activate_card` rows are inspected before generic settlement; without a reconstructed parent continuation they become explicit failed activation results instead of preserved dead edges. Startup then constructs running card actors with deferred processor start and calls `recoverCurrentCardState()` on the root card only. Recovery cascades through replayed `activate_card` calls that remain live; processors start lazily when reached, compatible recovered LLM snapshots are adopted inside `processor.recoverActive`, in-flight provider calls are reissued, and waiting tool calls are resolved inline through `resolveInitialOutcome` and tool replay. Safe terminal decisions may be projected from complete durable terminal records. A `blocked` card status may still arise from safe terminal projection when the persisted planner terminal is itself `blocked`.
 
 Expected persisted concerns include:
 
 - card tree and history;
 - record-backed card state, including internal structured card versions plus authored document records such as `brief.md`, `status.md`, and `review.md`;
 - agent messages and manifests;
-- runtime state, intent, commands, runs, and activations;
+- minimal runtime status/cursor state and recovery metadata; command, run, and activation ledgers are not persisted runtime state;
 - safe process logs and in-memory process projections during the current runtime;
 - event and error timelines;
 - redacted audit/control-action records;
@@ -236,7 +236,7 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/processes` | Process list projection. | `src/contracts/operator-api-processes.ts:48` |
 | `GET /api/processes/:id` | Process detail projection. | `src/contracts/operator-api-processes.ts:58` |
 | `GET /api/providers` | Provider configuration projection. | `src/contracts/operator-api-config.ts:81` |
-| `GET /api/runtime/card-runs` | Runtime card-run projection. | `src/contracts/operator-api-runtime-cards.ts:283` |
+| `GET /api/runtime/card-runs` | Runtime card-run projection. | `src/contracts/operator-api-runtime-cards.ts:259` |
 | `GET /api/runtime/status` | Runtime status projection. | `src/contracts/operator-api-runtime-cards.ts:253` |
 | `GET /api/state` | Operator state projection. | `src/contracts/operator-api-runtime-cards.ts:187` |
 | `GET /health` | Liveness probe. | `src/contracts/operator-api-runtime-cards.ts:165` |
@@ -244,7 +244,7 @@ This appendix is maintained as source-derived reference data for documentation d
 | `POST /api/auth/ws-ticket` | WebSocket ticket issuance. | `src/contracts/operator-api-auth.ts:22` |
 | `POST /api/chats/:sessionId` | Analyst chat turn submission. | `src/contracts/operator-api-chats.ts:78` |
 | `POST /api/runtime/pause` | Runtime pause control. | `src/contracts/operator-api-runtime-cards.ts:263` |
-| `POST /api/runtime/resume` | Runtime resume control. | `src/contracts/operator-api-runtime-cards.ts:273` |
+| `POST /api/runtime/resume` | Runtime resume control. | `src/contracts/operator-api-runtime-cards.ts:249` |
 <!-- saivage:operator-routes:end -->
 
 ### Internal debug routes
