@@ -31,7 +31,7 @@ The following are implemented and should not be replanned as missing work:
 - Canonical tools are active: `read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `run_command`, `wait_process`, `kill_process`, `websearch`, `webfetch`, `skill`, and `mcp_tool_call`.
 - Retired model-facing names are absent from active source, including `write_file`, `load_skill`, `terminate_process`, `report_goal_*`, and role-specific terminal tools.
 - Planner, executor, and reviewer use the unified `emit_result` terminal tool.
-- Lifecycle result kinds are collapsed to `done`, `blocked`, `failed`, and `rework`, plus internal `executor_needs_verification`.
+- Lifecycle result kinds are collapsed to `done`, `blocked`, `failed`, and `rework`.
 - Mandatory `status.md` and `review.md` record-slot enforcement is implemented for planner, executor, and reviewer terminal flows.
 - Record-backed `card.json` loading/storage and `brief.md` prompt sourcing are implemented.
 - Analyst `write(record://brief.md?card=<id>&v=next)` is implemented, runtime-state gated, and tested.

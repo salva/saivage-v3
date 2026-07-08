@@ -14,7 +14,6 @@ import {
   type CardLifecycleState,
   type CardRecord,
   type FailedResult,
-  type NeedsVerificationResult,
   type BlockedResult,
   type DoneResult,
   type ReworkResult,
@@ -22,12 +21,10 @@ import {
 
 const now = '2026-01-01T00:00:00.000Z';
 
-const selfReport = { result: 'done', outcome: 'done', summary: 'ok', status_text: 'done', at: now };
 const plannerDone: DoneResult = { kind: 'done', summary: 'done' };
 const plannerBlocked: BlockedResult = { kind: 'blocked', summary: 'input needed', resume_reason: 'operator_input' };
 const reviewerBlocked: ReworkResult = { kind: 'rework', summary: 'fix it' };
 const executorFailure: FailedResult = { kind: 'failed', summary: 'boom' };
-const executorNeedsVerification: NeedsVerificationResult = { kind: 'executor_needs_verification', reason: 'check output', preserved_result: {}, fallback_reason: null, latest_self_report: { ...selfReport, result: 'needs_verification', outcome: 'needs_verification', summary: 'check output', status_text: 'verify' } };
 
 function card(overrides: Partial<CardRecord> = {}): CardRecord {
   const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardLifecycleState);
@@ -65,16 +62,21 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
 }
 
 describe('card lifecycle schemas', () => {
-  it('accepts valid done, failed, blocked, and needs_verification shapes', () => {
+  it('accepts valid done, failed, and blocked shapes', () => {
     const done: CardLifecycleState = { status: 'done', result: plannerDone, error: null, completed_at: now };
     const failed: CardLifecycleState = { status: 'failed', result: executorFailure, error: 'boom', completed_at: now };
     const blocked: CardLifecycleState = { status: 'blocked', result: plannerBlocked, error: 'input needed', completed_at: null };
     const blockedByReviewer: CardLifecycleState = { status: 'blocked', result: reviewerBlocked, error: 'fix it', completed_at: null };
-    const needsVerification: CardLifecycleState = { status: 'needs_verification', result: executorNeedsVerification, error: null, completed_at: null };
 
-    for (const state of [done, failed, blocked, blockedByReviewer, needsVerification]) {
+    for (const state of [done, failed, blocked, blockedByReviewer]) {
       expect(cardLifecycleStateSchema.safeParse(state).success).toBe(true);
     }
+  });
+
+  it('rejects removed verification lifecycle and result shapes', () => {
+    const removedResult = { kind: 'executor_needs_verification', reason: 'check output', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'check output', status_text: 'verify', at: now } };
+    expect(cardResultSchema.safeParse(removedResult).success).toBe(false);
+    expect(cardLifecycleStateSchema.safeParse({ status: 'needs_verification', result: removedResult, error: null, completed_at: null }).success).toBe(false);
   });
 
   it('rejects invalid terminal lifecycle shapes at the schema boundary', () => {
@@ -84,7 +86,6 @@ describe('card lifecycle schemas', () => {
     expect(cardLifecycleStateSchema.safeParse({ status: 'failed', result: executorFailure, error: null, completed_at: now }).success).toBe(false);
     expect(cardLifecycleStateSchema.safeParse({ status: 'failed', result: executorFailure, completed_at: now }).success).toBe(false);
     expect(cardLifecycleStateSchema.safeParse({ status: 'blocked', result: plannerBlocked, error: null, completed_at: null }).success).toBe(false);
-    expect(cardLifecycleStateSchema.safeParse({ status: 'needs_verification', result: executorNeedsVerification, error: 'stale', completed_at: null }).success).toBe(false);
     expect(cardLifecycleStateSchema.safeParse({ status: 'done', result: plannerDone, error: null }).success).toBe(false);
   });
 

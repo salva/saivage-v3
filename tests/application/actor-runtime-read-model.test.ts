@@ -28,7 +28,6 @@ function createCardWithStatus(store: CardStore, status: CardStatus) {
   if (status === 'done') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
   if (status === 'failed') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-06-12T00:00:00.000Z' } });
   if (status === 'blocked') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'blocked' }, error: 'blocked', completed_at: null } });
-  if (status === 'needs_verification') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'verify', status_text: 'verify', at: '2026-06-12T00:00:00.000Z' } }, error: null, completed_at: null } });
   return store.setStatus(card.id, status);
 }
 
@@ -74,7 +73,7 @@ describe('actor runtime read model', () => {
   it('projects public card state from card store status, not actor lifecycle state', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
-    const cardStates: CardStatus[] = ['backlog', 'changed', 'blocked', 'failed', 'done', 'running', 'cancelled', 'needs_verification'];
+    const cardStates: CardStatus[] = ['backlog', 'changed', 'blocked', 'failed', 'done', 'running', 'cancelled'];
     const llmStates = ['idle', 'calling_provider', 'waiting_tool'];
     cardStates.forEach((state) => {
       const card = createCardWithStatus(store, state);
@@ -87,17 +86,6 @@ describe('actor runtime read model', () => {
     expect(model.diagnostics).toEqual([]);
     expect(model.cards.map((card) => card.actorState).sort()).toEqual([...cardStates].sort());
     expect(model.agents.map((agent) => agent.phase).sort()).toEqual(['calling_provider', 'idle', 'waiting_for_tool']);
-  }));
-
-  it('projects needs_verification from the card store, not the actor snapshot lifecycle state', () => withTempProject((projectRoot) => {
-    initProjectTree(projectRoot);
-    const card = createCardWithStatus(new CardStore(projectRoot), 'needs_verification');
-    saveActorSnapshot(projectRoot, { actor_id: `card:${card.id}`, actor_kind: 'card', state_value: 'parked', context: {}, updated_at: new Date().toISOString() });
-
-    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({
-      cards: [{ cardId: card.id, actorState: 'needs_verification' }],
-      diagnostics: [],
-    });
   }));
 
   it('accepts current runtime statuses without unknown-mode diagnostics', () => withTempProject((projectRoot) => {

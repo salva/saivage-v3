@@ -143,7 +143,6 @@ function statusExplainer(status: CardStatus): string {
     done: 'Marked done. Review status and review records before treating it as accepted.',
     failed: 'Failed. Inspect error, status records, and agent/review context.',
     cancelled: 'Cancelled; should not be treated as completed work.',
-    needs_verification: 'Needs verification. Inspect status and review records before accepting or restarting.',
   };
   return map[status];
 }
@@ -157,7 +156,7 @@ function dispatchUiStatus(status: string): UiStatus {
 }
 
 const reason = computed(() => lifecycle.value?.explanation || statusExplainer(currentCard.value?.status ?? 'backlog'));
-const PROBLEMATIC: ReadonlySet<CardStatus> = new Set(['failed', 'blocked', 'cancelled', 'needs_verification']);
+const PROBLEMATIC: ReadonlySet<CardStatus> = new Set(['failed', 'blocked', 'cancelled']);
 const reasonLine = computed(() => {
   const status = currentCard.value?.status;
   if (!status || !PROBLEMATIC.has(status)) return '';

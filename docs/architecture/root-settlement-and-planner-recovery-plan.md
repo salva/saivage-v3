@@ -209,7 +209,6 @@ State rules:
 - `running`: reject. Running card edits need deferred patch delivery, which is out of scope.
 - `done`: reject. Completed evidence invalidation needs an explicit later workflow.
 - `cancelled`: reject. Cancelled child replacement should be a new child card.
-- `needs_verification`: reject in this slice.
 
 Implementation options, in preferred order:
 
@@ -242,7 +241,6 @@ State rules:
 - `running`: call the child `CardActor.cancel(...)`; expect authoritative activation cancellation. The card store is marked `cancelled` immediately, the pending activation resolves as cancelled, activation-owned process scope is stopped, and late outcomes are rejected by activation id.
 - `done`: reject. Completed work invalidation is out of scope.
 - `cancelled`: reject as already cancelled.
-- `needs_verification`: reject in this slice. `CardActor` does not currently recover `needs_verification` cards into an actor state.
 
 Do not include a store-only fallback. The child actor registry path can construct the `CardActor` from store for existing children.
 
@@ -346,7 +344,7 @@ Steps:
 1. Add actor-specific `edit_card` definition with only supported fields.
 2. Add the narrow store mutation path if needed for clean reopen-and-patch semantics.
 3. Validate immediate-child scope.
-4. Reject running, done, cancelled, and needs-verification targets.
+4. Reject running, done, and cancelled targets.
 5. Reopen failed/blocked targets to `changed` while applying allowed patch fields.
 6. Keep backlog targets backlog unless a transition is required by implementation.
 7. Add tests for failed child -> edit to `changed` -> activate again.

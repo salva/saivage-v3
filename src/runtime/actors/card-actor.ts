@@ -358,7 +358,7 @@ export class CardActor extends BaseActor {
   private writeStoreStatus(status: CardStatus): void {
     const card = this.requireCard();
     if (card.status === status) return;
-    if (status === 'changed' && (card.status === 'done' || card.status === 'failed' || card.status === 'blocked' || card.status === 'needs_verification')) {
+    if (status === 'changed' && (card.status === 'done' || card.status === 'failed' || card.status === 'blocked')) {
       this.store.commitTerminalLifecyclePatch(this.cardId, {
         status: 'changed',
         lifecycle: { status: 'changed', result: card.lifecycle.result, error: card.lifecycle.error, completed_at: null },

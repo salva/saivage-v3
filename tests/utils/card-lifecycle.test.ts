@@ -150,25 +150,6 @@ describe('card lifecycle domain rules', () => {
     }
   });
 
-  it('setStatus to needs_verification produces a schema-valid record', () => {
-    const root = mkdtempSync(join(tmpdir(), 'card-lifecycle-needs-verification-'));
-    try {
-      initProjectTree(root);
-      const store = new CardStore(root);
-      const { id: _cardId, ...cardInput } = baseCard({ title: 'G2' });
-      const card = store.create({ ...cardInput, brief: 'G2' });
-      store.setStatus(card.id, 'running');
-      store.setStatus(card.id, 'running');
-
-      const needsVerification = store.setStatus(card.id, 'needs_verification');
-
-      expect(needsVerification.status).toBe('needs_verification');
-      expect(needsVerification.lifecycle.status).toBe('needs_verification');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
   it('setStatus refuses done/failed and directs callers to terminal commit', () => {
     const root = mkdtempSync(join(tmpdir(), 'card-lifecycle-terminal-refusal-'));
     try {

@@ -70,7 +70,7 @@ function inferNextAction(children: CardRecord[], runtimeState: RuntimeState | nu
     };
   }
 
-  if (children.some((child) => ['blocked', 'failed', 'needs_verification'].includes(child.status))) {
+  if (children.some((child) => ['blocked', 'failed'].includes(child.status))) {
     return {
       kind: 'inspect_state',
       confidence: 'low',

@@ -69,7 +69,7 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: C
       const card = opts.cardStore.read(cardId);
       if (!card) return { ok: false, reason: 'missing_card', cardId };
       appendNotificationToActorSnapshot(opts.projectRoot, cardActorId(cardId), notification);
-      if (card.status === 'done' || card.status === 'failed' || card.status === 'needs_verification') {
+      if (card.status === 'done' || card.status === 'failed') {
         opts.cardStore.commitTerminalLifecyclePatch(cardId, {
           status: 'changed',
           lifecycle: { status: 'changed', result: card.lifecycle.result, error: card.lifecycle.error, completed_at: null },

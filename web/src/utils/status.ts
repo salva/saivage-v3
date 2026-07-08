@@ -25,7 +25,6 @@ export const cardStatusTone: Record<CardStatus, Tone> = {
   done: 'success',
   failed: 'danger',
   cancelled: 'neutral',
-  needs_verification: 'warning',
 };
 
 export const cardTypeLabel: Record<CardType, string> = {

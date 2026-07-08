@@ -55,7 +55,7 @@ import EntityInspectorShell from '../components/layout/EntityInspectorShell.vue'
 import ViewState from '../components/ui/ViewState.vue';
 import { useCardBrowserReadModel } from '../composables/useCardBrowserReadModel';
 
-const STATUSES: CardStatus[] = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
+const STATUSES: CardStatus[] = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled'];
 const TYPES: CardType[] = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'];
 
 const route = useRoute();

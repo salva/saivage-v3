@@ -111,8 +111,6 @@ Pause admission is also a service, not an actor state. A single composition-root
 
 `CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `cancelled`, and `changed`. This is the public card lifecycle layer. New card actors start in `backlog`; recovered actors use the persisted card state. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `cancelled` is terminal: the actor exits, the card cannot be edited or reactivated, and replacement work requires creating a new card. Processor actors share mechanical base classes but keep role/card policy in concrete subclasses. `LLMActor` interacts with remote LLM providers.
 
-Note on `needs_verification`: the operator projection vocabulary (`actorRuntime.cards[].actorState`) includes `needs_verification` (see [System Specification §17](../spec/system-specification.md#17-recovery)), but it is **not** a `CardActor` state. It is a projected actor-state label derived from an executor terminal result kind. The recovery path rejects executor terminal results of the `needs_verification` kind rather than recovering a `needs_verification` actor. Do not add it to the CardActor state table without a concrete recovery path.
-
 The active chain may contain several public `running` cards, but only the leaf actor receives provider/process scheduling at a time.
 
 Ownership conventions are deliberately narrow:

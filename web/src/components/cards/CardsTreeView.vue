@@ -155,7 +155,6 @@ const renderedTree = computed<TreeNode[]>(() => {
 .state-ball.card-status-done { background: var(--card-status-done); }
 .state-ball.card-status-failed { background: var(--card-status-failed); }
 .state-ball.card-status-cancelled { background: var(--card-status-cancelled); }
-.state-ball.card-status-needs_verification { background: var(--card-status-needs-verification); }
 
 .node-title {
   flex: 1;

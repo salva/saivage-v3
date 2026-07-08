@@ -38,7 +38,6 @@
   --card-status-failed: var(--c-card-status-red);
   --card-status-done: var(--c-card-status-blue);
   --card-status-changed: var(--c-card-status-pink);
-  --card-status-needs-verification: var(--c-card-status-yellow);
 
   /* Entry / message state colors */
   --entry-user-border:   rgba(24, 121, 78, 0.25);

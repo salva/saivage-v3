@@ -407,7 +407,6 @@ Tools to remove or avoid as Analyst card-specific tools:
 | `done` | yes | yes | yes | no | yes |
 | `failed` | yes | yes | yes | no | yes |
 | `cancelled` | yes | yes | yes | no | yes |
-| `needs_verification` | yes | yes | yes | yes | yes |
 | `running` | no | yes while paused | no | notify only | no |
 
 All Analyst mutations require runtime status `stopped` or `paused`. `write(record://brief.md?card=...)` may target running cards while paused if the touched slot is Analyst-writable, closed, and schema-valid. Structural mutations that invalidate running subtrees remain denied unless designed explicitly later.

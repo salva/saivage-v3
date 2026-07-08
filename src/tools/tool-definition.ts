@@ -3,15 +3,7 @@ import { z } from 'zod';
 import { analystIssueSeverityValues, cardStatusValues, cardTypeValues, urgencyValues } from '../schemas/index.js';
 
 export const CARD_STATUS_VALUES = cardStatusValues;
-export const RUNTIME_CARD_STATUS_VALUES = CARD_STATUS_VALUES.filter((status) => status !== 'needs_verification') as [
-  'backlog',
-  'running',
-  'blocked',
-  'changed',
-  'done',
-  'failed',
-  'cancelled',
-];
+export const RUNTIME_CARD_STATUS_VALUES = CARD_STATUS_VALUES;
 export const CARD_TYPE_VALUES = cardTypeValues;
 export const PLANNER_CREATE_CARD_TYPE_VALUES = ['goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
 export const CREATE_CARD_TYPE_VALUES = CARD_TYPE_VALUES;

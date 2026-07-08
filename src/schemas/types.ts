@@ -1,7 +1,7 @@
 export const cardTypeValues = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
 export type CardType = typeof cardTypeValues[number];
 
-export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'] as const;
+export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled'] as const;
 export type CardStatus = typeof cardStatusValues[number];
 
 
@@ -10,8 +10,8 @@ export type CardAction = typeof cardActionValues[number];
 export type RuntimeCommandName = 'start_project' | 'stop_project';
 export type RuntimeCommandStatus = 'accepted' | 'rejected' | 'completed';
 export type RuntimeRunKind = 'root' | 'child';
-export type RuntimeRunPhase = 'pending' | 'planner' | 'executor' | 'reviewer' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'stopped' | 'needs_verification';
-export type RuntimeActivationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'needs_verification';
+export type RuntimeRunPhase = 'pending' | 'planner' | 'executor' | 'reviewer' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'stopped';
+export type RuntimeActivationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled';
 export type RuntimeDispatchOwnership =
   | { kind: 'direct'; source: 'project_root' | 'operator' | 'startup_repair' }
   | { kind: 'activation'; activation_id: string; parent_run_id: string; parent_card_id: string; parent_session_id: string; parent_tool_call_id: string };
@@ -22,15 +22,13 @@ export type RuntimeLedgerActivationOutcome =
   | { kind: 'completed'; outcome: 'failed'; card_id: string; error: string; completed_at: string }
   | { kind: 'completed'; outcome: 'cancelled'; card_id: string; completed_at: string | null }
   | { kind: 'completed'; outcome: 'timed_out'; card_id: string; error: string; completed_at: string }
-  | { kind: 'paused'; reason: 'needs_verification'; card_id: string; detail: string }
   | { kind: 'blocked'; card_id: string; error: string };
 export type RuntimeLedgerRunOutcome =
   | { kind: 'completed'; result: 'done'; finished_at: string }
   | { kind: 'completed'; result: 'failed'; error: string; finished_at: string }
   | { kind: 'completed'; result: 'cancelled'; finished_at: string | null }
   | { kind: 'completed'; result: 'stopped'; finished_at: string }
-  | { kind: 'blocked'; error: string }
-  | { kind: 'paused'; reason: 'needs_verification'; detail: string };
+  | { kind: 'blocked'; error: string };
 export interface RuntimeRunRecord { run_id: string; kind: RuntimeRunKind; card_id: string; ownership: RuntimeDispatchOwnership; parent_run_id?: string | null; command_id?: string | null; activation_id?: string | null; phase: RuntimeRunPhase; runtime_status: RuntimeRunStatus; session_id?: string | null; started_at: string; updated_at: string; finished_at?: string | null; outcome?: RuntimeLedgerRunOutcome | null; }
 export interface RuntimeActivationRecord { activation_id: string; idempotency_key: string; parent_card_id: string; parent_run_id: string; parent_session_id: string; parent_tool_call_id: string; child_card_id: string; status: RuntimeActivationStatus; requested_at: string; updated_at: string; precondition: 'accepted' | 'rejected'; runtime_run_id?: string | null; error?: ActionableErrorEnvelope | null; outcome?: RuntimeLedgerActivationOutcome | null; }
 
@@ -55,7 +53,6 @@ export interface CardRecord {
 export interface CardOperatorSummary {
   lifecycleStatus: CardStatus;
   terminal: boolean;
-  needsVerification: boolean;
   blocked: boolean;
   hasError: boolean;
   error: string | null;
@@ -91,7 +88,7 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'tool_error' | 'model_issue' | 'model_repair' | 'context_compaction' | 'model_recovered' | 'system_prompt';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine'; entity_id: string; label?: string; }
 export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; }
-export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out' | 'needs_verification';
+export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
 export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
 export type RuntimeStatus = 'stopped' | 'running' | 'paused' | 'error';
 export type RuntimeRunStatus = RuntimeStatus | 'stopped' | 'cancelled';

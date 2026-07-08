@@ -129,7 +129,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const card = this.options.actorStore.read(cardId);
     if (!card) return { ok: false, reason: 'missing_card', cardId };
     appendNotificationToActorSnapshot(this.options.projectRoot, cardActorId(cardId), notification);
-    if (card.status === 'done' || card.status === 'failed' || card.status === 'needs_verification') {
+    if (card.status === 'done' || card.status === 'failed') {
       this.options.actorStore.commitTerminalLifecyclePatch(cardId, {
         status: 'changed',
         lifecycle: { status: 'changed', result: card.lifecycle.result, error: card.lifecycle.error, completed_at: null },
@@ -354,7 +354,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   private isTerminalRun(run: RuntimeRunRecord): boolean {
-    return run.runtime_status !== 'running' || ['completed', 'failed', 'blocked', 'cancelled', 'stopped', 'needs_verification'].includes(run.phase);
+    return run.runtime_status !== 'running' || ['completed', 'failed', 'blocked', 'cancelled', 'stopped'].includes(run.phase);
   }
 
   private reconcileStaleRootRuns(): void {

@@ -62,7 +62,7 @@ function typeIcon(type: CardType): string {
 function statusIcon(status: CardStatus): string {
   const icons: Record<CardStatus, string> = {
     backlog: '📋', running: '⚡',
-    blocked: '⛔', changed: '✎', done: '✅', failed: '❌', cancelled: '🚫', needs_verification: '🔍',
+    blocked: '⛔', changed: '✎', done: '✅', failed: '❌', cancelled: '🚫',
   };
   return icons[status] || '●';
 }
@@ -152,7 +152,6 @@ function formatDuration(ms: number | null | undefined): string {
 .tl-marker.status-blocked { background: var(--card-status-blocked); }
 .tl-marker.status-changed { background: var(--card-status-changed); }
 .tl-marker.status-cancelled { background: var(--card-status-cancelled); }
-.tl-marker.status-needs_verification { background: var(--card-status-needs-verification); }
 
 .tl-icon {
   font-size: 12px;

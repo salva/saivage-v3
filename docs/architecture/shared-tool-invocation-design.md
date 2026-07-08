@@ -374,7 +374,7 @@ Confirmed completed cleanup:
 - The Analyst active surface now matches §3.5 for inspection/history: `CardInspectionProvider` and `CardHistoryProvider` are composed into the Analyst `InvocationSurface`, while the Analyst control registry owns only operator-control tools.
 - Terminal unification is implemented: planner, executor, and reviewer use `emit_result` with role-specific status subsets over the common `{ status, summary }` envelope. Legacy `report_goal_*` support and role-specific `emit_*_result` names are removed from active prompts, repair prompts, schemas, and tests.
 - `webfetch.save_as` now pre-authorizes and writes through the same scoped URL write path used by `write` (`project://`, `record://`, `tmp://`, and role/slot policy), including analyst explicit-card `brief.md` writes.
-- Lifecycle storage/API shape is collapsed to `done`, `blocked`, `failed`, and `rework` result kinds, plus the internal `executor_needs_verification` runtime result. Legacy persisted result kinds such as `executor_success`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, and `reviewer_correction` are removed from active schemas and tests.
+- Lifecycle storage/API shape is collapsed to `done`, `blocked`, `failed`, and `rework` result kinds. Legacy persisted result kinds such as `executor_success`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, and `reviewer_correction` are removed from active schemas and tests.
 
 ## 6. Validation Strategy
 

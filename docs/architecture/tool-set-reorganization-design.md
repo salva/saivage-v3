@@ -199,7 +199,7 @@ No new slots are needed. If a future role needs its own dedicated record, it can
 
 #### Simplified lifecycle results
 
-The old role-specific lifecycle result kinds (`executor_success`, `executor_failure`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, `reviewer_correction`) are collapsed to 4 common result kinds, plus the existing internal verification result:
+The old role-specific lifecycle result kinds (`executor_success`, `executor_failure`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, `reviewer_correction`) are collapsed to 4 common result kinds:
 
 | Lifecycle result | `card.status` | Fields | Replaces |
 | --- | --- | --- | --- |
@@ -207,10 +207,6 @@ The old role-specific lifecycle result kinds (`executor_success`, `executor_fail
 | `BlockedResult` | `blocked` | `summary` (reason) | `planner_blocked` |
 | `FailedResult` | `failed` | `summary` (error/reason) | `executor_failure`, `planner_failure` |
 | `ReworkResult` | `blocked` | `summary` (reason) | `reviewer_correction` — the correction detail is in `review.md` |
-| `NeedsVerificationResult` | `needs_verification` | `reason`, `preserved_result`, `latest_self_report` | — (unchanged; internal runtime concept, not agent-emitted) |
-
-`NeedsVerificationResult` is the one result type that keeps its pre-collapse discriminator: the `kind` is still `executor_needs_verification`, not `needs_verification`. It is an internal runtime concern (executor parked for operator verification), never emitted by an agent through the terminal tool, so it was not renamed alongside the agent-facing kinds.
-
 The old `latest_self_report` field embedded in executor results was a mirror of `status.md` content. With the detail living in `status.md`, `latest_self_report` is dropped from `DoneResult` and `FailedResult` — the record URL is the durable reference.
 
 Runtime-internal fields like `blocker_cause` (`'reviewer_unavailable' | 'generic' | ...`) and `verified_at` are set by the runtime, not emitted by the agent. They stay on the lifecycle result as internal metadata. The `'non_actionable_continue'` cause is removed — with no `continue` status, a planner that returns `done` without useful work is a prompt-quality issue, not a distinct blocker cause.
@@ -445,7 +441,7 @@ Done:
 - Updated planner, executor, and reviewer prompts, repair messages, contracts, schemas, recovery fixtures, and tests to mention only `emit_result` plus role-allowed statuses.
 - Moved executor terminal `warnings`/`result`/`error` and reviewer terminal `assessment`/`achieved`/`issues`/`evidence_card_ids` out of terminal envelopes. Rich detail belongs in `status.md` and `review.md`.
 - Updated `src/schemas/event-catalog.ts` and `src/schemas/types.ts` terminal-tool enums.
-- Collapsed lifecycle results from persisted/API-facing legacy kinds to `DoneResult`, `BlockedResult`, `FailedResult`, and `ReworkResult`, plus internal `NeedsVerificationResult`. Reviewer `rework` emits a `ReworkResult` while the card status remains `blocked`.
+- Collapsed lifecycle results from persisted/API-facing legacy kinds to `DoneResult`, `BlockedResult`, `FailedResult`, and `ReworkResult`. Reviewer `rework` emits a `ReworkResult` while the card status remains `blocked`.
 
 ### Phase 5: Align scoped URL policy, prompts, and specs — partially done
 
@@ -482,7 +478,7 @@ This reorganization is complete when:
 - the conversation UI redesign's Phase 2 unblocks because the tool vocabulary is aligned;
 - the terminal tool is `emit_result` for planner, executor, and reviewer with a common `{ status: 'done' | 'blocked' | 'failed' | 'rework', summary }` envelope; the analyst has no terminal tool;
 - planner `done` means the planner completed its current planning task/activation, not that the entire process is complete;
-- lifecycle results are collapsed from legacy role-specific kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`) plus the internal `NeedsVerificationResult`; reviewer may emit `done`, `rework`, `blocked`, or `failed`, and reviewer `rework` stores a `ReworkResult` on a blocked card;
+- lifecycle results are collapsed from legacy role-specific kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`); reviewer may emit `done`, `rework`, `blocked`, or `failed`, and reviewer `rework` stores a `ReworkResult` on a blocked card;
 - executor `warnings`, `result`, and `error` go into `status.md`, not the envelope;
 - reviewer `assessment`, `achieved`, `issues`, and `evidence_card_ids` go into `review.md`, not the envelope;
 - reviewer evidence is prose in `review.md`; the runtime does not parse it to validate card IDs.

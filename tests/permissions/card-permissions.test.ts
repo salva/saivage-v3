@@ -25,10 +25,9 @@ describe('permission-by-state matrix', () => {
     expect(decide({ role: 'reviewer', action: 'card.delete', targetState: 'failed' })).toEqual({ allowed: false, reason: 'not_authorized' });
     expect(decide({ role: 'analyst', action: 'card.create', targetState: 'backlog' })).toEqual({ allowed: true });
     expect(decide({ role: 'analyst', action: 'card.create', targetState: 'running' })).toEqual({ allowed: false, reason: 'wrong_state' });
-    expect(decide({ role: 'analyst', action: 'card.cancel', targetState: 'needs_verification' })).toEqual({ allowed: true });
+    expect(decide({ role: 'analyst', action: 'card.cancel', targetState: 'blocked' })).toEqual({ allowed: true });
     expect(decide({ role: 'analyst', action: 'card.cancel', targetState: 'done' })).toEqual({ allowed: false, reason: 'wrong_state' });
     expect(decide({ role: 'analyst', action: 'card.delete', targetState: 'changed' })).toEqual({ allowed: true });
-    expect(decide({ role: 'analyst', action: 'card.delete', targetState: 'needs_verification' })).toEqual({ allowed: true });
     expect(decide({ role: 'analyst', action: 'card.restart', targetState: 'done' })).toEqual({ allowed: false, reason: 'not_authorized' });
     expect(decide({ role: 'analyst', action: 'card.reorder_child', targetState: 'changed' })).toEqual({ allowed: true });
     expect(decide({ role: 'analyst', action: 'card.reorder_child', targetState: 'running' })).toEqual({ allowed: false, reason: 'wrong_state' });

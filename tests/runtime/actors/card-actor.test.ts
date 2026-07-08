@@ -513,19 +513,6 @@ describe('CardActor', () => {
     expect(store.read(project.id)?.status).toBe('done');
   }));
 
-  it('recovers needs_verification cards as parked and leaves them inactive', () => withTempProject((projectRoot) => {
-    initProjectTree(projectRoot);
-    const store = new CardStore(projectRoot);
-    const project = createProject(store);
-    store.commitTerminalLifecyclePatch(project.id, { status: 'needs_verification', lifecycle: { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'verify', status_text: 'verify', at: '2026-06-12T00:00:00.000Z' } }, error: null, completed_at: null } });
-
-    const actor = actorFromCard(projectRoot, store, store.read(project.id)!, processor({ status: 'done', summary: 'unused', result: { kind: 'done', summary: 'unused' } }));
-
-    expect(actor.state()).toBe('parked');
-    expect(store.read(project.id)?.status).toBe('needs_verification');
-    expect(isActivatable('needs_verification')).toBe(false);
-  }));
-
   it('cancels inactive subtrees while preserving done descendants', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);

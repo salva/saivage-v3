@@ -25,9 +25,9 @@ export interface MatrixEntry {
 
 const PLANNER_MUTABLE_STATES = ['backlog', 'changed'] as const satisfies readonly CardState[];
 const DELETABLE_STATES = ['backlog', 'blocked', 'done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
-const ANALYST_CANCELABLE_STATES = ['backlog', 'changed', 'blocked', 'needs_verification'] as const satisfies readonly CardState[];
-const ANALYST_CREATABLE_PARENT_STATES = ['backlog', 'changed', 'blocked', 'done', 'failed', 'cancelled', 'needs_verification'] as const satisfies readonly CardState[];
-const ANALYST_DELETABLE_STATES = ['backlog', 'changed', 'blocked', 'done', 'failed', 'cancelled', 'needs_verification'] as const satisfies readonly CardState[];
+const ANALYST_CANCELABLE_STATES = ['backlog', 'changed', 'blocked'] as const satisfies readonly CardState[];
+const ANALYST_CREATABLE_PARENT_STATES = ['backlog', 'changed', 'blocked', 'done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
+const ANALYST_DELETABLE_STATES = ['backlog', 'changed', 'blocked', 'done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
 const ANALYST_REORDERABLE_STATES = ANALYST_CREATABLE_PARENT_STATES;
 export const RESTARTABLE_STATES = ['blocked', 'changed', 'done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
 export const STARTABLE_STATES = ['backlog', 'changed'] as const satisfies readonly CardState[];

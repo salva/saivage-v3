@@ -22,7 +22,7 @@ running:                  on: { settled: 'parked', cancel: 'cancelled' }
 cancelled:                terminal
 ```
 
-- `parked`: the card is not currently executing. Store status may be `backlog`, `changed`, `blocked`, `failed`, `done`, or `needs_verification`.
+- `parked`: the card is not currently executing. Store status may be `backlog`, `changed`, `blocked`, `failed`, or `done`.
 - `running`: a processor task is in flight.
 - `cancelled`: terminal.
 
@@ -34,12 +34,11 @@ Events:
 
 ## What Gets Deleted
 
-- `cardActorState(status)` mapping function and its `needs_verification` fail-fast guards.
+- `cardActorState(status)` mapping function.
 - `CardActorStatus` type alias.
 - `writeStatus(...)` mirroring logic — store writes become direct. The terminal-to-`changed` lifecycle patch stays but moves to a single `applyStoreStatus(status)` helper or inline at call sites.
 - The `changed` actor event and all `on: { changed }` transitions. `markChanged()` writes store status `changed` and persists. The actor stays `parked`. The supervisor reads the store to discover activatable cards.
 - All `card.status === X || this.state() === X` defensive double-checks in `cancel()` and `markChanged()`.
-- The `needs_verification` recovery throw. A `needs_verification` card is simply `parked` and `isActivatable('needs_verification')` returns false.
 
 ## Method Changes
 
@@ -98,9 +97,9 @@ else if (card.status === 'cancelled') → recover('cancelled')
 else → recover('parked')
 ```
 
-When the durable card status is not `running`, stale `activeReconstruction`, activation id, caller, and abort state must be cleared before recovering. The store status is authoritative: stale active snapshot context must not make a done/failed/blocked/changed/needs-verification card look resumable.
+When the durable card status is not `running`, stale `activeReconstruction`, activation id, caller, and abort state must be cleared before recovering. The store status is authoritative: stale active snapshot context must not make a done/failed/blocked/changed card look resumable.
 
-No `cardActorState(status)` mapping. No `needs_verification` throw.
+No `cardActorState(status)` mapping.
 
 ## Recovery Diagnostics
 
@@ -108,7 +107,7 @@ No `cardActorState(status)` mapping. No `needs_verification` throw.
 
 Recovery should use two separate signals:
 
-- Card store status answers what the card is: `backlog`, `changed`, `blocked`, `failed`, `done`, `running`, `cancelled`, or `needs_verification`.
+- Card store status answers what the card is: `backlog`, `changed`, `blocked`, `failed`, `done`, `running`, or `cancelled`.
 - Card actor snapshot `state_value` answers what the actor was doing when persisted: `parked`, `running`, or `cancelled`.
 
 For active card reconstruction, valid state is stricter: a card snapshot with `active_reconstruction` should have lifecycle state `running`. Active reconstruction on `parked` or `cancelled` is inconsistent and should remain a recovery diagnostic. This replaces the old `isKnownCardActorState(...)`/`parseCardActorState(...)` check with a local lifecycle-state check:
@@ -146,7 +145,6 @@ Do not copy `cardStatus` into actor snapshot context. That would recreate the mi
 Update `tests/runtime/actors/card-actor.test.ts`:
 
 - Tests that assert `actor.state() === 'done'` / `'failed'` / `'blocked'` / `'changed'` / `'backlog'` change to assert `store.read(id).status` instead, or `actor.state() === 'parked'` where the point is "not running."
-- The `needs_verification` fail-fast test is removed — `needs_verification` cards recover to `parked` and are simply not activatable.
 - The `isActivatable` test stays unchanged.
 - Activation, cancellation, notification delivery, and recovery behavior tests stay unchanged in intent.
 

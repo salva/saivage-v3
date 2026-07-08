@@ -33,15 +33,7 @@ export interface ReworkResult extends Record<string, unknown> {
   summary: string;
 }
 
-export interface NeedsVerificationResult extends Record<string, unknown> {
-  kind: 'executor_needs_verification';
-  reason: string;
-  preserved_result: Record<string, unknown>;
-  fallback_reason: string | null;
-  latest_self_report: SelfReport;
-}
-
-export type CardResult = DoneResult | FailedResult | BlockedResult | ReworkResult | NeedsVerificationResult;
+export type CardResult = DoneResult | FailedResult | BlockedResult | ReworkResult;
 
 export type CardLifecycleState =
   | { status: 'backlog'; result: null; error: null; completed_at: null }
@@ -50,23 +42,20 @@ export type CardLifecycleState =
   | { status: 'done'; result: DoneResult; error: null; completed_at: string }
   | { status: 'failed'; result: FailedResult; error: string; completed_at: string }
   | { status: 'blocked'; result: BlockedResult | ReworkResult; error: string; completed_at: null }
-  | { status: 'needs_verification'; result: NeedsVerificationResult; error: null; completed_at: null }
   | { status: 'cancelled'; result: null; error: null; completed_at: string | null };
 
 export type ActivationOutcome =
   | { outcome: 'done'; completed_at: string; result: DoneResult }
   | { outcome: 'failed'; completed_at: string; error: string; result: FailedResult }
   | { outcome: 'blocked'; error: string; result: BlockedResult | ReworkResult }
-  | { outcome: 'cancelled'; completed_at: string | null }
-  | { outcome: 'needs_verification'; reason: string; result: NeedsVerificationResult };
+  | { outcome: 'cancelled'; completed_at: string | null };
 
 export type RuntimeRunOutcome =
   | { outcome: 'done'; completed_at: string; result: DoneResult }
   | { outcome: 'failed'; completed_at: string; error: string; result: FailedResult }
   | { outcome: 'blocked'; error: string; result: BlockedResult | ReworkResult }
   | { outcome: 'cancelled'; completed_at: string | null }
-  | { outcome: 'stopped'; stopped_at: string; reason: string | null }
-  | { outcome: 'needs_verification'; reason: string; result: NeedsVerificationResult };
+  | { outcome: 'stopped'; stopped_at: string; reason: string | null };
 
 export const selfReportSchema: z.ZodType<SelfReport> = z.object({
   result: z.string(),
@@ -98,20 +87,11 @@ export const reworkResultSchema: z.ZodType<ReworkResult> = z.object({
   summary: nonEmptyStringSchema,
 }).strict();
 
-export const needsVerificationResultSchema: z.ZodType<NeedsVerificationResult> = z.object({
-  kind: z.literal('executor_needs_verification'),
-  reason: nonEmptyStringSchema,
-  preserved_result: z.record(z.string(), z.unknown()),
-  fallback_reason: z.string().nullable(),
-  latest_self_report: selfReportSchema,
-}).strict();
-
 export const cardResultSchema: z.ZodType<CardResult> = z.union([
   doneResultSchema,
   failedResultSchema,
   blockedResultSchema,
   reworkResultSchema,
-  needsVerificationResultSchema,
 ]);
 
 export const failedLifecycleResultSchema: z.ZodType<FailedResult> = failedResultSchema;
@@ -124,7 +104,6 @@ export const cardLifecycleStateSchema: z.ZodType<CardLifecycleState> = z.discrim
   z.object({ status: z.literal('done'), result: doneResultSchema, error: z.null(), completed_at: timestampSchema }).strict(),
   z.object({ status: z.literal('failed'), result: failedLifecycleResultSchema, error: nonEmptyStringSchema, completed_at: timestampSchema }).strict(),
   z.object({ status: z.literal('blocked'), result: blockedLifecycleResultSchema, error: nonEmptyStringSchema, completed_at: z.null() }).strict(),
-  z.object({ status: z.literal('needs_verification'), result: needsVerificationResultSchema, error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('cancelled'), result: z.null(), error: z.null(), completed_at: timestampSchema.nullable() }).strict(),
 ]);
 
@@ -133,7 +112,6 @@ export const activationOutcomeSchema: z.ZodType<ActivationOutcome> = z.discrimin
   z.object({ outcome: z.literal('failed'), completed_at: timestampSchema, error: nonEmptyStringSchema, result: failedLifecycleResultSchema }).strict(),
   z.object({ outcome: z.literal('blocked'), error: nonEmptyStringSchema, result: blockedLifecycleResultSchema }).strict(),
   z.object({ outcome: z.literal('cancelled'), completed_at: timestampSchema.nullable() }).strict(),
-  z.object({ outcome: z.literal('needs_verification'), reason: nonEmptyStringSchema, result: needsVerificationResultSchema }).strict(),
 ]);
 
 export const runtimeRunOutcomeSchema: z.ZodType<RuntimeRunOutcome> = z.discriminatedUnion('outcome', [
@@ -142,7 +120,6 @@ export const runtimeRunOutcomeSchema: z.ZodType<RuntimeRunOutcome> = z.discrimin
   z.object({ outcome: z.literal('blocked'), error: nonEmptyStringSchema, result: blockedLifecycleResultSchema }).strict(),
   z.object({ outcome: z.literal('cancelled'), completed_at: timestampSchema.nullable() }).strict(),
   z.object({ outcome: z.literal('stopped'), stopped_at: timestampSchema, reason: z.string().nullable() }).strict(),
-  z.object({ outcome: z.literal('needs_verification'), reason: nonEmptyStringSchema, result: needsVerificationResultSchema }).strict(),
 ]);
 
 export function validatePersistedCardLifecycle(card: { status: string; lifecycle: unknown }): CardLifecycleState {

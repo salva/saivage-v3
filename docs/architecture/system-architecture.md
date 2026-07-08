@@ -47,6 +47,8 @@ The Analyst is the global card mutation authority for user-requested changes. An
 
 At most one leaf card is doing real work at a time. The active work chain can contain multiple cards with durable status `running`, but only the leaf receives scheduling, LLM turns, or process work.
 
+Durable card status is one of exactly `backlog`, `running`, `blocked`, `changed`, `done`, `failed`, or `cancelled`. Parent-visible card activation outcomes are exactly `done`, `failed`, `blocked`, or `cancelled`; the runtime completion outcome schema also admits `timed_out` where timeout handling applies.
+
 Ancestors hold activation context for their active child. That context is actor data, not a separate card state.
 
 The runtime persists enough active-card-run and activation-ledger information to unwind one child activation outcome back to its parent planner.

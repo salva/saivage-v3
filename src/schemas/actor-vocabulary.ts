@@ -12,7 +12,7 @@ export const llmActorPhases = ['idle', 'calling_provider', 'waiting_tool'] as co
 export type LlmActorPhase = typeof llmActorPhases[number];
 export const llmActorPhaseSchema = z.enum(llmActorPhases);
 
-export const publicCardActorStates = ['backlog', 'changed', 'blocked', 'failed', 'done', 'running', 'cancelled', 'needs_verification'] as const;
+export const publicCardActorStates = ['backlog', 'changed', 'blocked', 'failed', 'done', 'running', 'cancelled'] as const;
 export type PublicCardActorState = typeof publicCardActorStates[number];
 export const publicCardActorStateSchema = z.enum(publicCardActorStates);
 

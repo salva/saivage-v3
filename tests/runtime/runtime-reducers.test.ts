@@ -135,12 +135,4 @@ describe('runtime reducer helpers', () => {
     }), 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' })).toThrow(/parent planner run/);
   });
 
-  it('maps needs_verification activation completion to paused outcome snapshots', () => {
-    const next = reduceActivationCompletion(state({
-      runtime_activations: [activation({ status: 'pending' })],
-      runtime_runs: [run()],
-    }), 'child', 'needs_verification', '2026-05-26T01:00:00.000Z', { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'inspect evidence', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'inspect evidence', status_text: 'verify', at: '2026-05-26T01:00:00.000Z' } }, error: null, completed_at: null });
-    expect(next?.runtime_activations[0]).toEqual(expect.objectContaining({ status: 'needs_verification', outcome: { kind: 'paused', reason: 'needs_verification', card_id: 'child', detail: 'inspect evidence' } }));
-    expect(next?.runtime_runs[0]).toEqual(expect.objectContaining({ phase: 'needs_verification', runtime_status: 'error', outcome: { kind: 'paused', reason: 'needs_verification', detail: 'inspect evidence' } }));
-  });
 });

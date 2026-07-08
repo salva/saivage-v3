@@ -106,7 +106,7 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof edi
   if (record.card_id.length === 0) return failure('edit_card requires card_id.');
   const child = requireImmediateChild(ctx, record.card_id, 'edit_card');
   if (!child.success) return child;
-  if (['running', 'done', 'cancelled', 'needs_verification'].includes(child.card.status)) return failure(`edit_card cannot edit ${child.card.status} child '${record.card_id}'.`);
+  if (['running', 'done', 'cancelled'].includes(child.card.status)) return failure(`edit_card cannot edit ${child.card.status} child '${record.card_id}'.`);
   const patch = plannerEditablePatch(record);
   if (Object.keys(patch).length === 0) return failure('edit_card requires at least one editable field.');
   if (!ctx.store.mutateCard) throw new Error('Planner edit_card requires a mutable card store.');
@@ -160,7 +160,7 @@ function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<typeof c
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');
   const child = requireImmediateChild(ctx, record.card_id, 'cancel_card');
   if (!child.success) return child;
-  if (['done', 'cancelled', 'needs_verification'].includes(child.card.status)) return failure(`cancel_card cannot cancel ${child.card.status === 'cancelled' ? 'already-cancelled' : child.card.status} child '${record.card_id}'.`);
+  if (['done', 'cancelled'].includes(child.card.status)) return failure(`cancel_card cannot cancel ${child.card.status === 'cancelled' ? 'already-cancelled' : child.card.status} child '${record.card_id}'.`);
   const actor = ctx.children.get(record.card_id);
   if (!actor) return failure(`No CardActor is registered for child '${record.card_id}'.`);
   actor.cancel({ reason: record.reason ?? 'planner_cancel_card', cancelled_at: new Date().toISOString() });

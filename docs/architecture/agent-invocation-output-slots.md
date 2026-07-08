@@ -310,8 +310,8 @@ The reviewer currently receives only the goal card's primary brief context and n
 The reviewer must receive descendant summaries as context messages before invocation. For each descendant of the goal card:
 
 - `id`, `type`, `title`, `status`
-- `lifecycle.result.kind` (`done`, `blocked`, `failed`, `rework`, or internal `executor_needs_verification`)
-- `lifecycle.result.summary` or verification `reason`
+- `lifecycle.result.kind` (`done`, `blocked`, `failed`, or `rework`)
+- `lifecycle.result.summary`
 - The descendant's record URLs (e.g., `record://status.md?v=3&card=card-7`) so the reviewer can `read` them
 
 This lets the reviewer cite descendant cards that have real work products and read those products if needed. The reviewer reads descendant files by their `record://` URL; it writes its own review only to its runtime-declared `record://` URL.

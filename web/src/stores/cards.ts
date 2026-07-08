@@ -230,7 +230,6 @@ export function deriveCardLifecycleSummary(card: CardRecord, children: CardRecor
     done: 0,
     failed: 0,
     cancelled: 0,
-    needs_verification: 0,
   } satisfies Record<CardStatus, number>;
   for (const child of children) childCounts[child.status] += 1;
   return {

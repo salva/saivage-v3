@@ -16,7 +16,7 @@ const card = {
   status: 'done',
   lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
   display_path: '1',
-  operator_summary: { lifecycleStatus: 'done', terminal: true, needsVerification: false, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
+  operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
   tags: ['smoke'],
   priority: 90,
   urgency: 'normal',
@@ -50,7 +50,7 @@ const baseChild = {
   related: [],
   retries: 0,
   version_seq: 1,
-  operator_summary: { lifecycleStatus: 'done', terminal: true, needsVerification: false, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
+  operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
 } as const;
 
 const children = Array.from({ length: 40 }, (_, index) => ({

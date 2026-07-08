@@ -75,8 +75,6 @@ function activationOutcomeFromLifecycle(input: {
       return { kind: 'completed', outcome: 'cancelled', card_id: cardId, completed_at: lifecycle.completed_at };
     case 'blocked':
       return { kind: 'blocked', card_id: cardId, error: lifecycle.error };
-    case 'needs_verification':
-      return { kind: 'paused', reason: 'needs_verification', card_id: cardId, detail: needsVerificationDetail(lifecycle) };
     default:
       return null;
   }
@@ -92,19 +90,9 @@ function runtimeRunOutcomeFromLifecycle(lifecycle: CardLifecycleState): RuntimeL
       return lifecycle.completed_at ? { kind: 'completed', result: 'cancelled', finished_at: lifecycle.completed_at } : null;
     case 'blocked':
       return { kind: 'blocked', error: lifecycle.error };
-    case 'needs_verification':
-      return { kind: 'paused', reason: 'needs_verification', detail: needsVerificationDetail(lifecycle) };
     default:
       return null;
   }
-}
-
-function needsVerificationDetail(lifecycle: Extract<CardLifecycleState, { status: 'needs_verification' }>): string {
-  const result = lifecycle.result;
-  if (result && typeof result === 'object' && typeof (result as { reason?: unknown }).reason === 'string' && (result as { reason: string }).reason.trim()) {
-    return (result as { reason: string }).reason;
-  }
-  return 'Card is parked for verification.';
 }
 
 function assertSingleActiveChildActivation(
@@ -167,8 +155,6 @@ function activationOutcomeFromCompletion(cardId: string, outcome: ActivationComp
       return { kind: 'blocked', card_id: cardId, error: 'Activation blocked.' };
     case 'cancelled':
       return { kind: 'completed', outcome: 'cancelled', card_id: cardId, completed_at: completedAt };
-    case 'needs_verification':
-      return { kind: 'paused', reason: 'needs_verification', card_id: cardId, detail: 'Card is parked for verification.' };
     default:
       return { kind: 'completed', outcome: 'failed', card_id: cardId, error: 'Activation failed.', completed_at: completedAt };
   }
@@ -182,8 +168,6 @@ function runtimeRunOutcomeFromCompletion(outcome: ActivationCompletionOutcome, f
       return { kind: 'blocked', error: 'Activation blocked.' };
     case 'cancelled':
       return { kind: 'completed', result: 'cancelled', finished_at: finishedAt };
-    case 'needs_verification':
-      return { kind: 'paused', reason: 'needs_verification', detail: 'Card is parked for verification.' };
     default:
       return { kind: 'completed', result: 'failed', error: 'Activation failed.', finished_at: finishedAt };
   }

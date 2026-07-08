@@ -189,10 +189,10 @@ describe('queueNotification recipient resolution', () => {
   });
 
   it('delivers queued card notifications through notifyCard into the next planner LLM input', async () => {
-    const goal = store.create(makeCard({ id: 'needs-review', type: 'goal', title: 'Needs review' }));
+    const goal = store.create(makeCard({ id: 'reviewed', type: 'goal', title: 'Reviewed' }));
     store.repairTerminalLifecycle(goal.id, {
-      status: 'needs_verification',
-      lifecycle: { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'verify', status_text: 'verify', at: '2026-06-12T00:00:00.000Z' } }, error: null, completed_at: null },
+      status: 'done',
+      lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
     const deps = createTestAnalystRuntime({ projectRoot, cardStore: store });
     const ctx: ToolContext = { projectRoot, processRunner: deps.processRunner, store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime };

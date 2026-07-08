@@ -44,7 +44,6 @@ The Analyst card-management boundary should be state-sensitive and runtime-state
 | `done` | allowed | allowed | allowed | no | allowed | Edits should flip this card/ancestors to `changed`; cancellation of completed work is not meaningful. |
 | `failed` | allowed | allowed | allowed | no | allowed | Edit to change future retry context, or delete if no longer useful. |
 | `cancelled` | allowed | allowed | allowed | no | allowed | Edit/delete only; cancelled work is not cancelled again. |
-| `needs_verification` | allowed | allowed | allowed | allowed | allowed | Treat as non-running review/rework state. |
 | `running` | no | allowed while paused | no | notify | no | Runtime is paused, so the actor is not executing; touched records must be closed and resume notifications are queued. |
 
 Subtree operations inherit the strictest state in the subtree. If any descendant is `running`, direct delete, reorder, and cancel are denied for the subtree root. `brief.md` writes may target running cards while runtime status is `paused` when the touched record is closed and schema-valid. Resume notifications are queued for affected cards.
@@ -60,7 +59,7 @@ This section is intentionally limited to card handling. It does not propose remo
 | `create_card` | Any existing non-running parent while runtime status is `stopped` or `paused`. | Create a child under an existing non-running parent with initial metadata and required initial records. Does not dispatch work. Runs propagation for the parent/ancestor chain. |
 | `write` for `record://brief.md` | Any card while runtime status is `stopped` or `paused`. | Commit approved `brief.md` updates. Touched records must be closed. Validation, commit, notification registration, and propagation run once. |
 | `reorder_child` | Any non-running parent whose children are not running. | Reorder children by permutation. Propagate on the parent. |
-| `cancel_card` | Non-running `backlog`, `changed`, `blocked`, `needs_verification`. | Mark obsolete dormant work as `cancelled`. Deny running and terminal cards. Propagate on parent/ancestors. |
+| `cancel_card` | Non-running `backlog`, `changed`, or `blocked`. | Mark obsolete dormant work as `cancelled`. Deny running and terminal cards. Propagate on parent/ancestors. |
 | `delete_card` | Any subtree with no running member and status in deletable states. | Remove from the active tree and move the full card record namespaces to archive storage for forensics. |
 
 Expose `delete_card` as the public operator tool. Under the hood it archives full record namespaces instead of destroying data.
@@ -72,7 +71,7 @@ Detailed card-tool availability:
 | `create_card` | Runtime status is `stopped` or `paused`; target parent exists, is non-running, and no running descendant would be structurally disrupted. | Parent is `running`; parent is missing; requested type/parent would violate tree invariants; creation would imply dispatching work immediately. | If parent is running, `queue_notification` to the active planner/card. |
 | `write` for `record://brief.md` | Runtime status is `stopped` or `paused`; target exists; latest brief is closed; slot is approved for Analyst writes. | Runtime status is `running` or `error`; touched slot is open; content fails schema validation; slot is not Analyst-writable. | For running work, pause first or use `queue_notification`. |
 | `reorder_child` | Parent exists and is non-running; child list is a permutation of current children; no listed child is running. | Parent or any reordered child is `running`; child set mismatch. | Notify active planner with preferred order. |
-| `cancel_card` | Target/subtree is non-running and status is `backlog`, `changed`, `blocked`, or `needs_verification`. | Target/subtree includes `running`; target is `done`, `failed`, or `cancelled`; target is root project unless the whole runtime is stopped and operator confirms. | For running work, `queue_notification`; for global stop, `pause_runtime` or `stop_project`. |
+| `cancel_card` | Target/subtree is non-running and status is `backlog`, `changed`, or `blocked`. | Target/subtree includes `running`; target is `done`, `failed`, or `cancelled`; target is root project unless the whole runtime is stopped and operator confirms. | For running work, `queue_notification`; for global stop, `pause_runtime` or `stop_project`. |
 | `delete_card` | Runtime status is `stopped` or `paused`; target/subtree has no running card; operator intent is removal from active plan. | Runtime status is `running` or `error`; target/subtree includes `running`; target is root project; deletion would orphan dependencies without explicit handling. | `cancel_card` if the work should remain visible as cancelled; `write` to update `brief.md` or `create_card` if the work should be redone differently. |
 
 ### Card Inspection And Coordination

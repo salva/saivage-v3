@@ -100,7 +100,6 @@ function loadTestConfig(root: string) {
 
 function lifecycleForStatus(status: CardStatus): CardLifecycleState {
   const at = new Date().toISOString();
-  const selfReport = { result: status, outcome: status, summary: status, status_text: status, at };
   switch (status) {
     case 'backlog': return { status, result: null, error: null, completed_at: null };
     case 'running': return { status, result: null, error: null, completed_at: null };
@@ -108,7 +107,6 @@ function lifecycleForStatus(status: CardStatus): CardLifecycleState {
     case 'done': return { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: at };
     case 'failed': return { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: at };
     case 'blocked': return { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'resume' }, error: 'blocked', completed_at: null };
-    case 'needs_verification': return { status, result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: selfReport }, error: null, completed_at: null };
     case 'cancelled': return { status, result: null, error: null, completed_at: at };
   }
 }
@@ -234,7 +232,7 @@ describe('Analyst paused card-management gates', () => {
     const root = setupRoot();
     try {
       pauseRuntime(root);
-      const allowedStatuses = ['backlog', 'changed', 'blocked', 'needs_verification'] as const;
+      const allowedStatuses = ['backlog', 'changed', 'blocked'] as const;
       const deniedStatuses = ['running', 'done', 'failed', 'cancelled'] as const;
       for (const status of allowedStatuses) {
         const store = new CardStore(root);

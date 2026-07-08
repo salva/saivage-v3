@@ -13,7 +13,6 @@ const runtimeStatePersistenceSchema = runtimeStateSchema as ZodType<RuntimeState
 export const UNRESOLVED_RUNTIME_ACTIVATION_STATUSES = new Set<RuntimeActivationStatus>([
   'pending',
   'running',
-  'needs_verification',
 ]);
 
 export function isUnresolvedRuntimeActivationStatus(status: RuntimeActivationStatus): boolean {

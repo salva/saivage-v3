@@ -63,7 +63,6 @@ const LIFECYCLE_LOCKED_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'done',
   'failed',
   'blocked',
-  'needs_verification',
   'cancelled',
 ]);
 
@@ -96,13 +95,12 @@ const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
 
 const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
   backlog: ['running', 'cancelled'],
-  running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog', 'needs_verification'],
+  running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog'],
   blocked: ['backlog', 'running', 'changed', 'cancelled'],
   changed: ['backlog', 'running', 'cancelled'],
   done: ['changed'],
   failed: ['cancelled', 'changed'],
   cancelled: [],
-  needs_verification: ['cancelled'],
 };
 
 const TRACKED_FIELDS = [
@@ -145,7 +143,7 @@ export function validateTransition(from: CardStatus, to: CardStatus): void {
 export function buildSetStatusLifecycle(
   card: CardRecord,
   newStatus: CardStatus,
-  stamp: string,
+  _stamp: string,
 ): CardRecord['lifecycle'] {
   switch (newStatus) {
     case 'backlog':
@@ -164,27 +162,6 @@ export function buildSetStatusLifecycle(
           blocker_cause: 'generic',
         },
         error: blockedReason,
-        completed_at: null,
-      };
-    }
-    case 'needs_verification': {
-      const reason = `Card '${card.id}' was marked as needing verification via setStatus.`;
-      return {
-        status: 'needs_verification',
-        result: {
-          kind: 'executor_needs_verification',
-          reason,
-          preserved_result: {},
-          fallback_reason: null,
-          latest_self_report: {
-            result: 'needs_verification',
-            outcome: 'needs_verification',
-            summary: reason,
-            status_text: reason,
-            at: stamp,
-          },
-        },
-        error: null,
         completed_at: null,
       };
     }

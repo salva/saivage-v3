@@ -64,7 +64,6 @@ export function toCardOperatorSummary(card: CardRecord): CardOperatorSummary {
   return {
     lifecycleStatus: lifecycle.status,
     terminal: TERMINAL_STATUSES.has(lifecycle.status),
-    needsVerification: lifecycle.status === 'needs_verification',
     blocked: lifecycle.status === 'blocked',
     hasError: Boolean(lifecycle.error),
     error: lifecycle.error ?? null,

@@ -79,7 +79,7 @@ const card = {
   depends_on: [],
   related: [],
   lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
-  operator_summary: { lifecycleStatus: 'backlog', terminal: false, needsVerification: false, blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
+  operator_summary: { lifecycleStatus: 'backlog', terminal: false, blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
   metrics: null,
   estimate: null,
   started_at: null,
@@ -458,7 +458,7 @@ describe('operator API contract registry', () => {
     })).toThrow();
   });
 
-  it('accepts needs_verification in runtime run and activation contract fields', () => {
+  it('rejects removed verification runtime run and activation contract fields', () => {
     const runWithVerification = { ...runtimeRun, phase: 'needs_verification', outcome: { kind: 'paused', reason: 'needs_verification', detail: 'verification needed' } };
     const activationWithVerification = {
       activation_id: 'act-needs-verification',
@@ -475,7 +475,7 @@ describe('operator API contract registry', () => {
       runtime_run_id: 'run-child-2',
       error: null,
     };
-    const parsed = parseOperatorResponse('runtime.getState', {
+    expect(() => parseOperatorResponse('runtime.getState', {
       projectRoot: '/work/test',
       projectId: 'test',
       runtime: {
@@ -484,9 +484,7 @@ describe('operator API contract registry', () => {
         runtime_activations: [activationWithVerification],
       },
       cardIndex: { total: 0, byStatus: {}, byType: {} },
-    });
-    expect(parsed.runtime?.runtime_runs?.[0]?.phase).toBe('needs_verification');
-    expect(parsed.runtime?.runtime_activations?.[0]?.status).toBe('needs_verification');
+    })).toThrow();
   });
 
   it('keeps isolated internal diagnostics out of the operator contract inventory', () => {
