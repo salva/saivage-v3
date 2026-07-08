@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { propagateChange } from '../../src/runtime/changed-propagation.js';
+import { propagateAnalystBriefEdit, propagateChange } from '../../src/runtime/changed-propagation.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
@@ -143,5 +143,38 @@ describe('changed propagation', () => {
 
     expect(result.flipped).toEqual([]);
     expect(store.read(goalBId)?.status).toBe('cancelled');
+  });
+
+  it('propagates Analyst brief edits through goal/project ancestors to the first running ancestor', () => {
+    setStatus(store, projectId, 'running');
+    setStatus(store, goalAId, 'done');
+    setStatus(store, goalBId, 'failed');
+    setStatus(store, cardCId, 'done');
+
+    const notifyCard = jest.fn(() => ({ ok: false as const, reason: 'missing_card' as const, cardId: cardCId }));
+    const result = propagateAnalystBriefEdit(store, cardCId, { kind: 'analyst_edit', summary: 'brief edit' }, notifyCard);
+
+    expect(result.flipped).toEqual([
+      { card_id: cardCId, previous_status: 'done' },
+      { card_id: goalBId, previous_status: 'failed' },
+      { card_id: goalAId, previous_status: 'done' },
+    ]);
+    expect(store.read(projectId)?.status).toBe('running');
+    expect((notifyCard.mock.calls as unknown as Array<[string, unknown]>).map((call) => call[0])).toEqual([cardCId, goalBId, goalAId, projectId]);
+  });
+
+  it('keeps a running Analyst brief edit target running and notifies only that card', () => {
+    setStatus(store, projectId, 'done');
+    setStatus(store, goalAId, 'done');
+    setStatus(store, goalBId, 'running');
+
+    const notifyCard = jest.fn(() => ({ ok: true as const }));
+    const result = propagateAnalystBriefEdit(store, goalBId, { kind: 'analyst_edit', summary: 'running brief edit' }, notifyCard);
+
+    expect(result.flipped).toEqual([]);
+    expect(store.read(goalBId)?.status).toBe('running');
+    expect(store.read(goalAId)?.status).toBe('done');
+    expect(notifyCard).toHaveBeenCalledTimes(1);
+    expect(notifyCard).toHaveBeenCalledWith(goalBId, expect.objectContaining({ message: 'Card changed: running brief edit' }));
   });
 });

@@ -59,6 +59,7 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     cardId: ctx.cardId,
     agentRole: role,
     store: role === 'analyst' ? ctx.store as WorkspaceProviderContext['store'] : undefined,
+    notifyCard: role === 'analyst' ? ctx.notifyCard : undefined,
   }),
   patch: (ctx, role) => createPatchProvider({
     projectRoot: ctx.projectRoot,
@@ -79,6 +80,7 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     cardId: ctx.cardId,
     agentRole: role,
     store: role === 'analyst' ? ctx.store as WebProviderContext['store'] : undefined,
+    notifyCard: role === 'analyst' ? ctx.notifyCard : undefined,
   }),
   skill: (ctx, role) => createSkillProvider({ projectRoot: ctx.projectRoot, agentRole: role as SkillMcpRole }),
   mcp: (ctx, role) => createMcpProvider({ mcpManagerProvider: ctx.mcpManagerProvider!, agentRole: role as SkillMcpRole }),

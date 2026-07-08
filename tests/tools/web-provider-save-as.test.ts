@@ -117,12 +117,15 @@ describe('webfetch save_as scoped URLs', () => {
       related: [],
       retries: 0,
     });
+    store.repairTerminalLifecycle(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } });
     mockFetch('# Goal\n\nFetched.\n\n# Instructions\n\nUse it.\n\n# Acceptance Criteria\n\nDone.\n');
-    const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', store })]);
+    const notifyCard = jest.fn(() => ({ ok: true as const }));
+    const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard })]);
 
     const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/brief.md', save_as: `record:///brief.md?card=${card.id}&v=next` });
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toMatchObject({ saved_as: `record:///brief.md?card=${card.id}&v=2` });
+    expect(notifyCard).toHaveBeenCalledWith(card.id, expect.objectContaining({ reason: 'card_changed' }));
   });
 });

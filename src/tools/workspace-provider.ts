@@ -4,12 +4,15 @@ import { applyProjectPatch, editProject, globProject, grepProject, readProject, 
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import type { AgentRole } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
+import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
 export interface WorkspaceProviderContext {
   readonly projectRoot: string;
   readonly cardId?: string;
   readonly agentRole: AgentRole;
-  readonly store?: Pick<CardStore, 'read'>;
+  readonly store?: Pick<CardStore, 'read' | 'getAncestors' | 'setStatus'>;
+  readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 }
 
 function failureFromError(err: unknown): ToolResult {

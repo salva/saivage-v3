@@ -33,16 +33,16 @@ describe('project file tools record enforcement', () => {
 
   it('classifies analyst unsupported record slots as workspace tool input errors', async () => withTempProject(async (projectRoot) => {
     initRuntimeState(projectRoot);
-    const store = { read: () => ({ id: 'card-1', version_seq: 1 }) as any };
+    const store = { read: () => ({ id: 'card-1', version_seq: 1, status: 'done' }) as any, getAncestors: () => [], setStatus: () => ({}) as any };
 
-    await expect(writeProject({ projectRoot, cardId: 'card-1', agentRole: 'analyst', store }, { path: 'record:///bogus.md?card=card-1&v=next', content: 'bad' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
+    await expect(writeProject({ projectRoot, cardId: 'card-1', agentRole: 'analyst', store, notifyCard: () => ({ ok: true }) }, { path: 'record:///bogus.md?card=card-1&v=next', content: 'bad' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
   }));
 
   it('classifies analyst malformed record URLs as workspace tool input errors', async () => withTempProject(async (projectRoot) => {
     initRuntimeState(projectRoot);
-    const store = { read: () => ({ id: 'card-1', version_seq: 1 }) as any };
+    const store = { read: () => ({ id: 'card-1', version_seq: 1, status: 'done' }) as any, getAncestors: () => [], setStatus: () => ({}) as any };
 
-    await expect(writeProject({ projectRoot, cardId: 'card-1', agentRole: 'analyst', store }, { path: 'record:///brief.md/../x', content: 'bad' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
+    await expect(writeProject({ projectRoot, cardId: 'card-1', agentRole: 'analyst', store, notifyCard: () => ({ ok: true }) }, { path: 'record:///brief.md/../x', content: 'bad' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
   }));
 
   it('exposes metadata for closed record documents without exposing internal card storage', async () => withTempProject(async (projectRoot) => {

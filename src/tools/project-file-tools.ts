@@ -6,9 +6,12 @@ import type { AgentRole } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { assertRecordWrite, collectScopedFiles, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, walkFiles, type VfsResolved } from '../workspace/index.js';
-import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readRecordSlotIndex } from '../runtime/records/record-slots.js';
+import { closeOpenRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex } from '../runtime/records/record-slots.js';
 import type { CardStore } from '../cards/store-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
+import { propagateAnalystBriefEdit } from '../runtime/changed-propagation.js';
+import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
 const { spawnSync } = childProcess;
 
@@ -20,7 +23,7 @@ export const MAX_READ_OUTPUT_BYTES = 256 * 1024;
 export const MAX_READ_LINE_CHARS = 2000;
 export const READ_HEAD_SAMPLE_BYTES = 4096;
 
-export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read'> };
+export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read' | 'getAncestors' | 'setStatus'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
 type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
 
 export class WorkspaceToolInputError extends Error {
@@ -278,6 +281,7 @@ function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; 
   try {
     writeFileSync(open.absolutePath, params.content, 'utf8');
     const closed = closeOpenRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md', writer: 'analyst', cardVersionSeq: card.version_seq });
+    propagateAnalystBriefEdit(ctx.store!, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, ctx.notifyCard!);
     return { card_id: target.cardId, path: closed.relativePath, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true };
   } catch (err) {
     discardOpenRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md', reason: 'analyst write failed' });
@@ -288,6 +292,7 @@ function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; 
 function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path: string; content?: string }): { cardId: string; path: string } {
   if (!params.path.startsWith('record:///')) throw toolInputError('Analyst write only writes record:///brief.md document records. It cannot write host or project files.');
   if (!ctx.store) throw new Error('Analyst record writes require a card store.');
+  if (!ctx.notifyCard) throw toolInputError('Analyst brief record edits require card notification capability.');
   const runtimeState = readRuntimeState(ctx.projectRoot);
   if (runtimeState?.status !== 'stopped' && runtimeState?.status !== 'paused') throw toolInputError(`Analyst write requires runtime status stopped or paused before mutating card records. Current runtime status is ${runtimeState?.status ?? 'unknown'}.`);
   const target = resolveAnalystBriefWriteUrl(ctx, params.path);
@@ -297,6 +302,7 @@ function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path:
   }
   const card = ctx.store.read(target.cardId);
   if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
+  if (card.status !== 'done' && card.status !== 'failed' && card.status !== 'running') throw toolInputError(`Analyst brief edits require target card status done, failed, or running. Current status is ${card.status}.`);
   const index = readRecordSlotIndex(ctx.projectRoot, target.cardId, 'brief');
   if (index.open !== null) throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`);
   return target;
@@ -378,6 +384,7 @@ function scanFile(absolutePath: string, displayPath: string, regex: RegExp, incl
 }
 
 export async function editProject(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): Promise<unknown> {
+  if (ctx.agentRole === 'analyst' && params.path.startsWith('record:///')) return editAnalystBriefRecord(ctx, params);
   const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
   const content = readFileSync(absolutePath, 'utf8');
@@ -387,6 +394,19 @@ export async function editProject(ctx: WorkspaceContext, params: { path: string;
   const next = params.replace_all === true ? content.split(params.old_string).join(params.new_string) : content.replace(params.old_string, params.new_string);
   writeFileSync(absolutePath, next, 'utf8');
   return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), replacements: params.replace_all === true ? occurrences : 1, bytes: Buffer.byteLength(next, 'utf8'), edited: true };
+}
+
+function editAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): unknown {
+  const target = assertAnalystBriefRecordWritable(ctx, { path: params.path });
+  const index = readRecordSlotIndex(ctx.projectRoot, target.cardId, 'brief');
+  if (index.latest === null) throw toolInputError(`Cannot edit '${target.path}': no closed brief.md version exists.`);
+  const latest = latestClosedRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md' });
+  const content = readFileSync(latest.absolutePath, 'utf8');
+  const occurrences = content.split(params.old_string).length - 1;
+  if (occurrences === 0) throw toolInputError('old_string was not found.');
+  if (occurrences > 1 && params.replace_all !== true) throw toolInputError('old_string appears multiple times; set replace_all to true.');
+  const next = params.replace_all === true ? content.split(params.old_string).join(params.new_string) : content.replace(params.old_string, params.new_string);
+  return writeAnalystBriefRecord(ctx, { path: target.path, content: next });
 }
 
 export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: string }): Promise<unknown> {

@@ -57,7 +57,7 @@ The system must support:
 - explicit user lifecycle control through the Analyst;
 - planner-owned card creation, editing, reordering, cancellation, deletion, and archival where supported;
 - record-backed card documents, including `brief.md`, `status.md`, and `review.md` record slots;
-- Analyst-owned card management while runtime status is `stopped` or `paused` through semantic card operations and `write` for `record:///brief.md`;
+- Analyst-owned card management while runtime status is `stopped` or `paused` through semantic card operations and `write`/`edit` for `record:///brief.md?card=<id>&v=next`;
 - correction-aware goal revisiting through `changed` cards and correction context;
 - card-addressed notifications for delivering short-lived instructions/context to card agents;
 - process execution, process inspection, and process termination;
@@ -96,7 +96,7 @@ Card storage is record-backed. The latest closed internal `card.json` record is 
 
 The project card is mostly a regular goal card. Its special properties are structural and activation-related: it has no parent, and the runtime activates it directly when the user asks the Analyst to run/continue the system. It carries project-level context, global constraints, and the user's top-level objective summary.
 
-If the user asks the Analyst to replace the project objective, the expected path is to update the existing project card's `record:///brief.md` while runtime status is `stopped` or `paused` and queue notifications so the active planner chain observes the change on resume/start. Direct destructive replacement of the project card is not an Analyst capability.
+If the user asks the Analyst to replace the project objective, the expected path is to update the existing project card's `record:///brief.md?card=project&v=next` with `write` or `edit` while runtime status is `stopped` or `paused`, subject to the same card-status gate as other brief edits. Direct destructive replacement of the project card is not an Analyst capability.
 
 Archiving is not a card status. To archive a card, the system moves its on-disk representation to a card archive directory and removes it from the runtime's active card tree.
 
@@ -120,9 +120,9 @@ The durable card status records lifecycle state. `working_status` records ongoin
 
 Children under a parent form an explicit ordered list. Creation appends to the end by default.
 
-The Analyst has limited card authority on behalf of the user. All Analyst card mutations require runtime status `stopped` or `paused`. In those states, the Analyst may manage cards through semantic operations such as create card, reorder direct children where supported, cancel dormant work, and delete cards/subtrees from the active tree with archive-backed preservation. It may also update the goal/instructions/acceptance brief of an existing non-terminal card by calling `write` on `record:///brief.md?card=<id>` or an equivalent concrete `record:///brief.md` URL. Terminal `cancelled` cards cannot be edited; replacement work requires creating a new card. Analyst writes to `brief.md` create and close a new record version immediately, require the latest version to be closed, validate the writer/schema, and queue affected-card notifications for delivery when the runtime resumes or starts.
+The Analyst has limited card authority on behalf of the user. All Analyst card mutations require runtime status `stopped` or `paused`. In those states, the Analyst may manage cards through semantic operations such as create card, reorder direct children where supported, cancel dormant work, and delete cards/subtrees from the active tree with archive-backed preservation. It may also update the goal/instructions/acceptance brief of any existing card whose current status is exactly `done`, `failed`, or `running` by calling `write` or `edit` on `record:///brief.md?card=<id>&v=next`. Direct `brief.md` edits to `backlog`, `changed`, `blocked`, or `cancelled` cards fail before a new record version is opened or written. Analyst `write` and `edit` for `record:///brief.md?card=<id>&v=next` share the same new-version contract: validate runtime/card/record state, validate the final brief markdown, create and close a new `brief.md` version, and then apply card-edit propagation. `edit` loads the latest closed brief as its source and never rewrites a historical closed version in place.
 
-The Analyst must not directly rewrite primary card state, lifecycle/output state, `status.md`, or `review.md`. Analyst structural mutations that would invalidate a running subtree remain denied unless a later design explicitly allows them. A running card's `brief.md` may be updated while runtime status is `paused` if the latest version is closed and the new content passes validation. Cross-parent card movement, restart/reset, direct activation, and raw archive manipulation are not Analyst card operations.
+The Analyst must not directly rewrite primary card state, lifecycle/output state, `status.md`, or `review.md`. Analyst structural mutations that would invalidate a running subtree remain denied unless a later design explicitly allows them. A running card's `brief.md` may be updated while runtime status is `stopped` or `paused`; the card remains `running` and only that card is notified. Cross-parent card movement, restart/reset, direct activation, and raw archive manipulation are not Analyst card operations.
 
 A planner's card authority is local to the goal it owns. It may directly target only that goal's direct children: create them, edit them, reorder them, cancel/delete them where supported, and activate them. Some supported operations, such as cancelling or deleting a direct child, may recursively affect that child's descendants. The planner still targets only the direct child; it may not directly mutate ancestors, siblings, unrelated cards, or descendants below one of its children. Larger tree changes are Analyst-owned, but cross-parent card movement is not a supported card operation.
 
@@ -152,7 +152,7 @@ Resume reopens the gate. Work already blocked at provider calls proceeds exactly
 
 The single global `RuntimeGate` implements this behavior at `LLMActor` provider-call admission: provider calls await the gate before starting, so pause waits rather than failing the turn.
 
-`Stopped` and `paused` are the normal intervention states. While stopped or paused, the Analyst can manage cards within its supported authority, update `record:///brief.md` through `write`, queue notifications, change configuration, and inspect state.
+`Stopped` and `paused` are the normal intervention states. While stopped or paused, the Analyst can manage cards within its supported authority, update `record:///brief.md?card=<id>&v=next` through `write` or `edit`, queue notifications, change configuration, and inspect state.
 
 ### Shutdown
 
@@ -185,7 +185,7 @@ Reviewer `rework` is handled inside the child activation. It is not a parent-vis
 
 ## 9. Changed Cards
 
-When a non-active card is modified by the Analyst, or when a direct child is modified by its parent planner, its card status must become `changed`. Terminal `cancelled` cards are excluded: they cannot be edited or reactivated. To replace cancelled work, create a new card.
+For Analyst `brief.md` edits, only direct targets currently in `done`, `failed`, or `running` are editable. A direct `done` or `failed` brief edit changes that card to `changed`; a direct `running` brief edit leaves the card `running`. Direct `backlog`, `changed`, `blocked`, and `cancelled` brief edits fail before writing. Terminal `cancelled` cards cannot be edited or reactivated. To replace cancelled work, create a new card.
 
 If the modified card is already `running`, it remains `running`. Running status is not overwritten by `changed` because it is part of the active activation chain.
 
@@ -193,7 +193,7 @@ In every case, the runtime queues a notification to the modified card so that th
 
 `changed` is a parent-visible durable signal. It tells the parent planner that the child or descendant changed after the planner last observed it. A planner cannot successfully report a goal `done` while any executable descendant is not in a completion-compatible state.
 
-When an inactive descendant changes, the runtime also records changed-subtree context for the direct ancestor path up to the first running ancestor or the project root. Resting ancestors on that path become `changed`; running ancestors remain `running` and receive notification/context instead of having their status overwritten. This propagation is part of the same modification rule: direct edits change the edited card, and descendant edits also mark inactive ancestors that must re-observe the subtree.
+When an inactive descendant changes through an Analyst brief edit, the runtime walks the direct ancestor path up to the first running ancestor or the project root. Only `done` and `failed` ancestors on that path become `changed`; `backlog`, `changed`, and `blocked` ancestors remain unchanged, and a running ancestor remains `running` and stops propagation. The runtime queues fire-and-forget card notifications to the edited card plus every `goal`/`project` ancestor on the walked path through the first running ancestor, with duplicate recipients removed. Notification callback results do not affect the already-accepted edit.
 
 If a goal is under review and the goal or any descendant changes before the reviewer pass commits, the reviewer pass is invalidated. The goal returns to planner ownership with correction/change context; stale reviewer approval must not mark the goal `done`.
 
@@ -263,7 +263,7 @@ The Analyst must let the user complete these tasks in natural language:
 - inspect cards, runtime state, runtime events, errors, control actions, agent sessions, process registry, process logs, directory listings, file contents, configuration, credentials, and secret-bearing state when needed;
 - navigate the workspace to cards, files, debug views, processes, runtime cards, and agent sessions;
 - manage cards while runtime status is `stopped` or `paused` through supported semantic operations, including card creation, child reordering, dormant cancellation, and delete/archive-backed removal where allowed;
-- update card goal/instructions/acceptance content while runtime status is `stopped` or `paused` by using `write` for `record:///brief.md?card=<id>` or an equivalent concrete `record:///brief.md` URL;
+- update card goal/instructions/acceptance content while runtime status is `stopped` or `paused` by using `write` or `edit` for `record:///brief.md?card=<id>&v=next` when the card is `done`, `failed`, or `running`;
 - queue card-addressed notifications;
 - run/continue, pause, and shutdown the runtime;
 - steer active or future card work by queueing notifications and objective/instruction edits;
@@ -274,7 +274,7 @@ The Analyst must let the user complete these tasks in natural language:
 
 When a request is ambiguous, the Analyst asks one clarifying question rather than guessing.
 
-For operator-directed repair, the Analyst may use canonical workspace tools directly. `read`, `write`, `edit`, `glob`, and `grep` operate over scoped `project:///`, `record:///`, `tmp:///`, read-only `work:///`, or `system:///` paths. Records are discovered via `glob record:///<cardId>`, read, written, or edited as documents via `record:///<filename>?card=<id>&v=<n>` when applicable, and content-searched via `grep record:///<cardId>`, which searches the latest closed versions of exposed record slots (`brief.md`, `status.md`, and `review.md`) and returns record URLs as `path`. `work:///` content is redacted while record content is not redacted because records are agent-authored content, like project files. `apply_patch` paths are project-relative only and reject scoped URL diff paths. This authority is for inspection, diagnosis, and repair, not for replacing executor delivery work. Card objective changes still use semantic card tools or `write(record:///brief.md?card=<id>&v=next)` when that is the correct operation.
+For operator-directed repair, the Analyst may use canonical workspace tools directly. `read`, `write`, `edit`, `glob`, and `grep` operate over scoped `project:///`, `record:///`, `tmp:///`, read-only `work:///`, or `system:///` paths. Records are discovered via `glob record:///<cardId>`, read as documents via `record:///<filename>?card=<id>&v=<n>`, and content-searched via `grep record:///<cardId>`, which searches the latest closed versions of exposed record slots (`brief.md`, `status.md`, and `review.md`) and returns record URLs as `path`. Analyst `write` and `edit` to `record:///brief.md?card=<id>&v=next` are the only supported Analyst record mutation path and share the same new-version card-edit contract; unsupported Analyst record edit paths fail rather than raw-writing record files. `work:///` content is redacted while record content is not redacted because records are agent-authored content, like project files. `apply_patch` paths are project-relative only and reject scoped URL diff paths. This authority is for inspection, diagnosis, and repair, not for replacing executor delivery work.
 
 `read` inline content is hard-capped by line length and total bytes; files above roughly 10MB return metadata and guidance rather than content, and `metadata_only` returns `{ size, mtime, is_directory, entries_count? }` without content.
 
@@ -390,18 +390,18 @@ The system satisfies this specification when:
 - `activate_card` is valid for child cards in `backlog`, `changed`, or `blocked`, and activation transitions the child to `running`;
 - main-agent child activation outcomes update the child card to `done`, `failed`, or `blocked` before the parent planner receives the tool result; runtime cancellation may instead resolve the tool result as `cancelled`;
 - the Analyst cannot directly set a card to `blocked`; blocked status is produced by a card main-agent activation outcome;
-- modifying a non-active, non-terminal card makes it `changed` and queues a notification to that card; terminal `cancelled` cards cannot be edited or reactivated;
+- Analyst `brief.md` edits are allowed only for direct targets in `done`, `failed`, or `running`; `done`/`failed` targets become `changed`, `running` targets remain `running`, and `backlog`/`changed`/`blocked`/`cancelled` targets fail before writing;
 - modifying a running card keeps it `running` and queues a notification to that card;
 - `changed`, `blocked`, `backlog`, `running`, and `failed` descendants block parent `done` reports until handled;
 - `done` and `cancelled` descendants do not block parent `done` reports;
-- inactive descendant edits propagate changed-subtree context to inactive ancestors up to the first running ancestor or project root;
+- inactive descendant brief edits propagate changed-subtree context to `done`/`failed` ancestors and notify goal/project ancestors up to the first running ancestor or project root;
 - cancellation of running work is authoritative through the current `CardActor` activation (see [Implementation Plan P3](../architecture/micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)): durable status becomes `cancelled` immediately, pending activation resolves as cancelled, activation-owned process scope is stopped, and late outcomes are dropped by the CardActor cancellation flag;
 - recursive cancellation of inactive subtrees preserves already-`done` descendants;
 - recursive cancellation converts `failed` and `blocked` descendants to `cancelled`;
 - cancellation of a non-running card terminates attached runtime-owned processes through canonical process controls;
 - card `result` reflects accepted main-agent results only, while `working_status` is a separate free field for agent usage;
 - card documents are record-backed: structured card state is read through `get_card`, while `brief.md`, `status.md`, and `review.md` are versioned record slots;
-- Analyst card mutations require runtime status `stopped` or `paused`, with `write(record:///brief.md?card=<id>)` as the supported path for updating card goal/instructions/acceptance content;
+- Analyst card mutations require runtime status `stopped` or `paused`, with `write` or `edit` on `record:///brief.md?card=<id>&v=next` as the supported path for updating card goal/instructions/acceptance content;
 - goal completion rejects any executable descendant state that is not compatible with accepted completion;
 - reviewer approval is invalidated if the assessed goal or any descendant changes before approval commits;
 - negative reviewer results are stored with the card and injected into planner context, while positive reviewer text is attached for recordkeeping only;
