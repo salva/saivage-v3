@@ -74,11 +74,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
       generatedAt: this.now(),
-      processRunner: this.options.processRunner,
-      mcpManagerProvider: this.options.mcpManagerProvider,
-      children: { get: (cardId: string) => this.cardActors.get(cardId) ?? null },
-      notifyCard: (cardId, notification) => this.notifyCard(cardId, notification),
-      runtimeGate: this.runtimeGate,
     });
     if (this.hasRunningRecoveryWork(recoveryPlan)) {
       this.constructRunningCardActors(recoveryPlan);

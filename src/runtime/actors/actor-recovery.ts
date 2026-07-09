@@ -10,7 +10,7 @@ import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, Pro
 import { readCardActiveReconstruction, readLlmActiveReconstruction, readProcessorActiveReconstruction } from './active-reconstruction.js';
 import { agentIdFromSessionId, cardIdFromSessionId, executorActorId, parseCardActorId, parseLlmActorId, parseProcessorActorId, plannerActorId } from './ids.js';
 import type { LlmActorRole } from '../../schemas/actor-vocabulary.js';
-import { cardActivationOutcomePatch, type CardActivationOutcome, type CardNotification } from './card-actor.js';
+import { cardActivationOutcomePatch, type CardActivationOutcome } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
 import { abandonStalePendingToolCalls, appendTerminalProjectedToolResult, appendToolErrorSettlementResults, readLoggedToolCall } from './llm-delivery-log.js';
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
@@ -21,13 +21,8 @@ import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { closeOpenRecordSlot, ExpectedRecordSlotCloseError } from '../records/record-slots.js';
 import { firstIncompleteDescendant, projectPlannerTerminalOutcome } from './planning-card-processor-actor.js';
-import type { PlannerChildActorPort } from './planning-card-processor-actor.js';
 import { projectTerminalExecutorOutcome } from './terminal-card-processor-actor.js';
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
-import type { ProcessRunner } from '../process-runner.js';
-import type { RuntimeGate } from '../runtime-gate.js';
-import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
-import type { NotifyCardResult } from '../runtime-api.js';
 import { appendConversationMessage, listConversationSessionIds, readActiveVersionMessages } from './conversation-store.js';
 import { classifyConversation, type ConversationImplicitState } from './conversation-recovery.js';
 import { loggedToolCallIdentity, loggedToolCallKey, loggedToolErrorIdentity, loggedToolResultIdentity } from '../../schemas/message-identity.js';
@@ -55,11 +50,6 @@ export interface ActorStartupRecoveryDeps {
   projectRoot: string;
   store: ActorRecoveryOutcomeStore;
   generatedAt?: string;
-  processRunner?: ProcessRunner;
-  mcpManagerProvider?: () => McpToolInvocationPort | undefined;
-  children?: PlannerChildActorPort;
-  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
-  runtimeGate?: RuntimeGate;
 }
 
 export type { LlmActorRole as LlmRecoveryRole } from '../../schemas/actor-vocabulary.js';
