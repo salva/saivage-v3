@@ -18,6 +18,10 @@ function markDone(store: CardStore, id: string): void {
   store.repairTerminalLifecycle(id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } });
 }
 
+function markFailed(store: CardStore, id: string): void {
+  store.repairTerminalLifecycle(id, { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-01-01T00:00:00.000Z' } });
+}
+
 function setupProject(): { root: string; store: CardStore } {
   const root = mkdtempSync(join(tmpdir(), 'workspace-provider-'));
   initProjectTree(root);
@@ -110,7 +114,33 @@ describe('workspace and patch providers', () => {
     }
   });
 
-  it.each(['backlog', 'changed', 'blocked', 'cancelled'] as const)('denies Analyst brief writes to %s cards before opening a new version', async (status) => {
+  it('allows Analyst brief writes to backlog cards with ancestor propagation but no target notification', async () => {
+    const { root, store } = setupProject();
+    try {
+      const parent = store.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'parent', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+      const card = store.create({ type: 'code', parent: parent.id, title: 'Backlog child', brief: 'old', status: 'backlog', depth: 2, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+      store.setStatus('project', 'running');
+      markFailed(store, parent.id);
+      const notifyCard = jest.fn(() => ({ ok: true as const }));
+      const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard })]);
+
+      const result = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
+
+      expect(result.success).toBe(true);
+      const latest = readRecordSlotIndex(root, card.id, 'brief').latest!;
+      expect(latest).toBe(2);
+      if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latest}` });
+      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', card.id, 'brief', `${latest}.md`), 'utf8')).toBe(VALID_BRIEF);
+      expect(store.read(card.id)?.status).toBe('backlog');
+      expect(store.read(parent.id)?.status).toBe('changed');
+      expect(store.read('project')?.status).toBe('running');
+      expect((notifyCard.mock.calls as unknown as Array<[string, unknown]>).map((call) => call[0])).toEqual([parent.id, 'project']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['changed', 'blocked', 'cancelled'] as const)('denies Analyst brief writes to %s cards before opening a new version', async (status) => {
     const { root, store } = setupProject();
     try {
       const card = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'old', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
@@ -130,7 +160,7 @@ describe('workspace and patch providers', () => {
       const result = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
 
       expect(result.success).toBe(false);
-      if (!result.success) expect(result.error).toContain('status done, failed, or running');
+      if (!result.success) expect(result.error).toContain('status backlog, done, failed, or running');
       const index = readRecordSlotIndex(root, card.id, 'brief');
       expect(index.latest).toBe(latestBefore);
       expect(index.open).toBeNull();
@@ -273,6 +303,35 @@ describe('workspace and patch providers', () => {
       expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', card.id, 'brief', `${latestAfter}.md`), 'utf8')).toContain('Do the updated work.');
       expect(store.read(card.id)?.status).toBe('changed');
       expect(notifyCard).toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('routes Analyst backlog record edit through a new brief version with ancestor propagation', async () => {
+    const { root, store } = setupProject();
+    try {
+      const parent = store.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'parent', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+      const card = store.create({ type: 'code', parent: parent.id, title: 'Backlog child', brief: 'old', status: 'backlog', depth: 2, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+      await writeProject({ projectRoot: root, cardId: card.id, agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: VALID_BRIEF });
+      closeOpenRecordSlot(root, { cardId: card.id, filename: 'brief.md', writer: 'planner' });
+      store.setStatus('project', 'running');
+      markDone(store, parent.id);
+      const latestBefore = readRecordSlotIndex(root, card.id, 'brief').latest!;
+      const notifyCard = jest.fn(() => ({ ok: true as const }));
+      const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard })]);
+
+      const result = await invokeTool(surface, 'edit', { path: `record:///brief.md?card=${card.id}&v=next`, old_string: 'Do the work.', new_string: 'Do the updated work.' });
+
+      expect(result.success).toBe(true);
+      const latestAfter = readRecordSlotIndex(root, card.id, 'brief').latest!;
+      expect(latestAfter).toBe(latestBefore + 1);
+      if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latestAfter}` });
+      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', card.id, 'brief', `${latestAfter}.md`), 'utf8')).toContain('Do the updated work.');
+      expect(store.read(card.id)?.status).toBe('backlog');
+      expect(store.read(parent.id)?.status).toBe('changed');
+      expect(store.read('project')?.status).toBe('running');
+      expect((notifyCard.mock.calls as unknown as Array<[string, unknown]>).map((call) => call[0])).toEqual([parent.id, 'project']);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

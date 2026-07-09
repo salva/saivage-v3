@@ -176,6 +176,25 @@ describe('changed propagation', () => {
     expect((notifyCard.mock.calls as unknown as Array<[string, unknown]>).map((call) => call[0])).toEqual([cardCId, goalBId, goalAId, projectId]);
   });
 
+  it('propagates Analyst backlog brief edits from parents without notifying or flipping the edited target', () => {
+    setStatus(store, projectId, 'running');
+    setStatus(store, goalAId, 'done');
+    setStatus(store, goalBId, 'failed');
+
+    const notifyCard = jest.fn(() => ({ ok: true as const }));
+    const result = propagateAnalystBriefEdit(store, cardCId, { kind: 'analyst_edit', summary: 'backlog brief edit' }, notifyCard);
+
+    expect(result.flipped).toEqual([
+      { card_id: goalBId, previous_status: 'failed' },
+      { card_id: goalAId, previous_status: 'done' },
+    ]);
+    expect(store.read(cardCId)?.status).toBe('backlog');
+    expect(store.read(goalBId)?.status).toBe('changed');
+    expect(store.read(goalAId)?.status).toBe('changed');
+    expect(store.read(projectId)?.status).toBe('running');
+    expect((notifyCard.mock.calls as unknown as Array<[string, unknown]>).map((call) => call[0])).toEqual([goalBId, goalAId, projectId]);
+  });
+
   it('keeps a running Analyst brief edit target running and notifies only that card', () => {
     setStatus(store, projectId, 'done');
     setStatus(store, goalAId, 'done');
@@ -189,5 +208,19 @@ describe('changed propagation', () => {
     expect(store.read(goalAId)?.status).toBe('done');
     expect(notifyCard).toHaveBeenCalledTimes(1);
     expect(notifyCard).toHaveBeenCalledWith(goalBId, expect.objectContaining({ message: 'Card changed: running brief edit' }));
+  });
+
+  it.each(['changed', 'blocked', 'cancelled'] as const)('fails fast for unsupported direct Analyst brief propagation to %s targets', (status) => {
+    setStatus(store, projectId, 'done');
+    setStatus(store, goalAId, 'done');
+    setStatus(store, goalBId, status);
+
+    const notifyCard = jest.fn(() => ({ ok: true as const }));
+
+    expect(() => propagateAnalystBriefEdit(store, goalBId, { kind: 'analyst_edit', summary: 'unsupported brief edit' }, notifyCard)).toThrow(`status '${status}'`);
+    expect(store.read(projectId)?.status).toBe('done');
+    expect(store.read(goalAId)?.status).toBe('done');
+    expect(store.read(goalBId)?.status).toBe(status);
+    expect(notifyCard).not.toHaveBeenCalled();
   });
 });

@@ -302,7 +302,7 @@ function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path:
   }
   const card = ctx.store.read(target.cardId);
   if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
-  if (card.status !== 'done' && card.status !== 'failed' && card.status !== 'running') throw toolInputError(`Analyst brief edits require target card status done, failed, or running. Current status is ${card.status}.`);
+  if (card.status !== 'backlog' && card.status !== 'done' && card.status !== 'failed' && card.status !== 'running') throw toolInputError(`Analyst brief edits require target card status backlog, done, failed, or running. Current status is ${card.status}.`);
   const index = readRecordSlotIndex(ctx.projectRoot, target.cardId, 'brief');
   if (index.open !== null) throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`);
   return target;
