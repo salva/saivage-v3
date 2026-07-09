@@ -47,8 +47,8 @@ function completion(result: LlmCompleteResult): ProviderTurnCompletion {
 function corruptActorMessages(projectRoot: string): void {
   const indexPath = conversationIndexPath(projectRoot, 'planner:project');
   mkdirSync(dirname(indexPath), { recursive: true });
-  writeFileSync(indexPath, JSON.stringify({ schema_version: 1, active_segment: 'seg-001.jsonl' }) + '\n', 'utf-8');
-  const path = join(dirname(indexPath), 'seg-001.jsonl');
+  writeFileSync(indexPath, JSON.stringify({ schema_version: 2, session_id: 'planner:project', active_version: 1, versions: { '1': { status: 'active', opened_at: '2026-07-09T00:00:00.000Z' } } }) + '\n', 'utf-8');
+  const path = join(dirname(indexPath), '1.jsonl');
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, '{"partial"', 'utf-8');
 }

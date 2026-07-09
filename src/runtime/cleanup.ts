@@ -385,12 +385,7 @@ export function cleanAll(
 
 export function referencedRecoverableUrls(projectRoot: string): Set<string> {
   const preserve = new Set<string>();
-  const conversationsDir = join(projectRoot, '.saivage', 'agents', 'conversations');
-  if (!existsSync(conversationsDir)) return preserve;
-
-  for (const entry of readdirSync(conversationsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const conversationDir = join(conversationsDir, entry.name);
+  for (const conversationDir of currentConversationDirs(projectRoot)) {
     const indexPath = join(conversationDir, 'index.json');
     if (!existsSync(indexPath)) continue;
     const index = parseConversationIndexForCleanup(indexPath);
@@ -434,6 +429,26 @@ function parseConversationIndexForCleanup(indexPath: string): ConversationIndexF
     throw new Error(`Conversation index '${indexPath}' has no version map for cleanup reference scanning.`);
   }
   return { schema_version: 2, versions: versions as Record<string, unknown> };
+}
+
+function currentConversationDirs(projectRoot: string): string[] {
+  const dirs: string[] = [];
+  collectConversationDirs(join(projectRoot, '.saivage', 'agents', 'conversations'), dirs);
+  const cardsRoot = join(projectRoot, '.saivage', 'outputs', 'cards');
+  if (existsSync(cardsRoot)) {
+    for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
+      if (!cardEntry.isDirectory()) continue;
+      collectConversationDirs(join(cardsRoot, cardEntry.name, 'conversations'), dirs);
+    }
+  }
+  return dirs;
+}
+
+function collectConversationDirs(root: string, dirs: string[]): void {
+  if (!existsSync(root)) return;
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (entry.isDirectory()) dirs.push(join(root, entry.name));
+  }
 }
 
 function collectRecoverableUrlPaths(projectRoot: string, jsonl: string, preserve: Set<string>): void {

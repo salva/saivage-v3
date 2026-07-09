@@ -2,14 +2,9 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync 
 import { join } from 'node:path';
 import { z } from 'zod';
 import { writeFileSyncDurable } from '../../persistence/index.js';
+import { cardIdFromSessionId } from './ids.js';
 
-const v1ConversationSegmentNameSchema = z.string().regex(/^seg-\d{3}\.jsonl$/);
 const conversationVersionFileNameSchema = z.string().regex(/^\d+\.jsonl$/);
-
-const v1ConversationIndexSchema = z.object({
-  schema_version: z.literal(1),
-  active_segment: v1ConversationSegmentNameSchema,
-}).strict();
 
 export const conversationVersionEntrySchema = z.object({
   status: z.enum(['active', 'frozen']),
@@ -55,7 +50,10 @@ export const conversationIndexSchema = z.object({
 export type ConversationIndex = z.infer<typeof conversationIndexSchema>;
 
 export function conversationDir(projectRoot: string, sessionId: string): string {
-  return join(projectRoot, '.saivage', 'agents', 'conversations', encodeURIComponent(sessionId));
+  const encodedSessionId = encodeURIComponent(sessionId);
+  const cardId = cardIdFromSessionId(sessionId);
+  if (cardId) return join(projectRoot, '.saivage', 'outputs', 'cards', cardId, 'conversations', encodedSessionId);
+  return join(projectRoot, '.saivage', 'agents', 'conversations', encodedSessionId);
 }
 
 export function conversationIndexPath(projectRoot: string, sessionId: string): string {
@@ -130,9 +128,6 @@ export function readConversationIndex(projectRoot: string, sessionId: string): C
   const path = conversationIndexPath(projectRoot, sessionId);
   if (!existsSync(path)) return null;
   const raw = readRawIndex(path);
-  if (raw && typeof raw === 'object' && 'schema_version' in raw && raw.schema_version === 1) {
-    return migrateV1Index(projectRoot, sessionId, raw);
-  }
   const index = parseV2Index(path, raw);
   if (index.session_id !== sessionId) throw new Error(`Conversation index '${path}' is for session '${index.session_id}', not '${sessionId}'.`);
   cleanupOrphanJsonl(projectRoot, sessionId, index);
@@ -172,42 +167,13 @@ function parseV2Index(path: string, raw: unknown): ConversationIndex {
   }
 }
 
-function migrateV1Index(projectRoot: string, sessionId: string, raw: unknown): ConversationIndex {
-  const path = conversationIndexPath(projectRoot, sessionId);
-  let v1Index: z.infer<typeof v1ConversationIndexSchema>;
-  try {
-    v1Index = v1ConversationIndexSchema.parse(raw);
-  } catch (error) {
-    throw new Error(`Conversation index '${path}' cannot be migrated: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  const sourcePath = join(conversationDir(projectRoot, sessionId), v1Index.active_segment);
-  if (!existsSync(sourcePath)) throw new Error(`Conversation v1 active segment '${v1Index.active_segment}' for '${sessionId}' was not found.`);
-
-  const content = readFileSync(sourcePath, 'utf-8');
-  writeFileSyncDurable(activeVersionPath(projectRoot, sessionId, 1), content);
-
-  const sourceStat = statSync(sourcePath);
-  const openedAt = sourceStat.birthtimeMs > 0 ? sourceStat.birthtime.toISOString() : sourceStat.mtime.toISOString();
-  const index: ConversationIndex = {
-    schema_version: 2,
-    session_id: sessionId,
-    active_version: 1,
-    versions: { '1': { status: 'active', opened_at: openedAt, compaction_generation: 0, size_bytes: sourceStat.size } },
-  };
-  writeConversationIndex(projectRoot, sessionId, index);
-  unlinkSync(sourcePath);
-  cleanupOrphanJsonl(projectRoot, sessionId, index);
-  return index;
-}
-
 function cleanupOrphanJsonl(projectRoot: string, sessionId: string, index: ConversationIndex): void {
   const dir = conversationDir(projectRoot, sessionId);
   const referenced = new Set(Object.keys(index.versions).map((version) => `${version}.jsonl`));
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
     if (entry.name === 'summaries.jsonl') continue;
-    const isConversationJsonl = conversationVersionFileNameSchema.safeParse(entry.name).success || v1ConversationSegmentNameSchema.safeParse(entry.name).success;
+    const isConversationJsonl = conversationVersionFileNameSchema.safeParse(entry.name).success;
     if (!isConversationJsonl || referenced.has(entry.name)) continue;
     unlinkSync(join(dir, entry.name));
   }

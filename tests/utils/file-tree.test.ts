@@ -143,6 +143,7 @@ describe('initProjectTree', () => {
       'skills',
       'outputs/cards',
       'agents/conversations',
+      'agents/runtime/actors/llm',
       'runtime',
       'supervision',
       'instructions',
@@ -245,6 +246,64 @@ describe('initProjectTree', () => {
     expect(listDiscardedSaivageWorkDirs(tmpDir)).toEqual([]);
     expect(readFileSync(sentinelPath, 'utf-8')).toBe('sentinel-event\n');
     expect(readFileSync(workSentinelPath, 'utf-8')).toBe('work-sentinel\n');
+  });
+
+  it('discards state containing card-scoped conversations under the analyst root', () => {
+    initProjectTree(tmpDir);
+    mkdirSync(join(tmpDir, '.saivage', 'agents', 'conversations', 'planner%3Acard-7'), { recursive: true });
+
+    initProjectTree(tmpDir);
+
+    expect(listDiscardedSaivageDirs(tmpDir)).toHaveLength(1);
+    expect(existsSync(join(tmpDir, '.saivage', 'agents', 'conversations', 'planner%3Acard-7'))).toBe(false);
+  });
+
+  it('keeps analyst conversations under the analyst root', () => {
+    initProjectTree(tmpDir);
+    const analystConversation = join(tmpDir, '.saivage', 'agents', 'conversations', 'analyst%3Aglobal');
+    mkdirSync(analystConversation, { recursive: true });
+    writeFileSync(join(analystConversation, 'index.json'), JSON.stringify({ schema_version: 2, session_id: 'analyst:global', active_version: 1, versions: { '1': { status: 'active', opened_at: '2026-01-01T00:00:00.000Z' } } }));
+    writeFileSync(join(analystConversation, '1.jsonl'), '');
+
+    initProjectTree(tmpDir);
+
+    expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
+    expect(existsSync(analystConversation)).toBe(true);
+  });
+
+  it('discards state containing the old global actor cursor root', () => {
+    initProjectTree(tmpDir);
+    mkdirSync(join(tmpDir, '.saivage', 'runtime', 'actors'), { recursive: true });
+
+    initProjectTree(tmpDir);
+
+    expect(listDiscardedSaivageDirs(tmpDir)).toHaveLength(1);
+    expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'actors'))).toBe(false);
+  });
+
+  it('discards state containing v1 conversation segments under current conversation roots', () => {
+    initProjectTree(tmpDir);
+    const analystConversation = join(tmpDir, '.saivage', 'agents', 'conversations', 'analyst%3Aglobal');
+    mkdirSync(analystConversation, { recursive: true });
+    writeFileSync(join(analystConversation, 'seg-001.jsonl'), '');
+
+    initProjectTree(tmpDir);
+
+    expect(listDiscardedSaivageDirs(tmpDir)).toHaveLength(1);
+
+    const secondRoot = mkdtempSync(join(tmpdir(), 'saivage-test-'));
+    try {
+      initProjectTree(secondRoot);
+      const cardConversation = join(secondRoot, '.saivage', 'outputs', 'cards', 'card-7', 'conversations', 'planner%3Acard-7');
+      mkdirSync(cardConversation, { recursive: true });
+      writeFileSync(join(cardConversation, 'seg-001.jsonl'), '');
+
+      initProjectTree(secondRoot);
+
+      expect(listDiscardedSaivageDirs(secondRoot)).toHaveLength(1);
+    } finally {
+      rmSync(secondRoot, { recursive: true, force: true });
+    }
   });
 
   it('discards pre-Stage-1 .saivage-work with the paired legacy .saivage state', () => {

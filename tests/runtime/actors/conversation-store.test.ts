@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendActivationMarker, appendConversationMessage, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import { appendActivationMarker, appendConversationMessage, appendUserContextMessage, conversationDir, conversationMessagesForModel, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { activeVersionPath, conversationIndexPath, writeConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
 import { codexMessages } from '../../../src/agents/llm-openai-codex-gateway.js';
 import { buildOpenAIChatRequest } from '../../../src/agents/llm-openai-chat-gateway.js';
@@ -24,9 +24,9 @@ function makeMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
 }
 
 describe('conversation-store', () => {
-  it('migrates v1 conversations before reading and deduplicates repeated message ids', () => {
+  it('rejects v1 conversation indexes instead of migrating them', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
-    const dir = join(root, '.saivage', 'agents', 'conversations', encodeURIComponent('analyst:global'));
+    const dir = conversationDir(root, 'analyst:global');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'index.json'), JSON.stringify({ schema_version: 1, active_segment: 'seg-001.jsonl' }) + '\n');
     writeFileSync(join(dir, 'seg-001.jsonl'), [
@@ -35,43 +35,14 @@ describe('conversation-store', () => {
       JSON.stringify(makeMessage({ id: 'message-2', content: 'second request', message_index: 2 })),
     ].join('\n') + '\n');
 
-    const messages = readConversationMessages(root, 'analyst:global');
-
-    expect(messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
-    expect(messages.filter((message) => message.content === 'launch the project')).toHaveLength(1);
-    expect(JSON.parse(readFileSync(join(dir, 'index.json'), 'utf-8'))).toMatchObject({ schema_version: 2, active_version: 1 });
-    expect(existsSync(join(dir, '1.jsonl'))).toBe(true);
-    expect(existsSync(join(dir, 'seg-001.jsonl'))).toBe(false);
-  });
-
-  it('converges an interrupted v1 migration that already copied 1.jsonl', () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
-    const dir = join(root, '.saivage', 'agents', 'conversations', encodeURIComponent('analyst:global'));
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'index.json'), JSON.stringify({ schema_version: 1, active_segment: 'seg-001.jsonl' }) + '\n');
-    writeFileSync(join(dir, 'seg-001.jsonl'), JSON.stringify(makeMessage({ id: 'from-seg' })) + '\n');
-    writeFileSync(join(dir, '1.jsonl'), 'stale interrupted copy\n');
-
-    const messages = readActiveVersionMessages(root, 'analyst:global');
-
-    expect(messages.map((message) => message.id)).toEqual(['from-seg']);
-    expect(existsSync(join(dir, 'seg-001.jsonl'))).toBe(false);
-    expect(readFileSync(join(dir, '1.jsonl'), 'utf-8')).toContain('from-seg');
-  });
-
-  it('fails loudly when a v1 active segment is absent', () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
-    const dir = join(root, '.saivage', 'agents', 'conversations', encodeURIComponent('analyst:global'));
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'index.json'), JSON.stringify({ schema_version: 1, active_segment: 'seg-001.jsonl' }) + '\n');
-
-    expect(() => readActiveVersionMessages(root, 'analyst:global')).toThrow(/active segment 'seg-001\.jsonl'/);
+    expect(() => readConversationMessages(root, 'analyst:global')).toThrow(/schema_version/);
+    expect(existsSync(join(dir, 'seg-001.jsonl'))).toBe(true);
   });
 
   it('reads active rows separately from all version rows and removes orphan version files on load', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     const sessionId = 'planner:project';
-    const dir = join(root, '.saivage', 'agents', 'conversations', encodeURIComponent(sessionId));
+    const dir = conversationDir(root, sessionId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, '1.jsonl'), [
       JSON.stringify(makeMessage({ id: 'frozen-1', session_id: sessionId, content: 'frozen one' })),
@@ -127,7 +98,7 @@ describe('conversation-store', () => {
   it('appends only to the active version', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     const sessionId = 'planner:project';
-    const dir = join(root, '.saivage', 'agents', 'conversations', encodeURIComponent(sessionId));
+    const dir = conversationDir(root, sessionId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'frozen', session_id: sessionId })) + '\n');
     writeFileSync(join(dir, '2.jsonl'), '');
@@ -186,5 +157,24 @@ describe('conversation-store', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     expect(activeVersionPath(root, 'planner:project', 12)).toMatch(/12\.jsonl$/);
     expect(conversationIndexPath(root, 'planner:project')).toMatch(/index\.json$/);
+  });
+
+  it('routes card conversations under the owning card and analyst conversations under agents', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+
+    expect(conversationDir(root, 'planner:card-7')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'conversations', 'planner%3Acard-7'));
+    expect(conversationDir(root, 'executor:card-7')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'conversations', 'executor%3Acard-7'));
+    expect(conversationDir(root, 'reviewer:card-7:assessment-1')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'conversations', 'reviewer%3Acard-7%3Aassessment-1'));
+    expect(conversationDir(root, 'analyst:global')).toBe(join(root, '.saivage', 'agents', 'conversations', 'analyst%3Aglobal'));
+  });
+
+  it('lists analyst and card-owned conversation sessions', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    appendConversationMessage(root, makeMessage({ id: 'analyst-msg', session_id: 'analyst:global' }));
+    appendConversationMessage(root, makeMessage({ id: 'planner-msg', session_id: 'planner:card-7' }));
+    appendConversationMessage(root, makeMessage({ id: 'reviewer-msg', session_id: 'reviewer:card-7:assessment-1' }));
+
+    expect(listConversationSessionIds(root)).toEqual(['analyst:global', 'planner:card-7', 'reviewer:card-7:assessment-1']);
+    expect(readConversationMessages(root, 'planner:card-7').map((message) => message.id)).toEqual(['planner-msg']);
   });
 });

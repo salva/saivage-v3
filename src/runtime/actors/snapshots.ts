@@ -2,8 +2,8 @@ import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
-import { actorKindFromId, parseCardActorId } from './ids.js';
-import { actorKindSchema, actorKinds } from '../../schemas/actor-vocabulary.js';
+import { actorKindFromId, parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
+import { actorKindSchema } from '../../schemas/actor-vocabulary.js';
 import type { ActorKind } from './ids.js';
 import type { CardNotification } from './card-actor.js';
 
@@ -19,17 +19,22 @@ const actorSnapshotSchema = z.object({
 
 export type ActorSnapshotRecord = z.infer<typeof actorSnapshotSchema>;
 
-export function actorSnapshotsPath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'runtime', 'actors');
-}
-
 function actorSnapshotsLock(projectRoot: string): ProjectLock {
   return new ProjectLock(join(projectRoot, '.saivage', '.lock'), { staleLockAction: 'remove' });
 }
 
 export function actorSnapshotPath(projectRoot: string, actorId: string): string {
   const actorKind = actorKindFromId(actorId);
-  return join(actorSnapshotsPath(projectRoot), actorKind, `${encodeURIComponent(actorId)}.json`);
+  const encodedActorId = `${encodeURIComponent(actorId)}.json`;
+  if (actorKind === 'card') {
+    return join(cardActorSnapshotsRoot(projectRoot, parseCardActorId(actorId), 'card'), encodedActorId);
+  }
+  if (actorKind === 'processor') {
+    return join(cardActorSnapshotsRoot(projectRoot, parseProcessorActorId(actorId), 'processor'), encodedActorId);
+  }
+  const parsed = parseLlmActorId(actorId);
+  if (parsed.cardId) return join(cardActorSnapshotsRoot(projectRoot, parsed.cardId, 'llm'), encodedActorId);
+  return join(analystActorSnapshotsRoot(projectRoot), encodedActorId);
 }
 
 function actorSnapshotFile(projectRoot: string, actorId: string, lock: ProjectLock = actorSnapshotsLock(projectRoot)): AtomicJsonFile<ActorSnapshotRecord> {
@@ -108,16 +113,34 @@ export function removeActorSnapshot(projectRoot: string, actorId: string): boole
 }
 
 function actorSnapshotFilePaths(projectRoot: string): string[] {
-  const root = actorSnapshotsPath(projectRoot);
   const paths: string[] = [];
-  for (const kind of actorKinds) {
-    const dir = join(root, kind);
-    if (!existsSync(dir)) continue;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.json')) paths.push(join(dir, entry.name));
+  collectSnapshotFiles(analystActorSnapshotsRoot(projectRoot), paths);
+
+  const cardsRoot = join(projectRoot, '.saivage', 'outputs', 'cards');
+  if (existsSync(cardsRoot)) {
+    for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
+      if (!cardEntry.isDirectory()) continue;
+      for (const kind of ['card', 'llm', 'processor'] as const) {
+        collectSnapshotFiles(cardActorSnapshotsRoot(projectRoot, cardEntry.name, kind), paths);
+      }
     }
   }
   return paths;
+}
+
+function analystActorSnapshotsRoot(projectRoot: string): string {
+  return join(projectRoot, '.saivage', 'agents', 'runtime', 'actors', 'llm');
+}
+
+function cardActorSnapshotsRoot(projectRoot: string, cardId: string, kind: ActorKind): string {
+  return join(projectRoot, '.saivage', 'outputs', 'cards', cardId, 'runtime', 'actors', kind);
+}
+
+function collectSnapshotFiles(dir: string, paths: string[]): void {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.json')) paths.push(join(dir, entry.name));
+  }
 }
 
 function assertSnapshotKind(snapshot: ActorSnapshotRecord): void {

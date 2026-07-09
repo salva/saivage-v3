@@ -40,11 +40,8 @@ export function readActiveVersionMessages(projectRoot: string, sessionId: string
 }
 
 export function listConversationSessionIds(projectRoot: string): string[] {
-  const dir = join(projectRoot, '.saivage', 'agents', 'conversations');
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => decodeURIComponent(entry.name))
+  return conversationDirectories(projectRoot)
+    .map(({ encodedSessionId }) => decodeURIComponent(encodedSessionId))
     .sort();
 }
 
@@ -153,6 +150,28 @@ function readConversationVersion(path: string): AgentMessage[] {
     .split('\n')
     .filter(Boolean)
     .map((line) => agentMessageSchema.parse(JSON.parse(line)));
+}
+
+function conversationDirectories(projectRoot: string): Array<{ dir: string; encodedSessionId: string }> {
+  const dirs: Array<{ dir: string; encodedSessionId: string }> = [];
+  const analystRoot = join(projectRoot, '.saivage', 'agents', 'conversations');
+  collectConversationDirectories(analystRoot, dirs);
+
+  const cardsRoot = join(projectRoot, '.saivage', 'outputs', 'cards');
+  if (existsSync(cardsRoot)) {
+    for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
+      if (!cardEntry.isDirectory()) continue;
+      collectConversationDirectories(join(cardsRoot, cardEntry.name, 'conversations'), dirs);
+    }
+  }
+  return dirs;
+}
+
+function collectConversationDirectories(root: string, dirs: Array<{ dir: string; encodedSessionId: string }>): void {
+  if (!existsSync(root)) return;
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (entry.isDirectory()) dirs.push({ dir: join(root, entry.name), encodedSessionId: entry.name });
+  }
 }
 
 function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {

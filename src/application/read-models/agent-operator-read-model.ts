@@ -36,6 +36,7 @@ export class AgentOperatorReadModelService {
 
   getSession(sessionId: string): { statusCode?: number; body: { session?: Record<string, unknown>; error?: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
+    if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const messages = readConversationMessages(this.projectRoot, sessionId);
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const base = this.buildSessionSummary(sessionId, messages, readActorSnapshots(this.projectRoot));
@@ -46,6 +47,7 @@ export class AgentOperatorReadModelService {
 
   getConversation(sessionId: string): { statusCode?: number; body: AgentOperatorConversationResponse | { error: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
+    if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const messages = readConversationMessages(this.projectRoot, sessionId);
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const snapshots = readActorSnapshots(this.projectRoot);

@@ -15,6 +15,7 @@ import { writeFileAtomic } from './durable-write.js';
 import { CardStore } from '../cards/card-store.js';
 import { createDefaultRuntimeState } from '../runtime/default-state.js';
 import { isLocked } from '../runtime/lock.js';
+import { cardIdFromSessionId } from '../runtime/actors/ids.js';
 
 export function readProjectFileAtomic(
   projectRoot: string,
@@ -64,6 +65,7 @@ const SAIVAGE_DIRS: string[] = [
   'skills',
   'outputs/cards',
   'agents/conversations',
+  'agents/runtime/actors/llm',
   'runtime',
   'tmp/state',
   'supervision',
@@ -83,6 +85,7 @@ const LEGACY_REJECTED_ARTIFACTS: string[] = [
   'agents/tool-call-statuses',
   'agents/llm-exchanges',
   'runtime/processes.json',
+  'runtime/actors',
   'views',
 ];
 const SAIVAGE_WORK_DIRS: string[] = [
@@ -119,6 +122,7 @@ function isNewSaivageState(projectRoot: string): boolean {
   const requiredDirs = [
     'outputs/cards',
     'agents/conversations',
+    'agents/runtime/actors/llm',
     'runtime',
     'supervision',
   ];
@@ -133,7 +137,58 @@ function isNewSaivageState(projectRoot: string): boolean {
   for (const artifact of LEGACY_REJECTED_ARTIFACTS) {
     if (existsSync(join(saivageDir, artifact))) return false;
   }
+  if (hasCardScopedConversationUnderAgents(saivageDir)) return false;
+  if (hasV1ConversationSegments(saivageDir)) return false;
   return isValidJsonFile(join(saivageDir, 'project.json'), projectConfigSchema);
+}
+
+function hasCardScopedConversationUnderAgents(saivageDir: string): boolean {
+  const conversationsDir = join(saivageDir, 'agents', 'conversations');
+  if (!existsSync(conversationsDir)) return false;
+  for (const entry of readdirSync(conversationsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    let sessionId: string;
+    try {
+      sessionId = decodeURIComponent(entry.name);
+    } catch {
+      return true;
+    }
+    try {
+      if (cardIdFromSessionId(sessionId)) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasV1ConversationSegments(saivageDir: string): boolean {
+  for (const dir of currentConversationDirs(saivageDir)) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isFile() && /^seg-\d{3}\.jsonl$/.test(entry.name)) return true;
+    }
+  }
+  return false;
+}
+
+function currentConversationDirs(saivageDir: string): string[] {
+  const dirs: string[] = [];
+  collectConversationDirs(join(saivageDir, 'agents', 'conversations'), dirs);
+  const cardsRoot = join(saivageDir, 'outputs', 'cards');
+  if (existsSync(cardsRoot)) {
+    for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
+      if (!cardEntry.isDirectory()) continue;
+      collectConversationDirs(join(cardsRoot, cardEntry.name, 'conversations'), dirs);
+    }
+  }
+  return dirs;
+}
+
+function collectConversationDirs(root: string, dirs: string[]): void {
+  if (!existsSync(root)) return;
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (entry.isDirectory()) dirs.push(join(root, entry.name));
+  }
 }
 
 function discardLegacyState(projectRoot: string, stamp: string): void {

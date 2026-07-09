@@ -24,6 +24,7 @@ import {
   cleanAll,
   referencedRecoverableUrls,
 } from '../../src/runtime/cleanup.js';
+import { conversationDir } from '../../src/runtime/actors/conversation-store.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -272,6 +273,29 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(existsSync(unreferencedDir)).toBe(false);
   });
 
+  it('cleanAll: preserves aged process output referenced by card-owned conversation rows', async () => {
+    const swd = saivageWorkDir();
+    const referencedDir = join(swd, 'processes', 'proc-card-referenced');
+    const unreferencedDir = join(swd, 'processes', 'proc-card-unreferenced');
+    mkdirSync(referencedDir, { recursive: true });
+    mkdirSync(unreferencedDir, { recursive: true });
+    writeFileSync(join(referencedDir, 'stdout.log'), 'referenced stdout');
+    writeFileSync(join(unreferencedDir, 'stdout.log'), 'unreferenced stdout');
+    writeConversationVersion('executor:card-7', '1', [message({
+      id: 'card-process-result',
+      kind: 'tool_result',
+      role: 'tool',
+      content: JSON.stringify({ success: true, stdout_url: 'work:///processes/proc-card-referenced/stdout.log' }),
+    })]);
+    await sleep(100);
+
+    const result = cleanAll(swd, store, { processMaxAgeMs: 1 });
+
+    expect(result.processDirsCleaned).toBe(1);
+    expect(existsSync(referencedDir)).toBe(true);
+    expect(existsSync(unreferencedDir)).toBe(false);
+  });
+
   it('referencedRecoverableUrls: extracts markdown work URL literals from context_compaction content in active and frozen versions', () => {
     const swd = saivageWorkDir();
     const stashPath = join(swd, 'tmp', 'stash', 'summary-stash.txt');
@@ -318,14 +342,14 @@ function writeConversationVersion(
   activeVersion: string = version,
   versions: Record<string, unknown> = { [version]: { status: 'active', opened_at: new Date().toISOString() } },
 ): void {
-  const dir = join(currentRoot(), '.saivage', 'agents', 'conversations', encodeURIComponent(sessionId));
+  const dir = conversationDir(currentRoot(), sessionId);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'index.json'), JSON.stringify({ schema_version: 2, session_id: sessionId, active_version: Number(activeVersion), versions }, null, 2));
   appendConversationVersion(sessionId, version, rows);
 }
 
 function appendConversationVersion(sessionId: string, version: string, rows: Record<string, unknown>[]): void {
-  const dir = join(currentRoot(), '.saivage', 'agents', 'conversations', encodeURIComponent(sessionId));
+  const dir = conversationDir(currentRoot(), sessionId);
   writeFileSync(join(dir, `${version}.jsonl`), rows.map((row) => JSON.stringify({ ...row, session_id: sessionId })).join('\n') + '\n');
 }
 
