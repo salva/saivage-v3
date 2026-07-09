@@ -127,9 +127,9 @@ Revise these original ideas before implementing anything, because the architectu
 
    Original idea: make Analyst process records omit `card_id`.
 
-   Current implementation: `ProcessRecord.card_id` is required, and Analyst records use the session id there as schema-compatible non-authoritative provenance while `owner_id` remains the ownership authority.
+   Current implementation: `ProcessRecord.card_id` is nullable. Card-owned process records carry the real card id, while Analyst/operator/runtime records carry `null`; `owner_id` remains the ownership authority.
 
-   Decision: do not change this opportunistically. First audit operator API, UI, notifications, and process read models. Either keep the current invariant and remove stale null/optional defensive code, or make `card_id` nullable in one focused process-schema change.
+   Decision: complete. Keep `owner_id` / `owner_kind` as the ownership authority and treat `card_id` as nullable card provenance only.
 
 ### Drop
 
@@ -158,10 +158,6 @@ Defer these items until a concrete need or telemetry justifies them.
 1. **Dedicated record metadata tool.**
 
    Current `get_card` record summaries and `record://` reads cover most needs. A generic metadata tool can wait until a caller needs standalone metadata for arbitrary URLs.
-
-2. **Nullable Analyst `ProcessRecord.card_id`.**
-
-   Current schema requires `card_id`, so Analyst processes use the session id there as non-authoritative scope metadata and mark `owner_kind: 'operator'`. Making `card_id` nullable is cleaner, but it touches API contracts and UI assumptions. Defer to a focused process-schema cleanup.
 
 ## Current-Code Improvement Backlog
 

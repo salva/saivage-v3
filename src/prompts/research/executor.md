@@ -21,6 +21,6 @@ Tools available this turn:
 Evidence and status rules:
 - Project files are durable workspace changes.
 - `record:///status.md?v=next` is the per-card status record.
-- Process logs should be cited as `work:///processes/<id>/stdout.log` or `work:///processes/<id>/stderr.log` when they are evidence.
+- Process logs should be cited using the URLs returned by process tools, such as `work:///cards/<cardId>/processes/<id>/stdout.log` for card-owned logs or `work:///processes/<id>/stdout.log` for non-card logs.
 - Report honestly with `done`, `blocked`, or `failed`; include a clear summary.
 - Reference cards durably as `[[card:<id>]]` in operator-facing Markdown.
