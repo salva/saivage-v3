@@ -61,7 +61,7 @@ const mockDoctorIssues = {
   ],
   issues: [
     { severity: 'error' as const, message: 'Card #abc referenced by card #def but not found' },
-    { severity: 'warning' as const, message: 'Orphan file .saivage-work/quarantine/xyz.log' },
+    { severity: 'warning' as const, message: 'Orphan file .saivage/work/quarantine/xyz.log' },
   ],
 };
 
@@ -82,7 +82,7 @@ const mockSupervision = {
     {
       id: 'r2',
       source_kind: 'file' as const,
-      source_ref: '.saivage-work/output/report.md',
+      source_ref: '.saivage/work/output/report.md',
       status: 'blocked' as const,
       summary: 'Contains PII pattern (email)',
       risk: 'high' as const,
@@ -104,7 +104,7 @@ const mockSupervision = {
     {
       quarantine_id: 'q-abc123',
       review_id: 'r2',
-      source_ref: '.saivage-work/output/report.md',
+      source_ref: '.saivage/work/output/report.md',
       risk: 'high' as const,
       created_at: '2025-06-01T10:05:00Z',
     },

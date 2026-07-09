@@ -138,8 +138,8 @@ target project. Verify the real unit before editing or manually starting.
 
 Target-project runtime state is project-local:
 
-- GetRich v2: `/home/salva/g/ml/getrich-v2/.saivage/` and `/home/salva/g/ml/getrich-v2/.saivage-work/`.
-- Pueblicos: `/home/salva/g/ml/pueblicos/.saivage/` and `/home/salva/g/ml/pueblicos/.saivage-work/`.
+- GetRich v2: `/home/salva/g/ml/getrich-v2/.saivage/` and `/home/salva/g/ml/getrich-v2/.saivage/work/`.
+- Pueblicos: `/home/salva/g/ml/pueblicos/.saivage/` and `/home/salva/g/ml/pueblicos/.saivage/work/`.
 
 Safe files to inspect when diagnosing behavior include runtime state, event logs,
 error logs, and stage/card metadata. Avoid printing provider configs or auth profiles.

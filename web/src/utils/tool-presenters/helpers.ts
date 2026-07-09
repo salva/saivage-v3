@@ -54,7 +54,7 @@ export function appendText(parts: InlinePart[], text: unknown): InlinePart[] {
 
 export function filePart(pathValue: unknown, label?: string): InlinePart | null {
   const path = str(pathValue);
-  if (path.startsWith('.saivage-work/')) return { kind: 'file', root: 'output', path, label: label ?? shortPath(path) };
+  if (path.startsWith('.saivage/work/')) return { kind: 'file', root: 'output', path, label: label ?? shortPath(path) };
   if (path.startsWith('.saivage/')) return { kind: 'file', root: 'meta', path, label: label ?? shortPath(path) };
   return null;
 }

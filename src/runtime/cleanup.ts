@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, normalize } from 'node:path';
 import type { CardStore } from '../cards/store-api.js';
+import { saivageCardsRoot, saivageWorkRoot } from '../persistence/layout.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -18,7 +19,7 @@ export interface CleanupResult {
 }
 
 export interface CleanStaleProcessOptions {
-  /** Path to .saivage-work/ directory */
+  /** Path to .saivage/work/ directory */
   saivageWorkDir: string;
   /** CardStore instance retained for the public cleanup API shape */
   store: CardStore;
@@ -63,7 +64,7 @@ function safeResolve(root: string, subpath: string): string | null {
  * This is the safest cleanup target — tmp files within a card's
  * working area are always disposable.
  *
- * @param saivageWorkDir - Path to .saivage-work/ directory
+ * @param saivageWorkDir - Path to .saivage/work/ directory
  * @param cardId - Card ID whose tmp/ directory should be cleaned
  * @returns true if the tmp directory was removed, false if it didn't exist
  */
@@ -94,12 +95,12 @@ export function cleanCardTmp(saivageWorkDir: string, cardId: string): boolean {
 // ── Public API: cleanStaleStash ───────────────────────────────
 
 /**
- * Remove stash files in .saivage-work/tmp/stash/ that are older
+ * Remove stash files in .saivage/work/tmp/stash/ that are older
  * than maxAgeMs milliseconds.
  *
  * Never touches other tmp/ subdirectories (runtime/, uploads/, previews/).
  *
- * @param saivageWorkDir - Path to .saivage-work/ directory
+ * @param saivageWorkDir - Path to .saivage/work/ directory
  * @param maxAgeMs - Maximum age in milliseconds (default: 24 hours)
  * @returns Number of files removed
  */
@@ -147,10 +148,10 @@ export function cleanStaleStash(
 // ── Public API: cleanStalePreviews ────────────────────────────
 
 /**
- * Remove stale preview files in .saivage-work/tmp/previews/ that
+ * Remove stale preview files in .saivage/work/tmp/previews/ that
  * are older than maxAgeMs milliseconds.
  *
- * @param saivageWorkDir - Path to .saivage-work/ directory
+ * @param saivageWorkDir - Path to .saivage/work/ directory
  * @param maxAgeMs - Maximum age in milliseconds (default: 24 hours)
  * @returns Number of files removed
  */
@@ -196,10 +197,10 @@ export function cleanStalePreviews(
 // ── Public API: cleanStaleUploads ─────────────────────────────
 
 /**
- * Remove stale upload files in .saivage-work/tmp/uploads/ that
+ * Remove stale upload files in .saivage/work/tmp/uploads/ that
  * are older than maxAgeMs milliseconds.
  *
- * @param saivageWorkDir - Path to .saivage-work/ directory
+ * @param saivageWorkDir - Path to .saivage/work/ directory
  * @param maxAgeMs - Maximum age in milliseconds (default: 24 hours)
  * @returns Number of files removed
  */
@@ -245,7 +246,7 @@ export function cleanStaleUploads(
 // ── Public API: cleanStaleProcessOutput ───────────────────────
 
 /**
-  * Remove stale process output directories from .saivage-work/processes/
+  * Remove stale process output directories from .saivage/work/processes/ and .saivage/work/cards/<cardId>/processes/
   * whose output is no longer needed.
  *
  * A process directory is eligible for cleanup when:
@@ -260,9 +261,6 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
   const { saivageWorkDir, preserve, maxAgeMs = 24 * 60 * 60 * 1000, liveProcessIds = new Set<string>() } = options;
   const processesDir = safeResolve(saivageWorkDir, 'processes');
   if (!processesDir) return 0;
-  if (!existsSync(processesDir)) return 0;
-
-  // Verify this is exactly the processes directory
   const absWork = resolve(saivageWorkDir);
   const expectedProcesses = normalize(join(absWork, 'processes'));
   if (processesDir !== expectedProcesses) return 0;
@@ -270,33 +268,38 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
   let cleaned = 0;
   const cutoff = Date.now() - maxAgeMs;
 
-  let entries: string[];
-  try {
-    entries = readdirSync(processesDir);
-  } catch {
-    return 0;
-  }
-
-  for (const entry of entries) {
-    const procDir = join(processesDir, entry);
+  const cleanProcessDir = (entry: string, procDir: string): void => {
 
     const latestMtimeMs = latestProcessOutputMtimeMs(procDir);
-    if (latestMtimeMs === null) continue;
+    if (latestMtimeMs === null) return;
 
     // Never remove output for in-memory live processes.
-    if (liveProcessIds.has(entry)) continue;
+    if (liveProcessIds.has(entry)) return;
 
     // Never remove output referenced by any conversation version.
-    if (preserve.has(normalize(resolve(procDir)))) continue;
+    if (preserve.has(normalize(resolve(procDir)))) return;
 
     // Skip if too new
-    if (latestMtimeMs >= cutoff) continue;
+    if (latestMtimeMs >= cutoff) return;
 
     try {
       rmSync(procDir, { recursive: true, force: true });
       cleaned++;
     } catch {
       // skip directories we can't remove
+    }
+  };
+
+  if (existsSync(processesDir)) {
+    for (const entry of readdirSync(processesDir)) cleanProcessDir(entry, join(processesDir, entry));
+  }
+  const cardsDir = safeResolve(saivageWorkDir, 'cards');
+  if (cardsDir && existsSync(cardsDir)) {
+    for (const cardEntry of readdirSync(cardsDir, { withFileTypes: true })) {
+      if (!cardEntry.isDirectory()) continue;
+      const cardProcesses = safeResolve(saivageWorkDir, join('cards', cardEntry.name, 'processes'));
+      if (!cardProcesses || !existsSync(cardProcesses)) continue;
+      for (const entry of readdirSync(cardProcesses)) cleanProcessDir(entry, join(cardProcesses, entry));
     }
   }
 
@@ -313,7 +316,7 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
  *
  * Never removes download reviews or quarantine metadata.
  *
- * @param saivageWorkDir - Path to .saivage-work/ directory
+ * @param saivageWorkDir - Path to .saivage/work/ directory
  * @param store - CardStore instance for artifact reference checks
  * @param options - Optional overrides for max ages
  * @returns CleanupResult with counts for each cleaned category
@@ -337,7 +340,7 @@ export function cleanAll(
     staleUploadsRemoved: 0,
   };
 
-  const preserve = referencedRecoverableUrls(resolve(saivageWorkDir, '..'));
+  const preserve = referencedRecoverableUrls(resolve(saivageWorkDir, '..', '..'));
 
   // 1. Clean card tmp directories
   // Iterate over all cards and clean their tmp dirs
@@ -434,7 +437,7 @@ function parseConversationIndexForCleanup(indexPath: string): ConversationIndexF
 function currentConversationDirs(projectRoot: string): string[] {
   const dirs: string[] = [];
   collectConversationDirs(join(projectRoot, '.saivage', 'agents', 'conversations'), dirs);
-  const cardsRoot = join(projectRoot, '.saivage', 'outputs', 'cards');
+  const cardsRoot = saivageCardsRoot(projectRoot);
   if (existsSync(cardsRoot)) {
     for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
       if (!cardEntry.isDirectory()) continue;
@@ -476,7 +479,7 @@ function recoverableUrlPath(projectRoot: string, rawUrl: string): string | null 
   }
   if (url.protocol !== 'work:') return null;
 
-  const saivageWorkDir = join(projectRoot, '.saivage-work');
+  const saivageWorkDir = saivageWorkRoot(projectRoot);
   const pathname = decodeURIComponent(url.pathname);
   const stashPrefix = '/tmp/stash/';
   if (pathname.startsWith(stashPrefix)) {
@@ -487,6 +490,12 @@ function recoverableUrlPath(projectRoot: string, rawUrl: string): string | null 
   const processMatch = /^\/processes\/([^/]+)\//u.exec(pathname);
   if (processMatch) {
     const processDir = safeResolve(saivageWorkDir, join('processes', processMatch[1]));
+    return processDir ? normalize(resolve(processDir)) : null;
+  }
+
+  const cardProcessMatch = /^\/cards\/([^/]+)\/processes\/([^/]+)\//u.exec(pathname);
+  if (cardProcessMatch) {
+    const processDir = safeResolve(saivageWorkDir, join('cards', cardProcessMatch[1], 'processes', cardProcessMatch[2]));
     return processDir ? normalize(resolve(processDir)) : null;
   }
 

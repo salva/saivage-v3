@@ -19,7 +19,7 @@ runtime/build used to recreate target-project state; it is not the reset target.
 
 ## Safety Rules
 
-- Stop the relevant Saivage v3 service before modifying a target project's `.saivage/` or `.saivage-work/`.
+- Stop the relevant Saivage v3 service before modifying a target project's `.saivage/` or `.saivage/work/`.
 - Preserve only model/provider configuration, credentials, and explicit source documents such as `docs/SPEC.md` and `docs/PLAN.md`; inspect or edit secrets when authorized or needed, but do not print them.
 - Do not preserve generated cards, runtime state, old planner outputs, or stale project objectives as authoritative reset input.
 - Do not store Saivage state in `~/.saivage`.
@@ -40,14 +40,14 @@ Preserve these files when present in the target project:
 - `.saivage/saivage.yaml`
 - `.saivage/auth-profiles.json`
 - User-named source documents, commonly `docs/SPEC.md` and `docs/PLAN.md`
-- Any project source files outside generated `.saivage/` and `.saivage-work/`
+- Any project source files outside generated `.saivage/` and `.saivage/work/`
 
 Do not preserve these as authoritative reset input:
 
 - `.saivage/runtime/`
 - `.saivage/stages/`
 - `.saivage/cards/` or generated card stores
-- `.saivage-work/tmp/`
+- `.saivage/work/tmp/`
 - Old planner/executor outputs, transcripts, locks, process output, or card-derived objectives
 
 ## Reset Workflow For GetRich v2
@@ -69,7 +69,7 @@ ssh root@10.0.3.170 'systemctl stop saivage-v3-getrich.service'
 
 3. From `/home/salva/g/ml/getrich-v2`, copy credential-bearing files and source spec documents into `tmp/` paths. Inspect or edit secrets when authorized or needed.
 
-4. Move old `.saivage/` and `.saivage-work/` into a timestamped backup under `/home/salva/g/ml/tmp/`.
+4. Move old `.saivage/` and `.saivage/work/` into a timestamped backup under `/home/salva/g/ml/tmp/`.
 
 5. Recreate the Saivage tree using the Saivage v3 build:
 
@@ -108,7 +108,7 @@ ssh root@10.0.3.52 'systemctl stop saivage-pueblicos.service'
 
 3. From `/home/salva/g/ml/pueblicos`, copy preserved config/credentials and source spec documents into a timestamped backup under `/home/salva/g/ml/tmp/`. This deployment intentionally may run without `SAIVAGE_API_TOKEN`; preserve that auth-mode choice instead of inventing credentials.
 
-4. Move generated `.saivage/` and `.saivage-work/` into the same timestamped backup.
+4. Move generated `.saivage/` and `.saivage/work/` into the same timestamped backup.
 
 5. Recreate the Saivage tree using the Saivage v3 build:
 
@@ -133,7 +133,7 @@ curl -fsS http://10.0.3.52:8080/health
 1. Identify the host project path and service owner from current workspace handoff notes or by inspecting the container.
 2. Stop only the matching service; do not stop unrelated Saivage deployments.
 3. Preserve `.saivage/saivage.yaml`, `.saivage/auth-profiles.json` if present, and the source documents the user named as authoritative.
-4. Move generated `.saivage/` and `.saivage-work/` state into a timestamped backup under `/home/salva/g/ml/tmp/`.
+4. Move generated `.saivage/` and `.saivage/work/` state into a timestamped backup under `/home/salva/g/ml/tmp/`.
 5. Recreate the project-local runtime tree with `initProjectTree(<target-path>)` from this repo's built `dist/` output.
 6. Restore preserved config, credentials, and source documents.
 7. Restart the service and verify `/health` plus any authenticated readiness/API checks required for that deployment.

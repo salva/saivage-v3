@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync 
 import { join } from 'node:path';
 import { z } from 'zod';
 import { writeFileSyncDurable } from '../../persistence/index.js';
+import { saivageCardsRoot } from '../../persistence/layout.js';
 import { cardIdFromSessionId } from './ids.js';
 
 const conversationVersionFileNameSchema = z.string().regex(/^\d+\.jsonl$/);
@@ -52,7 +53,7 @@ export type ConversationIndex = z.infer<typeof conversationIndexSchema>;
 export function conversationDir(projectRoot: string, sessionId: string): string {
   const encodedSessionId = encodeURIComponent(sessionId);
   const cardId = cardIdFromSessionId(sessionId);
-  if (cardId) return join(projectRoot, '.saivage', 'outputs', 'cards', cardId, 'conversations', encodedSessionId);
+  if (cardId) return join(saivageCardsRoot(projectRoot), cardId, 'conversations', encodedSessionId);
   return join(projectRoot, '.saivage', 'agents', 'conversations', encodedSessionId);
 }
 

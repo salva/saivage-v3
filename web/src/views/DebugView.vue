@@ -315,7 +315,8 @@
               <div class="pd-row"><span class="pd-key">Command:</span><span class="pd-value mono wrap">{{ proc.command }}</span></div>
               <div class="pd-row"><span class="pd-key">Card:</span><span class="pd-value mono">{{ proc.card_id }}</span></div>
               <div class="pd-row"><span class="pd-key">Session:</span><span class="pd-value mono">{{ proc.session_id || 'none' }}</span></div>
-              <div class="pd-row"><span class="pd-key">Owner:</span><span class="pd-value mono">{{ proc.owner || 'unknown' }}</span></div>
+              <div class="pd-row"><span class="pd-key">Owner kind:</span><span class="pd-value mono">{{ proc.owner_kind || 'unknown' }}</span></div>
+              <div class="pd-row"><span class="pd-key">Owner id:</span><span class="pd-value mono">{{ proc.owner_id || 'unknown' }}</span></div>
               <div class="pd-row"><span class="pd-key">Working directory:</span><span class="pd-value mono wrap">{{ proc.cwd || 'Unavailable or unsafe to display' }}</span></div>
               <div v-if="proc.ended_at" class="pd-row"><span class="pd-key">Ended:</span><span class="pd-value">{{ fmtDate(proc.ended_at) }}</span></div>
               <div class="pd-row"><span class="pd-key">Exit code:</span><span class="pd-value mono">{{ proc.exit_code ?? '-' }}</span></div>
@@ -491,7 +492,7 @@ function setTab(tab: typeof localActiveTab.value): void {
   setTabLocal(tab);
   void router.push({ name: 'debug', query: tab === 'state' ? {} : { tab } });
 }
-function browseQuarantineItem(quarantineId: string): void { router.push({ name: 'files', query: { path: '.saivage-work/quarantine/' + quarantineId } }); }
+function browseQuarantineItem(quarantineId: string): void { router.push({ name: 'files', query: { path: '.saivage/work/quarantine/' + quarantineId } }); }
 function browseProcessLog(path: string): void { router.push({ name: 'files', query: { path } }); }
 function processLogEntries(proc: ProcessView): Array<{ key: string; label: string; value: string | null }> { return [{ key: 'stdout', label: 'Stdout', value: proc.logs.stdout }, { key: 'stderr', label: 'Stderr', value: proc.logs.stderr }]; }
 function hasProcessLogs(proc: ProcessView): boolean { return processLogEntries(proc).some((entry) => Boolean(entry.value)); }

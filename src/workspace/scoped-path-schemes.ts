@@ -4,6 +4,7 @@ import type { AgentRole } from '../schemas/index.js';
 import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, type OpenRecordSlot } from '../runtime/records/record-slots.js';
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
+import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
 
 export type ScopedPathMode = 'read' | 'write' | 'search';
 export type ScopedPathErrorFactory = (message: string) => Error;
@@ -129,7 +130,7 @@ export const scopedPathResolvers = {
     if (parsed.segments.length < 2) throw ctx.fail(`Invalid tmp URL '${raw}'.`);
     const [cardId, ...rest] = parsed.segments;
     if (mode === 'write' && agent.agentRole !== 'analyst' && cardId !== agent.cardId) throw ctx.fail('Agents may write tmp files only for their current card.');
-    return { kind: 'tmp', ...resolveContained(ctx, `.saivage-work/cards/${cardId}/tmp/${rest.join('/')}`, 'tmp path') };
+    return { kind: 'tmp', ...resolveContained(ctx, `${SAIVAGE_WORK_RELATIVE_DIR}/cards/${cardId}/tmp/${rest.join('/')}`, 'tmp path') };
   },
   record(ctx: ResolveScopedPathContext, raw: string, mode: ScopedPathMode): ResolvedScopedPath {
     if (mode === 'write') {
@@ -143,15 +144,15 @@ export const scopedPathResolvers = {
     if (mode === 'write') throw ctx.fail('work:/// paths are read-only.');
     const parsed = parseScopedPathUrl(raw, 'work');
     rejectQueryAndFragment(raw, 'work', parsed, ctx.fail);
-    const workRoot = join(ctx.projectRoot, '.saivage-work');
-    return { kind: 'work', ...resolveContained(ctx, `.saivage-work/${parsed.segments.join('/')}`, 'work path'), workRoot };
+    const workRoot = saivageWorkRoot(ctx.projectRoot);
+    return { kind: 'work', ...resolveContained(ctx, `${SAIVAGE_WORK_RELATIVE_DIR}/${parsed.segments.join('/')}`, 'work path'), workRoot };
   },
 } as const;
 
 export type ScopedPathScheme = keyof typeof scopedPathResolvers;
 
 export function workUrlFromAbsolutePath(projectRoot: string, absolutePath: string): string {
-  const workRoot = join(projectRoot, '.saivage-work');
+  const workRoot = saivageWorkRoot(projectRoot);
   const rel = relative(workRoot, absolutePath).replace(/\\/g, '/');
   const contained = resolveContainedProjectPath(workRoot, rel);
   if (!contained.safe || !contained.relativePath || contained.relativePath === '.' || contained.relativePath.startsWith('../')) throw new Error(`Path '${absolutePath}' is not under the work root.`);

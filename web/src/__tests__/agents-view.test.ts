@@ -147,7 +147,7 @@ async function mountAgentsView(opts?: {
         links: [
           { entity_type: 'card', entity_id: 'card-123', label: 'Card 123' },
           { entity_type: 'process', entity_id: 'proc-1', label: 'Process proc-1' },
-          { entity_type: 'artifact', entity_id: '.saivage-work/output.txt', label: 'Artifact output' },
+          { entity_type: 'artifact', entity_id: '.saivage/work/output.txt', label: 'Artifact output' },
         ],
       },
     ],
@@ -230,7 +230,7 @@ describe('AgentsView', () => {
 
     expect(pushSpy).toHaveBeenCalledWith({ name: 'card-detail', params: { id: 'card-123' } });
     expect(pushSpy).toHaveBeenCalledWith({ name: 'debug', query: { tab: 'processes', process: 'proc-1' } });
-    expect(pushSpy).toHaveBeenCalledWith({ name: 'files', query: { path: '.saivage-work/output.txt' } });
+    expect(pushSpy).toHaveBeenCalledWith({ name: 'files', query: { path: '.saivage/work/output.txt' } });
   });
 
   it('shows tool names and argument keys in collapsed rows and expands/collapses all rows', async () => {

@@ -42,7 +42,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'saivage-security-integration-'));
   initProjectTree(root);
   saivageDir = join(root, '.saivage');
-  saivageWorkDir = join(root, '.saivage-work');
+  saivageWorkDir = join(root, '.saivage/work');
 });
 
 afterEach(() => {
@@ -293,13 +293,13 @@ describe('all modules import and work together', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('integration edge cases', () => {
-  it('readProjectFileAtomic handles .saivage-work paths correctly', () => {
+  it('readProjectFileAtomic handles .saivage/work paths correctly', () => {
     const workFile = join(saivageWorkDir, 'cards', 'test.json');
     mkdirSync(join(saivageWorkDir, 'cards'), { recursive: true });
     writeFileSync(workFile, '{"ok":true}', 'utf-8');
 
-    // .saivage-work files should not be blocked (only specific paths are)
-    const content = readProjectFileAtomic(root, '.saivage-work/cards/test.json');
+    // .saivage/work files should not be blocked (only specific paths are)
+    const content = readProjectFileAtomic(root, '.saivage/work/cards/test.json');
     expect(content).toBe('{"ok":true}');
   });
 

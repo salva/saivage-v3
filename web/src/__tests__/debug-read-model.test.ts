@@ -10,8 +10,8 @@ function process(overrides: Partial<ProcessView>): ProcessView {
     ended_at: null,
     exit_code: null,
     timed_out: false,
-    owner: 'agent',
-    owner_id: null,
+    owner_kind: 'agent',
+    owner_id: 'agent-1',
     session_id: null,
     card_id: 'card',
     command: 'echo ok',
@@ -58,11 +58,11 @@ describe('debug-read-model', () => {
     ];
     const issues: DoctorIssue[] = [
       { severity: 'error', message: 'Card #abc referenced by card #def but not found' },
-      { severity: 'warning', message: 'Orphan file .saivage-work/quarantine/xyz.log' },
+      { severity: 'warning', message: 'Orphan file .saivage/work/quarantine/xyz.log' },
     ];
     const reviews: ContentReview[] = [
       { id: 'r1', source_kind: 'command_output', source_ref: 'proc-1/stdout', status: 'passed', summary: 'No sensitive data detected', risk: 'low', quarantine_id: null, created_at: '2025-06-01T10:00:00Z' },
-      { id: 'r2', source_kind: 'file', source_ref: '.saivage-work/output/report.md', status: 'blocked', summary: 'Contains PII pattern', risk: 'high', quarantine_id: 'q-abc123', created_at: '2025-06-01T10:05:00Z' },
+      { id: 'r2', source_kind: 'file', source_ref: '.saivage/work/output/report.md', status: 'blocked', summary: 'Contains PII pattern', risk: 'high', quarantine_id: 'q-abc123', created_at: '2025-06-01T10:05:00Z' },
       { id: 'r3', source_kind: 'download', source_ref: 'https://example.com/data.csv', status: 'sanitized', summary: 'PII redacted', risk: 'medium', quarantine_id: null, created_at: '2025-06-01T10:10:00Z' },
     ];
 

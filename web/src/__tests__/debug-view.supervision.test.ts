@@ -303,7 +303,7 @@ describe('DebugView — supervision tab', () => {
 
     expect(mockPush).toHaveBeenCalledWith({
       name: 'files',
-      query: { path: '.saivage-work/quarantine/q-blocked' },
+      query: { path: '.saivage/work/quarantine/q-blocked' },
     });
   });
 });

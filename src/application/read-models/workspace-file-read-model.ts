@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node
 import { join, relative } from 'node:path';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
 import { getSafeFileForAgent, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
+import { SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
@@ -37,7 +38,7 @@ export class WorkspaceFileReadModelService {
       try {
         const parsed = parseScopedPathUrl(requestedPath, 'work');
         if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== requestedPath) return { safe: false, absolutePath: '', responsePath: requestedPath, reason: 'Invalid work URL.', kind: 'work' };
-        const resolved = resolveContainedProjectPath(this.projectRoot, `.saivage-work/${parsed.segments.join('/')}`);
+        const resolved = resolveContainedProjectPath(this.projectRoot, `${SAIVAGE_WORK_RELATIVE_DIR}/${parsed.segments.join('/')}`);
         return { safe: resolved.safe, absolutePath: resolved.absolutePath, responsePath: requestedPath, reason: resolved.reason, kind: 'work' };
       } catch (err) {
         return { safe: false, absolutePath: '', responsePath: requestedPath, reason: err instanceof Error ? err.message : String(err), kind: 'work' };

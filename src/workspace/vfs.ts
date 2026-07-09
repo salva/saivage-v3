@@ -6,6 +6,7 @@ import { exposedRecordSlotDefinitionForFilename, readRecordSlotIndex, recordPath
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, validRecordSegment, workUrlFromAbsolutePath, type ScopedPathScheme } from './scoped-path-schemes.js';
+import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
 
 export type VfsMode = 'read' | 'write' | 'search';
 
@@ -47,8 +48,8 @@ export type VfsListing =
   | { kind: 'entries'; entries: VfsEntry[] }
   | { kind: 'records'; records: RecordSummary[] };
 
-const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', '.saivage-work', 'dist', 'build', '__pycache__']);
-const TMP_SCOPED_PREFIX_RE = /^\.saivage-work\/cards\/[^/]+\/tmp\/?/;
+const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', 'dist', 'build', '__pycache__']);
+const TMP_SCOPED_PREFIX_RE = /^\.saivage\/work\/cards\/[^/]+\/tmp\/?/;
 
 type FsResolved = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }>;
 type RecordDirectoryResolved = Extract<VfsResolved, { kind: 'record'; recordKind: 'directory' }>;
@@ -135,8 +136,8 @@ function delegateDirectoryScheme(ctx: VfsContext, raw: string, mode: VfsMode, sc
   if ((scheme === 'project' || scheme === 'work' || scheme === 'system') && raw === `${scheme}:///`) {
     if (scheme === 'project') return { kind: 'project', absolutePath: ctx.projectRoot, relativePath: '.', isRoot: true };
     if (scheme === 'work') {
-      const workRoot = join(ctx.projectRoot, '.saivage-work');
-      return { kind: 'work', absolutePath: workRoot, relativePath: '.saivage-work', workRoot, isRoot: true };
+      const workRoot = saivageWorkRoot(ctx.projectRoot);
+      return { kind: 'work', absolutePath: workRoot, relativePath: SAIVAGE_WORK_RELATIVE_DIR, workRoot, isRoot: true };
     }
     return { kind: 'system', absolutePath: '/', relativePath: 'system:///', isRoot: true };
   }

@@ -11,10 +11,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
 import { now } from '../utils/clock.js';
+import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/layout.js';
 
 export interface ProcessSpawnSpec {
   command: string;
-  cardId: string;
+  cardId?: string | null;
   ownerId: string;
   ownerKind: 'agent' | 'operator' | 'runtime';
   cwd?: string;
@@ -44,8 +45,6 @@ export interface ProcessStopReport {
   stopped: string[];
   failed: Array<{ id: string; error: string }>;
 }
-
-const PROCESSES_DIR = '.saivage-work/processes';
 
 export class ProcessRunner {
   private processRecords: Map<string, ProcessRecord> | null = null;
@@ -125,12 +124,8 @@ function nowMonotonic(): number {
   return Math.floor(performance.timeOrigin + performance.now());
 }
 
-function processesDir(projectRoot: string): string {
-  return join(projectRoot, PROCESSES_DIR);
-}
-
-function processDir(projectRoot: string, procId: string): string {
-  return join(processesDir(projectRoot), procId);
+function processDir(projectRoot: string, procId: string, cardId?: string | null): string {
+  return cardId ? cardProcessOutputRoot(projectRoot, cardId, procId) : nonCardProcessOutputRoot(projectRoot, procId);
 }
 
 function commandHash(service: ProcessRunner, command: string): string {
@@ -189,8 +184,8 @@ function upsertRegistryRecord(service: ProcessRunner, record: ProcessRecord): vo
   registry.set(record.id, record);
 }
 
-function ensureProcessDir(projectRoot: string, procId: string): string {
-  const dir = processDir(projectRoot, procId);
+function ensureProcessDir(projectRoot: string, procId: string, cardId?: string | null): string {
+  const dir = processDir(projectRoot, procId, cardId);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -258,14 +253,15 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
   if (!command || command.length === 0) {
     throw new Error('command must not be empty');
   }
-  if (!options.ownerId || !options.ownerKind || !options.cardId) {
-    throw new Error('process spawn requires explicit ownerId, ownerKind, and cardId.');
+  if (!options.ownerId || !options.ownerKind) {
+    throw new Error('process spawn requires explicit ownerId and ownerKind.');
   }
 
   const id = generateId();
   const projectRoot = service.projectRoot;
   const cwd = options.cwd ? resolve(options.cwd) : projectRoot;
-  const dir = ensureProcessDir(projectRoot, id);
+  const cardId = options.cardId ?? null;
+  const dir = ensureProcessDir(projectRoot, id, cardId);
 
   const stdoutPath = join(dir, 'stdout.log');
   const stderrPath = join(dir, 'stderr.log');
@@ -310,7 +306,7 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
 
   const record: ProcessRecord = {
     id,
-    card_id: options.cardId,
+    card_id: cardId,
     owner_id: options.ownerId,
     command: redactCommandForPolicy(command),
     command_hash: commandHash(service, command),
@@ -324,7 +320,7 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
     exit_code: null,
     signal: null,
     terminal_reason: null,
-    required_for_card_completion: options.requiredForCardCompletion ?? true,
+    required_for_card_completion: cardId ? (options.requiredForCardCompletion ?? true) : false,
     output_dir: dir,
     stdout_path: stdoutPath,
     stderr_path: stderrPath,

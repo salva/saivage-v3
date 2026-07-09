@@ -45,7 +45,7 @@ describe('workspace VFS', () => {
 
   it('resolves project, work, and system roots but not tmp or record roots', () => withTempProject((projectRoot) => {
     expect(resolveScopedPath({ projectRoot, fail }, 'project:///', 'read')).toMatchObject({ kind: 'project', absolutePath: projectRoot, relativePath: '.', isRoot: true });
-    expect(resolveScopedPath({ projectRoot, fail }, 'work:///', 'read')).toMatchObject({ kind: 'work', absolutePath: join(projectRoot, '.saivage-work'), relativePath: '.saivage-work', isRoot: true });
+    expect(resolveScopedPath({ projectRoot, fail }, 'work:///', 'read')).toMatchObject({ kind: 'work', absolutePath: join(projectRoot, '.saivage/work'), relativePath: '.saivage/work', isRoot: true });
     expect(resolveScopedPath({ projectRoot, fail }, 'system:///', 'read')).toMatchObject({ kind: 'system', absolutePath: '/', relativePath: 'system:///', isRoot: true });
     expect(() => resolveScopedPath({ projectRoot, agent: { cardId: 'card-1', agentRole: 'executor' }, fail }, 'tmp:///', 'read')).toThrow(TestInputError);
     expect(() => resolveScopedPath({ projectRoot, agent: { cardId: 'card-1', agentRole: 'executor' }, fail }, 'record:///', 'read')).toThrow(TestInputError);
@@ -76,14 +76,14 @@ describe('workspace VFS', () => {
   }));
 
   it('collects work and system paths using URL display paths', () => withTempProject((projectRoot) => {
-    mkdirSync(join(projectRoot, '.saivage-work', 'processes'), { recursive: true });
-    writeFileSync(join(projectRoot, '.saivage-work', 'processes', 'run.log'), 'log', 'utf8');
+    mkdirSync(join(projectRoot, '.saivage/work', 'processes'), { recursive: true });
+    writeFileSync(join(projectRoot, '.saivage/work', 'processes', 'run.log'), 'log', 'utf8');
 
     const systemRoot = mkdtempSync(join(tmpdir(), 'saivage-vfs-system-'));
     try {
       writeFileSync(join(systemRoot, 'host.txt'), 'host', 'utf8');
 
-      expect(collect(projectRoot, 'work:///processes')).toEqual([{ absolutePath: join(projectRoot, '.saivage-work', 'processes', 'run.log'), displayPath: 'work:///processes/run.log', matchPath: 'run.log' }]);
+      expect(collect(projectRoot, 'work:///processes')).toEqual([{ absolutePath: join(projectRoot, '.saivage/work', 'processes', 'run.log'), displayPath: 'work:///processes/run.log', matchPath: 'run.log' }]);
       expect(collect(projectRoot, systemUrl(systemRoot))).toEqual([{ absolutePath: join(systemRoot, 'host.txt'), displayPath: `${systemUrl(systemRoot)}/host.txt`, matchPath: 'host.txt' }]);
     } finally {
       rmSync(systemRoot, { recursive: true, force: true });
@@ -92,16 +92,16 @@ describe('workspace VFS', () => {
 
   it('collects scoped single files while filtering hidden and secret single-file paths', () => withTempProject((projectRoot) => {
     mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
-    mkdirSync(join(projectRoot, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
+    mkdirSync(join(projectRoot, '.saivage/work', 'tmp', 'runtime'), { recursive: true });
     mkdirSync(join(projectRoot, 'docs'), { recursive: true });
     writeFileSync(join(projectRoot, 'docs', 'SPEC.md'), 'spec', 'utf8');
     writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), 'hidden', 'utf8');
-    writeFileSync(join(projectRoot, '.saivage-work', 'tmp', 'runtime', 'runtime.lock'), 'hidden', 'utf8');
+    writeFileSync(join(projectRoot, '.saivage/work', 'tmp', 'runtime', 'runtime.lock'), 'hidden', 'utf8');
     writeFileSync(join(projectRoot, '.env'), 'secret', 'utf8');
 
     expect(collect(projectRoot, 'project:///docs/SPEC.md')).toEqual([{ absolutePath: join(projectRoot, 'docs', 'SPEC.md'), displayPath: 'docs/SPEC.md', matchPath: 'docs/SPEC.md' }]);
     expect(collect(projectRoot, 'project:///.saivage/saivage.yaml')).toEqual([]);
-    expect(collect(projectRoot, 'project:///.saivage-work/tmp/runtime/runtime.lock')).toEqual([]);
+    expect(collect(projectRoot, 'project:///.saivage/work/tmp/runtime/runtime.lock')).toEqual([]);
     expect(collect(projectRoot, 'project:///.env')).toEqual([]);
   }));
 
@@ -130,7 +130,7 @@ describe('workspace VFS', () => {
 
     const entries = collect(projectRoot, 'record:///card-1');
 
-    expect(entries).toEqual([{ absolutePath: join(projectRoot, '.saivage', 'outputs', 'cards', 'card-1', 'brief', '1.md'), displayPath: 'record:///brief.md?card=card-1&v=1', matchPath: 'brief.md' }]);
+    expect(entries).toEqual([{ absolutePath: join(projectRoot, '.saivage', 'cards', 'card-1', 'brief', '1.md'), displayPath: 'record:///brief.md?card=card-1&v=1', matchPath: 'brief.md' }]);
     expect(JSON.stringify(entries)).not.toContain('card.json');
     expect(JSON.stringify(entries)).not.toContain('2.md');
   }));

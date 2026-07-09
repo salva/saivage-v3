@@ -18,11 +18,11 @@ describe('actor snapshots', () => {
   it('routes actor snapshots by card or analyst ownership', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-snapshots-'));
 
-    expect(actorSnapshotPath(root, 'card:card-7')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'runtime', 'actors', 'card', 'card%3Acard-7.json'));
-    expect(actorSnapshotPath(root, 'processor:card-7')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'runtime', 'actors', 'processor', 'processor%3Acard-7.json'));
-    expect(actorSnapshotPath(root, 'planner:card-7')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'runtime', 'actors', 'llm', 'planner%3Acard-7.json'));
-    expect(actorSnapshotPath(root, 'executor:card-7')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'runtime', 'actors', 'llm', 'executor%3Acard-7.json'));
-    expect(actorSnapshotPath(root, 'reviewer:card-7')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'runtime', 'actors', 'llm', 'reviewer%3Acard-7.json'));
+    expect(actorSnapshotPath(root, 'card:card-7')).toBe(join(root, '.saivage', 'cards', 'card-7', 'runtime', 'actors', 'card', 'card%3Acard-7.json'));
+    expect(actorSnapshotPath(root, 'processor:card-7')).toBe(join(root, '.saivage', 'cards', 'card-7', 'runtime', 'actors', 'processor', 'processor%3Acard-7.json'));
+    expect(actorSnapshotPath(root, 'planner:card-7')).toBe(join(root, '.saivage', 'cards', 'card-7', 'runtime', 'actors', 'llm', 'planner%3Acard-7.json'));
+    expect(actorSnapshotPath(root, 'executor:card-7')).toBe(join(root, '.saivage', 'cards', 'card-7', 'runtime', 'actors', 'llm', 'executor%3Acard-7.json'));
+    expect(actorSnapshotPath(root, 'reviewer:card-7')).toBe(join(root, '.saivage', 'cards', 'card-7', 'runtime', 'actors', 'llm', 'reviewer%3Acard-7.json'));
     expect(actorSnapshotPath(root, 'analyst:global')).toBe(join(root, '.saivage', 'agents', 'runtime', 'actors', 'llm', 'analyst%3Aglobal.json'));
   });
 

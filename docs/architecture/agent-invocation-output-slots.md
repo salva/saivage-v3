@@ -54,7 +54,7 @@ No best-effort. No advisory warnings. No optional evidence. No soft gates.
 Every mandatory output file lives in a card-local record slot. Each slot has its own version sequence:
 
 ```text
-.saivage/outputs/cards/{cardId}/{slot}/
+.saivage/cards/{cardId}/{slot}/
   index.json
   {version}.md
 ```
@@ -62,7 +62,7 @@ Every mandatory output file lives in a card-local record slot. Each slot has its
 For example:
 
 ```text
-.saivage/outputs/cards/card-1/
+.saivage/cards/card-1/
   review/
     index.json
     1.md
@@ -84,7 +84,7 @@ Examples:
 
 Prior reviews remain available even after a later review becomes the current one. The runtime, UI, and reviewer can read prior versions for comparison.
 
-Mandatory output files are durable runtime evidence, so they live under `.saivage/outputs/`, not under `.saivage-work/` or future `.saivage/work/`. The work directory is disposable operational scratch for shell/process outputs and caches; removing it must not lose critical agent evidence.
+Mandatory output files are durable runtime evidence, so they live under `.saivage/cards/`, not under `.saivage/work/` or future `.saivage/work/`. The work directory is disposable operational scratch for shell/process outputs and caches; removing it must not lose critical agent evidence.
 
 Record versions are slot-scoped, not invocation-scoped or card-global. The version advances when an emitted file closes that slot, not when an LLM turn starts. This keeps retries and blocked reactivations from creating meaningless gaps, while preserving a stable historical sequence for each record type.
 
@@ -94,13 +94,13 @@ File tools accept a URL-like scheme prefix that tells the runtime where the file
 
 | Scheme | Format | Resolves to |
 |---|---|---|
-| `record://` | `record://{slot}.md?card={cardId}&v={version}` | `.saivage/outputs/cards/{cardId}/{slot}/{version}.md` |
+| `record://` | `record://{slot}.md?card={cardId}&v={version}` | `.saivage/cards/{cardId}/{slot}/{version}.md` |
 | `tmp://` | `tmp://{cardId}/{relative}` | `.saivage/work/cards/{cardId}/tmp/{relative}` |
 | `project://` | `project://{relative}` or absolute path | `{projectRoot}/{relative}` |
 
 Examples:
-- `record://review.md?card=card-1&v=23` → `.saivage/outputs/cards/card-1/review/23.md`
-- `record://status.md?card=card-34&v=7` → `.saivage/outputs/cards/card-34/status/7.md`
+- `record://review.md?card=card-1&v=23` → `.saivage/cards/card-1/review/23.md`
+- `record://status.md?card=card-34&v=7` → `.saivage/cards/card-34/status/7.md`
 - `record://review.md` → latest closed `review` record for the current card
 - `record://review.md?v=next` → writable next `review` record for the current card
 - `record://review.md?v=latest&card=card-7` → latest closed `review` record for card-7
@@ -122,7 +122,7 @@ Every file operation that accepts a `record://` URL returns the normalized concr
 
 The `record://` URL format is `record://{filename}?card={cardId}&v={version}` where `{filename}` is any filename (not just `.md`). The slot name is the filename without its extension. Current mandatory records use `.md`, but the format allows future non-markdown records without scheme changes.
 
-Record files under `.saivage/outputs/` are durable evidence and must never be removed by `cleanup.ts` or generic work cleanup. The existing card `tmp/` cleanup in `cleanup.ts` remains limited to `tmp/` and must not be expanded to touch `outputs/`.
+Record files under `.saivage/cards/` are durable evidence and must never be removed by `cleanup.ts` or generic work cleanup. The existing card `tmp/` cleanup in `cleanup.ts` remains limited to `tmp/` and must not be expanded to touch `outputs/`.
 
 ### Write enforcement
 
@@ -326,8 +326,8 @@ Planner, executor, reviewer, and Analyst surfaces share the same core file-inspe
 
 | Scheme | Format | Resolves to |
 |---|---|---|
-| `record://{slot}.md?card={cardId}&v={version}` | Durable record slot URL | `.saivage/outputs/cards/{cardId}/{slot}/{version}.md` |
-| `tmp://{cardId}/{relative}` | Per-card scratch URL | `.saivage-work/cards/{cardId}/tmp/{relative}` |
+| `record://{slot}.md?card={cardId}&v={version}` | Durable record slot URL | `.saivage/cards/{cardId}/{slot}/{version}.md` |
+| `tmp://{cardId}/{relative}` | Per-card scratch URL | `.saivage/work/cards/{cardId}/tmp/{relative}` |
 | `project://{relative}` | Project-relative path | `{projectRoot}/{relative}` |
 | Absolute path `/...` | Same filesystem path | Same filesystem path |
 
@@ -389,7 +389,7 @@ Relaunch budget: 2 reviewer relaunch attempts by default. A missing-file repair 
 
 The versioned output files ARE the persistent evidence. Each slot has a small `index.json` that tracks its open version and latest closed version. There is no separate `invocation.json` manifest, no card-global record counter, and no artifact registration records.
 
-Because these files are persistent evidence, they are not stored in `.saivage-work/` or future `.saivage/work/`. That directory is disposable work state for shell command outputs, temporary process data, caches, and other rebuildable operational files. Generic work cleanup may delete `.saivage/work`, but it must not delete `.saivage/outputs`.
+Because these files are persistent evidence, they are not stored in `.saivage/work/` or future `.saivage/work/`. That directory is disposable work state for shell command outputs, temporary process data, caches, and other rebuildable operational files. Generic work cleanup may delete `.saivage/work`, but it must not delete `.saivage/cards`.
 
 Each slot index is persisted next to the slot files:
 
@@ -406,7 +406,7 @@ Each slot index is persisted next to the slot files:
 }
 ```
 
-When a write requests `v=next`, the runtime reads the slot index. If there is an open version, it returns that concrete URL. If there is no open version, it creates the next unused version number, marks it open, and returns the concrete URL. It marks the version closed only after a terminal `emit_result` call selects an existing non-empty file as the accepted record. A stale reviewer record is marked `discarded`, clears `open`, and does not advance `latest`; the next `v=next` write creates the next unused version number instead of reusing stale content. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/{slot}/`.
+When a write requests `v=next`, the runtime reads the slot index. If there is an open version, it returns that concrete URL. If there is no open version, it creates the next unused version number, marks it open, and returns the concrete URL. It marks the version closed only after a terminal `emit_result` call selects an existing non-empty file as the accepted record. A stale reviewer record is marked `discarded`, clears `open`, and does not advance `latest`; the next `v=next` write creates the next unused version number instead of reusing stale content. The files themselves are durable on disk under `.saivage/cards/{cardId}/{slot}/`.
 
 ## Crash Recovery
 
@@ -498,7 +498,7 @@ No `artifacts` array. No `attachments` array. No `lifecycle.result` check. No de
 
 The operator UI and API expose:
 
-- Card detail shows `.saivage/outputs/cards/{cardId}/` with record slots.
+- Card detail shows `.saivage/cards/{cardId}/` with record slots.
 - Each slot shows its versions and `index.json` state.
 - The UI can preview file contents.
 - No `artifacts`/`attachments` projections.
@@ -513,7 +513,7 @@ Status after commit `48d1c3af feat(runtime): enforce agent record slots`, with f
 
 Implemented in `src/runtime/records/record-slots.ts` and `src/tools/project-file-tools.ts`:
 
-1. Slot indexes live at `.saivage/outputs/cards/{cardId}/{slot}/index.json`.
+1. Slot indexes live at `.saivage/cards/{cardId}/{slot}/index.json`.
 2. `record://` writes with `v=next` create or reuse the open slot version and return normalized `record_url` values.
 3. Closed/latest numeric reads work through the file tools.
 4. `tmp://{cardId}/{relative}` resolves to `.saivage/work/cards/{cardId}/tmp/{relative}`.
@@ -605,7 +605,7 @@ Implemented:
 2. Executor terminal acceptance no longer registers artifact/attachment evidence refs.
 3. Reviewer validation no longer depends on artifacts, attachments, generated files, or lifecycle result fallback.
 4. Core `CardRecord` and executor terminal contracts no longer expose artifact, attachment, or `generated_files` fields.
-5. Web API exports and current card-detail UI no longer project artifact/attachment/generated-file evidence. Card detail now points operators to `.saivage/outputs/cards/{cardId}/` record slots until a dedicated record-slot API projection exists.
+5. Web API exports and current card-detail UI no longer project artifact/attachment/generated-file evidence. Card detail now points operators to `.saivage/cards/{cardId}/` record slots until a dedicated record-slot API projection exists.
 6. Broad source/test/web searches find no remaining references to removed legacy evidence APIs or fields outside this design document's historical problem statement.
 
 Remaining optional follow-up:
@@ -646,7 +646,7 @@ When complete, this removes more code than it adds:
 - Shared file tools with strict scheme enforcement: mandatory `record://` writes only, current-card `tmp://` scratch writes, no discretionary `.saivage/` writes.
 
 **Still to add:**
-- Dedicated `.saivage/outputs/cards/{cardId}/` record-slot API/UI projection if the Files view is not enough.
+- Dedicated `.saivage/cards/{cardId}/` record-slot API/UI projection if the Files view is not enough.
 
 **Net target:** fewer evidence types, fewer soft gates, fewer advisory layers. One new slot-directory convention, small per-slot indexes, and hard file-existence checks.
 

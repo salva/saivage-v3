@@ -1,15 +1,20 @@
 {
   "id": "proc-0001",
   "card_id": "code-0001",
+  "owner_id": "executor:code-0001",
+  "owner_kind": "agent",
   "command": "npm test",
+  "command_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "cwd": "/work/saivage-v3",
+  "cwd_canonical": "/work/saivage-v3",
   "status": "exited",
   "pid": 12345,
   "started_at": "2025-01-01T04:00:00.000Z",
+  "started_at_monotonic": 1,
   "completed_at": "2025-01-01T04:05:00.000Z",
   "exit_code": 0,
   "required_for_card_completion": true,
-  "output_dir": ".saivage-work/processes/proc-0001/",
-  "stdout_path": ".saivage-work/processes/proc-0001/stdout.log",
-  "stderr_path": ".saivage-work/processes/proc-0001/stderr.log"
+  "output_dir": ".saivage/work/cards/code-0001/processes/proc-0001/",
+  "stdout_path": ".saivage/work/cards/code-0001/processes/proc-0001/stdout.log",
+  "stderr_path": ".saivage/work/cards/code-0001/processes/proc-0001/stderr.log"
 }

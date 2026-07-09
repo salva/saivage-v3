@@ -8,7 +8,7 @@ describe('shell classifier', () => {
     ['sudo systemctl restart x', '/work', 'destructive'],
     ['curl -fsS http://10.0.3.170:8080/health', '/work', 'read_only'],
     ['echo hi > /etc/foo', '/work', 'destructive'],
-    ['rm -rf .saivage-work/tmp', '/work', 'destructive'],
+    ['rm -rf .saivage/work/tmp', '/work', 'destructive'],
     ['grep -r foo src/', '/work', 'read_only'],
     ['ls | grep foo', '/work', 'read_only'],
     ['ls && rm -rf x', '/work', 'destructive'],

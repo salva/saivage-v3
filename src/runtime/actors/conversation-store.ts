@@ -6,6 +6,7 @@ import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
 import { parseProviderExchangePayload } from '../../contracts/provider-exchange.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
+import { saivageCardsRoot } from '../../persistence/layout.js';
 import {
   activeVersionPath,
   ensureConversationIndex,
@@ -157,7 +158,7 @@ function conversationDirectories(projectRoot: string): Array<{ dir: string; enco
   const analystRoot = join(projectRoot, '.saivage', 'agents', 'conversations');
   collectConversationDirectories(analystRoot, dirs);
 
-  const cardsRoot = join(projectRoot, '.saivage', 'outputs', 'cards');
+  const cardsRoot = saivageCardsRoot(projectRoot);
   if (existsSync(cardsRoot)) {
     for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
       if (!cardEntry.isDirectory()) continue;

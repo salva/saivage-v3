@@ -3,7 +3,7 @@
  * file content loading, JSON/Markdown detection, and error handling.
  *
  * Tests cover:
- *  1. Breadcrumb derivation for metadata root (.saivage/) and output root (.saivage-work/)
+ *  1. Breadcrumb derivation for metadata root (.saivage/) and output root (.saivage/work/)
  *     at root level, single nested path, and deeply nested path.
  *  2. File content loading — success path sets viewedFile/viewedFilePath, clears error.
  *  3. JSON content detection via contentType, +json suffix, and .json extension.
@@ -62,10 +62,10 @@ const mockMetaNestedFiles = {
 };
 
 const mockOutputRootFiles = {
-  path: '.saivage-work',
+  path: '.saivage/work',
   files: [
-    { name: 'logs', path: '.saivage-work/logs', type: 'directory' as const, modifiedAt: '2025-01-01T00:00:00Z' },
-    { name: 'output.txt', path: '.saivage-work/output.txt', type: 'file' as const, size: 8192, modifiedAt: '2025-01-01T12:00:00Z' },
+    { name: 'logs', path: '.saivage/work/logs', type: 'directory' as const, modifiedAt: '2025-01-01T00:00:00Z' },
+    { name: 'output.txt', path: '.saivage/work/output.txt', type: 'file' as const, size: 8192, modifiedAt: '2025-01-01T12:00:00Z' },
   ],
 };
 
@@ -88,7 +88,7 @@ const jsonWithPlusContent = {
 };
 
 const jsonByExtensionContent = {
-  path: '.saivage-work/data.json',
+  path: '.saivage/work/data.json',
   size: 128,
   contentType: 'text/plain',
   content: '{"key":"value"}',
@@ -97,7 +97,7 @@ const jsonByExtensionContent = {
 };
 
 const markdownContent = {
-  path: '.saivage-work/report.md',
+  path: '.saivage/work/report.md',
   size: 1024,
   contentType: 'text/markdown',
   content: '# Report\n## Summary\nSome text.',
@@ -106,7 +106,7 @@ const markdownContent = {
 };
 
 const markdownByExtensionContent = {
-  path: '.saivage-work/readme.md',
+  path: '.saivage/work/readme.md',
   size: 256,
   contentType: 'text/plain',
   content: '# README\nHello world.',
@@ -115,7 +115,7 @@ const markdownByExtensionContent = {
 };
 
 const plainTextContent = {
-  path: '.saivage-work/output.txt',
+  path: '.saivage/work/output.txt',
   size: 8192,
   contentType: 'text/plain',
   content: 'Line 1\nLine 2\nLine 3',
@@ -139,7 +139,7 @@ describe('useFileStore', () => {
       expect(store.metaPath).toBe('.saivage');
       expect(store.metaFiles).toEqual([]);
       expect(store.metaLoading).toBe(false);
-      expect(store.outputPath).toBe('.saivage-work');
+      expect(store.outputPath).toBe('.saivage/work');
       expect(store.outputFiles).toEqual([]);
       expect(store.outputLoading).toBe(false);
       expect(store.viewedFile).toBeNull();
@@ -156,7 +156,7 @@ describe('useFileStore', () => {
       ]);
 
       expect(store.outputBreadcrumbs).toEqual([
-        { label: '.saivage-work', path: '.saivage-work' },
+        { label: '.saivage/work', path: '.saivage/work' },
       ]);
     });
 
@@ -212,19 +212,19 @@ describe('useFileStore', () => {
 
     it('outputBreadcrumbs shows root + nested path', () => {
       const store = setupStore();
-      store.$patch({ outputPath: '.saivage-work/logs/agent1' });
+      store.$patch({ outputPath: '.saivage/work/logs/agent1' });
 
       expect(store.outputBreadcrumbs).toEqual([
-        { label: '.saivage-work', path: '.saivage-work' },
-        { label: 'logs', path: '.saivage-work/logs' },
-        { label: 'agent1', path: '.saivage-work/logs/agent1' },
+        { label: '.saivage/work', path: '.saivage/work' },
+        { label: 'logs', path: '.saivage/work/logs' },
+        { label: 'agent1', path: '.saivage/work/logs/agent1' },
       ]);
     });
 
     it('outputBreadcrumbs at root contains only root entry', () => {
       const store = setupStore();
       expect(store.outputBreadcrumbs).toEqual([
-        { label: '.saivage-work', path: '.saivage-work' },
+        { label: '.saivage/work', path: '.saivage/work' },
       ]);
     });
 
@@ -250,10 +250,10 @@ describe('useFileStore', () => {
 
     it('outputBreadcrumbs handles path equal to root exactly', () => {
       const store = setupStore();
-      store.$patch({ outputPath: '.saivage-work' });
+      store.$patch({ outputPath: '.saivage/work' });
 
       expect(store.outputBreadcrumbs).toEqual([
-        { label: '.saivage-work', path: '.saivage-work' },
+        { label: '.saivage/work', path: '.saivage/work' },
       ]);
     });
   });
@@ -325,7 +325,7 @@ describe('useFileStore', () => {
       await store.fetchOutputFiles();
 
       expect(store.outputFiles).toEqual(mockOutputRootFiles.files);
-      expect(store.outputPath).toBe('.saivage-work');
+      expect(store.outputPath).toBe('.saivage/work');
       expect(store.outputLoading).toBe(false);
       expect(store.error).toBeNull();
     });
@@ -413,23 +413,23 @@ describe('useFileStore', () => {
       const store = setupStore();
       vi.mocked(listFiles).mockResolvedValue(mockOutputRootFiles);
 
-      await store.navigateOutput('.saivage-work');
+      await store.navigateOutput('.saivage/work');
 
-      expect(store.outputPath).toBe('.saivage-work');
-      expect(listFiles).toHaveBeenCalledWith('.saivage-work');
+      expect(store.outputPath).toBe('.saivage/work');
+      expect(listFiles).toHaveBeenCalledWith('.saivage/work');
     });
   });
 
   describe('navigateOutputUp()', () => {
     it('goes to parent from nested output path', async () => {
       const store = setupStore();
-      store.$patch({ outputPath: '.saivage-work/logs' });
+      store.$patch({ outputPath: '.saivage/work/logs' });
       vi.mocked(listFiles).mockResolvedValue(mockOutputRootFiles);
 
       await store.navigateOutputUp();
 
-      expect(store.outputPath).toBe('.saivage-work');
-      expect(listFiles).toHaveBeenCalledWith('.saivage-work');
+      expect(store.outputPath).toBe('.saivage/work');
+      expect(listFiles).toHaveBeenCalledWith('.saivage/work');
     });
 
     it('does nothing when at output root', async () => {
@@ -475,12 +475,12 @@ describe('useFileStore', () => {
         new ApiError(403, 'Protected content — requires supervisor approval', { code: 'PROTECTED' }),
       );
 
-      await store.fetchFileContent('.saivage-work/quarantine/bad.txt');
+      await store.fetchFileContent('.saivage/work/quarantine/bad.txt');
 
       expect(store.error).toBe('Protected content — requires supervisor approval');
       expect(store.contentLoading).toBe(false);
       expect(store.viewedFile).toBeNull();
-      expect(store.viewedFilePath).toBe('.saivage-work/quarantine/bad.txt');
+      expect(store.viewedFilePath).toBe('.saivage/work/quarantine/bad.txt');
     });
 
     it('sets error on generic Error failure', async () => {
@@ -556,7 +556,7 @@ describe('useFileStore', () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockResolvedValue(jsonByExtensionContent);
 
-      await store.fetchFileContent('.saivage-work/data.json');
+      await store.fetchFileContent('.saivage/work/data.json');
 
       expect(store.isJsonContent).toBe(true);
     });
@@ -565,7 +565,7 @@ describe('useFileStore', () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockResolvedValue(plainTextContent);
 
-      await store.fetchFileContent('.saivage-work/output.txt');
+      await store.fetchFileContent('.saivage/work/output.txt');
 
       expect(store.isJsonContent).toBe(false);
     });
@@ -574,7 +574,7 @@ describe('useFileStore', () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockResolvedValue(markdownContent);
 
-      await store.fetchFileContent('.saivage-work/report.md');
+      await store.fetchFileContent('.saivage/work/report.md');
 
       expect(store.isJsonContent).toBe(false);
     });
@@ -590,7 +590,7 @@ describe('useFileStore', () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockResolvedValue(markdownByExtensionContent);
 
-      await store.fetchFileContent('.saivage-work/readme.md');
+      await store.fetchFileContent('.saivage/work/readme.md');
 
       expect(store.isMarkdownContent).toBe(true);
     });
@@ -599,7 +599,7 @@ describe('useFileStore', () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockResolvedValue(markdownContent);
 
-      await store.fetchFileContent('.saivage-work/report.md');
+      await store.fetchFileContent('.saivage/work/report.md');
 
       expect(store.isMarkdownContent).toBe(true);
     });
@@ -617,7 +617,7 @@ describe('useFileStore', () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockResolvedValue(plainTextContent);
 
-      await store.fetchFileContent('.saivage-work/output.txt');
+      await store.fetchFileContent('.saivage/work/output.txt');
 
       expect(store.isMarkdownContent).toBe(false);
     });
@@ -663,7 +663,7 @@ describe('useFileStore', () => {
         new ApiError(403, 'This file is quarantined by content supervisor', {}),
       );
 
-      await store.fetchFileContent('.saivage-work/quarantine/blocked.json');
+      await store.fetchFileContent('.saivage/work/quarantine/blocked.json');
 
       expect(store.error).toBe('This file is quarantined by content supervisor');
       expect(store.viewedFile).toBeNull();
@@ -751,7 +751,7 @@ describe('useFileStore', () => {
       const store = setupStore();
       vi.mocked(listFiles).mockRejectedValue(new Error('Network down'));
 
-      await store.navigateOutput('.saivage-work/bad');
+      await store.navigateOutput('.saivage/work/bad');
 
       expect(store.error).toBe('Failed to list output files');
     });
@@ -785,13 +785,13 @@ describe('useFileStore', () => {
 
     it('handles deeply nested output path', () => {
       const store = setupStore();
-      store.$patch({ outputPath: '.saivage-work/x/y/z' });
+      store.$patch({ outputPath: '.saivage/work/x/y/z' });
 
       expect(store.outputBreadcrumbs).toEqual([
-        { label: '.saivage-work', path: '.saivage-work' },
-        { label: 'x', path: '.saivage-work/x' },
-        { label: 'y', path: '.saivage-work/x/y' },
-        { label: 'z', path: '.saivage-work/x/y/z' },
+        { label: '.saivage/work', path: '.saivage/work' },
+        { label: 'x', path: '.saivage/work/x' },
+        { label: 'y', path: '.saivage/work/x/y' },
+        { label: 'z', path: '.saivage/work/x/y/z' },
       ]);
     });
   });
@@ -800,20 +800,20 @@ describe('useFileStore', () => {
     it('browses quarantine directory via navigateOutput', async () => {
       const store = setupStore();
       const quarantineFiles = {
-        path: '.saivage-work/quarantine',
+        path: '.saivage/work/quarantine',
         files: [
-          { name: 'qr-abc123', path: '.saivage-work/quarantine/qr-abc123', type: 'directory' as const, modifiedAt: '2025-01-01T00:00:00Z' },
+          { name: 'qr-abc123', path: '.saivage/work/quarantine/qr-abc123', type: 'directory' as const, modifiedAt: '2025-01-01T00:00:00Z' },
         ],
       };
       vi.mocked(listFiles).mockResolvedValue(quarantineFiles);
 
-      await store.navigateOutput('.saivage-work/quarantine');
+      await store.navigateOutput('.saivage/work/quarantine');
 
-      expect(store.outputPath).toBe('.saivage-work/quarantine');
+      expect(store.outputPath).toBe('.saivage/work/quarantine');
       expect(store.outputFiles).toEqual(quarantineFiles.files);
       expect(store.outputBreadcrumbs).toEqual([
-        { label: '.saivage-work', path: '.saivage-work' },
-        { label: 'quarantine', path: '.saivage-work/quarantine' },
+        { label: '.saivage/work', path: '.saivage/work' },
+        { label: 'quarantine', path: '.saivage/work/quarantine' },
       ]);
     });
 
@@ -823,7 +823,7 @@ describe('useFileStore', () => {
         new ApiError(403, 'Content quarantined — blocked by supervisor review', { quarantine_id: 'qr-abc123' }),
       );
 
-      await store.fetchFileContent('.saivage-work/quarantine/qr-abc123/evil.txt');
+      await store.fetchFileContent('.saivage/work/quarantine/qr-abc123/evil.txt');
 
       expect(store.error).toBe('Content quarantined — blocked by supervisor review');
       expect(store.viewedFile).toBeNull();
@@ -838,11 +838,11 @@ describe('useFileStore', () => {
       vi.mocked(getFileContent).mockRejectedValueOnce(
         new ApiError(403, 'Content blocked by supervisor', { code: 'BLOCKED' }),
       );
-      await store.fetchFileContent('.saivage-work/quarantine/bad.txt');
+      await store.fetchFileContent('.saivage/work/quarantine/bad.txt');
 
       expect(store.error).toBe('Content blocked by supervisor');
       expect(store.viewedFile).toBeNull();
-      expect(store.viewedFilePath).toBe('.saivage-work/quarantine/bad.txt');
+      expect(store.viewedFilePath).toBe('.saivage/work/quarantine/bad.txt');
       expect(store.contentLoading).toBe(false);
 
       store.clearViewedFile();
@@ -878,11 +878,11 @@ describe('useFileStore', () => {
       expect(store.viewedFilePath).toBe('');
 
       vi.mocked(getFileContent).mockResolvedValueOnce(markdownContent);
-      await store.fetchFileContent('.saivage-work/report.md');
+      await store.fetchFileContent('.saivage/work/report.md');
 
       expect(store.error).toBeNull();
       expect(store.viewedFile).toEqual(markdownContent);
-      expect(store.viewedFilePath).toBe('.saivage-work/report.md');
+      expect(store.viewedFilePath).toBe('.saivage/work/report.md');
     });
   });
 
@@ -898,7 +898,7 @@ describe('useFileStore', () => {
       await store.refetch();
 
       expect(listFiles).toHaveBeenNthCalledWith(1, '.saivage');
-      expect(listFiles).toHaveBeenNthCalledWith(2, '.saivage-work');
+      expect(listFiles).toHaveBeenNthCalledWith(2, '.saivage/work');
       expect(getFileContent).toHaveBeenCalledWith('.saivage/plan.json');
     });
   });

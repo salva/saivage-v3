@@ -112,12 +112,12 @@ describe('CardStore validation of persisted state', () => {
     const projectPath = latestCardPath('project');
     const raw = JSON.parse(readFileSync(projectPath, 'utf-8')) as CardRecord;
     rmSync(cardRecordNamespaceDir(tmpDir, 'project'), { recursive: true, force: true });
-    mkdirSync(join(tmpDir, '.saivage', 'outputs', 'cards', 'root-spec-plan-project', 'card'), { recursive: true });
+    mkdirSync(join(tmpDir, '.saivage', 'cards', 'root-spec-plan-project', 'card'), { recursive: true });
     writeFileSync(
       cardRecordVersionPath(tmpDir, 'root-spec-plan-project', 1),
       JSON.stringify({ ...raw, id: 'root-spec-plan-project' }, null, 2),
     );
-    writeFileSync(join(tmpDir, '.saivage', 'outputs', 'cards', 'root-spec-plan-project', 'card', 'index.json'), JSON.stringify({ slot: 'card', latest: 1, open: null, versions: { '1': { status: 'closed' } } }, null, 2));
+    writeFileSync(join(tmpDir, '.saivage', 'cards', 'root-spec-plan-project', 'card', 'index.json'), JSON.stringify({ slot: 'card', latest: 1, open: null, versions: { '1': { status: 'closed' } } }, null, 2));
 
     expect(() => {
       store = new CardStore(tmpDir);
@@ -236,7 +236,7 @@ describe('CardStore CRUD still works with validated indexes', () => {
   it('creates versioned card and brief records', () => {
     const card = store.create(makeCard({ type: 'goal', title: 'My Goal' }));
     expect(existsSync(cardRecordVersionPath(tmpDir, card.id, 1))).toBe(true);
-    expect(existsSync(join(tmpDir, '.saivage', 'outputs', 'cards', card.id, 'brief', '1.md'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage', 'cards', card.id, 'brief', '1.md'))).toBe(true);
   });
 
   it('does not reuse ids reserved by deleted card history', () => {

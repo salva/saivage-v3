@@ -35,10 +35,23 @@ describe('ProcessRunner', () => {
     await sleep(100);
 
     expect(result.status).toBe('exited');
+    expect(rec.output_dir).toBe(join(root, '.saivage', 'work', 'cards', 'card-out', 'processes', rec.id));
+    expect(rec.card_id).toBe('card-out');
     expect(existsSync(rec.stdout_path)).toBe(true);
     expect(existsSync(rec.stderr_path)).toBe(true);
     expect(existsSync(join(rec.output_dir, 'combined.log'))).toBe(false);
     expect(readFileSync(rec.stderr_path, 'utf-8')).toContain('hello stderr');
+  });
+
+  it('spawns non-card-owned process output under the global work process root', async () => {
+    const rec = runner.spawn({ command: 'echo non-card', cardId: null, ownerId: 'analyst:global', ownerKind: 'operator', requiredForCardCompletion: true });
+    await runner.wait(rec.id, 1000);
+    await sleep(100);
+
+    expect(rec.card_id).toBeNull();
+    expect(rec.required_for_card_completion).toBe(false);
+    expect(rec.output_dir).toBe(join(root, '.saivage', 'work', 'processes', rec.id));
+    expect(readFileSync(rec.stdout_path, 'utf-8')).toContain('non-card');
   });
 
   it('generates unique process IDs', async () => {

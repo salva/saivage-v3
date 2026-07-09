@@ -12,10 +12,10 @@ function withRoot<T>(fn: (root: string) => T): T {
 
 describe('WorkspaceFileReadModelService work URLs', () => {
   it('reads process logs and stash files through canonical work URLs', () => withRoot((root) => {
-    mkdirSync(join(root, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
-    mkdirSync(join(root, '.saivage-work', 'tmp', 'stash'), { recursive: true });
-    writeFileSync(join(root, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), 'stdout output', 'utf8');
-    writeFileSync(join(root, '.saivage-work', 'tmp', 'stash', 'webfetch.txt'), 'stashed output', 'utf8');
+    mkdirSync(join(root, '.saivage/work', 'processes', 'proc-1'), { recursive: true });
+    mkdirSync(join(root, '.saivage/work', 'tmp', 'stash'), { recursive: true });
+    writeFileSync(join(root, '.saivage/work', 'processes', 'proc-1', 'stdout.log'), 'stdout output', 'utf8');
+    writeFileSync(join(root, '.saivage/work', 'tmp', 'stash', 'webfetch.txt'), 'stashed output', 'utf8');
     const service = new WorkspaceFileReadModelService(root);
 
     expect(service.readFileContent('work:///processes/proc-1/stdout.log')).toEqual(expect.objectContaining({ body: expect.objectContaining({ path: 'work:///processes/proc-1/stdout.log', content: 'stdout output' }) }));
@@ -23,8 +23,8 @@ describe('WorkspaceFileReadModelService work URLs', () => {
   }));
 
   it('lists work directories with work URL child paths while preserving project-relative navigation', () => withRoot((root) => {
-    mkdirSync(join(root, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
-    writeFileSync(join(root, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), 'stdout output', 'utf8');
+    mkdirSync(join(root, '.saivage/work', 'processes', 'proc-1'), { recursive: true });
+    writeFileSync(join(root, '.saivage/work', 'processes', 'proc-1', 'stdout.log'), 'stdout output', 'utf8');
     writeFileSync(join(root, 'README.md'), 'readme', 'utf8');
     const service = new WorkspaceFileReadModelService(root);
 

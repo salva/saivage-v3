@@ -12,7 +12,7 @@ describe('process contract alignment', () => {
       ended_at: '2026-01-01T00:00:01.000Z',
       exit_code: 0,
       timed_out: false,
-      owner: 'agent',
+      owner_kind: 'agent',
       session_id: 'session-1',
       card_id: 'card-1',
       command: 'echo ok',

@@ -27,8 +27,6 @@
       "**/docs/.vitepress/dist/**",
       "**/.saivage",
       "**/.saivage/**",
-      "**/.saivage-work",
-      "**/.saivage-work/**",
       "**/tmp",
       "**/tmp/**"
     ]

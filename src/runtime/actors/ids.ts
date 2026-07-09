@@ -52,6 +52,7 @@ export function cardIdFromSessionId(sessionId: string): string | undefined {
     if (assessmentDelimiter === -1) return rest;
     return rest.slice(0, assessmentDelimiter);
   }
+  if (!sessionId.startsWith('planner:') && !sessionId.startsWith('executor:') && !sessionId.startsWith('analyst:')) return undefined;
   const parsed = parseLlmActorId(sessionId);
   return parsed.cardId ?? undefined;
 }

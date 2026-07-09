@@ -162,9 +162,9 @@ describe('conversation-store', () => {
   it('routes card conversations under the owning card and analyst conversations under agents', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
 
-    expect(conversationDir(root, 'planner:card-7')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'conversations', 'planner%3Acard-7'));
-    expect(conversationDir(root, 'executor:card-7')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'conversations', 'executor%3Acard-7'));
-    expect(conversationDir(root, 'reviewer:card-7:assessment-1')).toBe(join(root, '.saivage', 'outputs', 'cards', 'card-7', 'conversations', 'reviewer%3Acard-7%3Aassessment-1'));
+    expect(conversationDir(root, 'planner:card-7')).toBe(join(root, '.saivage', 'cards', 'card-7', 'conversations', 'planner%3Acard-7'));
+    expect(conversationDir(root, 'executor:card-7')).toBe(join(root, '.saivage', 'cards', 'card-7', 'conversations', 'executor%3Acard-7'));
+    expect(conversationDir(root, 'reviewer:card-7:assessment-1')).toBe(join(root, '.saivage', 'cards', 'card-7', 'conversations', 'reviewer%3Acard-7%3Aassessment-1'));
     expect(conversationDir(root, 'analyst:global')).toBe(join(root, '.saivage', 'agents', 'conversations', 'analyst%3Aglobal'));
   });
 

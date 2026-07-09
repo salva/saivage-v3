@@ -48,7 +48,7 @@ describe('Cleanup Utility Smoke Tests', () => {
   });
 
   function saivageWorkDir(): string {
-    return join(root, '.saivage-work');
+    return join(root, '.saivage/work');
   }
 
   it('cleanCardTmp: removes cards/<id>/tmp/ directory', () => {
@@ -73,7 +73,7 @@ describe('Cleanup Utility Smoke Tests', () => {
   it('cleanCardTmp: does NOT touch durable card records', () => {
     const swd = saivageWorkDir();
     const cardId = 'card-protected';
-    const recordDir = join(root, '.saivage', 'outputs', 'cards', cardId, 'status');
+    const recordDir = join(root, '.saivage', 'cards', cardId, 'status');
     mkdirSync(recordDir, { recursive: true });
     writeFileSync(join(recordDir, '1.md'), 'durable status');
     const tmpDir = join(swd, 'cards', cardId, 'tmp');

@@ -113,12 +113,15 @@ function assertOwned(ctx: ProcessProviderContext, processId: string): ProcessRec
 
 function processResult(ctx: ProcessProviderContext, processId: string): ProcessToolResult {
   const record = assertOwned(ctx, processId);
+  const logSegments = record.card_id
+    ? ['cards', record.card_id, 'processes', record.id]
+    : ['processes', record.id];
   return {
     process_id: record.id,
     exit_code: record.exit_code ?? null,
     status: record.status,
-    stdout_url: buildScopedPathUrl('work', ['processes', record.id, 'stdout.log']),
-    stderr_url: buildScopedPathUrl('work', ['processes', record.id, 'stderr.log']),
+    stdout_url: buildScopedPathUrl('work', [...logSegments, 'stdout.log']),
+    stderr_url: buildScopedPathUrl('work', [...logSegments, 'stderr.log']),
     stdout_bytes: logBytes(record.stdout_path),
     stderr_bytes: logBytes(record.stderr_path),
   };
@@ -163,11 +166,11 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
             throwIfAborted(signal);
             const record = ctx.processRunner.spawn({
               command: args.command,
-              cardId: ctx.cardId ?? ctx.ownerId,
+              cardId: ctx.cardId ?? null,
               ownerId: ctx.ownerId,
               agentSessionId: ctx.ownerId,
               cwd: scopedCwd(ctx.projectRoot, args.cwd),
-              requiredForCardCompletion: true,
+              requiredForCardCompletion: ctx.cardId ? true : false,
               ownerKind: ctx.ownerKind,
               launchReason,
               backgroundPolicy: args.wait === false ? undefined : 'foreground',

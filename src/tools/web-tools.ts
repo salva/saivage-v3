@@ -12,6 +12,7 @@ import type { ToolContext, ToolResult as AnalystToolResult } from './analyst-too
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
+import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -193,7 +194,7 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
     if (Buffer.byteLength(text, 'utf8') <= inlineCap) return { success: true, data: { ...metadata, text, bytes: Buffer.byteLength(text, 'utf8'), truncated: false } };
     const hash = createHash('sha256').update(text).digest('hex').slice(0, 16);
     const filename = `webfetch-${Date.now()}-${hash}.txt`;
-    const stash = `.saivage-work/tmp/stash/${filename}`;
+    const stash = `${SAIVAGE_WORK_RELATIVE_DIR}/tmp/stash/${filename}`;
     const absolute = join(ctx.projectRoot, stash);
     mkdirSync(dirname(absolute), { recursive: true });
     writeFileSync(absolute, text, 'utf8');

@@ -26,7 +26,7 @@ function emptyState(): CardRecordsState {
 }
 
 const SLOTS: RecordSlot[] = ['brief', 'status', 'review'];
-const OUTPUTS_ROOT = '.saivage/outputs/cards';
+const OUTPUTS_ROOT = '.saivage/cards';
 
 interface RecordSlotIndex {
   slot: string;

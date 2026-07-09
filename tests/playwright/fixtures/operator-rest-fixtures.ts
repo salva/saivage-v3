@@ -100,22 +100,22 @@ const metaRuntime = {
   files: [{ name: 'events.jsonl', path: '.saivage/runtime/events.jsonl', type: 'file', size: 128, modifiedAt: now }],
 };
 const outputReports = {
-  path: '.saivage-work/reports',
+  path: '.saivage/work/reports',
   files: [
-    { name: 'summary.md', path: '.saivage-work/reports/summary.md', type: 'file', size: 72, modifiedAt: now },
+    { name: 'summary.md', path: '.saivage/work/reports/summary.md', type: 'file', size: 72, modifiedAt: now },
   ],
 };
 const outputRoot = {
-  path: '.saivage-work',
+  path: '.saivage/work',
   files: [
-    { name: 'reports', path: '.saivage-work/reports', type: 'directory', modifiedAt: now },
-    { name: 'smoke-result.json', path: '.saivage-work/smoke-result.json', type: 'file', size: 64, modifiedAt: now },
-    { name: 'LICENSE', path: '.saivage-work/LICENSE', type: 'file', size: 48, modifiedAt: now },
-    { name: 'redacted-config.json', path: '.saivage-work/redacted-config.json', type: 'file', size: 96, modifiedAt: now },
-    { name: 'blocked-secret.json', path: '.saivage-work/blocked-secret.json', type: 'file', size: 96, modifiedAt: now },
-    { name: 'missing-log.txt', path: '.saivage-work/missing-log.txt', type: 'file', size: 16, modifiedAt: now },
-    { name: 'binary.bin', path: '.saivage-work/binary.bin', type: 'file', size: 4096, modifiedAt: now },
-    { name: 'huge.log', path: '.saivage-work/huge.log', type: 'file', size: 5242880, modifiedAt: now },
+    { name: 'reports', path: '.saivage/work/reports', type: 'directory', modifiedAt: now },
+    { name: 'smoke-result.json', path: '.saivage/work/smoke-result.json', type: 'file', size: 64, modifiedAt: now },
+    { name: 'LICENSE', path: '.saivage/work/LICENSE', type: 'file', size: 48, modifiedAt: now },
+    { name: 'redacted-config.json', path: '.saivage/work/redacted-config.json', type: 'file', size: 96, modifiedAt: now },
+    { name: 'blocked-secret.json', path: '.saivage/work/blocked-secret.json', type: 'file', size: 96, modifiedAt: now },
+    { name: 'missing-log.txt', path: '.saivage/work/missing-log.txt', type: 'file', size: 16, modifiedAt: now },
+    { name: 'binary.bin', path: '.saivage/work/binary.bin', type: 'file', size: 4096, modifiedAt: now },
+    { name: 'huge.log', path: '.saivage/work/huge.log', type: 'file', size: 5242880, modifiedAt: now },
   ],
 };
 
@@ -186,32 +186,32 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/files') {
       const path = url.searchParams.get('path');
       if (path === '.saivage/runtime') return json(route, metaRuntime);
-      if (path === '.saivage-work/reports') return json(route, outputReports);
-      if (path === '.saivage-work' || !path) return json(route, path === '.saivage-work' ? outputRoot : metaRoot);
-      if (path === '.saivage-work/quarantine') return json(route, { path, files: [] });
-      if (path === '.saivage/plan.json' || path === '.saivage/runtime/events.jsonl' || path === '.saivage-work/smoke-result.json' || path === '.saivage-work/LICENSE' || path === '.saivage-work/reports/summary.md') {
+      if (path === '.saivage/work/reports') return json(route, outputReports);
+      if (path === '.saivage/work' || !path) return json(route, path === '.saivage/work' ? outputRoot : metaRoot);
+      if (path === '.saivage/work/quarantine') return json(route, { path, files: [] });
+      if (path === '.saivage/plan.json' || path === '.saivage/runtime/events.jsonl' || path === '.saivage/work/smoke-result.json' || path === '.saivage/work/LICENSE' || path === '.saivage/work/reports/summary.md') {
         return json(route, { error: 'Path is not a directory', path }, 400);
       }
-      if (path === '.saivage-work/stale' || path === '.saivage-work/stale/missing-log.txt') {
+      if (path === '.saivage/work/stale' || path === '.saivage/work/stale/missing-log.txt') {
         return json(route, { error: 'Path not found', path }, 404);
       }
       return json(route, metaRoot);
     }
     if (request.method() === 'GET' && url.pathname === '/api/files/content') {
       const path = url.searchParams.get('path') ?? '.saivage/plan.json';
-      if (path === '.saivage-work/blocked-secret.json') {
+      if (path === '.saivage/work/blocked-secret.json') {
         return json(route, { error: 'forbidden', message: 'Synthetic preview blocked by content safety policy' }, 403);
       }
-      if (path === '.saivage-work/missing-log.txt' || path === '.saivage-work/stale/missing-log.txt') {
+      if (path === '.saivage/work/missing-log.txt' || path === '.saivage/work/stale/missing-log.txt') {
         return json(route, { error: 'not_found', message: 'Synthetic file no longer exists' }, 404);
       }
-      if (path === '.saivage-work/binary.bin') {
+      if (path === '.saivage/work/binary.bin') {
         return json(route, { error: 'unsupported_media_type', message: 'Synthetic binary preview unavailable' }, 415);
       }
-      if (path === '.saivage-work/huge.log') {
+      if (path === '.saivage/work/huge.log') {
         return json(route, { error: 'payload_too_large', message: 'Synthetic file is too large for inline preview' }, 413);
       }
-      if (path === '.saivage-work/redacted-config.json') {
+      if (path === '.saivage/work/redacted-config.json') {
         return json(route, {
           path,
           size: 96,
@@ -221,7 +221,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
           sensitivity: 'sensitive-redacted',
         });
       }
-      if (path === '.saivage-work/reports/summary.md') {
+      if (path === '.saivage/work/reports/summary.md') {
         return json(route, {
           path,
           size: 72,
@@ -231,7 +231,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
           sensitivity: 'normal',
         });
       }
-      if (path === '.saivage-work/LICENSE') {
+      if (path === '.saivage/work/LICENSE') {
         return json(route, {
           path,
           size: 48,
@@ -241,7 +241,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
           sensitivity: 'normal',
         });
       }
-      if (path === '.saivage-work/smoke-result.json') {
+      if (path === '.saivage/work/smoke-result.json') {
         return json(route, {
           path,
           size: 64,
@@ -287,8 +287,8 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         cwd: '/work/saivage-e2e-checkers',
         card_id: 'card-smoke',
         session_id: 'planner-smoke',
-        owner_id: null,
-        owner: 'planner',
+        owner_id: 'planner-smoke',
+        owner_kind: 'agent',
         started_at: now,
         ended_at: now,
         exit_code: 0,

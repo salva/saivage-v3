@@ -12,8 +12,8 @@ function expectUnifiedProcessResult(data: unknown, processId?: string): void {
   expect(data).toEqual(expect.objectContaining({
     ...(processId ? { process_id: processId } : {}),
     status: expect.any(String),
-    stdout_url: expect.stringMatching(/^work:\/\/\/processes\/[^/]+\/stdout\.log$/),
-    stderr_url: expect.stringMatching(/^work:\/\/\/processes\/[^/]+\/stderr\.log$/),
+    stdout_url: expect.stringMatching(/^work:\/\/\/(?:cards\/[^/]+\/)?processes\/[^/]+\/stdout\.log$/),
+    stderr_url: expect.stringMatching(/^work:\/\/\/(?:cards\/[^/]+\/)?processes\/[^/]+\/stderr\.log$/),
     stdout_bytes: expect.any(Number),
     stderr_bytes: expect.any(Number),
   }));
@@ -82,7 +82,7 @@ describe('process provider', () => {
 
   it('returns zero-byte counts when live log files do not exist yet', async () => withRoot(async (root) => {
     const processRunner = new ProcessRunner(root);
-    const missing = join(root, '.saivage-work', 'processes', 'proc-missing');
+    const missing = join(root, '.saivage/work', 'cards', 'card-1', 'processes', 'proc-missing');
     processRunner.setTransientRegistry(new Map([['proc-missing', {
       id: 'proc-missing', card_id: 'card-1', owner_id: 'activation-1', command: 'sleep 1', command_hash: 'a'.repeat(64), cwd: root, cwd_canonical: root, status: 'running', pid: 123, started_at: '2026-01-01T00:00:00.000Z', started_at_monotonic: 1, completed_at: null, exit_code: null, signal: null, terminal_reason: null, required_for_card_completion: true, output_dir: missing, stdout_path: join(missing, 'stdout.log'), stderr_path: join(missing, 'stderr.log'), agent_session_id: 'activation-1', goal_id: null, launch_reason: null, owner_kind: 'agent', background_policy: null, failure_classification: null,
     } satisfies ProcessRecord]]));
@@ -120,10 +120,11 @@ describe('process provider', () => {
     if (!result.success) return;
     const processId = (result.data as { process_id: string }).process_id;
     expect(processRunner.get(processId)).toEqual(expect.objectContaining({
-      card_id: 'analyst:global',
+      card_id: null,
       owner_id: 'analyst:global',
       agent_session_id: 'analyst:global',
       owner_kind: 'operator',
+      required_for_card_completion: false,
       launch_reason: 'analyst workspace run_command',
     }));
   }));

@@ -42,10 +42,10 @@ const mockMetaRootFiles: FilesListResponse = {
 };
 
 const mockOutputRootFiles: FilesListResponse = {
-  path: '.saivage-work',
+  path: '.saivage/work',
   files: [
-    { name: 'logs', path: '.saivage-work/logs', type: 'directory', modifiedAt: '2025-06-01T00:00:00Z' },
-    { name: 'output.txt', path: '.saivage-work/output.txt', type: 'file', size: 8192, modifiedAt: '2025-06-01T12:00:00Z' },
+    { name: 'logs', path: '.saivage/work/logs', type: 'directory', modifiedAt: '2025-06-01T00:00:00Z' },
+    { name: 'output.txt', path: '.saivage/work/output.txt', type: 'file', size: 8192, modifiedAt: '2025-06-01T12:00:00Z' },
   ],
 };
 
@@ -70,9 +70,9 @@ async function mountFilesView(opts?: {
   listFilesImpl?: (path?: string) => Promise<FilesListResponse>;
 }) {
   vi.mocked(listFiles).mockImplementation(opts?.listFilesImpl ?? (async (path?: string) => {
-    if (path === '.saivage-work') return mockOutputRootFiles;
+    if (path === '.saivage/work') return mockOutputRootFiles;
     if (path === '.saivage') return mockMetaRootFiles;
-    if (path === '.saivage-work/logs') return { path: '.saivage-work/logs', files: [] };
+    if (path === '.saivage/work/logs') return { path: '.saivage/work/logs', files: [] };
     return { path: path ?? '', files: [] };
   }));
 
@@ -166,7 +166,7 @@ describe('FilesView', () => {
             files: [{ name: 'saivage.yaml', path: '.saivage/saivage.yaml', type: 'file', size: 100, modifiedAt: '2025-06-01T12:00:00Z' }],
           };
         }
-        if (path === '.saivage-work') return mockOutputRootFiles;
+        if (path === '.saivage/work') return mockOutputRootFiles;
         return { path: path ?? '', files: [] };
       },
     });
@@ -199,7 +199,7 @@ describe('FilesView', () => {
             ],
           };
         }
-        if (path === '.saivage-work') return mockOutputRootFiles;
+        if (path === '.saivage/work') return mockOutputRootFiles;
         return { path: path ?? '', files: [] };
       },
     });

@@ -179,7 +179,7 @@ Current implementation persists `status_text` and `latest_self_report` on the ca
 
 #### Card record slots
 
-Agents persist narrative output in versioned record slots under `.saivage/outputs/cards/{cardId}/`, primarily `status.md` for planner/executor status and `review.md` for reviewer assessments. Record URLs are durable references; there is no artifact/attachment registration path.
+Agents persist narrative output in versioned record slots under `.saivage/cards/{cardId}/`, primarily `status.md` for planner/executor status and `review.md` for reviewer assessments. Record URLs are durable references; there is no artifact/attachment registration path.
 
 **What is currently working:**
 - The `activate_card` tool result gives the parent planner a good summary of the child's outcome.

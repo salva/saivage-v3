@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { basename, extname, join } from 'node:path';
 import type { AgentRole } from '../../schemas/index.js';
 import { buildScopedPathUrl } from '../../contracts/scoped-path-url.js';
+import { SAIVAGE_CARDS_RELATIVE_DIR } from '../../persistence/layout.js';
 
 export type RecordSlotVersionStatus = 'open' | 'closed' | 'discarded';
 
@@ -76,7 +77,7 @@ export class ExpectedRecordSlotCloseError extends Error {
   }
 }
 
-export const RECORD_OUTPUTS_RELATIVE_DIR = '.saivage/outputs/cards';
+export const RECORD_OUTPUTS_RELATIVE_DIR = SAIVAGE_CARDS_RELATIVE_DIR;
 
 export const RECORD_SLOT_DEFINITIONS: readonly RecordSlotDefinition[] = [
   { filename: 'brief.md', slot: 'brief', writers: ['analyst', 'planner'], format: 'markdown', schema: 'record.brief.markdown.v1', exposed: true },

@@ -139,7 +139,7 @@ function createPatchProvider(ctx: { projectRoot: string; agentRole: AgentRole })
 }
 ```
 
-Process tools are a generic provider too. Process state lives in the durable process store (`processApi(projectRoot)` / `.saivage-work/processes/`), not on any actor instance, so process tools take an owner context rather than living on the executor actor:
+Process tools are a generic provider too. Process state lives in the durable process store (`processApi(projectRoot)` / `.saivage/work/processes/`), not on any actor instance, so process tools take an owner context rather than living on the executor actor:
 
 ```ts
 function createProcessProvider(ctx: { projectRoot: string; ownerId: string; cardId?: string }): ToolProvider {

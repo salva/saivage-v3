@@ -22,7 +22,7 @@
     {
       "id": "art-0001",
       "card_id": "code-0001",
-      "path": ".saivage-work/cards/code-0001/artifacts/retained/auth.ts",
+      "path": ".saivage/work/cards/code-0001/artifacts/retained/auth.ts",
       "type": "model",
       "description": "Authentication module",
       "retain": true,
@@ -31,7 +31,7 @@
     {
       "id": "art-0002",
       "card_id": "code-0001",
-      "path": ".saivage-work/cards/code-0001/artifacts/working/tmp-log.txt",
+      "path": ".saivage/work/cards/code-0001/artifacts/working/tmp-log.txt",
       "type": "log",
       "description": "Temporary build log",
       "retain": false,
@@ -42,7 +42,7 @@
     {
       "id": "att-0001",
       "card_id": "code-0001",
-      "path": ".saivage-work/cards/code-0001/attachments/architecture.png",
+      "path": ".saivage/work/cards/code-0001/attachments/architecture.png",
       "mime": "image/png",
       "title": "Auth Architecture Diagram",
       "description": "Flow diagram of OAuth integration",

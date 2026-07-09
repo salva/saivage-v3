@@ -1,7 +1,7 @@
 /**
  * Pinia store for file browsing.
  *
- * Manages metadata browser (.saivage/) and output browser (.saivage-work/)
+ * Manages metadata browser (.saivage/) and work browser (.saivage/work/)
  * with breadcrumb navigation, directory stats, JSON highlighting,
  * and Markdown rendering support. Respects file API protections.
  */
@@ -20,7 +20,7 @@ let fileContentRequestSeq = 0;
 
 /** Root paths exposed by the server file browser. */
 const METADATA_ROOT = '.saivage';
-const OUTPUT_ROOT = '.saivage-work';
+const OUTPUT_ROOT = '.saivage/work';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -59,7 +59,7 @@ export const useFileStore = defineStore('files', () => {
   const metaLoading = ref(false);
   const metaLastFetchedAt = ref<string | null>(null);
 
-  // Output browser (.saivage-work/)
+  // Work browser (.saivage/work/)
   const outputPath = ref<string>(OUTPUT_ROOT);
   const outputFiles = ref<FileEntry[]>([]);
   const outputLoading = ref(false);

@@ -86,7 +86,7 @@ function assertReadable(projectRoot: string, path: string, label = 'read path'):
 function assertWritable(projectRoot: string, path: string): { absolutePath: string; relativePath: string } {
   const resolved = resolveProjectPath(projectRoot, path, 'write path');
   if (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')) throw toolInputError('write requires a file path, not a directory.');
-  if (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/') || resolved.relativePath === '.saivage-work' || resolved.relativePath.startsWith('.saivage-work/')) throw toolInputError('Cannot modify Saivage internal state directories.');
+  if (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/')) throw toolInputError('Cannot modify Saivage internal state directories.');
   if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
   try {
     if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
@@ -121,7 +121,7 @@ function assertScopedWritable(ctx: WorkspaceContext, raw: string, resolved: VfsR
   }
   if ((resolved.kind === 'project' || resolved.kind === 'system') && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write ${resolved.kind} files.`);
   if (resolved.absolutePath === '/' || raw.endsWith('/') || (resolved.kind !== 'system' && (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')))) throw toolInputError('write requires a file path, not a directory.');
-  if (resolved.kind === 'project' && (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/') || resolved.relativePath === '.saivage-work' || resolved.relativePath.startsWith('.saivage-work/'))) throw toolInputError('Cannot modify Saivage internal state directories.');
+  if (resolved.kind === 'project' && (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/'))) throw toolInputError('Cannot modify Saivage internal state directories.');
   if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
   try {
     if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);

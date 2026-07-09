@@ -239,7 +239,7 @@ describe('Security — Quarantine and Stash End-to-End', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-e2e-quarantine-'));
     initProjectTree(tmpDir);
     saivageDir = join(tmpDir, '.saivage');
-    saivageWorkDir = join(tmpDir, '.saivage-work');
+    saivageWorkDir = join(tmpDir, '.saivage/work');
   });
 
   afterEach(() => {

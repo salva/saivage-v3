@@ -2,7 +2,7 @@
  * Quarantine Storage & Content Review Tracking
  *
  * When content is flagged as injection, the original content is stored
- * under .saivage-work/quarantine/<id>/ and a ContentReview record is
+ * under .saivage/work/quarantine/<id>/ and a ContentReview record is
  * appended to .saivage/supervision/reviews.jsonl. The quarantine index
  * at .saivage/supervision/quarantine-index.json maintains fast lookups.
  *
@@ -120,7 +120,7 @@ export interface QuarantineResult {
 /**
  * Quarantine blocked content.
  *
- * Stores the raw content under .saivage-work/quarantine/<id>/raw.bin,
+ * Stores the raw content under .saivage/work/quarantine/<id>/raw.bin,
  * writes QuarantineItem metadata to meta.json, creates a ContentReview
  * with status='blocked', appends to reviews.jsonl, and updates the
  * quarantine index.
@@ -242,7 +242,7 @@ export function recordContentPass(
 /**
  * Get a QuarantineItem by its ID.
  *
- * Reads the meta.json from .saivage-work/quarantine/<id>/meta.json.
+ * Reads the meta.json from .saivage/work/quarantine/<id>/meta.json.
  * Returns null if the quarantine item doesn't exist.
  */
 export function getQuarantineItem(
@@ -303,7 +303,7 @@ export function listRecentReviews(
 /**
  * Read the raw quarantined content.
  *
- * Reads raw.bin from .saivage-work/quarantine/<id>/raw.bin.
+ * Reads raw.bin from .saivage/work/quarantine/<id>/raw.bin.
  * Returns null if the quarantine item doesn't exist.
  */
 export function readQuarantineContent(

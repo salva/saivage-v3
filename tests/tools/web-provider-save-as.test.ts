@@ -61,7 +61,7 @@ describe('webfetch save_as scoped URLs', () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toMatchObject({ saved_as: 'record:///status.md?card=card-1&v=1' });
-    expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', 'card-1', 'status', '1.md'), 'utf8')).toBe('planner status');
+    expect(readFileSync(join(root, '.saivage', 'cards', 'card-1', 'status', '1.md'), 'utf8')).toBe('planner status');
   });
 
   it('denies planner record://review.md save_as through record-slot policy before network fetch', async () => {
@@ -83,7 +83,7 @@ describe('webfetch save_as scoped URLs', () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toMatchObject({ saved_as: 'record:///review.md?card=card-1&v=1' });
-    expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', 'card-1', 'review', '1.md'), 'utf8')).toBe('review text');
+    expect(readFileSync(join(root, '.saivage', 'cards', 'card-1', 'review', '1.md'), 'utf8')).toBe('review text');
   });
 
   it('restricts tmp:// save_as writes to the current card before network fetch', async () => {
@@ -177,7 +177,7 @@ describe('webfetch save_as scoped URLs', () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toMatchObject({ saved_as: `record:///brief.md?card=${card.id}&v=2` });
-    expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', card.id, 'brief', '2.md'), 'utf8')).toBe(fetchedBrief);
+    expect(readFileSync(join(root, '.saivage', 'cards', card.id, 'brief', '2.md'), 'utf8')).toBe(fetchedBrief);
     expect(store.read(card.id)?.status).toBe('backlog');
     expect(store.read(parent.id)?.status).toBe('changed');
     expect(store.read('project')?.status).toBe('running');

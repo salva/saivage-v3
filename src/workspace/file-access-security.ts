@@ -16,7 +16,7 @@ export {
 
 const NON_SECRET_SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.yaml',
-  '.saivage-work/tmp/runtime/runtime.lock',
+  '.saivage/work/tmp/runtime/runtime.lock',
 ]);
 
 const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
@@ -24,7 +24,7 @@ const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
 ]);
 
 const NON_SECRET_WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([
-  '.saivage-work/tmp/runtime/runtime.lock',
+  '.saivage/work/tmp/runtime/runtime.lock',
 ]);
 
 const NON_SECRET_REDACT_PATHS: ReadonlySet<string> = new Set([
@@ -101,11 +101,11 @@ export function redactOperatorErrorMessage(message: string, projectRoot?: string
     const resolvedRoot = resolve(projectRoot);
     redacted = redacted.split(resolvedRoot).join('[PROJECT_ROOT]');
   }
-  return redacted.replace(/(\.saivage(?:-work)?)?([A-Za-z]:)?(?:\/[^\s:]+)+/g, (pathLike) => {
+  return redacted.replace(/(\.saivage)?([A-Za-z]:)?(?:\/[^\s:]+)+/g, (pathLike) => {
     if (pathLike === '[PROJECT_ROOT]') {
       return pathLike;
     }
-    return pathLike.startsWith('.saivage') || pathLike.startsWith('.saivage-work')
+    return pathLike.startsWith('.saivage')
       ? pathLike
       : '[PATH_REDACTED]';
   });

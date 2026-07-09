@@ -63,14 +63,14 @@ describe('DebugView processes tab', () => {
         command: 'npm test',
         card_id: 'card-1',
         session_id: 'session-1',
-        owner: 'executor',
+        owner_kind: 'agent',
         owner_id: 'executor-1',
         cwd: '/work/project',
         started_at: '2026-06-12T00:00:00.000Z',
         ended_at: null,
         exit_code: null,
         timed_out: false,
-        logs: { stdout: '.saivage-work/tmp/processes/proc-1/stdout.log', stderr: null },
+        logs: { stdout: 'work:///cards/card-1/processes/proc-1/stdout.log', stderr: null },
       }],
     });
   });
@@ -95,6 +95,6 @@ describe('DebugView processes tab', () => {
     expect(wrapper.findAll('button').map((button) => button.text().toLowerCase())).not.toEqual(expect.arrayContaining(['terminate', 'kill']));
 
     await wrapper.find('.process-link-button').trigger('click');
-    expect(mockPush).toHaveBeenCalledWith({ name: 'files', query: { path: '.saivage-work/tmp/processes/proc-1/stdout.log' } });
+    expect(mockPush).toHaveBeenCalledWith({ name: 'files', query: { path: 'work:///cards/card-1/processes/proc-1/stdout.log' } });
   });
 });

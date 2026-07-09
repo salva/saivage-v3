@@ -6,6 +6,7 @@ import { CardStoreState } from '../cards/state.js';
 import { CardStoreInvariantError } from '../cards/errors.js';
 import { validateCardHistoryInvariant, validateParsedCards } from '../cards/validator.js';
 import { allocateGlobalRecordSeq, readRecordSlotIndex, recordPath, recordSlotDir, writeRecordSlotIndex, type RecordSlotIndex } from '../runtime/records/record-slots.js';
+import { saivageCardsRoot } from './layout.js';
 
 export interface LoadCardStoreStateOptions {
   maxDepth?: number;
@@ -50,7 +51,7 @@ export function parseCard(raw: unknown, path: string): CardRecord {
 }
 
 export function cardRecordsRoot(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'outputs', 'cards');
+  return saivageCardsRoot(projectRoot);
 }
 
 export function cardRecordNamespaceDir(projectRoot: string, id: string): string {

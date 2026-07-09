@@ -68,7 +68,7 @@ cp -a "${preserve}/.saivage/auth-profiles.json" "${root}/.saivage/auth-profiles.
 Expected top-level entries:
 
 ```text
-.saivage-work/
+.saivage/work/
 .saivage/
 docs/
 ```
@@ -92,4 +92,4 @@ curl -fsS http://10.0.3.170:8080/health/ready
 
 - The target project is not a Git repository, so the backup under `tmp/` is the recovery point.
 - The reset intentionally deletes generated cards, runtime state, tests, outputs, Python packages, and all docs except `SPEC.md` and `PLAN.md`.
-- The clean `.saivage/` and `.saivage-work/` skeletons are allowed because the service needs them to boot, but persisted model routing and credentials must come from the preserved files.
+- The clean `.saivage/` and `.saivage/work/` skeletons are allowed because the service needs them to boot, but persisted model routing and credentials must come from the preserved files.

@@ -44,10 +44,10 @@ This is a brave refactor, but it removes duplicate persistence models and makes 
 Each card has a record namespace:
 
 ```text
-.saivage/outputs/cards/<card-id>/card/<version>.json
-.saivage/outputs/cards/<card-id>/brief/<version>.md
-.saivage/outputs/cards/<card-id>/status/<version>.md
-.saivage/outputs/cards/<card-id>/review/<version>.md
+.saivage/cards/<card-id>/card/<version>.json
+.saivage/cards/<card-id>/brief/<version>.md
+.saivage/cards/<card-id>/status/<version>.md
+.saivage/cards/<card-id>/review/<version>.md
 ```
 
 The exact directory layout can reuse the existing record-slot layout. The important model is:
@@ -440,7 +440,7 @@ Rules:
 ### Phase 3: Generic Record Reads
 
 - Teach `read` to resolve `record://...` URLs with `card` and optional `v` query params, including metadata/read-mode behavior.
-- Ensure containment checks resolve only inside `.saivage/outputs/cards/<card>/<slot>/`.
+- Ensure containment checks resolve only inside `.saivage/cards/<card>/<slot>/`.
 
 ### Phase 4: Record-Backed CardStore Loader
 

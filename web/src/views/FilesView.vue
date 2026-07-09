@@ -50,7 +50,7 @@
 
       <div v-if="activeRoot === 'output'" class="quarantine-footer">
         <div class="quarantine-footer-label">Quarantine</div>
-        <button class="btn quarantine-footer-btn" @click="goToPath('output', '.saivage-work/quarantine')">Browse .saivage-work/quarantine/</button>
+        <button class="btn quarantine-footer-btn" @click="goToPath('output', '.saivage/work/quarantine')">Browse .saivage/work/quarantine/</button>
       </div>
     </Panel>
 
@@ -125,7 +125,7 @@ const cardChildren = computed<CardRecord[]>(() => {
   return id ? selectChildrenOf([...cardsStore.cards], id) : [];
 });
 const activeRoot = computed<FileRoot>(() => route.query.root === 'output' ? 'output' : 'meta');
-const activeRootPath = computed(() => activeRoot.value === 'meta' ? '.saivage' : '.saivage-work');
+const activeRootPath = computed(() => activeRoot.value === 'meta' ? '.saivage' : '.saivage/work');
 const activeRootLabel = computed(() => activeRoot.value === 'meta' ? 'Metadata' : 'Output');
 const activeFiles = computed(() => activeRoot.value === 'meta' ? metaFiles.value : outputFiles.value);
 const activeLoading = computed(() => activeRoot.value === 'meta' ? metaLoading.value : outputLoading.value);
@@ -201,17 +201,17 @@ function parentPath(path: string): string {
 
 function rootForPath(path: string): FileRoot | null {
   if (path === '.saivage' || path.startsWith('.saivage/')) return 'meta';
-  if (path === '.saivage-work' || path.startsWith('.saivage-work/')) return 'output';
+  if (path === '.saivage/work' || path.startsWith('.saivage/work/')) return 'output';
   return null;
 }
 
 function canonicalPathForRoot(rootName: FileRoot, queryPath: unknown): string {
-  if (typeof queryPath !== 'string' || queryPath.length === 0) return rootName === 'meta' ? '.saivage' : '.saivage-work';
+  if (typeof queryPath !== 'string' || queryPath.length === 0) return rootName === 'meta' ? '.saivage' : '.saivage/work';
   return queryPath;
 }
 
 function goToRoot(rootName: FileRoot): void {
-  void router.push({ name: 'files', query: { root: rootName, path: rootName === 'meta' ? '.saivage' : '.saivage-work' } });
+  void router.push({ name: 'files', query: { root: rootName, path: rootName === 'meta' ? '.saivage' : '.saivage/work' } });
 }
 
 function goToPath(rootName: FileRoot, path: string): void {

@@ -12,6 +12,6 @@ Usage:
       .saivage/project.json, .saivage/saivage.yaml, and project objective files under
       research/future-objectives/.
       Refuses while the runtime lockfile is present at
-      .saivage-work/tmp/runtime/runtime.lock.
+      .saivage/work/tmp/runtime/runtime.lock.
       Prints removal targets before deleting them.
   saivage help

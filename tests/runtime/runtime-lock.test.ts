@@ -9,7 +9,7 @@ describe('runtime lock', () => {
 
   beforeEach(() => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-lock-'));
-    mkdirSync(join(projectRoot, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
+    mkdirSync(join(projectRoot, '.saivage/work', 'tmp', 'runtime'), { recursive: true });
   });
 
   afterEach(() => {
@@ -34,7 +34,7 @@ describe('runtime lock', () => {
   });
 
   it('removes stale locks for dead PIDs or expired live PIDs', () => {
-    const lockPath = join(projectRoot, '.saivage-work', 'tmp', 'runtime', 'runtime.lock');
+    const lockPath = join(projectRoot, '.saivage/work', 'tmp', 'runtime', 'runtime.lock');
     writeFileSync(lockPath, JSON.stringify({ pid: 99999, started_at: new Date().toISOString() }), 'utf-8');
 
     expect(() => acquireLock(projectRoot)).not.toThrow();
@@ -47,7 +47,7 @@ describe('runtime lock', () => {
   });
 
   it('removeStaleLock preserves valid locks and removes dead locks', () => {
-    const lockPath = join(projectRoot, '.saivage-work', 'tmp', 'runtime', 'runtime.lock');
+    const lockPath = join(projectRoot, '.saivage/work', 'tmp', 'runtime', 'runtime.lock');
     writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }), 'utf-8');
 
     removeStaleLock(projectRoot);

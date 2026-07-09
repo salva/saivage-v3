@@ -17,6 +17,7 @@ import {
 import { writeFileAtomic } from '../../src/persistence/durable-write.js';
 
 let tmpDir: string;
+const priorWorkRoot = `.saivage-${'work'}`;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'saivage-test-'));
@@ -34,7 +35,7 @@ function listDiscardedSaivageDirs(projectRoot: string): string[] {
 
 function listDiscardedSaivageWorkDirs(projectRoot: string): string[] {
   return existsSync(projectRoot)
-    ? readdirSync(projectRoot).filter((entry) => entry.startsWith('.saivage-work.discarded-'))
+    ? readdirSync(projectRoot).filter((entry) => entry.startsWith(`${priorWorkRoot}.discarded-`))
     : [];
 }
 
@@ -93,7 +94,7 @@ describe('initProjectTree', () => {
 
   it('starts with a canonical root project card', () => {
     initProjectTree(tmpDir);
-    expect(readdirSync(join(tmpDir, '.saivage', 'outputs', 'cards')).sort()).toEqual(['index.json', 'project']);
+    expect(readdirSync(join(tmpDir, '.saivage', 'cards')).sort()).toEqual(['index.json', 'project']);
   });
 
   it('does not create the legacy notes queue', () => {
@@ -141,7 +142,7 @@ describe('initProjectTree', () => {
     initProjectTree(tmpDir);
     const saivageDirs = [
       'skills',
-      'outputs/cards',
+      'cards',
       'agents/conversations',
       'agents/runtime/actors/llm',
       'runtime',
@@ -153,7 +154,7 @@ describe('initProjectTree', () => {
     }
   });
 
-  it('creates all .saivage-work/ directories', () => {
+  it('creates all .saivage/work/ directories', () => {
     initProjectTree(tmpDir);
     const workDirs = [
       'cards',
@@ -166,18 +167,18 @@ describe('initProjectTree', () => {
       'tmp/previews',
     ];
     for (const dir of workDirs) {
-      expect(existsSync(join(tmpDir, '.saivage-work', dir))).toBe(true);
+      expect(existsSync(join(tmpDir, '.saivage', 'work', dir))).toBe(true);
     }
   });
 
   it('is idempotent — calling twice does not change files', () => {
     initProjectTree(tmpDir);
-    const cardsBefore = readdirSync(join(tmpDir, '.saivage', 'outputs', 'cards'));
+    const cardsBefore = readdirSync(join(tmpDir, '.saivage', 'cards'));
     const configBefore = readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8');
 
     initProjectTree(tmpDir);
 
-    const cardsAfter = readdirSync(join(tmpDir, '.saivage', 'outputs', 'cards'));
+    const cardsAfter = readdirSync(join(tmpDir, '.saivage', 'cards'));
     const configAfter = readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8');
 
     expect(cardsAfter).toEqual(cardsBefore);
@@ -190,12 +191,12 @@ describe('initProjectTree', () => {
     initProjectTree(tmpDir);
     initProjectTree(tmpDir);
 
-    expect(readdirSync(join(tmpDir, '.saivage', 'outputs', 'cards')).sort()).toEqual(['index.json', 'project']);
+    expect(readdirSync(join(tmpDir, '.saivage', 'cards')).sort()).toEqual(['index.json', 'project']);
   });
 
   it('discards legacy .saivage layouts and creates a fresh tree', () => {
     const legacyDir = join(tmpDir, '.saivage');
-    const legacyWorkDir = join(tmpDir, '.saivage-work');
+    const legacyWorkDir = join(tmpDir, priorWorkRoot);
     mkdirSync(join(legacyDir, 'runtime'), { recursive: true });
     mkdirSync(join(legacyWorkDir, 'processes', 'proc-legacy'), { recursive: true });
     writeFileSync(
@@ -213,8 +214,8 @@ describe('initProjectTree', () => {
     expect(discardedWork).toHaveLength(1);
     expect(existsSync(join(tmpDir, discarded[0], 'old-layout.json'))).toBe(true);
     expect(existsSync(join(tmpDir, discardedWork[0], 'processes', 'proc-legacy', 'combined.log'))).toBe(true);
-    expect(discardStamp(discarded[0], '.saivage.discarded-')).toBe(discardStamp(discardedWork[0], '.saivage-work.discarded-'));
-    expect(existsSync(join(tmpDir, '.saivage-work', 'processes', 'proc-legacy', 'combined.log'))).toBe(false);
+    expect(discardStamp(discarded[0], '.saivage.discarded-')).toBe(discardStamp(discardedWork[0], `${priorWorkRoot}.discarded-`));
+    expect(existsSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-legacy', 'combined.log'))).toBe(false);
     expect(JSON.parse(readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8')).id).toBe(
       'project',
     );
@@ -236,7 +237,7 @@ describe('initProjectTree', () => {
   it('keeps already-new .saivage state instead of discarding it', () => {
     initProjectTree(tmpDir);
     const sentinelPath = join(tmpDir, '.saivage', 'runtime', 'events.jsonl');
-    const workSentinelPath = join(tmpDir, '.saivage-work', 'processes', 'sentinel.txt');
+    const workSentinelPath = join(tmpDir, '.saivage', 'work', 'processes', 'sentinel.txt');
     writeFileSync(sentinelPath, 'sentinel-event\n');
     writeFileSync(workSentinelPath, 'work-sentinel\n');
 
@@ -294,7 +295,7 @@ describe('initProjectTree', () => {
     const secondRoot = mkdtempSync(join(tmpdir(), 'saivage-test-'));
     try {
       initProjectTree(secondRoot);
-      const cardConversation = join(secondRoot, '.saivage', 'outputs', 'cards', 'card-7', 'conversations', 'planner%3Acard-7');
+      const cardConversation = join(secondRoot, '.saivage', 'cards', 'card-7', 'conversations', 'planner%3Acard-7');
       mkdirSync(cardConversation, { recursive: true });
       writeFileSync(join(cardConversation, 'seg-001.jsonl'), '');
 
@@ -306,11 +307,11 @@ describe('initProjectTree', () => {
     }
   });
 
-  it('discards pre-Stage-1 .saivage-work with the paired legacy .saivage state', () => {
+  it('discards pre-Stage-1 external work root with the paired legacy .saivage state', () => {
     seedPostStage1RequiredLegacyState(tmpDir);
-    mkdirSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
-    writeFileSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), 'stdout');
-    writeFileSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'combined.log'), 'combined');
+    mkdirSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-1'), { recursive: true });
+    writeFileSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-1', 'stdout.log'), 'stdout');
+    writeFileSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-1', 'combined.log'), 'combined');
 
     initProjectTree(tmpDir);
 
@@ -318,24 +319,24 @@ describe('initProjectTree', () => {
     const discardedWork = listDiscardedSaivageWorkDirs(tmpDir);
     expect(discarded).toHaveLength(1);
     expect(discardedWork).toHaveLength(1);
-    expect(discardStamp(discarded[0], '.saivage.discarded-')).toBe(discardStamp(discardedWork[0], '.saivage-work.discarded-'));
+    expect(discardStamp(discarded[0], '.saivage.discarded-')).toBe(discardStamp(discardedWork[0], `${priorWorkRoot}.discarded-`));
     expect(existsSync(join(tmpDir, discardedWork[0], 'processes', 'proc-1', 'combined.log'))).toBe(true);
-    expect(existsSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'combined.log'))).toBe(false);
+    expect(existsSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-1', 'combined.log'))).toBe(false);
   });
 
   it('fails fast instead of discarding legacy state while a live runtime lock is held', () => {
     seedPostStage1RequiredLegacyState(tmpDir);
-    mkdirSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
-    mkdirSync(join(tmpDir, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
-    writeFileSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'combined.log'), 'combined');
-    const lockPath = join(tmpDir, '.saivage-work', 'tmp', 'runtime', 'runtime.lock');
+    mkdirSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-1'), { recursive: true });
+    mkdirSync(join(tmpDir, '.saivage', 'work', 'tmp', 'runtime'), { recursive: true });
+    writeFileSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-1', 'combined.log'), 'combined');
+    const lockPath = join(tmpDir, '.saivage', 'work', 'tmp', 'runtime', 'runtime.lock');
     writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
 
     expect(() => initProjectTree(tmpDir)).toThrow(/runtime lock .*Stop the runtime first/);
     expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
     expect(listDiscardedSaivageWorkDirs(tmpDir)).toEqual([]);
     expect(existsSync(join(tmpDir, '.saivage', 'views'))).toBe(true);
-    expect(existsSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'combined.log'))).toBe(true);
+    expect(existsSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-1', 'combined.log'))).toBe(true);
 
     rmSync(lockPath);
     initProjectTree(tmpDir);

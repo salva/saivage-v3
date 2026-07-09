@@ -338,7 +338,7 @@ All filesystem tools share one path policy:
 - Project-agent paths must resolve inside the configured project root.
 - Secret-bearing paths and blocked runtime/credential paths are invisible to `glob`, `grep`, and directory reads.
 - Direct access to a blocked path fails with a permission error.
-- Mutating tools reject blocked paths, `.saivage`, `.saivage-work`, symlink targets outside root, credential files, and unsafe `system://` writes.
+- Mutating tools reject blocked paths, `.saivage`, `.saivage/work`, symlink targets outside root, credential files, and unsafe `system://` writes.
 - `record://` writes are subject to slot-writer enforcement at the record-write boundary. For card processors, "current card" is the composed activation card and explicit URL card parameters must match it. For the Analyst, there is no implicit current card; an explicit `?card=<id>` parameter is the operation target.
   - `status.md` → planner/executor (current card only)
   - `review.md` → reviewer (current card only)

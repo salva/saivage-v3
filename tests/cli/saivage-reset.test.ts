@@ -72,8 +72,8 @@ describe('saivage reset', () => {
     const cwd = process.cwd();
     try {
       initProjectTree(root);
-      mkdirSync(join(root, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
-      writeFileSync(join(root, '.saivage-work', 'tmp', 'runtime', 'runtime.lock'), JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
+      mkdirSync(join(root, '.saivage/work', 'tmp', 'runtime'), { recursive: true });
+      writeFileSync(join(root, '.saivage/work', 'tmp', 'runtime', 'runtime.lock'), JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
       process.chdir(root);
       await expect(run(['node', 'cli', 'reset'])).rejects.toThrow(/lock/i);
     } finally {

@@ -49,7 +49,7 @@ function extractState(text: string): Record<string, unknown> {
 }
 
 function writeBriefRecord(projectRoot: string, cardId: string, content: string): void {
-  const dir = join(projectRoot, '.saivage/outputs/cards', cardId, 'brief');
+  const dir = join(projectRoot, '.saivage/cards', cardId, 'brief');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'index.json'), `${JSON.stringify({ slot: 'brief', latest: 1, open: null, versions: { '1': { status: 'closed' } } }, null, 2)}\n`);
   writeFileSync(join(dir, '1.md'), content);

@@ -22,7 +22,7 @@ describe('tool activity projection', () => {
     const projected = projectAnalystToolInvocationActivity({
       tool: 'webfetch',
       params: { url: 'https://example.test' },
-      result: { success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt', stash_path: '.saivage-work/tmp/stash/webfetch.txt', bytes: 123 } },
+      result: { success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt', stash_path: '.saivage/work/tmp/stash/webfetch.txt', bytes: 123 } },
     });
 
     expect((projected.result as { data: Record<string, unknown> }).data.stash_url).toBe('work:///tmp/stash/webfetch.txt');

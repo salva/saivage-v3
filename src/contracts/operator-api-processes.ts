@@ -14,13 +14,17 @@ function isCanonicalProcessLogUrl(filename: string): (value: string | null) => b
     if (value === null) return true;
     try {
       const parsed = parseScopedPathUrl(value, 'work');
-      return parsed.query === null
-        && !parsed.hadFragment
-        && parsed.segments.length === 3
+      const nonCard = parsed.segments.length === 3
         && parsed.segments[0] === 'processes'
         && parsed.segments[1] !== ''
-        && parsed.segments[2] === filename
-        && buildScopedPathUrl('work', parsed.segments) === value;
+        && parsed.segments[2] === filename;
+      const cardOwned = parsed.segments.length === 5
+        && parsed.segments[0] === 'cards'
+        && parsed.segments[1] !== ''
+        && parsed.segments[2] === 'processes'
+        && parsed.segments[3] !== ''
+        && parsed.segments[4] === filename;
+      return parsed.query === null && !parsed.hadFragment && (nonCard || cardOwned) && buildScopedPathUrl('work', parsed.segments) === value;
     } catch {
       return false;
     }
@@ -28,8 +32,8 @@ function isCanonicalProcessLogUrl(filename: string): (value: string | null) => b
 }
 
 export const ProcessLogRefsSchema = z.object({
-  stdout: z.string().nullable().refine(isCanonicalProcessLogUrl('stdout.log'), 'stdout must be a canonical work:///processes/<id>/stdout.log URL or null'),
-  stderr: z.string().nullable().refine(isCanonicalProcessLogUrl('stderr.log'), 'stderr must be a canonical work:///processes/<id>/stderr.log URL or null'),
+  stdout: z.string().nullable().refine(isCanonicalProcessLogUrl('stdout.log'), 'stdout must be a canonical work:///cards/<cardId>/processes/<id>/stdout.log or work:///processes/<id>/stdout.log URL or null'),
+  stderr: z.string().nullable().refine(isCanonicalProcessLogUrl('stderr.log'), 'stderr must be a canonical work:///cards/<cardId>/processes/<id>/stderr.log or work:///processes/<id>/stderr.log URL or null'),
 });
 
 export const ProcessViewSchema = z.object({
@@ -39,10 +43,10 @@ export const ProcessViewSchema = z.object({
   ended_at: z.string().nullable(),
   exit_code: z.number().int().nullable(),
   timed_out: z.boolean(),
-  owner_id: z.string().nullable(),
-  owner: z.string().nullable(),
+  owner_id: z.string(),
+  owner_kind: z.enum(['agent', 'operator', 'runtime']),
   session_id: z.string().nullable(),
-  card_id: z.string(),
+  card_id: z.string().nullable(),
   command: z.string(),
   cwd: z.string().nullable(),
   logs: ProcessLogRefsSchema,

@@ -103,7 +103,8 @@ describe('Core schemas still validate expected records', () => {
     expect(processRecordSchema.safeParse({
       id: 'proc-1',
       card_id: 'goal-1',
-      owner_id: null,
+      owner_id: 'agent-1',
+      owner_kind: 'agent',
       command: 'npm test',
       command_hash: 'a'.repeat(64),
       cwd: '/tmp',
@@ -123,7 +124,8 @@ describe('Core schemas still validate expected records', () => {
     const base = {
       id: 'proc-1',
       card_id: 'goal-1',
-      owner_id: null,
+      owner_id: 'agent-1',
+      owner_kind: 'agent',
       command: 'npm test',
       command_hash: 'a'.repeat(64),
       cwd: '/tmp',

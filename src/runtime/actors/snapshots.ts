@@ -2,6 +2,7 @@ import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
+import { saivageCardsRoot } from '../../persistence/layout.js';
 import { actorKindFromId, parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
 import { actorKindSchema } from '../../schemas/actor-vocabulary.js';
 import type { ActorKind } from './ids.js';
@@ -116,7 +117,7 @@ function actorSnapshotFilePaths(projectRoot: string): string[] {
   const paths: string[] = [];
   collectSnapshotFiles(analystActorSnapshotsRoot(projectRoot), paths);
 
-  const cardsRoot = join(projectRoot, '.saivage', 'outputs', 'cards');
+  const cardsRoot = saivageCardsRoot(projectRoot);
   if (existsSync(cardsRoot)) {
     for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
       if (!cardEntry.isDirectory()) continue;
@@ -133,7 +134,7 @@ function analystActorSnapshotsRoot(projectRoot: string): string {
 }
 
 function cardActorSnapshotsRoot(projectRoot: string, cardId: string, kind: ActorKind): string {
-  return join(projectRoot, '.saivage', 'outputs', 'cards', cardId, 'runtime', 'actors', kind);
+  return join(saivageCardsRoot(projectRoot), cardId, 'runtime', 'actors', kind);
 }
 
 function collectSnapshotFiles(dir: string, paths: string[]): void {

@@ -130,7 +130,7 @@ describe('workspace and patch providers', () => {
       const latest = readRecordSlotIndex(root, card.id, 'brief').latest!;
       expect(latest).toBe(2);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latest}` });
-      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', card.id, 'brief', `${latest}.md`), 'utf8')).toBe(VALID_BRIEF);
+      expect(readFileSync(join(root, '.saivage', 'cards', card.id, 'brief', `${latest}.md`), 'utf8')).toBe(VALID_BRIEF);
       expect(store.read(card.id)?.status).toBe('backlog');
       expect(store.read(parent.id)?.status).toBe('changed');
       expect(store.read('project')?.status).toBe('running');
@@ -300,7 +300,7 @@ describe('workspace and patch providers', () => {
       const latestAfter = readRecordSlotIndex(root, card.id, 'brief').latest!;
       expect(latestAfter).toBe(latestBefore + 1);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latestAfter}` });
-      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', card.id, 'brief', `${latestAfter}.md`), 'utf8')).toContain('Do the updated work.');
+      expect(readFileSync(join(root, '.saivage', 'cards', card.id, 'brief', `${latestAfter}.md`), 'utf8')).toContain('Do the updated work.');
       expect(store.read(card.id)?.status).toBe('changed');
       expect(notifyCard).toHaveBeenCalled();
     } finally {
@@ -327,7 +327,7 @@ describe('workspace and patch providers', () => {
       const latestAfter = readRecordSlotIndex(root, card.id, 'brief').latest!;
       expect(latestAfter).toBe(latestBefore + 1);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latestAfter}` });
-      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', card.id, 'brief', `${latestAfter}.md`), 'utf8')).toContain('Do the updated work.');
+      expect(readFileSync(join(root, '.saivage', 'cards', card.id, 'brief', `${latestAfter}.md`), 'utf8')).toContain('Do the updated work.');
       expect(store.read(card.id)?.status).toBe('backlog');
       expect(store.read(parent.id)?.status).toBe('changed');
       expect(store.read('project')?.status).toBe('running');
@@ -448,8 +448,8 @@ describe('workspace and patch providers', () => {
   it('reads work:/// files but rejects work writes and scoped patch paths', async () => {
     const { root } = setupProject();
     try {
-      mkdirSync(join(root, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
-      writeFileSync(join(root, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), 'runtime output Authorization: Bearer secret-token', 'utf8');
+      mkdirSync(join(root, '.saivage/work', 'processes', 'proc-1'), { recursive: true });
+      writeFileSync(join(root, '.saivage/work', 'processes', 'proc-1', 'stdout.log'), 'runtime output Authorization: Bearer secret-token', 'utf8');
       const surface = buildInvocationSurface('executor', [
         createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' }),
         createPatchProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' }),

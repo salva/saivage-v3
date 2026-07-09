@@ -56,8 +56,8 @@ describe('project file tool read limits', () => {
   }));
 
   it('matches work directory metadata count to normal listing', async () => withTempProject(async (projectRoot) => {
-    mkdirSync(join(projectRoot, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
-    writeFileSync(join(projectRoot, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), 'out', 'utf8');
+    mkdirSync(join(projectRoot, '.saivage/work', 'processes', 'proc-1'), { recursive: true });
+    writeFileSync(join(projectRoot, '.saivage/work', 'processes', 'proc-1', 'stdout.log'), 'out', 'utf8');
 
     const listing = await readProject(ctx(projectRoot), { path: 'work:///processes' }) as { total_entries: number };
     const metadata = await readProject(ctx(projectRoot), { path: 'work:///processes', metadata_only: true });
@@ -67,7 +67,7 @@ describe('project file tool read limits', () => {
   }));
 
   it('matches tmp directory metadata count to normal listing', async () => withTempProject(async (projectRoot) => {
-    const tmpDir = join(projectRoot, '.saivage-work', 'cards', 'card-1', 'tmp', 'folder');
+    const tmpDir = join(projectRoot, '.saivage/work', 'cards', 'card-1', 'tmp', 'folder');
     mkdirSync(tmpDir, { recursive: true });
     writeFileSync(join(tmpDir, 'a.txt'), 'a', 'utf8');
     writeFileSync(join(tmpDir, 'b.txt'), 'b', 'utf8');
@@ -77,7 +77,7 @@ describe('project file tool read limits', () => {
 
     expect(listing.total_entries).toBe(2);
     expect(listing.entries.map((entry) => entry.name)).toEqual(['a.txt', 'b.txt']);
-    expect(metadata).toEqual({ path: '.saivage-work/cards/card-1/tmp/folder', metadata_only: true, is_directory: true, size: expect.any(Number), mtime: expect.any(String), entries_count: listing.total_entries });
+    expect(metadata).toEqual({ path: '.saivage/work/cards/card-1/tmp/folder', metadata_only: true, is_directory: true, size: expect.any(Number), mtime: expect.any(String), entries_count: listing.total_entries });
   }));
 
   it('returns metadata for a file larger than the inline read limit', async () => withTempProject(async (projectRoot) => {
@@ -145,9 +145,9 @@ describe('project file tool read limits', () => {
   }));
 
   it('caps work reads again after redaction expansion', async () => withTempProject(async (projectRoot) => {
-    mkdirSync(join(projectRoot, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
+    mkdirSync(join(projectRoot, '.saivage/work', 'processes', 'proc-1'), { recursive: true });
     const secretAssignmentLine = Array.from({ length: 16 }, () => 'token=x').join(' ');
-    writeFileSync(join(projectRoot, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), Array.from({ length: 2000 }, () => secretAssignmentLine).join('\n'), 'utf8');
+    writeFileSync(join(projectRoot, '.saivage/work', 'processes', 'proc-1', 'stdout.log'), Array.from({ length: 2000 }, () => secretAssignmentLine).join('\n'), 'utf8');
 
     const result = await readProject(ctx(projectRoot), { path: 'work:///processes/proc-1/stdout.log', limit: 2000 }) as { content: string; bytes: number; content_truncated: boolean; max_bytes: number };
 

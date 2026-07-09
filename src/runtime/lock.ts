@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { constants } from 'node:fs';
+import { saivageWorkRoot } from '../persistence/layout.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ const DEFAULT_LOCK_FILE = join('tmp', 'runtime', 'runtime.lock');
 
 function lockPath(projectRoot: string, config?: LockConfig): string {
   if (config?.lockFilePath) return config.lockFilePath;
-  return join(projectRoot, '.saivage-work', DEFAULT_LOCK_FILE);
+  return join(saivageWorkRoot(projectRoot), DEFAULT_LOCK_FILE);
 }
 
 function maxAge(config?: LockConfig): number {

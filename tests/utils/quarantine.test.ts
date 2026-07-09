@@ -2,7 +2,7 @@
  * Quarantine Storage Tests
  *
  * Verifies:
- * - quarantineContent() stores blocked content under .saivage-work/quarantine/<id>/
+ * - quarantineContent() stores blocked content under .saivage/work/quarantine/<id>/
  * - Metadata written to .saivage/supervision/reviews.jsonl and quarantine-index.json
  * - Implements ContentReview and QuarantineItem from schemas
  * - Sanitized summary returned to calling code
@@ -51,7 +51,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'saivage-quarantine-test-'));
   initProjectTree(root);
   saivageDir = join(root, '.saivage');
-  saivageWorkDir = join(root, '.saivage-work');
+  saivageWorkDir = join(root, '.saivage/work');
 });
 
 afterEach(() => {

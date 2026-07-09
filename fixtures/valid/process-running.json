@@ -1,12 +1,17 @@
 {
   "id": "proc-0002",
   "card_id": "code-0002",
+  "owner_id": "executor:code-0002",
+  "owner_kind": "agent",
   "command": "long-running-build.sh",
+  "command_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "cwd": "/work/saivage-v3",
+  "cwd_canonical": "/work/saivage-v3",
   "status": "running",
   "started_at": "2025-01-01T05:00:00.000Z",
+  "started_at_monotonic": 1,
   "required_for_card_completion": true,
-  "output_dir": ".saivage-work/processes/proc-0002/",
-  "stdout_path": ".saivage-work/processes/proc-0002/stdout.log",
-  "stderr_path": ".saivage-work/processes/proc-0002/stderr.log"
+  "output_dir": ".saivage/work/cards/code-0002/processes/proc-0002/",
+  "stdout_path": ".saivage/work/cards/code-0002/processes/proc-0002/stdout.log",
+  "stderr_path": ".saivage/work/cards/code-0002/processes/proc-0002/stderr.log"
 }
