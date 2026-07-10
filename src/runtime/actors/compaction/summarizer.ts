@@ -72,7 +72,7 @@ function buildSummaryInput(args: { inputId: string; sessionId: string; modelSpec
 }
 
 function validateNoCompactionRows(rows: AgentMessage[], caller: string): void {
-  const found = rows.find((row) => row.kind === 'context_compaction' || row.kind === 'provider_exchange');
+  const found = rows.find((row) => row.kind === 'context_compaction');
   if (found) throw new Error(`${caller} must not receive non-model-visible compaction rows; found '${found.id}' kind '${found.kind}'.`);
 }
 

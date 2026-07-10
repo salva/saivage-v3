@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { appendSyncIdempotentByKey } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
-import { parseProviderExchangePayload } from '../../contracts/provider-exchange.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import { saivageCardsRoot } from '../../persistence/layout.js';
 import {
@@ -38,20 +37,6 @@ export function listConversationSessionIds(projectRoot: string): string[] {
 export function appendConversationMessage(projectRoot: string, message: AgentMessage): ConversationAppendResult {
   const parsed = agentMessageSchema.parse(message);
   return { message: parsed, appended: appendSyncIdempotentByKey(activeConversationVersionPath(projectRoot, parsed.session_id), parsed, 'id') };
-}
-
-export function appendProviderExchangeMessage(projectRoot: string, message: AgentMessage): ConversationAppendResult {
-  const parsed = agentMessageSchema.parse(message);
-  if (parsed.kind !== 'provider_exchange') throw new Error(`appendProviderExchangeMessage requires kind provider_exchange, got '${parsed.kind}'.`);
-  parseProviderExchangePayload(parsed.content);
-  const path = activeConversationVersionPath(projectRoot, parsed.session_id);
-  const canonicalRow = JSON.stringify(parsed);
-  for (const existing of readConversationVersion(path)) {
-    if (existing.kind !== 'provider_exchange' || existing.id !== parsed.id) continue;
-    if (JSON.stringify(existing) === canonicalRow) return { message: parsed, appended: false };
-    throw new Error(`provider_exchange duplicate id contract violation for session '${parsed.session_id}' message '${parsed.id}' in active conversation version.`);
-  }
-  return { message: parsed, appended: appendSyncIdempotentByKey(path, parsed, 'id') };
 }
 
 export type UserContextMessageCategory = 'planner_state' | 'notification' | 'reviewer_descendant' | 'continuation_hook';

@@ -4,10 +4,11 @@ import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolCall } from '../../agents/llm-contracts.js';
 import type { ProviderExchangeAttempt, ProviderExchangePayload } from '../../contracts/provider-exchange.js';
-import { serializeProviderExchangePayload } from '../../contracts/provider-exchange.js';
+import { appendProviderExchangeLogEntry } from '../../persistence/provider-exchange-log.js';
+import type { AppLogEntry } from '../../persistence/app-log.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
-import { appendConversationMessage, appendProviderExchangeMessage, listConversationSessionIds, readActiveVersionMessages, readConversationMessages, type ConversationAppendResult } from './conversation-store.js';
+import { appendConversationMessage, listConversationSessionIds, readActiveVersionMessages, readConversationMessages, type ConversationAppendResult } from './conversation-store.js';
 import { agentIdFromSessionId, cardIdFromSessionId } from './ids.js';
 import {
   loggedToolCallIdentity,
@@ -131,28 +132,23 @@ export function appendLlmTurnError(projectRoot: string, input: LlmInvocationInpu
   return Object.assign(message, { appendResult });
 }
 
-export function appendLlmProviderExchangeRows(projectRoot: string, input: LlmInvocationInput, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[], assistantTurnBlockCount = 1): ConversationAppendResult[] {
+export function appendLlmProviderExchangeEntries(projectRoot: string, input: LlmInvocationInput, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): AppLogEntry[] {
   if (attempts.length === 0) return [];
-  const results: ConversationAppendResult[] = [];
+  const entries: AppLogEntry[] = [];
   const sorted = [...attempts].sort((a, b) => (a.attempt_index ?? -1) - (b.attempt_index ?? -1));
   sorted.forEach((attempt, index) => {
     if (attempt.source_input_id !== input.inputId) throw new Error(`provider_exchange source_input_id '${attempt.source_input_id}' does not match input '${input.inputId}'.`);
     if (attempt.attempt_index !== index) throw new Error(`provider_exchange attempt indexes for '${input.inputId}' must be consecutive 0..N.`);
     const payload = providerExchangePayload(attempt, assistantOutputIds);
-    const id = `${input.inputId}:provider-exchange:${attempt.attempt_index}`;
-    results.push(appendProviderExchangeMessage(projectRoot, agentMessageSchema.parse({
-      id,
+    entries.push(appendProviderExchangeLogEntry(projectRoot, {
       session_id: input.sessionId,
-      role: 'system',
-      kind: 'provider_exchange',
-      content: serializeProviderExchangePayload(payload),
-      round_id: roundId('assistant', input.inputId),
-      message_index: 1,
-      block_index: assistantTurnBlockCount + attempt.attempt_index,
-      timestamp: attempt.completed_at,
-    })));
+      source_input_id: input.inputId,
+      attempt_index: payload.attempt_index,
+      timestamp: payload.completed_at,
+      payload,
+    }));
   });
-  return results;
+  return entries;
 }
 
 export function appendToolDelivery(projectRoot: string, record: Omit<ToolDeliveryRecord, 'delivery_id' | 'created_at'>): ToolDeliveryRecord & { appendResult: ConversationAppendResult } {

@@ -4,7 +4,7 @@ import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletio
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
-import { appendLlmProviderExchangeRows, appendLlmTurnError, appendLlmTurnMessage, appendLlmTurnStarted, appendLlmTurnToolCall, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
+import { appendLlmProviderExchangeEntries, appendLlmTurnError, appendLlmTurnMessage, appendLlmTurnStarted, appendLlmTurnToolCall, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import { appendUserContextMessage, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
@@ -222,7 +222,7 @@ export class ConversationLLMActor extends BaseActor {
     if (result.kind === 'message') {
       const message = appendLlmTurnMessage(this.projectRoot, input, result.content);
       this.conversationPublisher?.entryAppended(message.appendResult);
-      for (const row of appendLlmProviderExchangeRows(this.projectRoot, input, completion.provider_exchanges, [message.id])) this.conversationPublisher?.entryAppended(row);
+      appendLlmProviderExchangeEntries(this.projectRoot, input, completion.provider_exchanges, [message.id]);
       this.input = { ...input, contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }] };
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.onTurnSettled();
@@ -236,14 +236,14 @@ export class ConversationLLMActor extends BaseActor {
     if (result.tool_calls.length !== 1) {
       const error = `Provider returned ${result.tool_calls.length} tool calls; exactly one supported tool call is required.`;
       this.conversationPublisher?.entryAppended(appendLlmTurnError(this.projectRoot, input, error).appendResult);
-      for (const row of appendLlmProviderExchangeRows(this.projectRoot, input, completion.provider_exchanges, [])) this.conversationPublisher?.entryAppended(row);
+      appendLlmProviderExchangeEntries(this.projectRoot, input, completion.provider_exchanges, []);
       this.settleWithError(error);
       return;
     }
     const [call] = result.tool_calls;
     const message = appendLlmTurnToolCall(this.projectRoot, input, call);
     this.conversationPublisher?.entryAppended(message.appendResult);
-    for (const row of appendLlmProviderExchangeRows(this.projectRoot, input, completion.provider_exchanges, [message.id])) this.conversationPublisher?.entryAppended(row);
+    appendLlmProviderExchangeEntries(this.projectRoot, input, completion.provider_exchanges, [message.id]);
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
     this.onTurnStateUpdated({ input, waitingToolCall: this.waitingToolCall });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
@@ -264,7 +264,7 @@ export class ConversationLLMActor extends BaseActor {
     if (error.failure_phase === 'provider_attempt' && error.provider_exchanges.length === 0) throw new Error(`Provider attempt for '${input.inputId}' failed without provider_exchange envelope.`);
     const message = error.originalFailure instanceof Error ? error.originalFailure.message : error.message;
     this.conversationPublisher?.entryAppended(appendLlmTurnError(this.projectRoot, input, message).appendResult);
-    for (const row of appendLlmProviderExchangeRows(this.projectRoot, input, error.provider_exchanges, [])) this.conversationPublisher?.entryAppended(row);
+    appendLlmProviderExchangeEntries(this.projectRoot, input, error.provider_exchanges, []);
     this.settleWithError(message);
   }
 

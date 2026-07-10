@@ -10,7 +10,7 @@ If compaction fails, treat it as a loud provider-turn failure rather than silent
 
 Audit compacted history under the session's owner root: Analyst sessions use `.saivage/agents/conversations/<encoded-session-id>/`, while planner/executor/reviewer card sessions use `.saivage/cards/<cardId>/conversations/<encoded-session-id>/`. `index.json` names the active version and frozen versions; numbered `<N>.jsonl` files contain immutable raw or compacted versions; `summaries.jsonl` contains cached per-round summaries used to rebuild merged summaries. Frozen versions are audit evidence and should not be edited during normal operation.
 
-Provider exchange auditing also lives in the conversation JSONL as `provider_exchange` rows. Inspect the latest settled exchange through the Raw LLM Exchange UI or `GET /api/agents/:id/llm-exchange`; there is no `.saivage/agents/llm-exchanges` side-file tree, and raw HTTP bodies are not stored.
+Provider exchange auditing is backed by sanitized `provider_exchange` metadata entries in `.saivage/logs/app.jsonl`, surfaced through the Raw LLM Exchange UI and `GET /api/agents/:id/llm-exchange`. Conversation JSONL contains no `provider_exchange` rows, there is no `.saivage/agents/llm-exchanges` side-file tree, and raw HTTP request/response bodies are not persisted.
 
 Do not manually delete stash files or process logs referenced by live conversation versions. Compacted summaries include `Recoverable evidence` pointers to `work:///tmp/stash/...` and `work:///processes/...` URLs, and cleanup preserves those files while the pointers remain referenced. Manual deletion can strand a compacted summary and prevent the model or operator from recovering dropped evidence.
 

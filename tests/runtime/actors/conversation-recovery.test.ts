@@ -68,7 +68,6 @@ describe('classifyConversation', () => {
 
   it('defines dispositions for every message kind', () => {
     expect(classifyConversation([message({ kind: 'activity' })], terminalTools)).toBe('empty');
-    expect(classifyConversation([message({ kind: 'provider_exchange' })], terminalTools)).toBe('pending_provider');
     expect(classifyConversation([message({ kind: 'model_issue' })], terminalTools)).toBe('pending_provider');
     expect(classifyConversation([message({ kind: 'model_repair' })], terminalTools)).toBe('pending_provider');
     expect(classifyConversation([message({ kind: 'context_compaction' })], terminalTools)).toBe('pending_provider');

@@ -1,6 +1,6 @@
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from '../../agents/session-ids.js';
 import { CardStore } from '../../cards/store-api.js';
-import { parseProviderExchangePayload } from '../../contracts/provider-exchange.js';
+import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
 import { listConversationSessionIds, readConversationMessages } from '../../runtime/actors/conversation-store.js';
 import { readActorSnapshots, type ActorSnapshotRecord } from '../../runtime/actors/snapshots.js';
 import type { AgentMessage, AgentRole, SessionStatus } from '../../schemas/index.js';
@@ -105,8 +105,7 @@ export class AgentOperatorReadModelService {
   }
 
   private readLatestModel(sessionId: string): string | null {
-    const message = [...readConversationMessages(this.projectRoot, sessionId)].reverse().find((row) => row.kind === 'provider_exchange');
-    return message ? parseProviderExchangePayload(message.content).model : null;
+    return readLatestProviderExchangePayload(this.projectRoot, sessionId)?.model ?? null;
   }
 
   private buildSessionSummary(sessionId: string, messages: AgentMessage[], snapshots: ActorSnapshotRecord[]): AgentOperatorSessionSummary | null {

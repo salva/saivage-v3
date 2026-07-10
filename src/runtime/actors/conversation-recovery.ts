@@ -18,7 +18,6 @@ export type ConversationImplicitState =
 const messageKindsHandled: ReadonlySet<MessageKind> = new Set([
   'text',
   'activity',
-  'provider_exchange',
   'tool_call',
   'tool_result',
   'tool_error',

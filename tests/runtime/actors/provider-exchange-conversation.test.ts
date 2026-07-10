@@ -1,12 +1,16 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { appendProviderExchangeMessage, conversationMessagesForModel, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
-import { agentMessageSchema } from '../../../src/schemas/index.js';
-import { parseProviderExchangePayload, serializeProviderExchangePayload, type ProviderExchangePayload } from '../../../src/contracts/provider-exchange.js';
+import { appLogFile } from '../../../src/persistence/layout.js';
+import { readAppLogEntries } from '../../../src/persistence/app-log.js';
+import { readLatestProviderExchangePayload } from '../../../src/persistence/provider-exchange-log.js';
+import { appendLlmProviderExchangeEntries } from '../../../src/runtime/actors/llm-delivery-log.js';
+import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import type { ProviderExchangePayload } from '../../../src/contracts/provider-exchange.js';
+import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 
 function root(): string {
   const dir = mkdtempSync(join(tmpdir(), 'saivage-provider-exchange-test-'));
@@ -34,37 +38,53 @@ function payload(overrides: Partial<ProviderExchangePayload> = {}): ProviderExch
   } as ProviderExchangePayload;
 }
 
-function message(payloadValue = payload()) {
-  return agentMessageSchema.parse({
-    id: `${payloadValue.source_input_id}:provider-exchange:${payloadValue.attempt_index}`,
-    session_id: 'planner:card',
-    role: 'system',
-    kind: 'provider_exchange',
-    content: serializeProviderExchangePayload(payloadValue),
-    round_id: 'r-assistant-00000000000000000000000000000000',
-    message_index: 1,
-    block_index: 1,
-    timestamp: payloadValue.completed_at,
-  });
+function input(): LlmInvocationInput {
+  return {
+    inputId: 'planner:card:1',
+    agentId: 'planner:card',
+    role: 'planner',
+    sessionId: 'planner:card',
+    systemPrompt: 'prompt',
+    contextMessages: [],
+    tools: [],
+    terminalToolNames: [],
+    modelParams: {},
+    capabilityRequest: {},
+    episodeContext: {},
+  };
 }
 
-describe('provider_exchange conversation rows', () => {
-  it('serializes canonical body-free payloads and excludes rows from model-visible context', () => {
+describe('provider_exchange app-log entries', () => {
+  it('stores metadata-only provider exchanges in the app log instead of conversations', () => {
     const projectRoot = root();
-    appendProviderExchangeMessage(projectRoot, message());
-    const rows = readConversationMessages(projectRoot, 'planner:card');
-    expect(rows).toHaveLength(1);
-    expect(parseProviderExchangePayload(rows[0].content)).toMatchObject({ source_input_id: 'planner:card:1', assistant_output_ids: ['planner:card:1:message'] });
-    expect(rows[0].content).not.toContain('bodyRaw');
-    expect(conversationMessagesForModel(rows)).toEqual([]);
+    appendLlmProviderExchangeEntries(projectRoot, input(), [payload()], ['planner:card:1:message']);
+
+    expect(readConversationMessages(projectRoot, 'planner:card')).toEqual([]);
+
+    const [entry] = readAppLogEntries(projectRoot, 'provider_exchange');
+    expect(entry).toMatchObject({ type: 'provider_exchange' });
+    expect(entry!.data).toMatchObject({
+      session_id: 'planner:card',
+      source_input_id: 'planner:card:1',
+      attempt_index: 0,
+      payload: { source_input_id: 'planner:card:1', assistant_output_ids: ['planner:card:1:message'] },
+    });
+    expect(readLatestProviderExchangePayload(projectRoot, 'planner:card')).toMatchObject({ model: 'test-model', source_input_id: 'planner:card:1' });
+
+    const rawLog = readFileSync(appLogFile(projectRoot), 'utf-8');
+    expect(rawLog).not.toContain('request_body');
+    expect(rawLog).not.toContain('response_body');
+    expect(rawLog).not.toContain('bodyRaw');
   });
 
-  it('skips identical provider_exchange replay and rejects conflicting duplicate ids', () => {
+  it('preserves attempt ordering validation and reads the latest attempt by timestamp', () => {
     const projectRoot = root();
-    const row = message();
-    appendProviderExchangeMessage(projectRoot, row);
-    appendProviderExchangeMessage(projectRoot, row);
-    expect(readConversationMessages(projectRoot, 'planner:card')).toHaveLength(1);
-    expect(() => appendProviderExchangeMessage(projectRoot, { ...row, content: serializeProviderExchangePayload(payload({ response_status: 201 })) })).toThrow(/duplicate id/);
+    appendLlmProviderExchangeEntries(projectRoot, input(), [
+      payload({ model: 'attempt-0', attempt_index: 0, completed_at: '2026-01-01T00:00:01.000Z' }),
+      payload({ model: 'attempt-1', attempt_index: 1, completed_at: '2026-01-01T00:00:02.000Z' }),
+    ], ['planner:card:1:message']);
+
+    expect(readLatestProviderExchangePayload(projectRoot, 'planner:card')?.model).toBe('attempt-1');
+    expect(() => appendLlmProviderExchangeEntries(projectRoot, input(), [payload({ attempt_index: 2 })], [])).toThrow(/consecutive/);
   });
 });

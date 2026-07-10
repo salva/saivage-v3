@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { appendAppLogEntry } from '../../src/persistence/app-log.js';
+import { appendProviderExchangeLogEntry } from '../../src/persistence/provider-exchange-log.js';
 import { initRuntimeState, runtimeStatePath, updateRuntimeState } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/store-api.js';
 import { appendConversationMessage, buildContextTextMessage, saveActorSnapshot } from '../../src/runtime/actors/index.js';
@@ -165,9 +167,7 @@ describe('application read models', () => {
   it('reads canonical analyst segment entries and debug jsonl projections', () => {
     appendConversationMessage(root, { ...buildContextTextMessage('analyst:global', 'system', 'system prompt'), id: 'msg-1', kind: 'system_prompt', timestamp: '2026-01-01T00:00:00.000Z' });
     appendConversationMessage(root, { ...buildContextTextMessage('analyst:global', 'user', 'hi'), id: 'msg-2', timestamp: '2026-01-01T00:00:01.000Z' });
-    const runtimeDir = join(root, '.saivage', 'runtime');
-    mkdirSync(runtimeDir, { recursive: true });
-    writeFileSync(join(runtimeDir, 'errors.jsonl'), '{"message":"apiKey=secret"}\n');
+    appendAppLogEntry(root, 'error', { id: 'err-1', kind: 'error', timestamp: '2026-01-01T00:00:02.000Z', message: 'apiKey=secret' }, '2026-01-01T00:00:02.000Z');
 
     const chat = new AgentOperatorReadModelService(root).getConversation('analyst:global').body as { entries: Array<{ kind: string }> };
     const debug = new DebugReadModelService(root, new CardStore(root)).getErrors() as { errors: unknown[]; total: number };
@@ -185,5 +185,34 @@ describe('application read models', () => {
     const chat = new AgentOperatorReadModelService(root).getConversation('planner:project').body as { activity_status: { status: string } };
 
     expect(chat.activity_status.status).toBe('compacting');
+  });
+
+  it('derives latest session model from app-log provider exchange entries', () => {
+    appendConversationMessage(root, buildContextTextMessage('planner:project', 'user', 'hello'));
+    appendProviderExchangeLogEntry(root, {
+      session_id: 'planner:project',
+      source_input_id: 'planner:project:1',
+      attempt_index: 0,
+      timestamp: '2026-01-01T00:00:01.000Z',
+      payload: {
+        contract_id: 'planner.v1',
+        contract_name: 'planner',
+        transport: 'generic',
+        provider: 'test-provider',
+        model: 'app-log-model',
+        source_input_id: 'planner:project:1',
+        attempt_index: 0,
+        request_params: { temperature: 0 },
+        started_at: '2026-01-01T00:00:00.000Z',
+        completed_at: '2026-01-01T00:00:01.000Z',
+        status: 'ok',
+        terminal_tool_fired: null,
+        assistant_output_ids: ['planner:project:1:message'],
+      },
+    });
+
+    const { sessions } = new AgentOperatorReadModelService(root).listSessions();
+
+    expect(sessions.find((session) => session.id === 'planner:project')?.model).toBe('app-log-model');
   });
 });
