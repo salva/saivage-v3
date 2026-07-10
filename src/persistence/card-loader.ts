@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cardHistoryEntrySchema, cardRecordSchema, validatePersistedCardLifecycle } from '../schemas/index.js';
+import { cardHistoryEntrySchema, persistedCardRecordSchema, validatePersistedCardLifecycle } from '../schemas/index.js';
 import type { CardHistoryEntry, CardRecord } from '../schemas/index.js';
 import { CardStoreState } from '../cards/state.js';
 import { CardStoreInvariantError } from '../cards/errors.js';
@@ -26,14 +26,8 @@ export function readJsonFile(path: string): unknown {
   return JSON.parse(readFileSync(path, 'utf-8')) as unknown;
 }
 
-function stripBlocks(raw: unknown): unknown {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
-  const { blocks: _blocks, ...rest } = raw as Record<string, unknown>;
-  return rest;
-}
-
 export function parseCard(raw: unknown, path: string): CardRecord {
-  const parsed = cardRecordSchema.safeParse(stripBlocks(raw));
+  const parsed = persistedCardRecordSchema.safeParse(raw);
   if (!parsed.success) {
     throw new CardStoreInvariantError(`Card record at '${path}' is invalid: ${parsed.error.message}`);
   }
@@ -83,7 +77,7 @@ export function writeCardRecordVersion(projectRoot: string, card: CardRecord, hi
   if (card.version_seq !== nextCardVersion(index)) throw new CardStoreInvariantError(`Card '${card.id}' expected next card.json version ${nextCardVersion(index)}, got ${card.version_seq}.`);
   const path = recordPath(projectRoot, card.id, slot, card.version_seq, filename);
   mkdirSync(recordSlotDir(projectRoot, card.id, slot), { recursive: true });
-  writeFileSync(path.absolutePath, JSON.stringify(cardRecordSchema.parse(card), null, 2) + '\n', 'utf-8');
+  writeFileSync(path.absolutePath, JSON.stringify(persistedCardRecordSchema.parse(card), null, 2) + '\n', 'utf-8');
   const committedAt = new Date().toISOString();
   index.latest = card.version_seq;
   index.open = null;

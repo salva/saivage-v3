@@ -38,20 +38,17 @@ export const AUTH_FILE_REL = '.saivage/auth-profiles.json';
 export const AUTH_PROFILE_FILE_MODE = 0o600;
 
 const rawProfileSchema = z.object({
-  type: z.string().optional(),
+  type: z.string(),
   provider: z.string(),
-  accessToken: z.string().optional(),
+  accessToken: z.string(),
   refreshToken: z.string().optional(),
   expiresAt: z.number().optional(),
-  access: z.string().optional(),
-  refresh: z.string().optional(),
-  expires: z.number().optional(),
-});
+}).strict();
 
 const rawAuthProfilesSchema = z.object({
-  version: z.number().default(1),
+  version: z.number(),
   profiles: z.record(z.string(), rawProfileSchema),
-});
+}).strict();
 
 type ReadStateBase = {
   path: string;
@@ -113,36 +110,6 @@ export class AuthProfilePersistenceError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
   }
-}
-
-function normalizeProfile(
-  raw: z.infer<typeof rawProfileSchema>,
-  name: string,
-): AuthProfile {
-  const accessToken = raw.accessToken ?? raw.access;
-  if (!accessToken) {
-    throw new Error(
-      `OAuth profile '${name}' is missing required credential.`,
-    );
-  }
-
-  return {
-    type: raw.type ?? 'oauth',
-    provider: raw.provider,
-    accessToken,
-    refreshToken: raw.refreshToken ?? raw.refresh,
-    expiresAt: raw.expiresAt ?? raw.expires,
-  };
-}
-
-function normalizeProfiles(
-  raw: z.infer<typeof rawAuthProfilesSchema>,
-): AuthProfilesFile {
-  const profiles: Record<string, AuthProfile> = {};
-  for (const [name, rawProfile] of Object.entries(raw.profiles)) {
-    profiles[name] = normalizeProfile(rawProfile, name);
-  }
-  return { version: raw.version, profiles };
 }
 
 export function serializeAuthProfiles(file: AuthProfilesFile): string {
@@ -302,20 +269,11 @@ export class AuthProfileStore {
       };
     }
 
-    try {
-      return {
-        state: 'loaded',
-        path: this.filePath,
-        file: normalizeProfiles(result.data),
-      };
-    } catch (error) {
-      return {
-        state: 'invalid_schema',
-        path: this.filePath,
-        causeMessage: SAFE_INVALID_SCHEMA_MESSAGE,
-        error: new Error(SAFE_INVALID_SCHEMA_MESSAGE, { cause: error }),
-      };
-    }
+    return {
+      state: 'loaded',
+      path: this.filePath,
+      file: result.data,
+    };
   }
 
   async load(): Promise<AuthProfilesFile | null> {

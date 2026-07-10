@@ -2,9 +2,7 @@
  * OAuth Auth Profile Loader Tests
  *
  * Verifies:
- * - loadAuthProfiles() reads .saivage/auth-profiles.json and normalizes fields
- * - Canonical field names (accessToken, refreshToken, expiresAt) are handled
- * - Shorthand field names (access, refresh, expires) are handled
+ * - loadAuthProfiles() reads .saivage/auth-profiles.json with canonical fields
  * - File mode is set to 0o600 on read
  * - getAuthProfile() returns a single profile by name
  * - saveAuthProfile() writes with mode 0o600 and preserves existing profiles
@@ -13,7 +11,6 @@
  * - Profiles are blocked by existing file-access-security
  * - loadAuthProfiles() returns null for missing file
  * - Validation rejects malformed profiles
- * - Both field formats coexist in the same file
  */
 
 import { describe, it, expect, afterEach } from '@jest/globals';
@@ -103,9 +100,9 @@ function canonicalJson(profiles: Record<string, AuthProfile>): string {
   return JSON.stringify(obj, null, 2);
 }
 
-function shorthandJson(profiles: Record<string, Record<string, unknown>>): string {
+function rawAuthProfilesJson(profiles: Record<string, Record<string, unknown>>, includeVersion = true): string {
   const obj = {
-    version: 1,
+    ...(includeVersion ? { version: 1 } : {}),
     profiles,
   };
   return JSON.stringify(obj, null, 2);
@@ -122,7 +119,7 @@ describe('loadAuthProfiles', () => {
     expect(result).toBeNull();
   });
 
-  it('loads and normalizes canonical field names', async () => {
+  it('loads canonical field names', async () => {
     const root = makeProjectRoot();
     const content = canonicalJson({
       'my-profile': {
@@ -146,9 +143,9 @@ describe('loadAuthProfiles', () => {
     expect(result!.profiles['my-profile'].type).toBe('oauth');
   });
 
-  it('loads and normalizes shorthand field names (access/refresh/expires)', async () => {
+  it('rejects shorthand credential aliases', async () => {
     const root = makeProjectRoot();
-    const content = shorthandJson({
+    const content = rawAuthProfilesJson({
       'shorthand-profile': {
         type: 'oauth',
         provider: 'shorthand-provider',
@@ -159,12 +156,7 @@ describe('loadAuthProfiles', () => {
     });
     writeAuthProfiles(root, content);
 
-    const result = await loadAuthProfiles(root);
-    expect(result).not.toBeNull();
-    expect(result!.profiles['shorthand-profile'].accessToken).toBe('sh-access-token');
-    expect(result!.profiles['shorthand-profile'].refreshToken).toBe('sh-refresh-token');
-    expect(result!.profiles['shorthand-profile'].expiresAt).toBe(1778576995998);
-    expect(result!.profiles['shorthand-profile'].provider).toBe('shorthand-provider');
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema/i);
   });
 
   it('returns null from an isolated project root without auth-profiles.json', async () => {
@@ -224,26 +216,26 @@ describe('loadAuthProfiles', () => {
     await expect(loadAuthProfiles(root)).rejects.toThrow(/parse/i);
   });
 
-  it('throws when a profile is missing both accessToken and access', async () => {
+  it('throws when a profile is missing accessToken', async () => {
     const root = makeProjectRoot();
-    const content = shorthandJson({
+    const content = rawAuthProfilesJson({
       'bad-profile': {
         type: 'oauth',
         provider: 'test',
-        // no access or accessToken
+        // no accessToken
       },
     });
     writeAuthProfiles(root, content);
 
-    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema|missing required credential|missing access token/i);
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema/i);
   });
 
   it('throws when validation fails (missing provider)', async () => {
     const root = makeProjectRoot();
-    const content = shorthandJson({
+    const content = rawAuthProfilesJson({
       'bad-profile': {
         type: 'oauth',
-        access: 'some-token',
+        accessToken: 'some-token',
         // provider is missing
       },
     });
@@ -262,90 +254,49 @@ describe('loadAuthProfiles', () => {
     expect(result!.profiles).toEqual({});
   });
 
-  it('defaults version to 1 when missing', async () => {
+  it('rejects missing file version', async () => {
     const root = makeProjectRoot();
-    const content = JSON.stringify({
-      profiles: {
-        'p1': {
-          provider: 'test',
-          accessToken: 'tok',
-        },
+    const content = rawAuthProfilesJson({
+      'p1': {
+        type: 'oauth',
+        provider: 'test',
+        accessToken: 'tok',
       },
-    });
+    }, false);
     writeAuthProfiles(root, content);
 
-    const result = await loadAuthProfiles(root);
-    expect(result).not.toBeNull();
-    expect(result!.version).toBe(1);
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema/i);
   });
 
-  it('defaults type to oauth when missing', async () => {
+  it('rejects missing profile type', async () => {
     const root = makeProjectRoot();
-    const content = shorthandJson({
+    const content = rawAuthProfilesJson({
       'p1': {
         provider: 'test',
-        access: 'tok',
+        accessToken: 'tok',
       },
     });
     writeAuthProfiles(root, content);
 
-    const result = await loadAuthProfiles(root);
-    expect(result!.profiles['p1'].type).toBe('oauth');
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema/i);
   });
 
-  it('handles mixed canonical and shorthand fields in same file', async () => {
-    const root = makeProjectRoot();
-    const content = JSON.stringify({
-      version: 1,
-      profiles: {
-        canonical: {
-          type: 'oauth',
-          provider: 'p1',
-          accessToken: 'at-1',
-          refreshToken: 'rt-1',
-          expiresAt: 100,
-        },
-        shorthand: {
-          type: 'oauth',
-          provider: 'p2',
-          access: 'at-2',
-          refresh: 'rt-2',
-          expires: 200,
-        },
-      },
-    });
-    writeAuthProfiles(root, content);
-
-    const result = await loadAuthProfiles(root);
-    expect(result!.profiles['canonical'].accessToken).toBe('at-1');
-    expect(result!.profiles['canonical'].expiresAt).toBe(100);
-    expect(result!.profiles['shorthand'].accessToken).toBe('at-2');
-    expect(result!.profiles['shorthand'].expiresAt).toBe(200);
-  });
-
-  it('canonical fields take precedence over shorthand when both present', async () => {
+  it('rejects canonical profiles that also contain obsolete aliases', async () => {
     const root = makeProjectRoot();
     const content = JSON.stringify({
       version: 1,
       profiles: {
         mixed: {
-          provider: 'test',
-          accessToken: 'canonical-at',
-          access: 'shorthand-at',
-          refreshToken: 'canonical-rt',
-          refresh: 'shorthand-rt',
-          expiresAt: 999,
-          expires: 111,
+          type: 'oauth',
+          provider: 'p1',
+          accessToken: 'at-1',
+          access: 'at-obsolete',
         },
       },
     });
     writeAuthProfiles(root, content);
 
-    const result = await loadAuthProfiles(root);
-    // Canonical takes precedence
-    expect(result!.profiles['mixed'].accessToken).toBe('canonical-at');
-    expect(result!.profiles['mixed'].refreshToken).toBe('canonical-rt');
-    expect(result!.profiles['mixed'].expiresAt).toBe(999);
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema/i);
   });
 });
 
@@ -627,12 +578,13 @@ describe('file-access-security integration', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('edge cases', () => {
-  it('handle profile with only access token and provider (minimal valid)', async () => {
+  it('handles profile with required type, access token, and provider (minimal valid)', async () => {
     const root = makeProjectRoot();
-    const content = shorthandJson({
+    const content = rawAuthProfilesJson({
       'minimal': {
+        type: 'oauth',
         provider: 'min-provider',
-        access: 'min-access',
+        accessToken: 'min-access',
       },
     });
     writeAuthProfiles(root, content);
@@ -647,11 +599,12 @@ describe('edge cases', () => {
 
   it('handles zero-value expires timestamp', async () => {
     const root = makeProjectRoot();
-    const content = shorthandJson({
+    const content = rawAuthProfilesJson({
       'zero-expiry': {
+        type: 'oauth',
         provider: 'test',
-        access: 'tok',
-        expires: 0,
+        accessToken: 'tok',
+        expiresAt: 0,
       },
     });
     writeAuthProfiles(root, content);
@@ -662,11 +615,12 @@ describe('edge cases', () => {
 
   it('handles very large expiresAt timestamp', async () => {
     const root = makeProjectRoot();
-    const content = shorthandJson({
+    const content = rawAuthProfilesJson({
       'far-future': {
+        type: 'oauth',
         provider: 'test',
-        access: 'tok',
-        expires: 9999999999999,
+        accessToken: 'tok',
+        expiresAt: 9999999999999,
       },
     });
     writeAuthProfiles(root, content);
@@ -677,10 +631,10 @@ describe('edge cases', () => {
 
   it('handles special characters in profile names', async () => {
     const root = makeProjectRoot();
-    const content = shorthandJson({
-      'profile-with-dashes': { provider: 'p1', access: 'tok1' },
-      'profile.with.dots': { provider: 'p2', access: 'tok2' },
-      'profile_with_underscores': { provider: 'p3', access: 'tok3' },
+    const content = rawAuthProfilesJson({
+      'profile-with-dashes': { type: 'oauth', provider: 'p1', accessToken: 'tok1' },
+      'profile.with.dots': { type: 'oauth', provider: 'p2', accessToken: 'tok2' },
+      'profile_with_underscores': { type: 'oauth', provider: 'p3', accessToken: 'tok3' },
     });
     writeAuthProfiles(root, content);
 
@@ -724,15 +678,15 @@ describe('edge cases', () => {
     expect(result!.profiles['update'].accessToken).toBe('new-at');
   });
 
-  it('getAuthProfile returns normalized fields from shorthand', async () => {
+  it('getAuthProfile returns canonical fields', async () => {
     const root = makeProjectRoot();
-    const content = shorthandJson({
+    const content = rawAuthProfilesJson({
       'sh': {
         type: 'oauth',
         provider: 'test',
-        access: 'short-access',
-        refresh: 'short-refresh',
-        expires: 1234567890,
+        accessToken: 'short-access',
+        refreshToken: 'short-refresh',
+        expiresAt: 1234567890,
       },
     });
     writeAuthProfiles(root, content);

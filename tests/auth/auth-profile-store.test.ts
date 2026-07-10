@@ -97,12 +97,50 @@ describe('AuthProfileStore read states', () => {
     await expect(loadAuthProfiles(root)).resolves.toBeNull();
   });
 
-  it('classifies and normalizes a loaded auth profile store', async () => {
+  it('classifies a loaded canonical auth profile store', async () => {
+    const root = makeProjectRoot();
+    writeAuthProfiles(root, JSON.stringify({
+      version: 1,
+      profiles: {
+        canonical: {
+          type: 'oauth',
+          provider: 'synthetic-provider',
+          accessToken: 'at-synthetic-access-token',
+          refreshToken: 'rt-synthetic-refresh-token',
+          expiresAt: 1893456000000,
+        },
+      },
+    }));
+
+    const state = await new AuthProfileStore(root).read();
+    expect(state.state).toBe('loaded');
+    if (state.state === 'loaded') {
+      expect(state.file.profiles['canonical'].accessToken).toBe('at-synthetic-access-token');
+      expect(state.file.profiles['canonical'].refreshToken).toBe('rt-synthetic-refresh-token');
+    }
+    expectRestrictiveMode(authFilePath(root));
+  });
+
+  it('classifies missing file version as invalid schema', async () => {
+    const root = makeProjectRoot();
+    writeAuthProfiles(root, JSON.stringify({
+      profiles: {
+        canonical: makeProfile(),
+      },
+    }));
+
+    const state = await new AuthProfileStore(root).read();
+    expect(state.state).toBe('invalid_schema');
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema/i);
+  });
+
+  it('classifies shorthand-only credential keys as invalid schema', async () => {
     const root = makeProjectRoot();
     writeAuthProfiles(root, JSON.stringify({
       version: 1,
       profiles: {
         shorthand: {
+          type: 'oauth',
           provider: 'synthetic-provider',
           access: 'at-synthetic-access-token',
           refresh: 'rt-synthetic-refresh-token',
@@ -112,12 +150,23 @@ describe('AuthProfileStore read states', () => {
     }));
 
     const state = await new AuthProfileStore(root).read();
-    expect(state.state).toBe('loaded');
-    if (state.state === 'loaded') {
-      expect(state.file.profiles['shorthand'].accessToken).toBe('at-synthetic-access-token');
-      expect(state.file.profiles['shorthand'].refreshToken).toBe('rt-synthetic-refresh-token');
-    }
-    expectRestrictiveMode(authFilePath(root));
+    expect(state.state).toBe('invalid_schema');
+  });
+
+  it('classifies canonical profiles with obsolete credential aliases as invalid schema', async () => {
+    const root = makeProjectRoot();
+    writeAuthProfiles(root, JSON.stringify({
+      version: 1,
+      profiles: {
+        mixed: {
+          ...makeProfile(),
+          access: 'at-obsolete-alias',
+        },
+      },
+    }));
+
+    const state = await new AuthProfileStore(root).read();
+    expect(state.state).toBe('invalid_schema');
   });
 
   it('classifies corrupt JSON without exposing raw file content', async () => {
@@ -138,6 +187,7 @@ describe('AuthProfileStore read states', () => {
       version: 1,
       profiles: {
         bad: {
+          type: 'oauth',
           provider: 'synthetic-provider',
           refreshToken: 'rt-synthetic-refresh-token',
         },
@@ -232,7 +282,7 @@ describe('AuthProfileStore refusal semantics', () => {
     const invalid = JSON.stringify({
       version: 1,
       profiles: {
-        bad: { provider: 'synthetic-provider', refreshToken: 'rt-synthetic-refresh-token' },
+        bad: { type: 'oauth', provider: 'synthetic-provider', refreshToken: 'rt-synthetic-refresh-token' },
       },
     });
     writeAuthProfiles(root, invalid, 0o600);
@@ -298,6 +348,7 @@ describe('AuthProfileStore refusal semantics', () => {
       version: 1,
       profiles: {
         bad: {
+          type: 'oauth',
           provider: 'synthetic-provider',
           accessToken: 123,
           refreshToken: { nested: syntheticRefreshSecret },

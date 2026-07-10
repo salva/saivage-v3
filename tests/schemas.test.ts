@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   cardRecordSchema,
-  
+  cardHistoryEntrySchema,
+  cardViewSchema,
+  persistedCardRecordSchema,
   processRecordSchema,
   projectConfigSchema,
   runtimeStateSchema,
@@ -31,6 +33,31 @@ describe('Activation envelope schemas', () => {
 });
 
 describe('Core schemas still validate expected records', () => {
+  function persistedCard(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: 'goal-1',
+      type: 'goal',
+      parent: 'project',
+      depth: 1,
+      position: 0,
+      title: 'Goal 1',
+      status: 'backlog',
+      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+      tags: [],
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'analyst',
+      created_at: '2025-01-01T00:00:00.000Z',
+      updated_at: '2025-01-01T00:00:00.000Z',
+      version_seq: 1,
+      depends_on: [],
+      related: [],
+      metadata: { max_review_retries: 2, custom: 'kept' },
+      retries: 0,
+      ...overrides,
+    };
+  }
+
   it('accepts a valid project config', () => {
     expect(projectConfigSchema.safeParse({
       id: 'project',
@@ -68,6 +95,45 @@ describe('Core schemas still validate expected records', () => {
       metadata: { max_review_retries: 2, custom: 'kept' },
       retries: 0,
     }).success).toBe(true);
+  });
+
+  it('rejects unknown persisted card keys while preserving broad card view parsing', () => {
+    const card = persistedCard();
+    expect(persistedCardRecordSchema.safeParse(card).success).toBe(true);
+    expect(persistedCardRecordSchema.safeParse({ ...card, blocks: [] }).success).toBe(false);
+    expect(persistedCardRecordSchema.safeParse({ ...card, unknown_disk_key: true }).success).toBe(false);
+
+    expect(cardViewSchema.safeParse({
+      ...card,
+      display_path: 'Project / Goal 1',
+      operator_summary: {
+        lifecycleStatus: 'backlog',
+        terminal: false,
+        blocked: false,
+        hasError: false,
+        error: null,
+        completedAt: null,
+        stale: false,
+        actionCount: 0,
+      },
+    }).success).toBe(true);
+  });
+
+  it('rejects unknown persisted card history snapshot keys', () => {
+    const history = {
+      entry_id: '11111111-1111-4111-8111-111111111111',
+      kind: 'update',
+      card_id: 'goal-1',
+      version_seq: 1,
+      snapshot: { ...persistedCard(), blocks: [] },
+      changed_at: '2025-01-01T00:00:00.000Z',
+      changed_by_actor: 'analyst',
+      changed_by_surface: 'web-chat',
+      change_reason: null,
+      changed_fields: [],
+      change_summary: 'changed',
+    };
+    expect(cardHistoryEntrySchema.safeParse(history).success).toBe(false);
   });
 
 

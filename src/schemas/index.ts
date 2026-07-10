@@ -172,6 +172,7 @@ export {
   controlActionSurfaceSchema,
   cardMetadataSchema,
   cardRecordSchema,
+  persistedCardRecordSchema,
   cardViewSchema,
   cardRefViewSchema,
   cardHistoryEntrySchema,

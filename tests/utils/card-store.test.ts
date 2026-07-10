@@ -151,6 +151,39 @@ describe('CardStore validation of persisted state', () => {
     }).toThrow(/Card record .* is invalid|invalid/i);
   });
 
+  it('throws when a persisted canonical card contains obsolete blocks data', () => {
+    const created = store.create(makeCard({ type: 'goal', title: 'Blocks are invalid on disk' }));
+    const path = latestCardPath(created.id);
+    const withBlocks = {
+      ...JSON.parse(readFileSync(path, 'utf-8')),
+      blocks: [],
+    };
+    writeFileSync(path, JSON.stringify(withBlocks, null, 2));
+
+    expect(() => {
+      store = new CardStore(tmpDir);
+    }).toThrow(/Card record .* is invalid|unrecognized key|blocks/i);
+  });
+
+  it('throws when persisted card history snapshot contains obsolete blocks data', () => {
+    const created = store.create(makeCard({ type: 'goal', title: 'History Blocks' }));
+    store.mutateCard(
+      created.id,
+      { title: 'History Blocks Updated' },
+      { actor: 'analyst', surface: 'web-chat', reason: 'test' },
+    );
+    const historyPath = cardHistoryPath(tmpDir, created.id);
+    const index = JSON.parse(readFileSync(historyPath, 'utf-8')) as Record<string, any>;
+    const latest = String(index.latest);
+    index.versions[latest].history.snapshot = {
+      ...index.versions[latest].history.snapshot,
+      blocks: [],
+    };
+    writeFileSync(historyPath, JSON.stringify(index, null, 2));
+
+    expect(() => readHistoryEntriesStrict(historyPath)).toThrow(/schema validation|unrecognized key|blocks/i);
+  });
+
   it('throws when persisted canonical card JSON is schema-invalid during list', () => {
     const created = store.create(makeCard({ type: 'goal', title: 'Broken List' }));
     const path = latestCardPath(created.id);
@@ -323,22 +356,20 @@ describe('CardStore CRUD still works with validated indexes', () => {
     expect(store.read(dependency.id)).not.toHaveProperty('blocks');
   });
 
-  it('normalizes legacy persisted blocks in card and history rows', () => {
-    const created = store.create(makeCard({ type: 'goal', title: 'Legacy Blocks' }));
-    store.mutateCard(created.id, { title: 'Legacy Blocks Updated' }, { actor: 'analyst', surface: 'web-chat', reason: 'test' });
+  it('rejects persisted blocks in direct parse and history rows', () => {
+    const created = store.create(makeCard({ type: 'goal', title: 'Obsolete Blocks' }));
+    store.mutateCard(created.id, { title: 'Obsolete Blocks Updated' }, { actor: 'analyst', surface: 'web-chat', reason: 'test' });
     const cardPath = latestCardPath(created.id);
-    const rawCard = { ...JSON.parse(readFileSync(cardPath, 'utf-8')), blocks: ['legacy-blocker'] };
+    const rawCard = { ...JSON.parse(readFileSync(cardPath, 'utf-8')), blocks: ['obsolete-blocker'] };
 
-    const parsedCard = parseCard(rawCard, cardPath);
-    expect(parsedCard).not.toHaveProperty('blocks');
+    expect(() => parseCard(rawCard, cardPath)).toThrow(/unrecognized key|blocks/i);
 
     const historyPath = cardHistoryPath(tmpDir, created.id);
     const rawHistory = JSON.parse(readFileSync(historyPath, 'utf-8')) as { versions: Record<string, { history?: { snapshot?: Record<string, unknown> } }> };
-    for (const version of Object.values(rawHistory.versions)) if (version.history?.snapshot) version.history.snapshot.blocks = ['legacy-blocker'];
+    for (const version of Object.values(rawHistory.versions)) if (version.history?.snapshot) version.history.snapshot.blocks = ['obsolete-blocker'];
     writeFileSync(historyPath, JSON.stringify(rawHistory, null, 2));
 
-    const entries = readHistoryEntriesStrict(historyPath);
-    expect(entries[0]!.snapshot).not.toHaveProperty('blocks');
+    expect(() => readHistoryEntriesStrict(historyPath)).toThrow(/schema validation|unrecognized key|blocks/i);
   });
 
   it('validates parsed cards before CardStoreState construction', () => {
