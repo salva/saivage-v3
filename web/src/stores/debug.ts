@@ -22,7 +22,6 @@ import type {
   DoctorIssue,
   DoctorResponse,
   ContentReview,
-  QuarantineSummaryEntry,
   SupervisionStats,
   SupervisionResponse,
   ProcessView,
@@ -104,7 +103,6 @@ export const useDebugStore = defineStore('debug', () => {
   const doctorError = ref<string | null>(null);
 
   const supervisionReviews = ref<ContentReview[]>([]);
-  const supervisionQuarantine = ref<QuarantineSummaryEntry[]>([]);
   const supervisionStats = ref<SupervisionStats | null>(null);
   const supervisionLoading = ref(false);
   const supervisionError = ref<string | null>(null);
@@ -235,7 +233,6 @@ export const useDebugStore = defineStore('debug', () => {
     try {
       const response: SupervisionResponse = await getDebugSupervision();
       supervisionReviews.value = response.reviews;
-      supervisionQuarantine.value = response.quarantine;
       supervisionStats.value = response.stats;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch supervision data';
@@ -384,7 +381,6 @@ export const useDebugStore = defineStore('debug', () => {
     doctorLoading: readonly(doctorLoading),
     doctorError: readonly(doctorError),
     supervisionReviews: readonly(supervisionReviews),
-    supervisionQuarantine: readonly(supervisionQuarantine),
     supervisionStats: readonly(supervisionStats),
     supervisionLoading: readonly(supervisionLoading),
     supervisionError: readonly(supervisionError),

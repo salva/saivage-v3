@@ -61,7 +61,7 @@ const mockDoctorIssues = {
   ],
   issues: [
     { severity: 'error' as const, message: 'Card #abc referenced by card #def but not found' },
-    { severity: 'warning' as const, message: 'Orphan file .saivage/work/quarantine/xyz.log' },
+    { severity: 'warning' as const, message: 'Orphan file .saivage/work/output/xyz.log' },
   ],
 };
 
@@ -76,7 +76,6 @@ const mockSupervision = {
       status: 'passed' as const,
       summary: 'No sensitive data detected',
       risk: 'low' as const,
-      quarantine_id: null,
       created_at: '2025-06-01T10:00:00Z',
     },
     {
@@ -86,7 +85,6 @@ const mockSupervision = {
       status: 'blocked' as const,
       summary: 'Contains PII pattern (email)',
       risk: 'high' as const,
-      quarantine_id: 'q-abc123',
       created_at: '2025-06-01T10:05:00Z',
     },
     {
@@ -96,17 +94,7 @@ const mockSupervision = {
       status: 'sanitized' as const,
       summary: 'PII redacted, content safe',
       risk: 'medium' as const,
-      quarantine_id: null,
       created_at: '2025-06-01T10:10:00Z',
-    },
-  ],
-  quarantine: [
-    {
-      quarantine_id: 'q-abc123',
-      review_id: 'r2',
-      source_ref: '.saivage/work/output/report.md',
-      risk: 'high' as const,
-      created_at: '2025-06-01T10:05:00Z',
     },
   ],
   stats: {
@@ -188,15 +176,13 @@ describe('useDebugStore — supervision/doctor', () => {
   // ── Supervision ─────────────────────────────────────────────
 
   describe('fetchSupervision()', () => {
-    it('populates supervisionReviews, supervisionQuarantine, and supervisionStats', async () => {
+    it('populates supervisionReviews and supervisionStats', async () => {
       const store = setupStore();
       vi.mocked(getDebugSupervision).mockResolvedValue(mockSupervision);
 
       await store.fetchSupervision();
 
       expect(store.supervisionReviews).toHaveLength(3);
-      expect(store.supervisionQuarantine).toHaveLength(1);
-      expect(store.supervisionQuarantine[0].quarantine_id).toBe('q-abc123');
       expect(store.supervisionStats).toEqual(mockSupervision.stats);
       expect(store.supervisionLoading).toBe(false);
     });

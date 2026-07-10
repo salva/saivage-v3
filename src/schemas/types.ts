@@ -96,7 +96,7 @@ export type SessionStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocke
 export interface AgentSession { id: string; role: AgentRole; goal_card_id?: string | null; card_id?: string | null; assessment_id?: string | null; status: SessionStatus; started_at: string; completed_at?: string | null; model?: string; }
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'provider_exchange' | 'tool_call' | 'tool_result' | 'tool_error' | 'model_issue' | 'model_repair' | 'context_compaction' | 'model_recovered' | 'system_prompt';
-export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine'; entity_id: string; label?: string; }
+export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
 export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; }
 export interface ToolErrorAgentMessage extends AgentMessage { kind: 'tool_error'; role: 'tool' | 'system'; tool: string; tool_call_id: string; }
 export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
@@ -112,14 +112,12 @@ export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pi
 export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
 export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
 export type RiskLevel = 'low' | 'medium' | 'high';
-export interface ContentReview { id: string; source_kind: SourceKind; source_ref: string; status: ReviewStatus; summary: string; risk: RiskLevel; quarantine_id?: string | null; created_at: string; }
-export interface QuarantineItem { id: string; review_id: string; source_ref: string; stored_path: string; reason: string; created_at: string; }
+export interface ContentReview { id: string; source_kind: SourceKind; source_ref: string; status: ReviewStatus; summary: string; risk: RiskLevel; created_at: string; }
 export interface DoctorCheck { name: string; passed: boolean; details?: string; }
 export interface DoctorIssue { severity: 'error' | 'warning'; message: string; }
 export interface DoctorResponse { status: 'ok' | 'issues_found'; checks: DoctorCheck[]; issues: DoctorIssue[]; }
-export interface QuarantineSummaryEntry { quarantine_id: string; review_id: string; source_ref: string; risk: RiskLevel; created_at: string; }
 export interface SupervisionStats { total: number; blocked: number; passed: number; sanitized: number; byRisk: Record<string, number>; bySourceKind: Record<string, number>; }
-export interface SupervisionResponse { reviews: ContentReview[]; quarantine: QuarantineSummaryEntry[]; stats: SupervisionStats; }
+export interface SupervisionResponse { reviews: ContentReview[]; stats: SupervisionStats; }
 export type TriggerType = 'keyword' | 'tool' | 'path' | 'tag';
 export interface SkillTrigger { type: TriggerType; pattern: string; }
 export interface SkillIndexEntry { name: string; file: string; target_agents: AgentRole[]; triggers: SkillTrigger[]; updated_at: string; }

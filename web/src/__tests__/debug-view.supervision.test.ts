@@ -81,7 +81,6 @@ const mockSupervision = {
       status: 'passed' as const,
       summary: 'No issues',
       risk: 'low' as const,
-      quarantine_id: null,
       created_at: '2025-06-01T10:00:00Z',
     },
     {
@@ -90,16 +89,6 @@ const mockSupervision = {
       source_ref: 'report.md',
       status: 'blocked' as const,
       summary: 'PII found',
-      risk: 'high' as const,
-      quarantine_id: 'q-blocked',
-      created_at: '2025-06-01T10:05:00Z',
-    },
-  ],
-  quarantine: [
-    {
-      quarantine_id: 'q-blocked',
-      review_id: 'r2',
-      source_ref: 'report.md',
       risk: 'high' as const,
       created_at: '2025-06-01T10:05:00Z',
     },
@@ -278,32 +267,13 @@ describe('DebugView — supervision tab', () => {
     expect(reviews[1].find('.sv-review-summary').text()).toBe('PII found');
   });
 
-  it('renders quarantine entry with Browse in Files button', async () => {
+  it('does not render quarantine Browse in Files controls', async () => {
     const wrapper = await mountDebugView();
     clickSupervisionTab(wrapper);
     await flushPromises();
 
-    const qItems = wrapper.findAll('.sv-q-item');
-    expect(qItems).toHaveLength(1);
-    expect(qItems[0].text()).toContain('q-blocked');
-
-    const browseBtn = qItems[0].find('.sv-q-browse-btn');
-    expect(browseBtn.exists()).toBe(true);
-    expect(browseBtn.text()).toBe('Browse in Files');
-  });
-
-  it('navigates to Files route on quarantine Browse click', async () => {
-    const wrapper = await mountDebugView();
-    clickSupervisionTab(wrapper);
-    await flushPromises();
-
-    const browseBtn = wrapper.find('.sv-q-browse-btn');
-    await browseBtn.trigger('click');
-    await flushPromises();
-
-    expect(mockPush).toHaveBeenCalledWith({
-      name: 'files',
-      query: { path: '.saivage/work/quarantine/q-blocked' },
-    });
+    expect(wrapper.find('.sv-q-item').exists()).toBe(false);
+    expect(wrapper.find('.sv-q-browse-btn').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('Quarantine Index');
   });
 });

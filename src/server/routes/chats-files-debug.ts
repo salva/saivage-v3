@@ -1,17 +1,14 @@
 import { readdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { CardStore } from '../../cards/store-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
-import { listRecentReviews, listQuarantineIndex } from '../../workspace/index.js';
+import { listRecentReviews } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
 import { cardRecordVersionPath, cardRecordsRoot } from '../../persistence/card-loader.js';
 import { readRecordSlotIndex } from '../../runtime/records/record-slots.js';
 
 export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardStore, runtimeApplication?: RuntimeApplication): void {
-  const saivageDir = join(projectRoot, '.saivage');
-
   fastify.post('/api/debug/runtime/start', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       if (!runtimeApplication) return reply.status(503).send({ error: 'Runtime application unavailable.' });
@@ -81,8 +78,7 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
 
   fastify.get('/api/debug/supervision', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const reviews = listRecentReviews(saivageDir, 50);
-      const quarantineIndex = listQuarantineIndex(saivageDir);
+      const reviews = listRecentReviews(projectRoot, 50);
       const byRisk: Record<string, number> = {};
       const bySourceKind: Record<string, number> = {};
       for (const r of reviews) {
@@ -91,7 +87,6 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
       }
       return reply.send({
         reviews,
-        quarantine: quarantineIndex.map((entry) => ({ quarantine_id: entry.quarantine_id, review_id: entry.review_id, source_ref: entry.source_ref, risk: entry.risk, created_at: entry.created_at })),
         stats: {
           total: reviews.length,
           blocked: reviews.filter((r) => r.status === 'blocked').length,

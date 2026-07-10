@@ -47,11 +47,6 @@
         </SelectableRow>
         <ViewState v-if="activeFiles.length === 0 && !activeLoading" class="empty-state" state="empty" title="No files" data-testid="files-empty" />
       </div>
-
-      <div v-if="activeRoot === 'output'" class="quarantine-footer">
-        <div class="quarantine-footer-label">Quarantine</div>
-        <button class="btn quarantine-footer-btn" @click="goToPath('output', '.saivage/work/quarantine')">Browse .saivage/work/quarantine/</button>
-      </div>
     </Panel>
 
     <section v-if="cardChildren.length > 0" class="card-children-listing" data-testid="files-view-card-children">
@@ -322,7 +317,4 @@ watch(() => [route.query.root, route.query.path], () => {
 .viewer-state { padding: 16px; }
 .viewer-content { flex:1; min-height:0; overflow:auto; padding:12px; }
 .viewer-redaction-notice { margin-bottom:8px; }
-.quarantine-footer { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--surface-2); border-top:1px solid var(--border); flex-shrink:0; }
-.quarantine-footer-label { font-size:10px; font-weight:600; color:var(--warn); text-transform:uppercase; letter-spacing:.05em; }
-.quarantine-footer-btn { font-size:11px; font-family:'SF Mono',monospace; padding:3px 8px; }
 </style>

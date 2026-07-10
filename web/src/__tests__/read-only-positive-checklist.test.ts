@@ -100,7 +100,7 @@ describe('read-only positive checklist', () => {
     expect(debugViewSource).toContain('selectedTimelineKinds = []');
     expect(debugViewSource).toContain('debugStore.fetchProcesses()');
     expect(debugViewSource).toContain('browseProcessLog(logEntry.value)');
-    expect(debugViewSource).toContain('browseQuarantineItem(entry.quarantine_id)');
+    expect(debugViewSource).not.toContain('browseQuarantineItem');
 
     // Card detail and tree navigation remain read-only positive paths.
     expect(cardDetailSource).toContain('CardRecordsSection');

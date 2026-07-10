@@ -52,7 +52,7 @@ export const sessionStatusSchema = z.enum(['active', 'waiting', 'inactive', 'don
 export const agentSessionSchema = z.object({ id: z.string().min(1), role: agentRoleSchema, goal_card_id: z.string().nullable().optional(), card_id: z.string().nullable().optional(), assessment_id: z.string().nullable().optional(), status: sessionStatusSchema, started_at: z.string().datetime(), completed_at: z.string().datetime().nullable().optional(), model: z.string().optional() });
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
 export const messageKindSchema = z.enum(['text', 'activity', 'provider_exchange', 'tool_call', 'tool_result', 'tool_error', 'model_issue', 'model_repair', 'context_compaction', 'model_recovered', 'system_prompt']);
-export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment', 'quarantine']), entity_id: z.string().min(1), label: z.string().optional() });
+export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment']), entity_id: z.string().min(1), label: z.string().optional() });
 export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: z.string().min(1), role: messageRoleSchema, kind: messageKindSchema, content: z.string(), round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional() }).superRefine((message, ctx) => {
   if ((message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'tool_error') && message.tool_call_id !== undefined && typeof message.tool_call_id !== 'string') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_call_id must be a scalar string when present on tool entries', path: ['tool_call_id'] });
   if (message.kind !== 'tool_call' && message.kind !== 'tool_result' && message.kind !== 'tool_error') return;
@@ -102,8 +102,7 @@ export const handoffSummarySchema = z.object({ session_id: z.string().min(1), ro
 export const sourceKindSchema = z.enum(['command_output', 'file', 'download', 'web', 'api', 'tool']);
 export const reviewStatusSchema = z.enum(['passed', 'blocked', 'sanitized']);
 export const riskLevelSchema = z.enum(['low', 'medium', 'high']);
-export const contentReviewSchema = z.object({ id: z.string().min(1), source_kind: sourceKindSchema, source_ref: z.string().min(1), status: reviewStatusSchema, summary: z.string(), risk: riskLevelSchema, quarantine_id: z.string().nullable().optional(), created_at: z.string().datetime() });
-export const quarantineItemSchema = z.object({ id: z.string().min(1), review_id: z.string().min(1), source_ref: z.string().min(1), stored_path: z.string().min(1), reason: z.string(), created_at: z.string().datetime() });
+export const contentReviewSchema = z.object({ id: z.string().min(1), source_kind: sourceKindSchema, source_ref: z.string().min(1), status: reviewStatusSchema, summary: z.string(), risk: riskLevelSchema, created_at: z.string().datetime() }).strict();
 export const triggerTypeSchema = z.enum(['keyword', 'tool', 'path', 'tag']);
 export const skillTriggerSchema = z.object({ type: triggerTypeSchema, pattern: z.string().min(1) });
 export const skillIndexEntrySchema = z.object({ name: z.string().min(1), file: z.string().min(1), target_agents: z.array(agentRoleSchema), triggers: z.array(skillTriggerSchema), updated_at: z.string().datetime() });

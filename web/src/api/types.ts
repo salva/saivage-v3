@@ -94,7 +94,6 @@ export type ControlActionAuditEntry = OperatorApiSuccess<'controlActions.list'>[
 export type DoctorCheck = DoctorResponse['checks'][number];
 export type DoctorIssue = DoctorResponse['issues'][number];
 export type ContentReview = SupervisionResponse['reviews'][number];
-export type QuarantineSummaryEntry = SupervisionResponse['quarantine'][number];
 export type SupervisionStats = SupervisionResponse['stats'];
 
 export type ProcessView = OperatorApiSuccess<'processes.get'>['process'];

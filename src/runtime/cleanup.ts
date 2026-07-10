@@ -314,7 +314,7 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
  * This is the primary entry point for general cleanup. It runs each
  * targeted cleanup function and aggregates the results.
  *
- * Never removes download reviews or quarantine metadata.
+  * Never removes download reviews.
  *
  * @param saivageWorkDir - Path to .saivage/work/ directory
  * @param store - CardStore instance for artifact reference checks

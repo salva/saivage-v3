@@ -16,7 +16,7 @@ The target experience is:
 - tool calls scan as compact operational milestones, not JSON records;
 - one click opens a human-readable detail prepared for operators;
 - raw request/response payloads remain reachable through one shared escape hatch;
-- file, URL, card, process, artifact, attachment, quarantine, and child-conversation links are lateral navigation, not row expansion;
+- file, URL, card, process, artifact, attachment, and child-conversation links are lateral navigation, not row expansion;
 - repetitive context gathering may be grouped, while mutations, dispatches, diagnostics, activity-backed pending calls, and errors remain visible.
 
 ## 2. Source Material
@@ -76,7 +76,7 @@ Replace the current raw `FormattedContent` detail with a richer display/detail m
 type ToolCategory =
   | 'filesystem' | 'web' | 'shell' | 'git' | 'plan' | 'stage_artifact'
   | 'card' | 'dispatch' | 'skill' | 'memory' | 'rag' | 'note'
-  | 'artifacts_and_attachments' | 'quarantine' | 'unknown';
+  | 'artifacts_and_attachments' | 'unknown';
 
 type DisplayTone = 'neutral' | 'ok' | 'warn' | 'error' | 'pending';
 
@@ -85,7 +85,7 @@ type ToolDetailKind =
   | 'web_results' | 'web_fetch' | 'command' | 'git_status' | 'git_diff'
   | 'git_log' | 'git_mutation' | 'plan_state' | 'plan_mutation'
   | 'stage_artifact' | 'card_mutation' | 'dispatch' | 'skill'
-  | 'memory' | 'rag' | 'note' | 'artifact' | 'quarantine' | 'generic';
+  | 'memory' | 'rag' | 'note' | 'artifact' | 'generic';
 
 interface ToolDisplayModel {
   category: ToolCategory;
@@ -158,11 +158,11 @@ type InlinePart =
 type DetailLink =
   | { kind: 'file'; label: string; path: string; root?: 'project' | 'saivage'; line?: number }
   | { kind: 'url'; label: string; url: string }
-  | { kind: 'entity'; label: string; entityType: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine'; entityId: string }
+  | { kind: 'entity'; label: string; entityType: 'card' | 'process' | 'artifact' | 'attachment'; entityId: string }
   | { kind: 'conversation'; label: string; agentId?: string; roundId?: string };
 ```
 
-The lateral link set matches v3's `EntityLink` surface (`card` | `process` | `artifact` | `attachment` | `quarantine`) plus file paths and URLs. `conversation` links (navigate to a child or peer agent transcript) are **backend-gated**: the runtime does not yet expose stable child-agent or child-conversation references in dispatch results. The UI must render `conversation` links only when the backend provides the id. A child dispatch detail should never show a disabled fake link — show the child outcome summary, evidence, and issues instead, and add the conversation link when the backend wires it (tracked in Phase 1 backend work).
+The lateral link set matches v3's `EntityLink` surface (`card` | `process` | `artifact` | `attachment`) plus file paths and URLs. Blocked-content reviews are non-browseable summaries, not entity links. `conversation` links (navigate to a child or peer agent transcript) are **backend-gated**: the runtime does not yet expose stable child-agent or child-conversation references in dispatch results. The UI must render `conversation` links only when the backend provides the id. A child dispatch detail should never show a disabled fake link — show the child outcome summary, evidence, and issues instead, and add the conversation link when the backend wires it (tracked in Phase 1 backend work).
 
 ### Group summary
 
@@ -252,7 +252,7 @@ The detail body is not raw JSON decorated as Markdown. It is a formatter-driven 
 - planner/executor/reviewer terminal tools show objective, outcome, summary, evidence, issues, and related cards (`dispatch`);
 - Analyst tools show the operator-facing action, affected entity, audit/control-action id when present, and resulting navigation hint (`list`);
 - RAG, memory, note, and artifact tools show the collection/key/path, counts, and saved artifacts (`table` + `attachments`);
-- quarantine / content-supervision tools show the reviewed entity, the review verdict, and the quarantine entity link (`quarantine`);
+- content-supervision tools show the reviewed source and review verdict as non-browseable summary metadata;
 - unknown external tools show a generic friendly title plus selected scalar arguments, then raw payload access (`generic`).
 
 The shared raw toggle is mandatory for every tool pair:
@@ -495,7 +495,7 @@ The backend remains the source of truth for conversation entries and must expose
 | Raw payload preservation | Original tool request/result/error `content` is stored unchanged | The raw escape hatch guarantees no data loss |
 | Entry schema stability | `kind`, `role`, `round_id`, `message_index`, `block_index`, `timestamp`, `tool_name`, `tool_call_id`, `model` stay stable or evolve through typed API changes | Pairing, grouping, and expansion-state stability depend on them |
 | Structured tool results | Tool results keep structured envelopes, not free text, where the tool already produces structured data | Human detail renderers need parseable facts, not best-effort text |
-| Entity links | Tool results include `EntityLink[]` for affected cards, processes, artifacts, attachments, and quarantine records when available | Lateral navigation to cards/processes/records |
+| Entity links | Tool results include `EntityLink[]` for affected cards, processes, artifacts, and attachments when available | Lateral navigation to cards/processes/records |
 | Child dispatch references | Add stable child-agent or child-conversation references to dispatch/terminal results when available | Enables lateral navigation from `run_*`/terminal rows to child transcripts |
 | Artifact and record paths | Return persisted paths for record writes, command logs, stash files, and saved fetches when available | Detail links to evidence files |
 | Error shape | Keep stable error codes/messages in structured payloads | Compact status showed a meaningful error first line |
@@ -516,7 +516,7 @@ Phase 1: shared primitives and API discipline.
 - Done: make Debug agents use the API-backed conversation source instead of obsolete transcript directories.
 - Done: ensure `system_prompt` entries reach the timeline and render collapsed by default.
 - Keep raw LLM exchange as a separate Debug disclosure.
-- Backend: wire `EntityLink` emission for card/process/artifact/attachment/quarantine into tool results; document the child-dispatch reference gap.
+- Backend: wire `EntityLink` emission for card/process/artifact/attachment into tool results; document the child-dispatch reference gap.
 
 Phase 2: tool presentation model (requires v3 tool surface alignment).
 

@@ -243,7 +243,7 @@ Config, events, and modules for features that were never built and are not in th
 
 1. **Delete `ContentSupervisor` module first; decide supervision storage/UI separately.**
 
-   `src/workspace/content-supervisor.ts` is never constructed in production. The spec does not mention content supervision. Its `eventBus` field, `emitBlocked` method, and silent error swallowing are dead. However, `/api/debug/supervision` does not call `ContentSupervisor`; it reads quarantine/review files directly, and file-tree initialization creates those files independently. Clean cut: delete the dead module/export first. If removing the supervision concept entirely, delete the storage files, route, `web/src/views/DebugView.vue` supervision tab, debug store/read-model state, and supervision tests in the same focused change.
+   `src/workspace/content-supervisor.ts` is never constructed in production. The spec does not mention content supervision. Its `eventBus` field, `emitBlocked` method, and silent error swallowing are dead. `/api/debug/supervision` is now an app-log-backed content-review projection that does not persist raw blocked content or quarantine browse paths. If removing the supervision concept entirely later, delete that route, `web/src/views/DebugView.vue` supervision tab, debug store/read-model state, and supervision tests in the same focused change.
 
    Status: completed in the ContentSupervisor cleanup slice; supervision storage/API/UI remain as a separate decision.
 

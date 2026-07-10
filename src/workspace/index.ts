@@ -25,7 +25,6 @@ export {
   type ShellSafetyClass,
 } from './shell-classifier.js';
 export {
-  listQuarantineIndex,
   listRecentReviews,
 } from './quarantine.js';
 export {

@@ -5,6 +5,5 @@
   "status": "blocked",
   "summary": "File contains potential prompt injection pattern",
   "risk": "high",
-  "quarantine_id": "q-0001",
   "created_at": "2025-01-01T05:00:00.000Z"
 }

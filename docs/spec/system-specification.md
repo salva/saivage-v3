@@ -323,7 +323,7 @@ The specification does not impose a process concurrency limit for now. Future ru
 
 ## 17. Operator API And Live Projections
 
-`/api/state` returns the persisted runtime-state projection from `.saivage/state/runtime.json`; the `runtime` field may be `null` when that file is absent. Live server availability is a separate projection sourced from the running runtime application. If that live runtime-status read fails, availability reports a degraded diagnostic for `runtime-application`; `runtime-state` is not an availability component source. Runtime event, error, and control-action APIs are logical projections from the single application log at `.saivage/logs/app.jsonl`.
+`/api/state` returns the persisted runtime-state projection from `.saivage/state/runtime.json`; the `runtime` field may be `null` when that file is absent. Live server availability is a separate projection sourced from the running runtime application. If that live runtime-status read fails, availability reports a degraded diagnostic for `runtime-application`; `runtime-state` is not an availability component source. Runtime event, error, control-action, and content-supervision review APIs are logical projections from the single application log at `.saivage/logs/app.jsonl`. When supervision blocks content, it appends only a sanitized `content_review` summary; the blocked raw content is not stored, no quarantine side files are created, and no browseable quarantine path is exposed.
 
 Runtime events are read through paginated operator endpoints. Missing `limit` and `offset` use their defaults, but malformed present values such as negative numbers, decimals, or non-numeric strings fail request validation instead of being silently defaulted.
 

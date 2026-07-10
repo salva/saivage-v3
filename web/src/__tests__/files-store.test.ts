@@ -475,12 +475,12 @@ describe('useFileStore', () => {
         new ApiError(403, 'Protected content — requires supervisor approval', { code: 'PROTECTED' }),
       );
 
-      await store.fetchFileContent('.saivage/work/quarantine/bad.txt');
+      await store.fetchFileContent('.saivage/work/output/bad.txt');
 
       expect(store.error).toBe('Protected content — requires supervisor approval');
       expect(store.contentLoading).toBe(false);
       expect(store.viewedFile).toBeNull();
-      expect(store.viewedFilePath).toBe('.saivage/work/quarantine/bad.txt');
+      expect(store.viewedFilePath).toBe('.saivage/work/output/bad.txt');
     });
 
     it('sets error on generic Error failure', async () => {
@@ -651,7 +651,7 @@ describe('useFileStore', () => {
         new ApiError(403, 'Protected content — access denied', { code: 'ACCESS_DENIED' }),
       );
 
-      await store.fetchMetaFiles('.saivage/quarantine');
+      await store.fetchMetaFiles('.saivage/protected');
 
       expect(store.error).toBe('Protected content — access denied');
       expect(store.metaFiles).toEqual([]);
@@ -660,12 +660,12 @@ describe('useFileStore', () => {
     it('sets error message from ApiError with protected content message in getFileContent', async () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockRejectedValue(
-        new ApiError(403, 'This file is quarantined by content supervisor', {}),
+        new ApiError(403, 'This file is blocked by content supervisor', {}),
       );
 
-      await store.fetchFileContent('.saivage/work/quarantine/blocked.json');
+      await store.fetchFileContent('.saivage/work/output/blocked.json');
 
-      expect(store.error).toBe('This file is quarantined by content supervisor');
+      expect(store.error).toBe('This file is blocked by content supervisor');
       expect(store.viewedFile).toBeNull();
       expect(store.contentLoading).toBe(false);
     });
@@ -796,41 +796,6 @@ describe('useFileStore', () => {
     });
   });
 
-  describe('quarantine browse scenario', () => {
-    it('browses quarantine directory via navigateOutput', async () => {
-      const store = setupStore();
-      const quarantineFiles = {
-        path: '.saivage/work/quarantine',
-        files: [
-          { name: 'qr-abc123', path: '.saivage/work/quarantine/qr-abc123', type: 'directory' as const, modifiedAt: '2025-01-01T00:00:00Z' },
-        ],
-      };
-      vi.mocked(listFiles).mockResolvedValue(quarantineFiles);
-
-      await store.navigateOutput('.saivage/work/quarantine');
-
-      expect(store.outputPath).toBe('.saivage/work/quarantine');
-      expect(store.outputFiles).toEqual(quarantineFiles.files);
-      expect(store.outputBreadcrumbs).toEqual([
-        { label: '.saivage/work', path: '.saivage/work' },
-        { label: 'quarantine', path: '.saivage/work/quarantine' },
-      ]);
-    });
-
-    it('handles protected content error when fetching quarantined file', async () => {
-      const store = setupStore();
-      vi.mocked(getFileContent).mockRejectedValue(
-        new ApiError(403, 'Content quarantined — blocked by supervisor review', { quarantine_id: 'qr-abc123' }),
-      );
-
-      await store.fetchFileContent('.saivage/work/quarantine/qr-abc123/evil.txt');
-
-      expect(store.error).toBe('Content quarantined — blocked by supervisor review');
-      expect(store.viewedFile).toBeNull();
-      expect(store.contentLoading).toBe(false);
-    });
-  });
-
   describe('file content recovery path (fail → clearViewedFile → success)', () => {
     it('recovers after failed fetch: clearViewedFile resets viewer, subsequent fetch succeeds with clean state', async () => {
       const store = setupStore();
@@ -838,11 +803,11 @@ describe('useFileStore', () => {
       vi.mocked(getFileContent).mockRejectedValueOnce(
         new ApiError(403, 'Content blocked by supervisor', { code: 'BLOCKED' }),
       );
-      await store.fetchFileContent('.saivage/work/quarantine/bad.txt');
+      await store.fetchFileContent('.saivage/work/output/bad.txt');
 
       expect(store.error).toBe('Content blocked by supervisor');
       expect(store.viewedFile).toBeNull();
-      expect(store.viewedFilePath).toBe('.saivage/work/quarantine/bad.txt');
+      expect(store.viewedFilePath).toBe('.saivage/work/output/bad.txt');
       expect(store.contentLoading).toBe(false);
 
       store.clearViewedFile();

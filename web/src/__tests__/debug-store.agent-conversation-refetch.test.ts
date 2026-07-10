@@ -10,7 +10,7 @@ vi.mock('../api/client', () => ({
   getDebugErrors: vi.fn().mockResolvedValue({ errors: [], total: 0 }),
   getDebugTimeline: vi.fn().mockResolvedValue({ events: [], total: 0 }),
   getDoctor: vi.fn().mockResolvedValue({ status: 'ok', checks: [], issues: [] }),
-  getDebugSupervision: vi.fn().mockResolvedValue({ reviews: [], quarantine: [], stats: null }),
+  getDebugSupervision: vi.fn().mockResolvedValue({ reviews: [], stats: null }),
   listProcesses: vi.fn().mockResolvedValue({ processes: [] }),
   listAgentSessions: vi.fn(),
   listFiles: vi.fn().mockResolvedValue({ files: [] }),

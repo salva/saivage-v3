@@ -4,7 +4,7 @@
  * Verifies the safe cleanup utility operates correctly:
  * - cleanCardTmp removes only cards/<id>/tmp/
  * - cleanStaleStash removes old files, keeps new files
- * - Cleanup never touches durable records, downloads, quarantine
+ * - Cleanup never touches durable records or downloads
  * - cleanStaleProcessOutput respects live in-memory process ids and conversation references
  * - Stale previews/uploads are cleaned up
  */
@@ -210,21 +210,17 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(existsSync(join(scratchSibling, 'keep.txt'))).toBe(true);
   });
 
-  it('cleanAll: does not touch downloads/ or quarantine/', () => {
+  it('cleanAll: does not touch downloads/', () => {
     const swd = saivageWorkDir();
     const dlDir = join(swd, 'downloads', 'dl-test');
     mkdirSync(dlDir, { recursive: true });
     writeFileSync(join(dlDir, 'review.json'), 'download review');
     writeFileSync(join(dlDir, 'meta.json'), 'download meta');
-    const qDir = join(swd, 'quarantine', 'q-test');
-    mkdirSync(qDir, { recursive: true });
-    writeFileSync(join(qDir, 'meta.json'), 'quarantine meta');
 
     cleanAll(swd, store);
 
     expect(existsSync(join(dlDir, 'review.json'))).toBe(true);
     expect(existsSync(join(dlDir, 'meta.json'))).toBe(true);
-    expect(existsSync(join(qDir, 'meta.json'))).toBe(true);
   });
 
   it('cleanAll: preserves aged stash files referenced by tool_result rows and removes unreferenced aged files', async () => {
