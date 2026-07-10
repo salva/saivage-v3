@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer';
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
@@ -9,8 +8,6 @@ import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
 import { serializeToolsForCodex } from './tool-definition-serializer.js';
 
-const OPENAI_CODEX_JWT_CLAIM = 'https://api.openai.com/auth';
-
 interface CodexInputText { type: 'input_text'; text: string; }
 type CodexMessage =
   | { role: 'user'; content: CodexInputText[] }
@@ -20,16 +17,19 @@ type CodexMessage =
 
 export interface OpenAICodexGatewayConfig {
   baseUrl: string;
-  apiKey?: string;
+  apiKey: string;
+  openAICodexAccountId: string;
 }
 
 export class OpenAICodexGateway {
   private readonly baseUrl: string;
-  private readonly apiKey: string | undefined;
+  private readonly apiKey: string;
+  private readonly openAICodexAccountId: string;
 
   constructor(config: OpenAICodexGatewayConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, '');
     this.apiKey = config.apiKey;
+    this.openAICodexAccountId = config.openAICodexAccountId;
   }
 
   async complete(
@@ -39,15 +39,13 @@ export class OpenAICodexGateway {
     _sessionId: string,
     opts: LlmCompleteOptions,
   ): Promise<ProviderTurnCompletion> {
-    if (!this.apiKey) throw new LlmRequestError({ kind: 'auth_permanent', provider: candidate.provider, status: 401, message: 'OpenAI Codex provider not configured' });
-
     const body = buildOpenAICodexRequest(candidate, systemPrompt, messages, opts);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
       Connection: 'close',
       Authorization: `Bearer ${this.apiKey}`,
-      'chatgpt-account-id': openAICodexAccountId(this.apiKey),
+      'chatgpt-account-id': this.openAICodexAccountId,
       originator: 'saivage',
       'OpenAI-Beta': 'responses=experimental',
     };
@@ -192,19 +190,4 @@ export function codexMessages(messages: AgentMessage[]): CodexMessage[] {
     }
   }
   return result;
-}
-
-export function openAICodexAccountId(token: string): string {
-  try {
-    const [, payload] = token.split('.');
-    if (!payload) throw new Error('missing JWT payload');
-    const decoded = Buffer.from(payload, 'base64url').toString('utf8');
-    const claims = JSON.parse(decoded) as Record<string, unknown>;
-    const authClaims = claims[OPENAI_CODEX_JWT_CLAIM] as Record<string, unknown> | undefined;
-    const accountId = authClaims?.['chatgpt_account_id'];
-    if (typeof accountId !== 'string' || accountId.length === 0) throw new Error('missing chatgpt_account_id claim');
-    return accountId;
-  } catch (err) {
-    throw new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-codex', status: 401, message: `Failed to extract OpenAI Codex account id: ${err instanceof Error ? err.message : String(err)}` });
-  }
 }

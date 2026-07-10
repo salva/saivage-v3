@@ -19,7 +19,6 @@ export class AgentLlmInvocationGateway {
   private readonly saivageDir: string;
   private readonly registry: ProviderRegistry;
   private readonly eventLogger?: EventLogger;
-  private readonly llmClientCache: Map<string, LlmInvocationClient> = new Map();
 
   constructor(config: AgentLlmInvocationGatewayConfig) {
     this.projectRoot = config.projectRoot;
@@ -38,12 +37,8 @@ export class AgentLlmInvocationGateway {
   createLlmCallFn(): LlmCallFn {
     return async (candidate: Candidate, systemPrompt: string, genericContextMessages: AgentMessage[], activeConversationReplayOrSessionId: ResponsesReplayProjection | string, sessionIdOrOpts: string | LlmCompleteOptions, maybeOpts?: LlmCompleteOptions): Promise<ProviderTurnCompletion> => {
       const { activeConversationReplay, sessionId, opts } = parseCompleteInvocationArgs(genericContextMessages, activeConversationReplayOrSessionId, sessionIdOrOpts, maybeOpts);
-      const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(this.projectRoot, this.registry, candidate);
-      let client = this.llmClientCache.get(cacheKey);
-      if (!client) {
-        client = new LlmProviderGateway({ baseUrl, apiKey, registry: this.registry });
-        this.llmClientCache.set(cacheKey, client);
-      }
+      const { baseUrl, apiKey, openAICodexAccountId } = await resolveLlmTransportConfig(this.projectRoot, this.registry, candidate);
+      const client: LlmInvocationClient = new LlmProviderGateway({ baseUrl, apiKey, openAICodexAccountId, registry: this.registry });
       const recorder = this.createRecorder(sessionId);
       return await client.complete(candidate, systemPrompt, genericContextMessages, activeConversationReplay, sessionId, { ...opts, recorder });
     };

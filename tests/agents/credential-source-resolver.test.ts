@@ -31,6 +31,11 @@ function profile(providerName: string, accessToken: string): AuthProfile {
   };
 }
 
+function codexToken(accountId = 'acct_test'): string {
+  const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: accountId } })).toString('base64url');
+  return `header.${payload}.sig`;
+}
+
 function resolver(file: AuthProfilesFile | null = null): CredentialSourceResolver {
   return new CredentialSourceResolver({
     loadAuthProfiles: async () => file,
@@ -78,7 +83,7 @@ describe('CredentialSourceResolver', () => {
     expect(resolved.baseUrl).toBe('https://api.openai.com');
   });
 
-  it('resolves access credential precedence through account/provider keys and explicit profiles', async () => {
+  it('honors explicit auth profiles before inline key fallback', async () => {
     const profiles: AuthProfilesFile = {
       version: 1,
       profiles: {
@@ -93,8 +98,7 @@ describe('CredentialSourceResolver', () => {
       authProfile: 'providerProfile',
     });
     const accountKey = await resolver(profiles).resolve(accountKeyProvider, accountFor(accountKeyProvider, 'primary'));
-    expect(accountKey.apiKey).toBe(ACCOUNT_KEY_SECRET);
-    expect(accountKey.cacheKey).toContain(':account-api-key:');
+    expect(accountKey.apiKey).toBe(ACCOUNT_PROFILE_TOKEN_SECRET);
 
     const providerKeyProvider = provider({
       apiKey: PROVIDER_KEY_SECRET,
@@ -102,8 +106,7 @@ describe('CredentialSourceResolver', () => {
       authProfile: 'providerProfile',
     });
     const providerKey = await resolver(profiles).resolve(providerKeyProvider, accountFor(providerKeyProvider, 'primary'));
-    expect(providerKey.apiKey).toBe(PROVIDER_KEY_SECRET);
-    expect(providerKey.cacheKey).toContain(':provider-api-key:');
+    expect(providerKey.apiKey).toBe(ACCOUNT_PROFILE_TOKEN_SECRET);
 
     const accountProfileProvider = provider({
       accounts: { primary: { authProfile: 'accountProfile' } },
@@ -111,15 +114,16 @@ describe('CredentialSourceResolver', () => {
     });
     const accountProfile = await resolver(profiles).resolve(accountProfileProvider, accountFor(accountProfileProvider, 'primary'));
     expect(accountProfile.apiKey).toBe(ACCOUNT_PROFILE_TOKEN_SECRET);
-    expect(accountProfile.cacheKey).toContain(':explicit-account-auth-profile:accountProfile:');
 
     const providerProfileProvider = provider({ authProfile: 'providerProfile' });
     const providerProfile = await resolver(profiles).resolve(providerProfileProvider, accountFor(providerProfileProvider));
     expect(providerProfile.apiKey).toBe(PROVIDER_PROFILE_TOKEN_SECRET);
-    expect(providerProfile.cacheKey).toContain(':explicit-provider-auth-profile:providerProfile:');
+
+    const inlineOnly = provider({ apiKey: PROVIDER_KEY_SECRET, accounts: { primary: { apiKey: ACCOUNT_KEY_SECRET } } });
+    expect((await resolver(profiles).resolve(inlineOnly, accountFor(inlineOnly, 'primary'))).apiKey).toBe(ACCOUNT_KEY_SECRET);
   });
 
-  it('resolves explicit authProfile before alias fallback and treats missing explicit profiles as no credential', async () => {
+  it('resolves explicit authProfile before alias fallback and rejects missing explicit profiles', async () => {
     const profiles: AuthProfilesFile = {
       version: 1,
       profiles: {
@@ -128,30 +132,26 @@ describe('CredentialSourceResolver', () => {
       },
     };
 
-    const explicitProvider = provider({ authProfile: 'explicit' }, 'openai-codex');
+    const explicitProvider = provider({ authProfile: 'explicit' }, 'openai-chat');
     const explicit = await resolver(profiles).resolve(explicitProvider, accountFor(explicitProvider));
     expect(explicit.apiKey).toBe(ACCOUNT_PROFILE_TOKEN_SECRET);
-    expect(explicit.cacheKey).toContain(':explicit-provider-auth-profile:explicit:');
 
-    const missingProvider = provider({ authProfile: 'missing-profile' }, 'openai-codex');
-    const missing = await resolver(profiles).resolve(missingProvider, accountFor(missingProvider));
-    expect(missing.apiKey).toBeUndefined();
-    expect(missing.cacheKey).toContain(':explicit-provider-auth-profile:missing-profile:');
+    const missingProvider = provider({ authProfile: 'missing-profile' }, 'openai-chat');
+    await expect(resolver(profiles).resolve(missingProvider, accountFor(missingProvider)))
+      .rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'missing_auth_profile' } });
   });
 
   it('uses only same-provider implicit auth profiles and returns none when absent', async () => {
     const profiles: AuthProfilesFile = {
       version: 1,
-      profiles: { alias: profile('openai-codex', ALIAS_PROFILE_TOKEN_SECRET), publicOpenAi: profile('openai', ACCOUNT_PROFILE_TOKEN_SECRET) },
+      profiles: { alias: profile('openai-codex', codexToken('acct_alias')), publicOpenAi: profile('openai', ACCOUNT_PROFILE_TOKEN_SECRET) },
     };
     const p = provider({}, 'openai-codex');
     const resolved = await resolver(profiles).resolve(p, accountFor(p));
-    expect(resolved.apiKey).toBe(ALIAS_PROFILE_TOKEN_SECRET);
-    expect(resolved.cacheKey).toContain(':provider-alias-auth-profile:alias:openai-codex');
+    expect(resolved.openAICodexAccountId).toBe('acct_alias');
 
-    const absent = await resolver(null).resolve(p, accountFor(p));
-    expect(absent.apiKey).toBeUndefined();
-    expect(absent.cacheKey).toContain(':none:_:_');
+    await expect(resolver(null).resolve(p, accountFor(p)))
+      .rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'missing_required_credential' } });
   });
 
   it('does not treat public OpenAI and Codex profiles as aliases', async () => {
@@ -159,22 +159,22 @@ describe('CredentialSourceResolver', () => {
       version: 1,
       profiles: {
         alpha: profile('openai', ACCOUNT_PROFILE_TOKEN_SECRET),
-        beta: profile('openai-codex', PROVIDER_PROFILE_TOKEN_SECRET),
+        beta: profile('openai-codex', codexToken('acct_beta')),
       },
     };
     const p = provider({}, 'openai-codex');
     const resolved = await resolver(profiles).resolve(p, accountFor(p));
-    expect(resolved.apiKey).toBe(PROVIDER_PROFILE_TOKEN_SECRET);
-    expect(resolved.cacheKey).toContain(':provider-alias-auth-profile:beta:openai-codex');
+    expect(resolved.openAICodexAccountId).toBe('acct_beta');
   });
 
-  it('keeps cache keys free of raw synthetic secrets', async () => {
+  it('does not return cache keys or secret-bearing diagnostic identities', async () => {
     const p = provider({
       apiKey: PROVIDER_KEY_SECRET,
       accounts: { primary: { apiKey: ACCOUNT_KEY_SECRET } },
     });
     const resolved = await resolver().resolve(p, accountFor(p, 'primary'));
     expect(resolved.apiKey).toBe(ACCOUNT_KEY_SECRET);
-    expectNoSecrets({ cacheKey: resolved.cacheKey });
+    expect('cacheKey' in resolved).toBe(false);
+    expectNoSecrets({ resolvedShape: Object.keys(resolved) });
   });
 });

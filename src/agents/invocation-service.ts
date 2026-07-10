@@ -13,11 +13,22 @@ import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js
 import { ProviderTurnFailure, type LlmCallFn, type ProviderTurnCompletion, type ResponsesReplayProjection, type ToolDefinition } from './llm-contracts.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
+import { appendProviderExchangeLogEntry, readProviderExchangeLogEntries } from '../persistence/provider-exchange-log.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
 const LLM_UNAVAILABILITY_TIMEOUT_MS = 2 * 60 * 60 * 1000;
-const WAITABLE_UNAVAILABILITY_REASONS = new Set(['server_transient', 'timeout', 'rate_limit', 'unknown']);
+const WAITABLE_UNAVAILABILITY_REASONS = new Set(['server_transient', 'timeout', 'rate_limit', 'unknown', 'parse_error']);
+
+type CandidateRecoveryState = 'UNTRIED' | 'RETRY_WAITING_UNTIL' | 'RETRYABLE_READY' | 'RATE_LIMIT_WAITING_UNTIL' | 'RATE_LIMIT_READY' | 'EXHAUSTED';
+
+interface CandidateRecoveryRecord {
+  candidate: Candidate;
+  attempts: number;
+  state: CandidateRecoveryState;
+  untilMs?: number;
+  lastFailure?: unknown;
+}
 
 export interface InvocationRequest {
   inputId: string;
@@ -47,6 +58,7 @@ export interface InvocationServiceConfig {
 
 export class InvocationService {
   private readonly router: ModelRouter;
+  private readonly projectRoot: string;
   private readonly candidateAvailability: CandidateAvailability;
   private readonly recoveryDelayMs: number;
   private readonly maxRecoveryRetries: number;
@@ -54,6 +66,7 @@ export class InvocationService {
   private readonly llmCallFn?: LlmCallFn;
 
   constructor(config: InvocationServiceConfig) {
+    this.projectRoot = config.projectRoot;
     this.router = config.router;
     this.candidateAvailability = config.candidateAvailability ?? new MemoryCandidateAvailability();
     this.recoveryDelayMs = INVOCATION_RECOVERY_DELAY_MS;
@@ -92,31 +105,53 @@ export class InvocationService {
   }
 
   async invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion> {
+    const persisted = new ProviderExchangeAppender(this.projectRoot, request.sessionId, request.inputId);
     const settled: ProviderExchangeAttempt[] = [];
-    let lastTransportError: Error | null = null;
+    let lastFailure: unknown = null;
     const deadlineMs = Date.now() + LLM_UNAVAILABILITY_TIMEOUT_MS;
+    const chain = request.candidateChain ?? await this.resolveCandidates(request.role, request.capabilityRequest);
+    if (chain.length === 0) this.throwNoCandidates(request, settled);
+    const states: CandidateRecoveryRecord[] = chain.map((candidate) => ({ candidate, attempts: 0, state: 'UNTRIED' }));
 
     while (true) {
       throwIfAborted(request.abortSignal);
-      const chain = request.candidateChain ?? await this.resolveCandidates(request.role, request.capabilityRequest);
-      if (chain.length === 0) this.throwNoCandidates(request, settled);
+      updateReadyStates(states);
+      const next = this.nextCandidateState(states, deadlineMs);
+      if (next.kind === 'timeout') {
+        const message = `No LLM candidate became available for role '${request.role}' within ${LLM_UNAVAILABILITY_TIMEOUT_MS}ms.`;
+        throw new ProviderTurnFailure({ failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider', provider_exchanges: settled, originalFailure: lastFailure ?? new Error(message), message });
+      }
+      if (next.kind === 'wait') {
+        await delayWithAbort(next.waitMs, request.abortSignal);
+        continue;
+      }
+      if (next.kind === 'none') {
+        const originalFailure = lastFailure ?? new Error(`No healthy candidates available for role '${request.role}'.`);
+        throw new ProviderTurnFailure({ failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider', provider_exchanges: settled, originalFailure });
+      }
 
-      for (const candidate of chain) {
-        throwIfAborted(request.abortSignal);
-        if (!this.candidateAvailability.isAvailable(candidate)) continue;
+      const record = next.record;
+      const candidate = record.candidate;
+      if (!this.candidateAvailability.isAvailable(candidate)) {
+        record.state = 'EXHAUSTED';
+        continue;
+      }
         try {
           const result = await this.invokeCall(request, candidate);
+          const persistedAttempts = persisted.appendAll(result.provider_exchanges);
+          settled.push(...persistedAttempts);
           await this.candidateAvailability.markSucceeded(candidate);
-          return { result: result.result, provider_exchanges: normalizeAttempts(request.inputId, [...settled, ...result.provider_exchanges]), provider_private_context: result.provider_private_context };
+          return { result: result.result, provider_exchanges: settled, provider_private_context: result.provider_private_context };
         } catch (err) {
           if (isAbortFromSignal(err, request.abortSignal)) throw err;
           const originalFailure = err instanceof ProviderTurnFailure ? err.originalFailure : err;
           if (isAbortFromSignal(originalFailure, request.abortSignal)) throw originalFailure;
+          record.attempts += 1;
           const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
             role: request.role,
             candidate,
-            attempt: settled.length + 1,
-            maxAttempts: chain.length,
+            attempt: record.attempts,
+            maxAttempts: 1 + this.maxRecoveryRetries,
             recoveryDelayMs: this.recoveryDelayMs,
             maxRecoveryRetries: this.maxRecoveryRetries,
             capabilityRequest: request.capabilityRequest,
@@ -125,37 +160,33 @@ export class InvocationService {
           });
           if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
             if (err.provider_exchanges.length === 0) throw new Error(`Provider attempt for input '${request.inputId}' settled without a provider_exchange envelope.`);
-            settled.push(...err.provider_exchanges);
+            settled.push(...persisted.appendAll(err.provider_exchanges));
           }
           if (decision.markFailed && decision.availability) await this.candidateAvailability.markFailed(candidate, decision.availability);
           if (decision.action === 'abort_without_retry' || decision.action === 'fail_invocation') {
             throw new ProviderTurnFailure({
               failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
-              provider_exchanges: normalizeAttempts(request.inputId, settled),
+              provider_exchanges: settled,
               originalFailure,
             });
           }
-          lastTransportError = originalFailure instanceof Error ? originalFailure : new Error(String(originalFailure));
-          if (decision.action === 'retry_same_after_delay' && decision.retryDelayMs && decision.retryDelayMs > 0) {
-            await delayWithAbort(Math.min(decision.retryDelayMs, Math.max(0, deadlineMs - Date.now())), request.abortSignal);
+          lastFailure = originalFailure;
+          const hasBudget = record.attempts < 1 + this.maxRecoveryRetries;
+          if (!hasBudget) {
+            record.state = 'EXHAUSTED';
+            continue;
           }
+          if (decision.failure?.kind === 'rate_limit') {
+            record.state = 'RATE_LIMIT_WAITING_UNTIL';
+            record.untilMs = decision.availability?.untilMs ?? Date.now() + Math.max(this.recoveryDelayMs, 60_000);
+          } else if (decision.failure?.kind === 'server_transient' || decision.failure?.kind === 'timeout' || decision.failure?.kind === 'unknown' || decision.failure?.kind === 'parse_error') {
+            record.state = 'RETRY_WAITING_UNTIL';
+            record.untilMs = Date.now() + (decision.retryDelayMs ?? this.recoveryDelayMs);
+          } else {
+            throw new ProviderTurnFailure({ failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider', provider_exchanges: settled, originalFailure });
+          }
+          record.lastFailure = originalFailure;
         }
-      }
-
-      const wait = this.nextUnavailabilityWaitMs(chain, deadlineMs);
-      if (wait === 'timeout') {
-        const message = `No LLM candidate became available for role '${request.role}' within ${LLM_UNAVAILABILITY_TIMEOUT_MS}ms.`;
-        throw new ProviderTurnFailure({ failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider', provider_exchanges: normalizeAttempts(request.inputId, settled), originalFailure: new Error(message), message });
-      }
-      if (typeof wait === 'number') {
-        if (wait > 0) {
-          await delayWithAbort(wait, request.abortSignal);
-        }
-        continue;
-      }
-
-      if (lastTransportError) throw new ProviderTurnFailure({ failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider', provider_exchanges: normalizeAttempts(request.inputId, settled), originalFailure: lastTransportError });
-      throw new ProviderTurnFailure({ failure_phase: 'pre_provider', provider_exchanges: [], originalFailure: new Error(`No healthy candidates available for role '${request.role}'.`) });
     }
   }
 
@@ -174,26 +205,44 @@ export class InvocationService {
       capabilitySkips: this.router.getLastCapabilitySkips(),
       sessionId: request.sessionId,
     });
-    throw new ProviderTurnFailure({ failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider', provider_exchanges: normalizeAttempts(request.inputId, settled), originalFailure: new Error(decision.message), message: decision.message });
+    throw new ProviderTurnFailure({ failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider', provider_exchanges: settled, originalFailure: new Error(decision.message), message: decision.message });
   }
 
-  private nextUnavailabilityWaitMs(chain: Candidate[], deadlineMs: number): number | 'timeout' | null {
+  private nextCandidateState(states: CandidateRecoveryRecord[], deadlineMs: number): { kind: 'attempt'; record: CandidateRecoveryRecord } | { kind: 'wait'; waitMs: number } | { kind: 'timeout' } | { kind: 'none' } {
     const now = Date.now();
-    if (chain.some((candidate) => this.candidateAvailability.isAvailable(candidate))) return null;
-    let earliestFuture: number | null = null;
-    let hasWaitableTemporary = false;
-    for (const candidate of chain) {
-      const entry = this.candidateAvailability.getEntry(candidate);
+    const retryWaiting = states.find((s) => s.state === 'RETRY_WAITING_UNTIL');
+    if (retryWaiting) return waitUntil(retryWaiting.untilMs ?? now, now, deadlineMs);
+    const retryReady = states.find((s) => s.state === 'RETRYABLE_READY');
+    if (retryReady) return { kind: 'attempt', record: retryReady };
+    const untried = states.find((s) => s.state === 'UNTRIED' && this.candidateAvailability.isAvailable(s.candidate));
+    if (untried) return { kind: 'attempt', record: untried };
+    const rateReady = states.find((s) => s.state === 'RATE_LIMIT_READY');
+    if (rateReady) return { kind: 'attempt', record: rateReady };
+    const waitingUntil = states
+      .filter((s) => s.state === 'RATE_LIMIT_WAITING_UNTIL')
+      .map((s) => s.untilMs ?? now)
+      .sort((a, b) => a - b)[0];
+    if (waitingUntil !== undefined) return waitUntil(waitingUntil, now, deadlineMs);
+    for (const state of states) {
+      const entry = this.candidateAvailability.getEntry(state.candidate);
       if (!entry || entry.state === 'HEALTHY') continue;
-      if (!entry.reason || !WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason)) continue;
-      hasWaitableTemporary = true;
-      if (entry.untilMs > now) earliestFuture = earliestFuture === null ? entry.untilMs : Math.min(earliestFuture, entry.untilMs);
+      if (entry.reason && WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason)) return waitUntil(entry.untilMs, now, deadlineMs);
     }
-    if (!hasWaitableTemporary) return null;
-    const remainingMs = deadlineMs - now;
-    if (remainingMs <= 0) return 'timeout';
-    if (earliestFuture === null) return 0;
-    return Math.min(Math.max(0, earliestFuture - now), remainingMs);
+    return { kind: 'none' };
+  }
+}
+
+function waitUntil(untilMs: number, now: number, deadlineMs: number): { kind: 'wait'; waitMs: number } | { kind: 'timeout' } {
+  const remainingMs = deadlineMs - now;
+  if (remainingMs <= 0) return { kind: 'timeout' };
+  return { kind: 'wait', waitMs: Math.min(Math.max(0, untilMs - now), remainingMs) };
+}
+
+function updateReadyStates(states: CandidateRecoveryRecord[]): void {
+  const now = Date.now();
+  for (const state of states) {
+    if (state.state === 'RETRY_WAITING_UNTIL' && (state.untilMs ?? 0) <= now) state.state = 'RETRYABLE_READY';
+    if (state.state === 'RATE_LIMIT_WAITING_UNTIL' && (state.untilMs ?? 0) <= now) state.state = 'RATE_LIMIT_READY';
   }
 }
 
@@ -236,8 +285,41 @@ function isAbortFromSignal(error: unknown, signal?: AbortSignal): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-function normalizeAttempts(sourceInputId: string, attempts: ProviderExchangeAttempt[]): ProviderExchangeAttempt[] {
-  return attempts.map((attempt, index) => ({ ...attempt, source_input_id: sourceInputId, attempt_index: index }));
+class ProviderExchangeAppender {
+  private nextAttemptIndex: number;
+  private readonly identities = new Set<string>();
+
+  constructor(private readonly projectRoot: string, private readonly sessionId: string, private readonly sourceInputId: string) {
+    const existing = readProviderExchangeLogEntries(projectRoot, sessionId).filter((entry) => entry.source_input_id === sourceInputId);
+    for (const entry of existing) this.identities.add(this.identity(entry.attempt_index));
+    this.nextAttemptIndex = existing.length === 0 ? 0 : Math.max(...existing.map((entry) => entry.attempt_index)) + 1;
+  }
+
+  appendAll(attempts: ProviderExchangeAttempt[]): ProviderExchangeAttempt[] {
+    return attempts.map((attempt) => this.append(attempt));
+  }
+
+  private append(attempt: ProviderExchangeAttempt): ProviderExchangeAttempt {
+    const indexed = { ...attempt, source_input_id: this.sourceInputId, attempt_index: this.nextAttemptIndex++ };
+    const identity = this.identity(indexed.attempt_index);
+    if (this.identities.has(identity)) throw new Error(`Duplicate provider_exchange identity '${identity}'.`);
+    this.identities.add(identity);
+    const payload = indexed.status === 'ok'
+      ? { ...indexed, assistant_output_ids: [] }
+      : indexed;
+    appendProviderExchangeLogEntry(this.projectRoot, {
+      session_id: this.sessionId,
+      source_input_id: this.sourceInputId,
+      attempt_index: indexed.attempt_index,
+      timestamp: indexed.completed_at,
+      payload,
+    });
+    return indexed;
+  }
+
+  private identity(attemptIndex: number): string {
+    return `${this.sessionId}:${this.sourceInputId}:${attemptIndex}`;
+  }
 }
 
 function genericContextMessagesForRequest(request: InvocationRequest): AgentMessage[] {

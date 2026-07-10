@@ -68,7 +68,13 @@ export function defaultHttpClassifier(response: Response, bodyText: string, ctx:
   if (status === 400 && bodyMatches(bodyText, 'usage_limit_reached')) {
     return { kind: 'rate_limit', provider, status: 429, message: `LLM usage limit reached (HTTP ${status})${d}` };
   }
-  return { kind: 'server_transient', provider, status, message: `LLM request failed (HTTP ${status})${d}` };
+  return {
+    kind: 'provider_protocol_error',
+    provider,
+    status,
+    message: `LLM provider protocol error (HTTP ${status})${d}`,
+    bodyPreview: bodyText.slice(0, 500),
+  };
 }
 
 function defaultTransportClassifier(err: unknown, ctx: ClassifierContext): LlmTransportFailure | undefined {

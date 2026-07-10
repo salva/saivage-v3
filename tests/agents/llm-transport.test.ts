@@ -10,6 +10,11 @@ const SYNTHETIC_ACCESS_SECRET = 'transport-synthetic-access-token-SECRET';
 const SYNTHETIC_REFRESH_SECRET = 'transport-synthetic-refresh-token-SECRET';
 const SYNTHETIC_ACCOUNT_KEY_SECRET = 'transport-synthetic-account-api-key-SECRET';
 
+function codexToken(accountId = 'acct_transport'): string {
+  const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: accountId } })).toString('base64url');
+  return `header.${payload}.sig`;
+}
+
 let roots: string[] = [];
 
 function makeRoot(): string {
@@ -53,13 +58,13 @@ afterEach(() => {
 });
 
 describe('resolveLlmTransportConfig', () => {
-  it('delegates base URL, credential, and non-secret cache key construction to the resolver', async () => {
+  it('delegates base URL, credential, and Codex account-id construction to the resolver', async () => {
     const root = makeRoot();
     writeProfiles(root, {
       explicit: {
         type: 'oauth',
-        provider: 'openai',
-        accessToken: SYNTHETIC_ACCESS_SECRET,
+        provider: 'openai-codex',
+        accessToken: codexToken('acct_profile'),
         refreshToken: SYNTHETIC_REFRESH_SECRET,
       },
     });
@@ -71,7 +76,7 @@ describe('resolveLlmTransportConfig', () => {
         accounts: {
           primary: {
             baseUrl: 'https://account.example.test/v1',
-            apiKey: SYNTHETIC_ACCOUNT_KEY_SECRET,
+            apiKey: codexToken('acct_primary'),
           },
         },
       },
@@ -84,8 +89,9 @@ describe('resolveLlmTransportConfig', () => {
     });
 
     expect(transport.baseUrl).toBe('https://account.example.test/v1');
-    expect(transport.apiKey).toBe(SYNTHETIC_ACCOUNT_KEY_SECRET);
-    expectNoTransportSecrets({ cacheKey: transport.cacheKey });
+    expect(transport.openAICodexAccountId).toBe('acct_profile');
+    expect('cacheKey' in transport).toBe(false);
+    expectNoTransportSecrets({ shape: Object.keys(transport) });
   });
 
   it('uses unambiguous provider alias profile through resolver wiring', async () => {
@@ -93,8 +99,8 @@ describe('resolveLlmTransportConfig', () => {
     writeProfiles(root, {
       alias: {
         type: 'oauth',
-        provider: 'openai',
-        accessToken: SYNTHETIC_ACCESS_SECRET,
+        provider: 'openai-codex',
+        accessToken: codexToken('acct_alias'),
         refreshToken: SYNTHETIC_REFRESH_SECRET,
       },
     });
@@ -108,15 +114,14 @@ describe('resolveLlmTransportConfig', () => {
       model: 'm1',
     });
 
-    expect(transport.apiKey).toBe(SYNTHETIC_ACCESS_SECRET);
-    expect(transport.cacheKey).toContain(':provider-alias-auth-profile:alias:openai');
-    expectNoTransportSecrets({ cacheKey: transport.cacheKey });
+    expect(transport.openAICodexAccountId).toBe('acct_alias');
+    expect('cacheKey' in transport).toBe(false);
   });
 
   it('fails closed on ambiguous implicit aliases without exposing synthetic secrets', async () => {
     const root = makeRoot();
     writeProfiles(root, {
-      alpha: { type: 'oauth', provider: 'openai', accessToken: SYNTHETIC_ACCESS_SECRET },
+      alpha: { type: 'oauth', provider: 'openai-codex', accessToken: codexToken('acct_alpha') },
       beta: { type: 'oauth', provider: 'openai-codex', accessToken: 'another-transport-secret-SECRET' },
     });
     const registry = new ProviderRegistry(config({
@@ -127,7 +132,7 @@ describe('resolveLlmTransportConfig', () => {
       provider: 'openai-codex',
       account: null,
       model: 'm1',
-    })).rejects.toThrow(/Ambiguous auth profile match.*alpha.*beta.*authProfile/i);
+    })).rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'ambiguous_auth_profile' } });
     await expect(resolveLlmTransportConfig(root, registry, {
       provider: 'openai-codex',
       account: null,

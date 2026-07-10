@@ -5,6 +5,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 
@@ -54,7 +55,7 @@ describe('InvocationService provider exchange accumulation', () => {
       registry: {} as never,
       router: { resolve: async () => candidates, getLastCapabilitySkips: () => [] } as never,
       llmCallFn: async (candidate) => {
-        if (candidate.provider === 'a') throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [attempt('a', 'error')], originalFailure: new Error('temporary') });
+        if (candidate.provider === 'a') throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [attempt('a', 'error')], originalFailure: new LlmRequestError({ kind: 'rate_limit', provider: 'a', status: 429, message: 'temporary', retryAfterMs: 60_000 }) });
         return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [attempt('b', 'ok')] };
       },
     });

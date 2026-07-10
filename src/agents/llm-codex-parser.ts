@@ -112,9 +112,7 @@ export function handleOpenAICodexSseChunk(
       const response = event['response'] as Record<string, unknown> | undefined;
       if (response?.['status'] === 'incomplete') setFinishReason('length');
     } else if (type === 'response.failed') {
-      const response = event['response'] as Record<string, unknown> | undefined;
-      const error = response?.['error'] as Record<string, unknown> | undefined;
-      throw createCodexStreamError('OpenAI Codex response failed', error ?? response ?? event);
+      throw createCodexStreamError('OpenAI Codex response failed', event);
     } else if (type === 'error') {
       throw createCodexStreamError('OpenAI Codex stream error', event);
     }
@@ -147,11 +145,50 @@ function createCodexStreamError(prefix: string, payload: Record<string, unknown>
   const nested = payload['error'];
   const error = nested && typeof nested === 'object' ? nested as Record<string, unknown> : payload;
   const code = typeof error['code'] === 'string' ? error['code'] : '';
+  const type = typeof error['type'] === 'string' ? error['type'] : '';
   const rawMessage = String(error['message'] ?? payload['message'] ?? JSON.stringify(payload));
   const codePrefix = code ? `${code}: ` : '';
   const message = `${prefix}: ${codePrefix}${redactProviderErrorText(rawMessage, 'llm-codex-parser')}`;
-  if (/context_length_exceeded/i.test(code) || /context window|context length|token budget/i.test(rawMessage)) {
+  const status = statusFromCodexPayload(payload, error);
+  const retryAfterMs = retryAfterMsFromCodexPayload(payload, error);
+  const evidence = [code, type, rawMessage].join(' ');
+  if (/context_length_exceeded|context_window|token_budget/i.test(evidence) || /context window|context length|token budget/i.test(rawMessage)) {
     return new LlmRequestError({ kind: 'token_budget_exceeded', provider: 'openai-codex', status: 400, message });
   }
-  return new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message });
+  if (status === 401 || status === 403 || /auth|account|permission|unauthorized|forbidden/i.test(evidence)) {
+    return new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-codex', status: status ?? 401, message });
+  }
+  if (status === 429 || retryAfterMs !== undefined || /rate_limit|rate limit/i.test(evidence)) {
+    return new LlmRequestError({ kind: 'rate_limit', provider: 'openai-codex', status: 429, message, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) });
+  }
+  if ((status !== undefined && [500, 502, 503, 504].includes(status)) || /server_error|internal_server_error|service_unavailable|temporarily_unavailable|overloaded/i.test(evidence)) {
+    return new LlmRequestError({ kind: 'server_transient', provider: 'openai-codex', status: status ?? 500, message });
+  }
+  return new LlmRequestError({ kind: 'provider_protocol_error', provider: 'openai-codex', status: status ?? 400, message, bodyPreview: JSON.stringify(payload).slice(0, 500) });
+}
+
+function statusFromCodexPayload(...payloads: Record<string, unknown>[]): number | undefined {
+  for (const payload of payloads) {
+    for (const key of ['status', 'response_status', 'http_status']) {
+      const value = payload[key];
+      if (typeof value === 'number' && Number.isInteger(value)) return value;
+      if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+    }
+    const response = payload['response'];
+    if (response && typeof response === 'object') {
+      const status = statusFromCodexPayload(response as Record<string, unknown>);
+      if (status !== undefined) return status;
+    }
+  }
+  return undefined;
+}
+
+function retryAfterMsFromCodexPayload(...payloads: Record<string, unknown>[]): number | undefined {
+  for (const payload of payloads) {
+    const ms = payload['retry_after_ms'];
+    if (typeof ms === 'number' && Number.isFinite(ms) && ms >= 0) return Math.round(ms);
+    const seconds = payload['retry_after'];
+    if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  }
+  return undefined;
 }

@@ -23,7 +23,7 @@ describe('InvocationRecoveryPolicy', () => {
   it('maps structured Llm errors to explicit recovery classes and health decisions', () => {
     expect(policy.decideFailure(new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-compatible', status: 401, message: 'bad token' }), baseContext)).toMatchObject({
       failure: { kind: 'auth_permanent' },
-      action: 'failover_without_cooldown',
+      action: 'fail_invocation',
       markFailed: true,
       availability: { state: 'BLOCKED_UNTIL', reason: 'auth_permanent' },
     });
@@ -63,7 +63,7 @@ describe('InvocationRecoveryPolicy', () => {
 
     expect(decision).toMatchObject({
       failure: { kind: 'capability_mismatch' },
-      action: 'failover_without_cooldown',
+      action: 'fail_invocation',
       markFailed: false,
       appendModelIssue: true,
     });
@@ -176,9 +176,9 @@ describe('InvocationRecoveryPolicy', () => {
   });
 
   it('maps OpenAI Responses noncompleted statuses to planned recovery policy decisions', () => {
-    expect(policy.decideFailure(responsesFailure({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [] }), baseContext)).toMatchObject({ action: 'failover_without_cooldown', markFailed: false, appendModelIssue: true });
+    expect(policy.decideFailure(responsesFailure({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [] }), baseContext)).toMatchObject({ action: 'fail_invocation', markFailed: false, appendModelIssue: true });
     expect(policy.decideFailure(responsesFailure({ status: 'failed', error: { message: 'provider failed' }, output: [] }), baseContext)).toMatchObject({ action: 'cooldown_and_failover', markFailed: true, appendModelIssue: true });
-    expect(policy.decideFailure(responsesFailure({ status: 'in_progress', output: [] }), baseContext)).toMatchObject({ action: 'failover_without_cooldown', markFailed: true, appendModelIssue: true });
+    expect(policy.decideFailure(responsesFailure({ status: 'in_progress', output: [] }), baseContext)).toMatchObject({ action: 'fail_invocation', markFailed: true, appendModelIssue: true });
     expect(policy.decideFailure(responsesFailure({ status: 'mystery', output: [] }), baseContext)).toMatchObject({ action: 'retry_same_after_delay', markFailed: false, appendModelIssue: true });
   });
 });

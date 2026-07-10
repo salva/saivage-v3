@@ -5,7 +5,7 @@ import type { AgentMessage } from '../../schemas/index.js';
 import { genericContextMessagesForInvocation, type LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
-import { appendLlmProviderExchangeEntries, appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
+import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import { appendUserContextMessage, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
@@ -230,7 +230,6 @@ export class ConversationLLMActor extends BaseActor {
     if (result.kind === 'message') {
       const message = appendLlmTurnMessageBatch(this.projectRoot, input, result.content, completion.provider_private_context);
       this.conversationPublisher?.entryAppended(message.appendResult);
-      appendLlmProviderExchangeEntries(this.projectRoot, input, completion.provider_exchanges, [message.id]);
       const activeRows = readActiveVersionMessages(this.projectRoot, input.sessionId);
       this.input = { ...input, genericContextMessages: conversationMessagesForModel(activeRows), contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }], activeConversationReplay: buildResponsesReplayProjection(input.sessionId, activeRows) };
       this.outcome = { type: 'result', agentId: this.agentId, result };
@@ -245,14 +244,12 @@ export class ConversationLLMActor extends BaseActor {
     if (result.tool_calls.length !== 1) {
       const error = `Provider returned ${result.tool_calls.length} tool calls; exactly one supported tool call is required.`;
       this.conversationPublisher?.entryAppended(appendLlmTurnError(this.projectRoot, input, error).appendResult);
-      appendLlmProviderExchangeEntries(this.projectRoot, input, completion.provider_exchanges, []);
       this.settleWithError(error);
       return;
     }
     const [call] = result.tool_calls;
     const message = appendLlmTurnToolCallBatch(this.projectRoot, input, call, completion.provider_private_context);
     this.conversationPublisher?.entryAppended(message.appendResult);
-    appendLlmProviderExchangeEntries(this.projectRoot, input, completion.provider_exchanges, [message.id]);
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
     this.onTurnStateUpdated({ input, waitingToolCall: this.waitingToolCall });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
@@ -273,7 +270,6 @@ export class ConversationLLMActor extends BaseActor {
     if (error.failure_phase === 'provider_attempt' && error.provider_exchanges.length === 0) throw new Error(`Provider attempt for '${input.inputId}' failed without provider_exchange envelope.`);
     const message = error.originalFailure instanceof Error ? error.originalFailure.message : error.message;
     this.conversationPublisher?.entryAppended(appendLlmTurnError(this.projectRoot, input, message).appendResult);
-    appendLlmProviderExchangeEntries(this.projectRoot, input, error.provider_exchanges, []);
     this.settleWithError(message);
   }
 

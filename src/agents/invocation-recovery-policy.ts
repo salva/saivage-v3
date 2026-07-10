@@ -81,13 +81,13 @@ export class InvocationRecoveryPolicy {
 
     switch (failure.kind) {
       case 'auth_permanent':
-        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} failed with permanent auth error: ${sanitized}`, {
+        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} failed with permanent auth error: ${sanitized}`, {
           markFailed: true,
           availability: { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 3_600_000, reason: 'auth_permanent' },
           appendModelIssue: true,
         });
       case 'capability_mismatch':
-        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} is incompatible with requested capabilities: ${sanitized}`, { appendModelIssue: true });
+        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} is incompatible with requested capabilities: ${sanitized}`, { appendModelIssue: true });
       case 'rate_limit': {
         const now = Date.now();
         let untilMs = 0;
@@ -112,9 +112,11 @@ export class InvocationRecoveryPolicy {
           appendModelIssue: true,
         });
       case 'provider_protocol_error':
-        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} returned a malformed protocol response: ${sanitized}`, { markFailed: true, appendModelIssue: true });
+        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} returned a malformed protocol response: ${sanitized}`, { markFailed: true, appendModelIssue: true });
       case 'token_budget_exceeded':
-        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} exceeded token budget: ${sanitized}`, { appendModelIssue: true });
+        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} exceeded token budget: ${sanitized}`, { appendModelIssue: true });
+      case 'local_setup_error':
+        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} has a local setup error: ${sanitized}`, { appendModelIssue: true });
       case 'parse_error': {
         const canRetrySame = context.attempt <= context.maxRecoveryRetries;
         return this.buildDecision(

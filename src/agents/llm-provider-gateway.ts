@@ -11,17 +11,20 @@ import { OpenAIResponsesGateway } from './llm-openai-responses-gateway.js';
 export interface LlmProviderGatewayConfig {
   baseUrl: string;
   apiKey?: string;
+  openAICodexAccountId?: string;
   registry?: ProviderRegistry;
 }
 
 export class LlmProviderGateway implements LlmInvocationClient {
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
+  private readonly openAICodexAccountId: string | undefined;
   private readonly registry: ProviderRegistry | undefined;
 
   constructor(config: LlmProviderGatewayConfig) {
     this.baseUrl = config.baseUrl;
     this.apiKey = config.apiKey;
+    this.openAICodexAccountId = config.openAICodexAccountId;
     this.registry = config.registry;
   }
 
@@ -41,7 +44,8 @@ export class LlmProviderGateway implements LlmInvocationClient {
       return new OpenAIResponsesGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey, capabilities: this.registry.getEffectiveCapabilities(candidate) }).complete(candidate, systemPrompt, activeConversationReplay, sessionId, opts);
     }
     if (transport === 'openai-codex-backend') {
-      return new OpenAICodexGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey }).complete(candidate, systemPrompt, genericContextMessages, sessionId, opts);
+      if (!this.apiKey || !this.openAICodexAccountId) throw new Error('openai-codex dispatch requires resolved credential and account id.');
+      return new OpenAICodexGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey, openAICodexAccountId: this.openAICodexAccountId }).complete(candidate, systemPrompt, genericContextMessages, sessionId, opts);
     }
     return new OpenAIChatGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey }).complete(candidate, systemPrompt, genericContextMessages, sessionId, opts);
   }

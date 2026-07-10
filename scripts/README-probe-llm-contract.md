@@ -2,8 +2,8 @@
 
 Live wire-contract probe for the LLM gateway. Per-provider × per-role
 (`planner`, `executor`, `reviewer`, `analyst`), the script issues a minimal
-request through `LlmProviderGateway` and reports the outcome on stdout, one
-JSON line per row.
+request through shared transport resolution and `LlmProviderGateway`, then
+reports the outcome on stdout, one JSON line per row.
 
 ## Invocation
 
@@ -17,8 +17,12 @@ node /opt/saivage-v3/dist/src/scripts/probe-llm-contract.js [projectRoot]
 If `projectRoot` is omitted, `process.cwd()` is used.
 
 The script reads only `<projectRoot>/.saivage/saivage.yaml`. It never reads
-`.saivage/auth-profiles.json`; providers that rely on OAuth refresh therefore
-appear as `status: "skipped", reason: "no_api_key"`.
+`.saivage/auth-profiles.json`. Candidates whose selected provider/account would
+require auth-profile resolution are skipped with `reason:
+"requires_explicit_auth_profile"` or `"requires_implicit_auth_profile"`.
+Candidates resolvable from inline configuration use the same transport/local
+setup path as production, including OpenAI Codex credential validation and
+derived `chatgpt-account-id` handling.
 
 ## Output
 
@@ -27,7 +31,7 @@ Each row has the shape:
 ```json
 {"provider":"openai","role":"planner","model":"gpt-4o-mini","status":"ok","ms":712}
 {"provider":"openai","role":"analyst","model":"gpt-4o-mini","status":"error","ms":830,"kind":"contract_mismatch","subtype":"terminal_tool_missing","error":"..."}
-{"provider":"openai-codex","role":"executor","status":"skipped","ms":1,"reason":"no_api_key"}
+{"provider":"openai-codex","role":"executor","status":"skipped","ms":1,"reason":"requires_implicit_auth_profile"}
 ```
 
 `status` is one of:
@@ -47,8 +51,9 @@ Each row has the shape:
   - `legacy_message_shape` — model produced a content/JSON envelope instead of
     a tool call (a legacy-shape regression).
   - `unknown` — classifier could not narrow further.
-- `skipped` — no candidate could be probed (`no_supported_model`,
-  `no_base_url`, or `no_api_key`).
+- `skipped` — no candidate could be probed without violating the probe's
+  no-auth-profile-read contract (`no_supported_model`,
+  `requires_explicit_auth_profile`, or `requires_implicit_auth_profile`).
 
 ## Exit code
 
@@ -59,4 +64,5 @@ Each row has the shape:
 A non-zero exit is not automatically a release blocker — the probe is a
 measurement instrument. Treat `error` rows with `kind: "contract_mismatch"`
 as wire bugs (open a follow-up under F12 or the matching feature),
-`auth_permanent` as configuration drift, and `skipped` as informational.
+`auth_permanent` or `local_setup_error` as configuration drift, and `skipped`
+as informational.

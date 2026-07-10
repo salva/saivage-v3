@@ -1,8 +1,9 @@
 // F05 B6: Live contract-shape probe for each configured provider × role.
 //
 // Reads <projectRoot>/.saivage/saivage.yaml only. Does NOT read
-// .saivage/auth-profiles.json — providers that need OAuth refresh will simply
-// be reported as skipped (no_api_key) rather than implicitly authenticated.
+// .saivage/auth-profiles.json. Candidates that require auth-profile resolution
+// are reported as skipped with resolver-aligned diagnostic reasons; inline-key
+// candidates use the shared transport resolver, including Codex account-id setup.
 //
 // Emits one JSON line per (provider, role). Exits 0 only when every emitted
 // row has status "ok"; any error or skip yields exit 1 (the operator inspects
@@ -14,6 +15,7 @@ import { resolveModelListForRole } from '../config/model-role-resolution.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import { ProviderRegistry, type Provider } from '../agents/provider.js';
 import { LlmProviderGateway } from '../agents/llm-provider-gateway.js';
+import { resolveLlmTransportConfig, transportAuthProfileDependency } from '../agents/llm-transport.js';
 import { buildLlmOptions } from '../agents/llm-options-factory.js';
 import { createPlannerContract } from '../contracts/planner-contract.js';
 import { createExecutorContract } from '../contracts/executor-contract.js';
@@ -53,20 +55,12 @@ function pickModelForRole(provider: Provider, roleModels: string[]): string | nu
   return null;
 }
 
-function buildCandidate(provider: Provider, model: string): { candidate: Candidate; baseUrl?: string; apiKey?: string } {
+function buildCandidate(provider: Provider, model: string): Candidate {
   const candidates = provider.getCandidatesForModel(model);
   if (candidates.length === 0) {
-    return { candidate: { provider: provider.name, account: null, model } };
+    return { provider: provider.name, account: null, model };
   }
-  const candidate = candidates[0];
-  const account = candidate.account != null
-    ? provider.getAllAccounts().find((a) => a.name === candidate.account) ?? provider.implicitAccount
-    : provider.implicitAccount;
-  return {
-    candidate,
-    baseUrl: account.baseUrl ?? provider.baseUrl,
-    apiKey: account.apiKey ?? provider.apiKey,
-  };
+  return candidates[0];
 }
 
 function buildOptionsForRole(role: OperationalAgentRole) {
@@ -108,6 +102,7 @@ async function probeOne(
   role: OperationalAgentRole,
   config: SaivageConfig,
   registry: ProviderRegistry,
+  projectRoot: string,
 ): Promise<ProbeRow> {
   const start = Date.now();
   const roleModels = resolveModelListForRole(config, role) ?? [];
@@ -115,18 +110,17 @@ async function probeOne(
   if (!model) {
     return { provider: provider.name, role, status: 'skipped', ms: Date.now() - start, reason: 'no_supported_model' };
   }
-  const { candidate, baseUrl, apiKey } = buildCandidate(provider, model);
-  if (!baseUrl) {
-    return { provider: provider.name, role, model, status: 'skipped', ms: Date.now() - start, reason: 'no_base_url' };
-  }
-  if (!apiKey) {
-    return { provider: provider.name, role, model, status: 'skipped', ms: Date.now() - start, reason: 'no_api_key' };
-  }
-  const gateway = new LlmProviderGateway({ baseUrl, apiKey, registry });
-  const opts = buildOptionsForRole(role);
-  const messages = [buildPingMessage()];
-  const systemPrompt = 'You are a contract probe. Respond by calling the terminal tool exactly once with minimal arguments.';
+  const candidate = buildCandidate(provider, model);
   try {
+    const dependency = transportAuthProfileDependency(registry, candidate);
+    if (dependency !== 'none') {
+      return { provider: provider.name, role, model, status: 'skipped', ms: Date.now() - start, reason: dependency };
+    }
+    const { baseUrl, apiKey, openAICodexAccountId } = await resolveLlmTransportConfig(projectRoot, registry, candidate);
+    const gateway = new LlmProviderGateway({ baseUrl, apiKey, openAICodexAccountId, registry });
+    const opts = buildOptionsForRole(role);
+    const messages = [buildPingMessage()];
+    const systemPrompt = 'You are a contract probe. Respond by calling the terminal tool exactly once with minimal arguments.';
     await gateway.complete(candidate, systemPrompt, messages, 'probe-session', opts);
     return { provider: provider.name, role, model, status: 'ok', ms: Date.now() - start };
   } catch (err) {
@@ -141,6 +135,7 @@ async function probeOne(
       kind: failure.kind,
       subtype: undefined,
       error: failure.message,
+      reason: failure.kind === 'local_setup_error' ? failure.reason : undefined,
       bodyPreview,
     };
   }
@@ -154,7 +149,7 @@ async function main(): Promise<number> {
   let allOk = providers.length > 0;
   for (const provider of providers) {
     for (const role of ROLES) {
-      const row = await probeOne(provider, role, config, registry);
+      const row = await probeOne(provider, role, config, registry, projectRoot);
       emit(row);
       if (row.status !== 'ok') allOk = false;
     }

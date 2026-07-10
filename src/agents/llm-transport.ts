@@ -1,6 +1,7 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
+import { localSetupFailure } from '../contracts/llm-failure.js';
 import {
   type AuthProfile,
   isProfileExpired,
@@ -14,7 +15,7 @@ const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export interface LlmTransportConfig {
   baseUrl: string;
   apiKey?: string;
-  cacheKey: string;
+  openAICodexAccountId?: string;
 }
 
 export async function resolveLlmTransportConfig(
@@ -24,26 +25,23 @@ export async function resolveLlmTransportConfig(
 ): Promise<LlmTransportConfig> {
   const provider = registry.get(candidate.provider);
   if (!provider) {
-    throw new Error(
-      `Provider '${candidate.provider}' not found in registry. ` +
-        `Cannot resolve baseUrl/apiKey for candidate.`,
-    );
+    throw localSetupFailure({ provider: candidate.provider, model: candidate.model, account: candidate.account, reason: 'missing_provider', message: `Provider '${candidate.provider}' not found in registry.` });
   }
   const account = candidate.account != null
-    ? (provider.getAllAccounts().find((a) => a.name === candidate.account) ??
-      provider.implicitAccount)
+    ? provider.getAllAccounts().find((a) => a.name === candidate.account)
     : provider.implicitAccount;
+  if (!account) throw localSetupFailure({ provider: candidate.provider, model: candidate.model, account: candidate.account, reason: 'missing_account', message: `Account '${candidate.account}' not found for provider '${candidate.provider}'.` });
   const capabilities = registry.getEffectiveCapabilities(candidate);
   if (capabilities.transportProtocol === 'openai-responses') {
     if (account.authProfile || provider.authProfile) {
-      throw new Error(`Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and must use an OpenAI API key, not an authProfile.`);
+      throw localSetupFailure({ provider: candidate.provider, model: candidate.model, account: candidate.account, reason: 'invalid_account', message: `Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and must use an OpenAI API key, not an authProfile.` });
     }
     const apiKey = account.apiKey ?? provider.apiKey;
     if (!apiKey) {
-      throw new Error(`Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and requires an OpenAI API key.`);
+      throw localSetupFailure({ provider: candidate.provider, model: candidate.model, account: candidate.account, reason: 'missing_required_credential', message: `Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and requires an OpenAI API key.` });
     }
     const baseUrl = account.baseUrl ?? provider.baseUrl ?? 'https://api.openai.com';
-    return { baseUrl, apiKey, cacheKey: [baseUrl, candidate.provider, candidate.account ?? '_implicit', 'openai-responses-api-key'].join(':') };
+    return { baseUrl, apiKey };
   }
 
   const resolver = new CredentialSourceResolver({
@@ -56,8 +54,19 @@ export async function resolveLlmTransportConfig(
   return {
     baseUrl: resolved.baseUrl,
     apiKey: resolved.apiKey,
-    cacheKey: resolved.cacheKey,
+    openAICodexAccountId: resolved.openAICodexAccountId,
   };
+}
+
+export function transportAuthProfileDependency(registry: ProviderRegistry, candidate: Candidate): 'none' | 'requires_explicit_auth_profile' | 'requires_implicit_auth_profile' {
+  const provider = registry.get(candidate.provider);
+  if (!provider) return 'none';
+  const account = candidate.account != null
+    ? provider.getAllAccounts().find((a) => a.name === candidate.account)
+    : provider.implicitAccount;
+  if (!account) return 'none';
+  const resolver = new CredentialSourceResolver({ loadAuthProfiles: async () => null, usableProfileAccessToken: async () => undefined });
+  return resolver.authProfileDependency(provider, account);
 }
 
 async function usableProfileAccessToken(

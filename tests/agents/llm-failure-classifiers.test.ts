@@ -42,11 +42,28 @@ describe('per-provider failure classifiers', () => {
     expect(failure.kind).toBe('token_budget_exceeded');
   });
 
-  it('unrecognised 4xx → server_transient via default classifier', () => {
+  it('unrecognised well-formed 4xx → provider_protocol_error via default classifier', () => {
     const ctx = { provider: 'openai-chat', model: 'gpt-4' };
     const failure = defaultHttpClassifier(mockResponse(418), 'teapot', ctx);
-    expect(failure.kind).toBe('server_transient');
-    expect(failure.kind === 'server_transient' && failure.status).toBe(418);
+    expect(failure.kind).toBe('provider_protocol_error');
+    expect(failure.kind === 'provider_protocol_error' && failure.status).toBe(418);
+  });
+
+  it.each(['opencode-go', 'openai-codex', 'openai-chat', 'opencode', 'github-copilot', 'nvidia-nim'])('%s classifies common HTTP statuses consistently', (provider) => {
+    const ctx = { provider, model: 'm' };
+    for (const status of [400, 404, 422]) {
+      const response = mockResponse(status);
+      const failure = classifierFor(provider).classifyHttp(response, '{"error":"invalid model"}', ctx) ?? defaultHttpClassifier(response, '{"error":"invalid model"}', ctx);
+      expect(failure.kind).toBe('provider_protocol_error');
+    }
+    const limited = classifierFor(provider).classifyHttp(mockResponse(429, { 'Retry-After': '2' }), '', ctx) ?? defaultHttpClassifier(mockResponse(429, { 'Retry-After': '2' }), '', ctx);
+    expect(limited.kind).toBe('rate_limit');
+    expect(limited.kind === 'rate_limit' && limited.retryAfterMs).toBe(2000);
+    for (const status of [500, 502, 503, 504]) {
+      const response = mockResponse(status);
+      const failure = classifierFor(provider).classifyHttp(response, '', ctx) ?? defaultHttpClassifier(response, '', ctx);
+      expect(failure.kind).toBe('server_transient');
+    }
   });
 
   it('HTTP 401 → auth_permanent', () => {
