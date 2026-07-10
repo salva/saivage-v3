@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { AgentConversationEntry, AgentConversationResponse, AgentRole, AgentSession, ActivityStatus, FreshnessState, SessionStatus } from '../api/types';
+import type { AgentConversationEntry, AgentRole, AgentSession, ActivityStatus, FreshnessState, SessionStatus } from '../api/types';
 import { listAgentSessions, getAgentConversation, getAgentLlmExchange, ApiError } from '../api/client';
 import type { ProviderExchangePayload } from '../api/contracts';
 import { createLogger } from '../utils/logger';
@@ -11,26 +11,6 @@ let conversationRequestSeq = 0;
 const idleActivity = (): ActivityStatus => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() });
 function nowIso(): string { return new Date().toISOString(); }
 function isLiveStatus(status: SessionStatus): boolean { return status === 'active' || status === 'waiting'; }
-function normalizeConversationEntries(items: AgentConversationResponse['entries']): AgentConversationResponse['entries'] {
-  let lastToolCallId: string | null = null;
-  return items.map((entry, index) => {
-    const normalized = {
-      ...entry,
-      round_id: entry.round_id ?? 'r-assistant-00000000000000000000000000000001',
-      message_index: entry.message_index ?? index,
-      block_index: entry.block_index ?? 0,
-      tool_call_id: entry.tool_call_id,
-    };
-    if (normalized.kind === 'tool_call') {
-      lastToolCallId = normalized.tool_call_id ?? normalized.id;
-      normalized.tool_call_id = lastToolCallId;
-    } else if ((normalized.kind === 'tool_result' || normalized.kind === 'tool_error') && !normalized.tool_call_id && lastToolCallId) {
-      normalized.tool_call_id = lastToolCallId;
-    }
-    return normalized;
-  });
-}
-
 export const useAgentStore = defineStore('agents', () => {
   const sessions = ref<AgentSession[]>([]);
   const entries = ref<AgentConversationEntry[]>([]);
@@ -70,7 +50,7 @@ export const useAgentStore = defineStore('agents', () => {
     try {
       const response = await getAgentConversation(sessionId);
       if (requestSeq !== conversationRequestSeq) return;
-      const conversationEntries = normalizeConversationEntries(response.entries);
+      const conversationEntries = response.entries;
       currentSession.value = response.session;
       entries.value = conversationEntries;
       activityStatus.value = response.activity_status;

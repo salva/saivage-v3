@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
 import type { LiveSyncInvalidateFrame, WsConnectionState } from '../api/types';
 import type { WsConnectionManager, WsEventHandler, WsOpenHandler, WsStateHandler, WsSyncFrameHandler } from '../api/websocket';
 import { SyncClient } from '../sync/client';
@@ -30,6 +31,7 @@ function createConn(initial: WsConnectionState = 'offline') {
     conn,
     emitOpen() { for (const handler of openHandlers) handler(); },
     emitSync(frame: LiveSyncInvalidateFrame) { for (const handler of syncHandlers) handler(frame); },
+    emitEvent(envelope: Parameters<WsEventHandler>[0]) { for (const handler of eventHandlers) handler(envelope); },
     setState(state: WsConnectionState) {
       conn.state.value = state;
       for (const handler of stateHandlers) handler(state);
@@ -43,6 +45,10 @@ async function flush(): Promise<void> {
 }
 
 describe('SyncClient', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
   it('connects once and refetches registered resources on open', async () => {
     const { conn, emitOpen } = createConn();
     const client = new SyncClient(conn);
@@ -111,5 +117,26 @@ describe('SyncClient', () => {
 
     close();
     expect(conn.sendRaw).toHaveBeenCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'planner:g1' });
+  });
+
+  it('refetches conversations only from canonical live-sync invalidate frames', async () => {
+    const harness = createConn();
+    const client = new SyncClient(harness.conn);
+    const refetch = vi.fn(async () => undefined);
+    client.openConversation('analyst:global', refetch);
+    client.start();
+    await flush();
+    refetch.mockClear();
+
+    harness.emitEvent({
+      type: 'activity',
+      content: { event: 'analyst_tool_invoked', session_id: 'analyst:global', tool: 'read', summary: 'opened docs', success: true },
+    } as Parameters<WsEventHandler>[0]);
+    await flush();
+    expect(refetch).not.toHaveBeenCalled();
+
+    harness.emitSync({ t: 'invalidate', resource: 'conversation', id: 'analyst:global' });
+    await flush();
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

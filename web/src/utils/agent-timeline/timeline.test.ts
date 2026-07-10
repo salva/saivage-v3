@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentConversationEntry } from '../../api/types';
-import { buildToolDisplay } from '../tool-friendly';
 import { entriesToTimeline } from './timeline';
 
 function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
@@ -233,7 +232,7 @@ describe('entriesToTimeline display filtering', () => {
     expect(timeline.activeRoundId).toBe(timeline.rounds[0].id);
   });
 
-  it('renders orphan tool results without a matching tool_call', () => {
+  it('does not synthesize tool calls for orphan tool results', () => {
     const orphanResult = entry({
       id: 'msg-orphan-result',
       kind: 'tool_result',
@@ -246,11 +245,6 @@ describe('entriesToTimeline display filtering', () => {
 
     const timeline = entriesToTimeline([orphanResult], null);
     const pairs = timeline.rounds.flatMap((round) => round.toolPairs);
-    expect(pairs).toHaveLength(1);
-    expect(pairs[0].result).not.toBeNull();
-    expect(pairs[0].result?.id).toBe('msg-orphan-result');
-    expect(pairs[0].status).toBe('ok');
-    expect(() => buildToolDisplay(pairs[0])).not.toThrow();
-    expect(buildToolDisplay(pairs[0]).action).toBe('Read');
+    expect(pairs).toEqual([]);
   });
 });

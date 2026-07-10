@@ -140,7 +140,7 @@ const projectName = computed(() => runtimeStore.projectId ?? 'saivage-v3');
 const showAuthBanner = ref(false);
 const mobileActivePane = ref<'workspace' | 'analyst'>('workspace');
 const showShortcutHelp = ref(false);
-const analystActivityDot = computed(() => analystChat.pendingToolInvocations.length > 0 || analystChat.sending);
+const analystActivityDot = computed(() => analystChat.sending);
 const routeAgentId = computed(() => {
   const id = route.params.id;
   return Array.isArray(id) ? id[0] : id;

@@ -10,13 +10,6 @@ import {
 import { useWorkspaceRouteStore } from './workspaceRoute';
 import { useFeedbackStore } from './feedback';
 import { ANALYST_SESSION_ID } from './analyst-chat-context';
-import {
-  dedupePendingToolInvocations,
-  normalizePendingSummary,
-  normalizeToolName,
-  pushPendingToolInvocation,
-  type PendingToolInvocation,
-} from './analyst-chat-pending-tools';
 
 export { ANALYST_SESSION_ID } from './analyst-chat-context';
 
@@ -75,7 +68,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const messagesError = ref<DetailErrorState | null>(null);
   const sending = ref(false);
   const sendError = ref<DetailErrorState | null>(null);
-  const pendingToolInvocations = ref<PendingToolInvocation[]>([]);
 
   const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
 
@@ -128,11 +120,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       const response = await getChatEntries(canonicalSessionId);
       const fetchedMessages = [...response.entries].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
       messages.value = fetchedMessages;
-      pendingToolInvocations.value = dedupePendingToolInvocations(
-        pendingToolInvocations.value,
-        canonicalSessionId,
-        fetchedMessages,
-      );
     } catch (err) {
       messages.value = [];
       messagesError.value = buildErrorState(err, 'Failed to load analyst chat messages.');
@@ -200,30 +187,11 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         ? payload.sessionId
         : null;
 
-    if (event === 'analyst_tool_invoked' && payloadSessionId) {
-      const eventSessionId = ANALYST_SESSION_ID;
-      const tool = normalizeToolName(payload.tool);
-      const success = payload.success === true;
-      const summary = normalizePendingSummary(payload.summary);
-      const classifiedAs = typeof payload.classified_as === 'string' ? payload.classified_as : null;
-      const relatedCardId = typeof payload.related_card_id === 'string' ? payload.related_card_id : null;
-      pendingToolInvocations.value = pushPendingToolInvocation(pendingToolInvocations.value, {
-        sessionId: eventSessionId,
-        tool,
-        classifiedAs,
-        success,
-        summary,
-        relatedCardId,
-      });
-      return;
-    }
-
     if (payloadSessionId && payloadSessionId !== activeSessionId.value) {
       return;
     }
 
     if (event === 'card_history_appended') {
-      void fetchMessages().catch(() => {});
       return;
     }
     if (event === 'notification_added') {
@@ -235,9 +203,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         const targetId = typeof payload.target_id === 'string' ? payload.target_id : 'unknown';
         const id = typeof payload.id === 'string' ? payload.id : `${Date.now()}`;
         useFeedbackStore().notify({ id, tone: 'neutral', title: `Analyst ${action}`, message: targetId });
-      }
-      if (payloadSessionId === activeSessionId.value || activeSessionId.value) {
-        void fetchMessages().catch(() => {});
       }
     }
   }
@@ -254,7 +219,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messagesError,
     sending,
     sendError,
-    pendingToolInvocations,
     activeSessionWritable: computed(() => isWritableSession(activeSession.value)),
     setDraft,
     fetchSessions,

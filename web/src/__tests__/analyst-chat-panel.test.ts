@@ -2,18 +2,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
-import analystChatPanelSource from '../components/chat/AnalystChatPanel.vue?raw';
-import { useAnalystChat } from '../stores/analystChat';
 
 const listChatSessions = vi.fn();
 const getChatEntries = vi.fn();
 const sendChatMessage = vi.fn();
+const openConversation = vi.fn();
+const closeConversation = vi.fn();
 
 vi.mock('../api/client', () => ({
   listChatSessions: (...args: any[]) => listChatSessions(...args),
   getChatEntries: (...args: any[]) => getChatEntries(...args),
   sendChatMessage: (...args: any[]) => sendChatMessage(...args),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
+}));
+
+vi.mock('../stores/liveSync', () => ({
+  useLiveSyncStore: () => ({ openConversation }),
 }));
 
 describe('AnalystChatPanel', () => {
@@ -24,6 +28,12 @@ describe('AnalystChatPanel', () => {
     listChatSessions.mockReset();
     getChatEntries.mockReset();
     sendChatMessage.mockReset();
+    openConversation.mockReset();
+    closeConversation.mockReset();
+    openConversation.mockImplementation((_sessionId: string, refetch: () => Promise<void>) => {
+      void refetch();
+      return closeConversation;
+    });
     listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     getChatEntries.mockResolvedValue({
       sessionId: 'analyst:global',
@@ -36,9 +46,19 @@ describe('AnalystChatPanel', () => {
     sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [] });
   });
 
-  it('wires pending chip growth through the shared timeline trigger', () => {
-    expect(analystChatPanelSource).not.toContain('pendingToolInvocationsForActiveSession.value.length] as const');
-    expect(analystChatPanelSource).toContain('extraPendingCount');
+  it('subscribes the analyst transcript to the canonical conversation live-sync resource', async () => {
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+
+    expect(openConversation).toHaveBeenCalledTimes(1);
+    expect(openConversation.mock.calls[0][0]).toBe('analyst:global');
+
+    getChatEntries.mockClear();
+    await openConversation.mock.calls[0][1]();
+    expect(getChatEntries).toHaveBeenCalledWith('analyst:global');
+
+    wrapper.unmount();
+    expect(closeConversation).toHaveBeenCalledTimes(1);
   });
 
   it('shows Loading history… during initial fetch and gates empty state until loading completes', async () => {
@@ -141,70 +161,4 @@ describe('AnalystChatPanel', () => {
     wrapper.unmount();
   });
 
-  it('renders a pending analyst tool chip before persisted messages catch up', async () => {
-    const pinia = createPinia();
-    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
-    await flushPromises();
-    const store = useAnalystChat();
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'stale-chat-id', tool: 'read', summary: 'opened docs', success: true });
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('Read');
-    expect(wrapper.text()).toContain('opened docs');
-    expect(wrapper.find('.tool-chip').exists()).toBe(true);
-    expect(store.pendingToolInvocations[0].sessionId).toBe('analyst:global');
-    wrapper.unmount();
-  });
-
-  it('auto-scrolls pending chips while pinned and routes them to unseen count while paused', async () => {
-    const pinia = createPinia();
-    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
-    await flushPromises();
-    const store = useAnalystChat();
-    const scrollArea = wrapper.find('.chat-scroll-area').element as HTMLElement;
-    Object.defineProperty(scrollArea, 'scrollHeight', { configurable: true, value: 1000 });
-    Object.defineProperty(scrollArea, 'clientHeight', { configurable: true, value: 200 });
-
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst:global', tool: 'read', summary: 'opened docs', success: true });
-    await flushPromises();
-
-    expect(scrollArea.scrollTop).toBe(1000);
-
-    const pauseToggle = wrapper.find('label.auto-scroll-pause-toggle input[type="checkbox"]');
-    expect(pauseToggle.exists()).toBe(true);
-    await pauseToggle.setValue(true);
-    scrollArea.scrollTop = 0;
-
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst:global', tool: 'run_command', summary: 'ran checks', success: true });
-    await flushPromises();
-
-    expect(scrollArea.scrollTop).toBe(0);
-    expect(wrapper.text()).toContain('Jump to latest · 1 new');
-    wrapper.unmount();
-  });
-
-  it('renders classified_as and related-card attribution for pending chips from sanitized events', async () => {
-    const pinia = createPinia();
-    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
-    await flushPromises();
-    const store = useAnalystChat();
-    store.ingestWsEvent({
-      event: 'analyst_tool_invoked',
-      session_id: 'stale-chat-id',
-      tool: 'run_command',
-      summary: '[SECRET_PATH] redacted preview',
-      classified_as: 'destructive',
-      related_card_id: 'card-7',
-      success: true,
-    });
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('Shell');
-    expect(wrapper.text()).toContain('[SECRET_PATH] redacted preview');
-    expect(wrapper.find('.tool-chip').exists()).toBe(true);
-    expect(store.pendingToolInvocations[0].classifiedAs).toBe('destructive');
-    expect(store.pendingToolInvocations[0].relatedCardId).toBe('card-7');
-    expect(store.pendingToolInvocations[0].sessionId).toBe('analyst:global');
-    wrapper.unmount();
-  });
 });

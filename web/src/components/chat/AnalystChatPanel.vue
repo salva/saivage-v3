@@ -18,22 +18,13 @@
 
       <div v-if="messagesLoading" class="chat-status-card loading-skeleton" role="status">Loading history…</div>
       <div v-else-if="messagesError" class="chat-status-card chat-status-error" role="alert">{{ messagesErrorLabel }}</div>
-      <div v-else-if="!messagesLoading && messages.length === 0 && timelineControls.timeline.value.rounds.length === 0 && pendingToolInvocationsForActiveSession.length === 0" class="chat-status-card" role="status">No messages yet. Ask the analyst something.</div>
+      <div v-else-if="!messagesLoading && messages.length === 0 && timelineControls.timeline.value.rounds.length === 0" class="chat-status-card" role="status">No messages yet. Ask the analyst something.</div>
       <div v-else class="chat-rounds">
         <ConversationTimeline :timeline="timelineControls.timeline.value" :expanded-ids="timelineControls.expandedIds.value" @toggle="timelineControls.toggleExpanded" />
-        <div v-if="sending && pendingToolInvocationsForActiveSession.length === 0" class="chat-thinking" role="status" aria-live="polite">
+        <div v-if="sending" class="chat-thinking" role="status" aria-live="polite">
           <span class="thinking-dot" aria-hidden="true"></span>
           Analyst is thinking...
         </div>
-        <PendingToolRow
-          v-for="pending in pendingToolInvocationsForActiveSession"
-          :key="pending.id"
-          :tool="pending.tool"
-          :summary="pending.summary"
-          :expanded="timelineControls.expandedIds.value.has(pending.id)"
-          :details-id="`pending-${pending.id}`"
-          @toggle="timelineControls.toggleExpanded(pending.id)"
-        />
       </div>
     </div>
     <button
@@ -84,13 +75,15 @@ import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { selectChildrenOf } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
+import { useLiveSyncStore } from '../../stores/liveSync';
+import { ANALYST_SESSION_ID } from '../../stores/analyst-chat-context';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
-import PendingToolRow from '../conversation/PendingToolRow.vue';
 
 const chat = useAnalystChat();
 const cards = useCardStore();
 const workspaceRoute = useWorkspaceRouteStore();
+const liveSync = useLiveSyncStore();
 const {
   activeSessionId,
   messages,
@@ -101,16 +94,13 @@ const {
   messagesError,
   sending,
   sendError,
-  pendingToolInvocations,
   activeSessionWritable,
 } = storeToRefs(chat);
 
 const composerRef = ref<HTMLTextAreaElement | null>(null);
 const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
 const idleActivityStatus = computed<ActivityStatus | null>(() => null);
-const pendingToolInvocationsForActiveSession = computed(() => pendingToolInvocations.value.filter((item) => item.sessionId === activeSessionId.value));
-const extraPendingCount = computed(() => pendingToolInvocationsForActiveSession.value.length);
-const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus, undefined, extraPendingCount);
+const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus);
 const childrenOnScreen = computed(() =>
   workspaceRoute.view === 'cards' && workspaceRoute.entityId
     ? selectChildrenOf([...cards.cards], workspaceRoute.entityId)
@@ -125,6 +115,7 @@ const messagesErrorLabel = computed(() => {
   }
   return messagesError.value.message;
 });
+let closeAnalystConversation: (() => void) | null = null;
 
 function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
   timelineControls.scrollAreaRef.value = el instanceof HTMLElement ? el : null;
@@ -159,9 +150,13 @@ async function submitMessage(): Promise<void> {
 onMounted(() => {
   window.addEventListener('saivage:focus-chat', handleFocusChat);
   chat.fetchSessions()
-    .then(() => chat.fetchMessages())
-    .then(() => nextTick())
-    .then(() => timelineControls.scrollToLatest())
+    .then(() => {
+      closeAnalystConversation = liveSync.openConversation(ANALYST_SESSION_ID, async () => {
+        await chat.fetchMessages(ANALYST_SESSION_ID);
+        await nextTick();
+        timelineControls.scrollToLatest();
+      });
+    })
     .catch(() => {});
 });
 
@@ -171,6 +166,8 @@ watch(activeSessionId, () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('saivage:focus-chat', handleFocusChat);
+  closeAnalystConversation?.();
+  closeAnalystConversation = null;
 });
 </script>
 
@@ -239,12 +236,6 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
-.chat-pending-call {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
 .chat-thinking {
   display: inline-flex;
   align-items: center;
@@ -269,12 +260,6 @@ onBeforeUnmount(() => {
 @keyframes thinking-pulse {
   0%, 100% { opacity: .35; transform: scale(.85); }
   50% { opacity: 1; transform: scale(1); }
-}
-
-.chat-pending-summary {
-  color: var(--text-muted);
-  font-size: 12px;
-  padding: 0 12px;
 }
 
 .chat-input-panel {
