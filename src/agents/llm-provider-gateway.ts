@@ -1,7 +1,7 @@
 import type { AgentMessage } from '../schemas/index.js';
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
-import { capabilityRequestForLlmOptions, supportsCapabilityRequest } from './provider-capabilities.js';
+import { builtInCapabilitiesForProvider, capabilityRequestForLlmOptions, supportsCapabilityRequest } from './provider-capabilities.js';
 import { parseCompleteInvocationArgs, type LlmCompleteOptions, type ProviderTurnCompletion, type LlmInvocationClient, type ResponsesReplayProjection } from './llm-contracts.js';
 import { LlmRequestError } from './llm-errors.js';
 import { OpenAIChatGateway } from './llm-openai-chat-gateway.js';
@@ -38,7 +38,7 @@ export class LlmProviderGateway implements LlmInvocationClient {
   ): Promise<ProviderTurnCompletion> {
     const { activeConversationReplay, sessionId, opts } = parseCompleteInvocationArgs(genericContextMessages, activeConversationReplayOrSessionId, sessionIdOrOpts, maybeOpts);
     this.assertCandidateCapabilities(candidate, opts);
-    const transport = this.registry?.getEffectiveCapabilities(candidate).transportProtocol ?? 'openai-chat-completions';
+    const transport = this.registry?.getEffectiveCapabilities(candidate).transportProtocol ?? builtInCapabilitiesForProvider(candidate.provider).transportProtocol;
     if (transport === 'openai-responses') {
       if (!this.registry) throw new Error('openai-responses dispatch requires a provider registry.');
       return new OpenAIResponsesGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey, capabilities: this.registry.getEffectiveCapabilities(candidate) }).complete(candidate, systemPrompt, activeConversationReplay, sessionId, opts);

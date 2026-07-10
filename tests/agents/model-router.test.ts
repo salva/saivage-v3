@@ -413,7 +413,7 @@ describe('ModelRouter', () => {
         expect(chain[1].provider).toBe('opencode');
       });
 
-      it('resolves static-API-key providers without reading auth profiles during transport resolution', async () => {
+      it('fails explicit provider authProfile misses even when a static API key is configured', async () => {
         const root = makeProjectRoot();
         writeAuthProfileFile(root, {
           'other-profile': {
@@ -439,9 +439,8 @@ describe('ModelRouter', () => {
         const router = new ModelRouter(cfg, registry);
 
         const candidate = (await router.resolve('planner'))[0];
-        const transport = await resolveLlmTransportConfig(root, registry, candidate);
-        expect(transport.apiKey).toBe('static-api-key');
-        expect(transport.baseUrl).toBe('https://example.invalid/v1');
+        await expect(resolveLlmTransportConfig(root, registry, candidate))
+          .rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'missing_auth_profile' } });
       });
 
       it('uses account-level authProfile when set (overrides provider-level)', async () => {
