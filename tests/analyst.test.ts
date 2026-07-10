@@ -38,6 +38,7 @@ const TEST_BRIEF = '# Goal\n\nTest card goal\n\n# Instructions\n\nFollow the tes
 
 import { AnalystRuntime } from '../src/agents/analyst-handler.js';
 import { resolveAnalystSessionId } from '../src/agents/session-ids.js';
+import { readConversationMessages } from '../src/runtime/actors/conversation-store.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../src/tools/analyst-tool-registry.js';
 import {
   ANALYST_ISSUE_SEVERITY_VALUES,
@@ -485,7 +486,14 @@ describe('Analyst Runtime', () => {
     await expect(runtime.submit('s16', { userContent: 'list all cards' })).rejects.toThrow('already has an active turn');
     await new Promise((resolve) => setImmediate(resolve));
     resolveProvider({ result: { kind: 'message', content: 'Done.' }, provider_exchanges: [] });
-    await expect(first).resolves.toMatchObject({ message: { content: 'Done.' } });
+    const response = await first;
+    expect(response.sessionId).toBe('analyst:s16');
+    expect(response.toolInvocations ?? []).toEqual([]);
+    expect(readConversationMessages(projectRoot, response.sessionId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'assistant', kind: 'text', content: 'Done.' }),
+      ]),
+    );
   });
 });
 
@@ -534,25 +542,76 @@ describe('API Chat and WebSocket Integration', () => {
     expect(res.status).toBe(200);
   });
 
-  it('sending a message via WebSocket returns a real analyst response', (done) => {
+  it('sending a message via WebSocket invalidates the canonical analyst conversation', (done) => {
     const ws = new WebSocket(wsUrl());
     let welcomed = false;
+    let settled = false;
+    let baselineAssistantEntryIds: Set<string> | null = null;
+
+    type ChatEntry = { id?: unknown; role?: unknown; kind?: unknown; content?: unknown };
+
+    function finish(err?: Error): void {
+      if (settled) return;
+      settled = true;
+      ws.close();
+      done(err);
+    }
+
+    async function fetchAnalystGlobalEntries(): Promise<ChatEntry[]> {
+      const res = await fetch(apiUrl('/api/chats/analyst:global'), { headers: authHdr() });
+      if (!res.ok) throw new Error(`GET /api/chats/analyst:global failed with ${res.status}`);
+      const body = await res.json() as { entries?: unknown };
+      if (!Array.isArray(body.entries)) throw new Error('GET /api/chats/analyst:global returned no entries array');
+      return body.entries as ChatEntry[];
+    }
+
+    function isAssistantTextEntry(entry: ChatEntry): entry is ChatEntry & { id: string; content: string } {
+      return typeof entry.id === 'string'
+        && entry.role === 'assistant'
+        && entry.kind === 'text'
+        && typeof entry.content === 'string'
+        && entry.content.trim().length > 0;
+    }
+
     ws.on('message', (raw) => {
-      const data = JSON.parse(raw.toString()) as { type: string; content: Record<string, unknown> };
-      if (!welcomed && data.content.event === 'connected') {
-        welcomed = true;
-        ws.send(JSON.stringify({ type: 'message', content: { text: 'list all cards' } }));
+      if (settled) return;
+      let data: { type?: string; content?: Record<string, unknown>; t?: string; resource?: string; id?: string };
+      try {
+        data = JSON.parse(raw.toString()) as { type?: string; content?: Record<string, unknown>; t?: string; resource?: string; id?: string };
+      } catch (err) {
+        finish(err instanceof Error ? err : new Error(String(err)));
         return;
       }
-      if (welcomed && data.type === 'message') {
-        expect(data.content.content).toBeTruthy();
-        ws.close();
-        done();
+      if (!welcomed && data.content?.event === 'connected') {
+        welcomed = true;
+        ws.send(JSON.stringify({ t: 'subscribe', resource: 'conversation', id: 'analyst:global' }));
+        void fetchAnalystGlobalEntries()
+          .then((entries) => {
+            if (settled) return;
+            const assistantEntries = entries.filter(isAssistantTextEntry);
+            baselineAssistantEntryIds = new Set(assistantEntries.map((entry) => entry.id));
+            ws.send(JSON.stringify({ type: 'message', content: { text: 'list all cards' } }));
+          })
+          .catch((err: unknown) => finish(err instanceof Error ? err : new Error(String(err))));
+        return;
+      }
+
+      if (welcomed && data.t === 'invalidate' && data.resource === 'conversation' && data.id === 'analyst:global') {
+        if (!baselineAssistantEntryIds) return;
+        const baseline = baselineAssistantEntryIds;
+        void fetchAnalystGlobalEntries()
+          .then((entries) => {
+            if (settled) return;
+            const hasNewAssistantText = entries
+              .filter(isAssistantTextEntry)
+              .some((entry) => !baseline.has(entry.id));
+            if (hasNewAssistantText) finish();
+          })
+          .catch((err: unknown) => finish(err instanceof Error ? err : new Error(String(err))));
       }
     });
     ws.on('error', (err) => {
-      ws.close();
-      done(err);
+      finish(err);
     });
   }, 15000);
 });
