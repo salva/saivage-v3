@@ -55,6 +55,7 @@ export async function readOpenAIResponsesStream(stream: ReadableStream<Uint8Arra
   const decoder = new TextDecoder();
   let buffer = '';
   let finalResponse: Record<string, unknown> | null = null;
+  const assembled = new ResponsesStreamAssembly(ctx.provider);
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -65,6 +66,7 @@ export async function readOpenAIResponsesStream(stream: ReadableStream<Uint8Arra
       buffer = buffer.slice(boundary + 2);
       const parsed = parseSseFrame(frame, ctx.provider);
       if (!parsed) continue;
+      assembled.apply(parsed.event, parsed.data);
       if (parsed.event === 'response.completed' || parsed.event === 'response.incomplete' || parsed.event === 'response.failed' || parsed.event === 'response.cancelled') finalResponse = parsed.data;
       if (parsed.data && Array.isArray(parsed.data.output) && typeof parsed.data.status === 'string') finalResponse = parsed.data;
       if (parsed.data && parsed.data.response && typeof parsed.data.response === 'object') {
@@ -74,7 +76,69 @@ export async function readOpenAIResponsesStream(stream: ReadableStream<Uint8Arra
     }
   }
   if (!finalResponse) throw new LlmRequestError({ kind: 'parse_error', provider: ctx.provider, message: 'OpenAI Responses stream ended before a terminal response payload.' });
+  if (!Array.isArray(finalResponse.output) && finalResponse.status === 'completed') finalResponse = { ...finalResponse, output: assembled.output() };
   return parseOpenAIResponsesObject(finalResponse, ctx);
+}
+
+class ResponsesStreamAssembly {
+  private readonly items: Record<string, Record<string, unknown>> = {};
+  private readonly order: string[] = [];
+  private readonly textByItem = new Map<string, string>();
+  private readonly argumentsByItem = new Map<string, string>();
+
+  constructor(private readonly provider: string) {}
+
+  apply(event: string, data: Record<string, unknown>): void {
+    if (event === 'response.output_item.added' || event === 'response.output_item.done') {
+      const item = objectField(data, 'item') ?? data;
+      this.upsertItem(item);
+      return;
+    }
+    if (event === 'response.output_text.delta') {
+      const itemKey = this.itemKey(data);
+      const delta = stringField(data, 'delta');
+      if (!delta) return;
+      this.textByItem.set(itemKey, `${this.textByItem.get(itemKey) ?? ''}${delta}`);
+      if (!this.items[itemKey]) this.addItem(itemKey, { type: 'message', id: itemKey, content: [] });
+      return;
+    }
+    if (event === 'response.function_call_arguments.delta') {
+      const itemKey = this.itemKey(data);
+      if (!this.items[itemKey]) throw new LlmRequestError({ kind: 'parse_error', provider: this.provider, message: 'OpenAI Responses stream emitted function-call arguments before a call item.' });
+      const delta = stringField(data, 'delta');
+      if (!delta) return;
+      this.argumentsByItem.set(itemKey, `${this.argumentsByItem.get(itemKey) ?? ''}${delta}`);
+    }
+  }
+
+  output(): unknown[] {
+    return this.order.map((key) => {
+      const item = { ...this.items[key] };
+      const text = this.textByItem.get(key);
+      if (text !== undefined) item.content = [{ type: 'output_text', text }];
+      const args = this.argumentsByItem.get(key);
+      if (args !== undefined) item.arguments = args;
+      return item;
+    });
+  }
+
+  private upsertItem(item: Record<string, unknown>): void {
+    const key = this.itemKey(item);
+    this.addItem(key, { ...(this.items[key] ?? {}), ...item });
+  }
+
+  private addItem(key: string, item: Record<string, unknown>): void {
+    if (!this.items[key]) this.order.push(key);
+    this.items[key] = item;
+  }
+
+  private itemKey(data: Record<string, unknown>): string {
+    const id = stringField(data, 'item_id') ?? stringField(data, 'id');
+    if (id) return id;
+    const outputIndex = numberField(data, 'output_index');
+    if (outputIndex !== undefined) return `output:${outputIndex}`;
+    return `output:${this.order.length}`;
+  }
 }
 
 function nonCompletedFailure(response: Record<string, unknown>, ctx: ParserContext, status: string, bodyPreview: string): LlmRequestError {
@@ -142,4 +206,19 @@ function parseSseFrame(frame: string, provider: string): { event: string; data: 
   } catch (error) {
     throw new LlmRequestError({ kind: 'parse_error', provider, message: `OpenAI Responses stream frame has invalid JSON: ${error instanceof Error ? error.message : String(error)}`, bodyPreview: dataText.slice(0, 500) });
   }
+}
+
+function objectField(value: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const field = value[key];
+  return field !== null && typeof field === 'object' && !Array.isArray(field) ? field as Record<string, unknown> : undefined;
+}
+
+function stringField(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === 'string' ? field : undefined;
+}
+
+function numberField(value: Record<string, unknown>, key: string): number | undefined {
+  const field = value[key];
+  return typeof field === 'number' && Number.isInteger(field) ? field : undefined;
 }

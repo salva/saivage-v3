@@ -53,6 +53,30 @@ describe('OpenAI Responses streaming parser', () => {
     await expect(readOpenAIResponsesStream(rawStream('event: response.output_text.delta\ndata: {bad}\n\n'), CTX)).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
     await expect(readOpenAIResponsesStream(sseStream([{ event: 'response.output_text.delta', data: { delta: 'partial' } }]), CTX)).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
   });
+
+  it('assembles text deltas when the terminal completed event omits output', async () => {
+    const parsed = await readOpenAIResponsesStream(sseStream([
+      { event: 'response.output_item.added', data: { item: { type: 'message', id: 'msg_1', content: [] } } },
+      { event: 'response.output_text.delta', data: { item_id: 'msg_1', delta: 'hel' } },
+      { event: 'response.output_text.delta', data: { item_id: 'msg_1', delta: 'lo' } },
+      { event: 'response.completed', data: { status: 'completed', usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } },
+    ]), CTX);
+
+    expect(parsed.result).toEqual({ kind: 'message', content: 'hello', usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    expect(parsed.privateContext.output).toEqual([{ type: 'message', id: 'msg_1', content: [{ type: 'output_text', text: 'hello' }] }]);
+  });
+
+  it('assembles function-call argument deltas and rejects argument deltas before call items', async () => {
+    const parsed = await readOpenAIResponsesStream(sseStream([
+      { event: 'response.output_item.added', data: { item: { type: 'function_call', id: 'fc_1', call_id: 'call-1', name: 'read_file', arguments: '' } } },
+      { event: 'response.function_call_arguments.delta', data: { item_id: 'fc_1', delta: '{"path"' } },
+      { event: 'response.function_call_arguments.delta', data: { item_id: 'fc_1', delta: ':"a"}' } },
+      { event: 'response.completed', data: { status: 'completed' } },
+    ]), CTX);
+    expect(parsed.result).toEqual({ kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a"}' } }], usage: undefined });
+
+    await expect(readOpenAIResponsesStream(sseStream([{ event: 'response.function_call_arguments.delta', data: { item_id: 'missing', delta: '{}' } }, { event: 'response.completed', data: { status: 'completed' } }]), CTX)).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
+  });
 });
 
 function sseStream(frames: Array<{ event: string; data: unknown }>): ReadableStream<Uint8Array> {
