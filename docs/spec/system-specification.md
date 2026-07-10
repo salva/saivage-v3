@@ -367,6 +367,8 @@ The conversation log follows the encapsulation principle: it is the complete dur
 
 Current conversation directories use `index.json`, numbered `<N>.jsonl` version files, and optional `summaries.jsonl`. Legacy v1 `seg-NNN.jsonl` conversation files are not supported current state and are rejected with other obsolete global card-agent conversation and actor-cursor roots during clean-slate boot.
 
+Active conversation versions must not contain duplicate durable rows for the same logical message id. Rows introduced through provider-turn `turnMessages` are appended once, then consumed before tool-result, repair, or continuation-hook provider calls append only their new rows.
+
 On each idle-path activation, the agent loads the complete active persisted conversation version from disk into provider context, appends a non-provider-visible activation marker, persists the current turn's runtime-provided context rows, and then calls the provider with that loaded thread plus the newly persisted rows. During the turn, in-memory provider context and transcript persistence grow in lockstep. Recovery branches for in-flight provider calls or waiting tool calls do not construct a fresh input.
 
 One runtime activation of a card agent is one conversation round. Compaction operates on the card-lifetime thread across these activation rounds. The only content removal anywhere is compaction-time removal of recoverable `tool_result` bodies; compaction keeps the recovery pointer so the model can re-fetch the content with `read`.

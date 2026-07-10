@@ -9,6 +9,11 @@ export interface LlmInvocationInput {
   sessionId: string;
   systemPrompt: string;
   contextMessages: unknown[];
+  /**
+   * Single-use conversation rows to append durably when this provider turn starts.
+   * The LLM actor consumes them after a successful append and must not carry them
+   * into tool or repair continuations; providers read contextMessages instead.
+   */
   turnMessages?: AgentMessage[];
   tools: ToolDefinition[];
   terminalToolNames: string[];

@@ -184,9 +184,12 @@ export class ConversationLLMActor extends BaseActor {
         const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(effectiveInput.sessionId);
         for (const result of appendLlmTurnStarted(this.projectRoot, effectiveInput, { includeSystemPrompt })) this.conversationPublisher?.entryAppended(result);
         if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(effectiveInput.sessionId);
+        const providerInput = this.consumeTurnMessages(effectiveInput);
+        this.input = providerInput;
+        this.onTurnStateUpdated({ input: providerInput, waitingToolCall: null });
         await this.gate.waitUntilOpen();
         this.#providerBoundaryEntered = true;
-        return this.provider.completeTurn(effectiveInput, invocationSignal);
+        return this.provider.completeTurn(providerInput, invocationSignal);
       }, {
         on_done: (completion) => {
           try {
@@ -356,6 +359,12 @@ export class ConversationLLMActor extends BaseActor {
       return result.message;
     });
     return [...input.contextMessages, toolCallMessage, toolResultAgentMessage(delivery), ...extraMessages];
+  }
+
+  private consumeTurnMessages(input: LlmInvocationInput): LlmInvocationInput {
+    if (input.turnMessages === undefined) return input;
+    const { turnMessages: _consumed, ...continuationInput } = input;
+    return continuationInput;
   }
 
   private requireInput(): LlmInvocationInput {

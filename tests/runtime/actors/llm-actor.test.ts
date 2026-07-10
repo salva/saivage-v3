@@ -316,6 +316,43 @@ describe('LLMActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
   }));
 
+  it('consumes turnMessages once before tool-result continuations', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const firstMessage = { id: 'turn-row-context', session_id: 'planner:project', role: 'system' as const, kind: 'text' as const, content: '[workspace-context] view: cards entity: project', round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
+    const secondMessage = { id: 'turn-row-user', session_id: 'planner:project', role: 'user' as const, kind: 'text' as const, content: 'start the project', round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: new Date().toISOString() };
+    const providerInputs: LlmInvocationInput[] = [];
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (turnInput: LlmInvocationInput) => {
+        providerInputs.push(turnInput);
+        return turnInput.episodeContext.lastToolResult
+          ? completion({ kind: 'message' as const, content: 'continued' })
+          : completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] });
+      }),
+    };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    await expect(actor.turn({ ...input(), contextMessages: [firstMessage, secondMessage], turnMessages: [firstMessage, secondMessage] })).resolves.toMatchObject({ type: 'tool_call' });
+    await expect(actor.appendToolResult('call-1', { success: true, data: { inspected: true } })).resolves.toMatchObject({ type: 'result', result: { content: 'continued' } });
+
+    const messages = readConversationMessages(projectRoot, 'planner:project');
+    expect(messages.filter((message) => message.id === 'turn-row-context')).toHaveLength(1);
+    expect(messages.filter((message) => message.id === 'turn-row-user')).toHaveLength(1);
+    expect(new Set(messages.map((message) => message.id)).size).toBe(messages.length);
+    expect(providerInputs).toHaveLength(2);
+    expect(providerInputs[0]).toMatchObject({ contextMessages: [firstMessage, secondMessage] });
+    expect(providerInputs[0].turnMessages).toBeUndefined();
+    expect(providerInputs[1].turnMessages).toBeUndefined();
+    expect(providerInputs[1].contextMessages).toEqual([
+      firstMessage,
+      secondMessage,
+      expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool_call_id: 'call-1' }),
+      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool_call_id: 'call-1' }),
+    ]);
+    expect(messages.filter((message) => message.kind === 'activity' && message.id.endsWith(':started'))).toHaveLength(2);
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
+  }));
+
   it('continues after plain text with provider-visible repair context before hook context', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = {

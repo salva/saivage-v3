@@ -137,6 +137,27 @@ describe('AnalystHandler F05 contract', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it('persists Analyst workspace-context and user turn rows once across a tool continuation', async () => {
+    const root = setupRoot();
+    try {
+      let call = 0;
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        call += 1;
+        if (call === 1) return toolCallsResponse([{ id: 'call-start', name: 'start_project', args: {} }]);
+        return messageResponse('Project started.');
+      });
+      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+
+      await runtime.submit('analyst:global', { userContent: 'start the project', workspaceContext: { view: 'cards', entityId: 'project', refinement: null } });
+
+      expect(latestAssistantText(root, 'analyst:global')).toBe('Project started.');
+      const messages = readConversationMessages(root, resolveAnalystSessionId('analyst:global'));
+      expect(messages.filter((message) => message.content === '[workspace-context]\nview: cards\nentity: project')).toHaveLength(1);
+      expect(messages.filter((message) => message.content === 'start the project')).toHaveLength(1);
+      expect(new Set(messages.map((message) => message.id)).size).toBe(messages.length);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('turns malformed tool argument JSON into protocol tool errors without executing tools', async () => {
     const root = setupRoot();
     try {
