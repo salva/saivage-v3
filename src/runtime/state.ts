@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { runtimeStateSchema } from '../schemas/index.js';
 import type { ZodType } from 'zod';
-import { explainLegacyStateRejection } from '../persistence/index.js';
+import { explainStateValidationRejection } from '../persistence/index.js';
 import { AtomicJsonFile, ProjectLock, PersistenceReadError, PersistenceValidationError } from '../persistence/index.js';
 import type { RuntimeState } from '../schemas/index.js';
 import { createDefaultRuntimeState } from './default-state.js';
@@ -82,7 +82,7 @@ export function initRuntimeState(projectRoot: string): RuntimeState {
 export function saveRuntimeState(projectRoot: string, state: RuntimeState): RuntimeState {
   const parsed = runtimeStatePersistenceSchema.safeParse(state);
   if (!parsed.success) {
-    explainLegacyStateRejection(projectRoot, 'RuntimeState', parsed.error.message);
+    explainStateValidationRejection(projectRoot, 'RuntimeState', parsed.error.message);
   }
   const validated = assertRuntimeStateInvariants(parsed.data);
   const lock = runtimeStateLock(projectRoot);

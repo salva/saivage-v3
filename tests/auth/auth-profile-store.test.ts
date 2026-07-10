@@ -377,7 +377,7 @@ describe('AuthProfileStore refusal semantics', () => {
     expectNoRawSecrets(JSON.stringify(recoveryError.details));
   });
 
-  it('keeps public save/delete APIs compatible for clean stores', async () => {
+  it('keeps public save/delete APIs working for clean stores', async () => {
     const root = makeProjectRoot();
 
     await saveAuthProfile(root, 'first', makeProfile({ provider: 'one' }));

@@ -319,7 +319,15 @@ Process-list projections, including `list_processes_tool` and the operator proce
 
 The specification does not impose a process concurrency limit for now. Future runtime settings may add per-card, per-goal, or per-runtime limits.
 
-## 17. Recovery
+## 17. Operator API And Live Projections
+
+`/api/state` returns the persisted runtime-state projection from `.saivage/tmp/state/runtime.json`; the `runtime` field may be `null` when that file is absent. Live server availability is a separate projection sourced from the running runtime application. If that live runtime-status read fails, availability reports a degraded diagnostic for `runtime-application`; `runtime-state` is not an availability component source.
+
+Runtime events are read through paginated operator endpoints. Missing `limit` and `offset` use their defaults, but malformed present values such as negative numbers, decimals, or non-numeric strings fail request validation instead of being silently defaulted.
+
+Chat send responses and Analyst websocket responses are not transcript sources and do not carry assistant `message` rows. Operator transcripts are read through canonical conversation fetches and refreshed through live-sync invalidations. Every durable live conversation mutation, including appended rows and compaction active-version replacement, emits the canonical `conversation_changed` event after persistence; live sync maps it to `{ resource: 'conversation', id: <session id> }`. Canonical transcript reads return the active conversation version/current projection and do not merge inactive pre-compaction versions.
+
+## 18. Recovery
 
 Startup recovery validates the root card record before recovery planning. If the project card record is corrupt or missing, startup throws before actor recovery so the operator can repair the card record and restart.
 
@@ -333,7 +341,7 @@ If startup finds a persisted LLM waiting on a terminal tool call and the logged 
 
 Actor snapshots may include `active_reconstruction` records for active card, processor, and LLM work. Card status is the outer durable truth: terminal, changed, backlog, or cancelled cards do not keep active inner processor/LLM snapshots after startup recovery. Running cards keep only compatible processor/LLM reconstruction records. Process reattachment remains excluded: process records are live runtime state only, not reconstruction inputs or OS-process handles.
 
-## 18. Reviewer Assessment
+## 19. Reviewer Assessment
 
 Reviewer assessment happens after the planner reports a planning card ready for completion and after runtime readiness and evidence gates pass. Goal reviewers receive the project card data, the goal subtree being assessed, and the return value from the planner agent. The project reviewer assesses the completed project/root tree outcome against the project card brief and acceptance criteria. The reviewer records an assessment for that snapshot.
 
@@ -341,7 +349,7 @@ Reviewer approval is valid only for the card tree snapshot it assessed. The inva
 
 Reviewer results are stored locally with the assessed card. If the reviewer result is negative, it is injected back into the planner context through the response to the planner's completion-return tool call. If the reviewer result is positive, the reviewer text is attached to the card for recordkeeping but is otherwise ignored by the planner flow.
 
-## 19. Agent Session Resumption
+## 20. Agent Session Resumption
 
 Planner, executor, and reviewer roles use card-lifetime conversation threads. Planner and executor session ids are deterministic from the card (`planner:<cardId>`, `executor:<cardId>`), and reviewer assessment sessions are card-owned sessions under the reviewed card's conversation directory. Card-scoped conversations persist under `.saivage/cards/<cardId>/conversations/<encoded-session-id>/`; Analyst conversations are user-facing sessions with the same active-version load-back contract under `.saivage/agents/conversations/<encoded-session-id>/`. The persisted thread accumulates across activations until compaction replaces older history with summaries.
 
@@ -355,7 +363,7 @@ On each idle-path activation, the agent loads the complete active persisted conv
 
 One runtime activation of a card agent is one conversation round. Compaction operates on the card-lifetime thread across these activation rounds. The only content removal anywhere is compaction-time removal of recoverable `tool_result` bodies; compaction keeps the recovery pointer so the model can re-fetch the content with `read`.
 
-## 20. Configuration
+## 21. Configuration
 
 The Analyst can reconfigure:
 
@@ -363,15 +371,17 @@ The Analyst can reconfigure:
 - provider failover ordering;
 - MCP server entries;
 - runtime settings;
-- server settings.
+- server settings;
 - agent prompts by writing replacement Markdown files under
   `.saivage/config/prompts/<cardType>/<role>.md`.
+
+MCP server configuration supports `stdio` and `streamable-http` transports. Streamable HTTP uses the MCP Streamable HTTP request/response contract and may parse `text/event-stream` response frames; the transport configuration value is `streamable-http`.
 
 Project configuration lives in `.saivage/saivage.yaml`. Agent prompt overrides are file-level replacements in `.saivage/config/prompts/` using the same `<cardType>/<role>.md` paths as the shipped defaults; omitted files use built-in defaults. The rendered `(cardType, role)` template is the complete provider-visible system prompt for that agent slot, subject to the existing one-per-session persistence deduplication rule.
 
 Configuration changes apply to subsequent relevant work without server restart unless the specific change requires a restart. Runtime components should reevaluate dynamically changeable settings at their relevant use/admission boundaries rather than requiring restart or long-lived cached configuration. If a restart is required, the Analyst must say so and ask before restarting.
 
-## 21. Failure Modes
+## 22. Failure Modes
 
 If the Analyst provider is unavailable, mutation is unavailable. The system must report that the Analyst is offline and must not fall back to a keyword parser or degraded non-LLM mutation mode.
 
@@ -381,7 +391,7 @@ If a multi-step action partially succeeds, the Analyst reports which steps succe
 
 If the user confirms a destructive action after context has gone stale, the Analyst must restate and reconfirm before executing.
 
-## 22. Acceptance Criteria
+## 23. Acceptance Criteria
 
 The system satisfies this specification when:
 

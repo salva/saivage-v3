@@ -42,7 +42,7 @@ describe('saivage reset', () => {
       initProjectTree(root);
       mkdirSync(join(root, '.saivage', 'notes', 'by-card', 'x'), { recursive: true });
       mkdirSync(join(root, 'research', 'future-objectives'), { recursive: true });
-      writeFileSync(join(root, '.saivage', 'runtime', 'state.json'), '{}');
+      writeFileSync(join(root, '.saivage', 'runtime', 'events.jsonl'), '');
       writeFileSync(join(root, '.saivage', 'auth-profiles.json'), '{"keep":true}');
       writeFileSync(join(root, '.saivage', 'project.json'), '{"keep":true}');
       writeFileSync(objectivePath, objectiveContent);

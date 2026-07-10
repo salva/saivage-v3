@@ -37,6 +37,8 @@ runtime: {}
 
 Agent prompts are customizable with file-level Markdown overrides in `.saivage/config/prompts/<cardType>/<role>.md`. Shipped defaults live in `src/prompts/` and are copied to `dist/prompts/`; omitted override files keep the built-in defaults.
 
+MCP server entries in `.saivage/saivage.yaml` use `transport: stdio` or `transport: streamable-http`.
+
 Existing deployments must rename `.saivage/saivage.json` to `.saivage/saivage.yaml` with `mv`, not `cp`. If both files exist, startup fails and directs the operator to delete the obsolete JSON because it may still contain provider credentials. After the rename, operators may rewrite the file to idiomatic YAML and optionally add prompt override files under `.saivage/config/prompts/`.
 
 Start Saivage from the target project directory:

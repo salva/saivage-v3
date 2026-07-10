@@ -368,7 +368,7 @@ describe('config-schema', () => {
 });
 
 describe('provider capability schema', () => {
-  it('accepts optional provider/account/model capability declarations without breaking legacy configs', () => {
+  it('accepts optional provider/account/model capability declarations', () => {
     const result = saivageConfigSchema.safeParse({
       models: { default: ['gpt-5.5'] },
       providers: {

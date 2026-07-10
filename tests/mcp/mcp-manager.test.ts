@@ -659,10 +659,10 @@ describe('McpManager tool discovery', () => {
     expect(listCalls[1].headers['Mcp-Session-Id']).toBe('synthetic-session-2');
   });
 
-  it('records unsupported legacy SSE diagnostic instead of caching tools', async () => {
+  it('records unsupported endpoint event-stream diagnostic instead of caching tools', async () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {
-      mcpServers: { legacy: streamableHttpConfig({ url: 'http://localhost:9999/sse' }) },
+      mcpServers: { endpoint: streamableHttpConfig({ url: 'http://localhost:9999/sse' }) },
     });
     (globalThis as any).fetch = jest.fn(async (_url: string, init?: any) => {
       if (init.method === 'HEAD') return { ok: true, status: 200 };
@@ -672,10 +672,10 @@ describe('McpManager tool discovery', () => {
     });
 
     const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('legacy');
+    await mgr.startServer('endpoint');
 
-    expect(mgr.getServerTools('legacy')).toBeUndefined();
-    expect(mgr.getServerStatus('legacy')?.status).toBe('running');
+    expect(mgr.getServerTools('endpoint')).toBeUndefined();
+    expect(mgr.getServerStatus('endpoint')?.status).toBe('running');
   });
 
   it('getTools() returns empty array initially', () => {

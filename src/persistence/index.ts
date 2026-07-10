@@ -15,7 +15,7 @@ export {
   PersistenceWriteError,
 } from './errors.js';
 export {
-  explainLegacyStateRejection,
+  explainStateValidationRejection,
   initProjectTree,
   isInitialized,
   readProjectFileAtomic,

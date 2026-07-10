@@ -209,7 +209,7 @@ function ensureCleanSlateBoot(projectRoot: string): void {
   discardLegacyState(projectRoot, stamp);
 }
 
-export function explainLegacyStateRejection(
+export function explainStateValidationRejection(
   projectRoot: string,
   stateKind: string,
   details: string,

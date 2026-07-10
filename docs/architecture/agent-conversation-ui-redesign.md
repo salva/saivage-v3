@@ -8,7 +8,7 @@ Date: 2026-06-30
 
 Agent conversations are the main observability surface for Saivage. The Analyst panel, Agents conversation detail, and Debug agents conversation detail are the three surfaces that render agent conversations. They must present the same conversation substrate with different density and diagnostic emphasis.
 
-This specification adapts the Saivage v2 conversation UI direction to v3. It copies the feel and information hierarchy, not the old implementation details. V3 keeps its card-centered runtime, segment-backed conversations, right-rail Analyst panel, and Analyst-owned mutation boundary.
+This specification adapts the Saivage v2 conversation UI direction to v3. It copies the feel and information hierarchy, not the old implementation details. V3 keeps its card-centered runtime, versioned conversations, right-rail Analyst panel, and Analyst-owned mutation boundary.
 
 The target experience is:
 
@@ -17,7 +17,7 @@ The target experience is:
 - one click opens a human-readable detail prepared for operators;
 - raw request/response payloads remain reachable through one shared escape hatch;
 - file, URL, card, process, artifact, attachment, quarantine, and child-conversation links are lateral navigation, not row expansion;
-- repetitive context gathering may be grouped, while mutations, dispatches, diagnostics, pending calls, and errors remain visible.
+- repetitive context gathering may be grouped, while mutations, dispatches, diagnostics, activity-backed pending calls, and errors remain visible.
 
 ## 2. Source Material
 
@@ -28,15 +28,15 @@ The v2 source documents remain provenance for the visual direction:
 
 The relevant v2 principles are compact rows, restrained typography, role-tinted bubbles, round grouping, model chips, pending-call indicators, jump-to-latest behavior, grouped low-value context tools, lazy expanded details, and a universal raw-payload toggle.
 
-V3 must not port v2's old server contracts, old file layout, legacy transcript engine, or legacy direct-chat control assumptions. Current authority remains `docs/spec/operator-ui.md` for UI behavior and `docs/architecture/tool-repair-and-agent-conversation-unification-plan.md` for the segment-backed conversation substrate.
+V3 must not port v2's old server contracts, old file layout, transcript engine, or direct-chat control assumptions. Current authority remains `docs/spec/operator-ui.md` for UI behavior and `docs/architecture/system-architecture.md` for the versioned active-conversation substrate.
 
-Phase 1 substrate work is landed for the non-compaction conversation path: agent conversations are segment-backed, Debug uses the operator agent API as its conversation source, `system_prompt` entries reach the timeline and collapse by default in `ContextBlock`, and activity status is derived from actor snapshots. Conversation compaction remains deferred to [Conversation Compaction Design](./conversation-compaction-design.md).
+Phase 1 substrate work is landed for the non-compaction conversation path: agent conversations are versioned active transcripts, Debug uses the operator agent API as its conversation source, `system_prompt` entries reach the timeline and collapse by default in `ContextBlock`, and activity status is derived from actor snapshots. Conversation compaction is part of the active-version contract.
 
 > Note on tool names: the compact labels and grouping examples in this document use the v2 tool vocabulary (`read`, `write`, `glob`, `grep`, `edit`, `apply_patch`, `websearch`, `webfetch`, `run_command`, `git_*`, `run_*`, `plan_*`, `rag_*`, `memory` family). V3's actual tool surface differs in places. The display registry must be keyed to the v3 runtime `InvocationSurface`/provider-owned tool definitions when this redesign is implemented; the v2 labels are kept here as the target vocabulary because they read better than the current v3 names. Aligning the v3 tool set to this vocabulary is specified in [Tool Set Reorganization Design](./tool-set-reorganization-design.md) and is the Phase 2 prerequisite for this redesign.
 
 ## 3. Shared Conversation Model
 
-All three conversation surfaces render the same normalized conversation model. The API is the source of truth for raw entries; grouping and display-model construction are deterministic view-side passes.
+All three conversation surfaces render the same conversation model from backend entries. The API is the source of truth for raw entries; grouping and display-model construction are deterministic view-side passes and do not synthesize transcript rows.
 
 ```ts
 type ConversationTimeline = {
@@ -66,7 +66,7 @@ type ConversationItem =
   | { kind: 'tool_group'; id: string; summary: ToolGroupSummary; pairs: ToolPair[] };
 ```
 
-Server payloads should expose stable `id`, `round_id`, `message_index`, `block_index`, `timestamp`, `kind`, `role`, `content`, `tool_name`, `tool_call_id`, `model`, and optional entity links. Conversation row and group IDs must be stable across polling and WebSocket invalidations: `round_id + tool_call_id` for tools and `round_id + contained tool_call_ids` for groups. The UI must not inspect `.saivage/agents` paths directly to build the conversation timeline.
+Server payloads expose stable `id`, `round_id`, `message_index`, `block_index`, `timestamp`, `kind`, `role`, `content`, `tool_name`, `tool_call_id`, `model`, and optional entity links. Conversation row and group IDs must be stable across polling and WebSocket invalidations: `round_id + tool_call_id` for tools and `round_id + contained tool_call_ids` for groups. The UI must not fill missing ordering fields, inspect `.saivage/agents` paths directly, or consume websocket transcript side channels to build the conversation timeline.
 
 ### Tool Display Model
 
@@ -184,7 +184,7 @@ Each round renders in this order:
 2. User/system/assistant text blocks and system prompt blocks.
 3. Diagnostic rows.
 4. Tool rows and tool groups in entry order.
-5. Pending-call footer for the active round.
+5. Activity footer for the active round.
 
 Round headers show the role and only high-signal metadata:
 
@@ -273,9 +273,9 @@ Each tool pair resolves to one of five states. The compact row and the detail re
 | ok | tool-specific success outcome, neutral/ok tone | Show human result detail plus raw request/response |
 | error | first meaningful error line, error tone | Show error section first, then request facts, then raw request/error |
 | missing | `no result`, warn tone | Show request facts, missing-result warning, raw request only |
-| orphan | `orphan result`, warn tone | Show result facts if parseable, raw response only |
+| unmatched result | `unmatched result`, warn tone | Show result facts if parseable as a diagnostic entry, raw response only |
 
-A `missing` pair is a `tool_call` with no paired `tool_result`/`tool_error` in a completed round. An `orphan` pair is a `tool_result`/`tool_error` whose `tool_call_id` does not match any call in the timeline. Both can occur after compaction or after server restarts; the UI must not crash on either.
+A `missing` pair is a `tool_call` with no paired `tool_result`/`tool_error` in a completed round. A `tool_result`/`tool_error` whose `tool_call_id` does not match a real call is not promoted into a synthetic call row; if shown, it is a diagnostic transcript entry. Both can occur after compaction or after server restarts; the UI must not crash on either.
 
 ## 8. Malformed Payload And Renderer Containment
 
@@ -326,7 +326,7 @@ Never group:
 - Analyst-visible tool invocations that mutate or navigate;
 - writes, edits, patches, process starts/stops/kills, git mutations, card mutations, record writes, plan mutations, memory mutations, RAG registrations/ingests/drops, and note creation;
 - model diagnostics and compaction markers;
-- pending, failed, missing, orphaned, retried, repaired, or warning rows.
+- pending, failed, missing, unmatched-result, retried, repaired, or warning rows.
 
 Grouping decisions must consider both the parsed request and result. For example, `webfetch` is groupable only when the request has no `save_as` and the result did not create a saved file. If request parsing fails, default to ungrouped.
 
@@ -352,9 +352,9 @@ A compacted round (`kind: 'compacted'`) compresses prior history. The `Compacted
 
 The current `CompactedCluster.vue` renders every `entry.content` as a `<p>` tag — that is the raw-dump behavior this section replaces.
 
-## 12. Pending Call Footer
+## 12. Activity Footer
 
-The active round renders a pending-call footer from `round.activityStatus`. The footer must surface the states `ActivityStatus` already carries, not just a generic `pending`:
+The active round renders an activity footer from `round.activityStatus`. The footer must surface the states `ActivityStatus` already carries, not just a generic `pending`:
 
 | Activity state | Footer rendering |
 | --- | --- |
@@ -365,7 +365,7 @@ The active round renders a pending-call footer from `round.activityStatus`. The 
 | backoff with next-retry timestamp | `next retry <relative time>` with warn tone |
 | idle / no pending calls | footer hidden |
 
-Footer pills are stable per pending-call id so they update in place across polls rather than re-mounting. `PendingCallFooter.vue` currently renders only `{tool} pending`; it must read the richer fields already present in `pending_calls`.
+Footer pills are stable per backend pending-call id so they update in place across refetches rather than re-mounting. These pills are activity status projections, not locally maintained Analyst pending-tool transcript rows.
 
 ## 13. Analyst Panel
 
@@ -376,7 +376,7 @@ Required behavior:
 - role-tinted message rows for user, analyst, warnings, errors, system/context notes, and diagnostics;
 - compact model chip on assistant/analyst turns using the ambient model rule;
 - a pending row while a response is in flight;
-- pending Analyst tool invocations rendered as Tool rows, not as free text;
+- activity-backed in-flight tool state rendered from canonical conversation/activity data, not from websocket pending-tool adapters;
 - sticky auto-scroll that only pins when the user is already near the bottom (current `pinToBottom` logic stays);
 - a floating `Jump to latest` control with an unseen count when new content arrives while scrolled up;
 - resize-to-content composer with Enter to send and Shift+Enter for newline (current composer already does this);
@@ -441,13 +441,13 @@ Connection status must debounce visible changes (v2 debounced by 400 ms) so a br
 
 ## 16. Live-Update Behavior
 
-The conversation timeline is live: polling and WebSocket `invalidate` frames, including the conversation invalidation channel for the Analyst panel, Agents conversation detail, and Debug agents conversation detail, trigger refetches instead of full reloads. The following invariants make that experience predictable:
+The conversation timeline is live: polling and WebSocket `invalidate` frames, including the conversation invalidation channel for the Analyst panel, Agents conversation detail, and Debug agents conversation detail, trigger refetches instead of full reloads. Analyst chat subscribes to the canonical Analyst conversation resource; websocket activity/status frames and Analyst tool-invocation activity are not transcript sources and do not trigger transcript refetches. The following invariants make that experience predictable:
 
 - expansion state (which rows and groups are open) must survive refetch; IDs are derived from stable conversation identifiers as specified in section 3;
 - each conversation surface scroll position pins to the bottom only while the user is already near the bottom and has not paused auto-scroll; new visible content while scrolled up or paused increments the `Jump to latest` unseen counter instead of forcing scroll;
-- visible-content growth means persisted entries, including within-round entry growth, plus pending-visible rows such as activity footers and Analyst pending chips;
+- visible-content growth means persisted entries, including within-round entry growth, plus activity footer rows;
 - each conversation surface exposes a per-surface `Pause auto-scroll` control that suspends auto-scroll without disabling live updates;
-- a round in progress (`activityStatus.status !== 'idle'`) must update its pending pill in place by stable pending-call id, not remount;
+- a round in progress (`activityStatus.status !== 'idle'`) must update its activity pill in place by stable backend pending-call id, not remount;
 - a tool pair that transitions from `pending` to `ok`/`error` updates the same row in place;
 - expanded row detail must not collapse on refetch; the expanded view may swap from pending to resolved content without losing the user's scroll position inside the detail;
 - compaction markers and model diagnostics remain visible across refetch and never disappear unless explicitly dismissed, and dismissal is per-session local state.
@@ -491,7 +491,7 @@ The backend remains the source of truth for conversation entries and must expose
 
 | Area | Required invariant | Why |
 | --- | --- | --- |
-| Transcript substrate | One segment-backed conversation format for every role; `/api/agents` and `/api/agents/:id/conversation` return it; `system_prompt` entries are included | A single renderer converges all three conversation surfaces |
+| Transcript substrate | One active-version conversation format for every role; `/api/agents` and `/api/agents/:id/conversation` return it; `system_prompt` entries are included | A single renderer converges all three conversation surfaces |
 | Raw payload preservation | Original tool request/result/error `content` is stored unchanged | The raw escape hatch guarantees no data loss |
 | Entry schema stability | `kind`, `role`, `round_id`, `message_index`, `block_index`, `timestamp`, `tool_name`, `tool_call_id`, `model` stay stable or evolve through typed API changes | Pairing, grouping, and expansion-state stability depend on them |
 | Structured tool results | Tool results keep structured envelopes, not free text, where the tool already produces structured data | Human detail renderers need parseable facts, not best-effort text |
@@ -506,6 +506,7 @@ Backend changes explicitly not required for this redesign:
 - no server-side display strings as the primary UI API;
 - no second overflow/stash system for visualization;
 - do not hide raw payloads from the conversation model.
+- no assistant transcript rows in chat send responses or Analyst websocket response messages.
 
 ## 20. Implementation Phases
 
@@ -527,7 +528,7 @@ Phase 2: tool presentation model (requires v3 tool surface alignment).
 Phase 3: grouping, density, status, and failure containment.
 
 - Add deterministic grouping for adjacent read-only context tools with the no-hide rules.
-- Implement the five pair states (pending/ok/error/missing/orphan) consistently.
+- Implement the pair states (pending/ok/error/missing plus diagnostic unmatched results) consistently.
 - Add malformed-payload containment and bounded/stashed result handling.
 - Add tests for grouping stability, no-hide rules, renderer containment, and stashed-result rendering.
 
@@ -547,12 +548,12 @@ This redesign is complete when:
 - raw request/result/error payloads remain reachable for every tool pair through the shared toggle;
 - repeated read-only context calls group deterministically without hiding errors or mutations;
 - system prompts are available without flooding the default view;
-- pending calls render the in-flight/retry/throttled/backoff states, not a generic `pending`;
-- missing, orphan, malformed, and stashed-result cases render without breaking the view;
+- pending calls render the in-flight/retry/throttled/backoff states from backend activity, not a generic `pending` or websocket side channel;
+- missing, unmatched-result, malformed, and stashed-result cases render without breaking the view;
 - compaction clusters summarize and bound members instead of dumping raw content;
 - Debug is the full transcript entry point, uses API-backed conversations, and treats files/ledgers as secondary diagnostics;
 - empty, loading, error, unauthorized, offline, and stale states render explicitly and do not flash offline on brief disconnects;
-- expansion state, scroll pinning, and unseen counts survive polling and socket invalidations across all three conversation surfaces; visible-content growth includes entries and pending rows, the per-surface pause control routes new content to the unseen counter, and the Debug agents conversation live-updates via the conversation invalidation channel;
+- expansion state, scroll pinning, and unseen counts survive polling and socket invalidations across all three conversation surfaces; visible-content growth includes entries and activity rows, the per-surface pause control routes new content to the unseen counter, and the Debug agents conversation live-updates via the conversation invalidation channel;
 - accessibility: rows announce expand/collapse, raw tool names survive in `aria-label`, lateral links are keyboard-reachable, and tone is never color-only;
 - backend invariants in section 19 hold or are explicitly tracked as open backend work;
 - `docs/spec/operator-ui.md` acceptance criteria reference this redesign for the conversation-rendering requirement;

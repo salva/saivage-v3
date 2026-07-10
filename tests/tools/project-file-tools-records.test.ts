@@ -62,7 +62,7 @@ describe('project file tools record enforcement', () => {
 
   it('rejects record search URLs that try to escape the record output tree', async () => withTempProject(async (projectRoot) => {
     mkdirSync(join(projectRoot, '.saivage', 'runtime'), { recursive: true });
-    writeFileSync(join(projectRoot, '.saivage', 'runtime', 'state.json'), '{"secret":true}');
+    writeFileSync(join(projectRoot, '.saivage', 'runtime', 'errors.jsonl'), '{"secret":true}\n');
 
     await expect(globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'record:///..%2Fruntime', pattern: '**/*' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
     await expect(grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///a..b', pattern: 'secret' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
