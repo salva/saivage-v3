@@ -53,7 +53,10 @@ describe('initProjectTree legacy rejection', () => {
 
       expect(existsSync(join(root, '.saivage', 'project.json'))).toBe(true);
       expect(existsSync(join(root, '.saivage', 'cards'))).toBe(true);
-      expect(existsSync(join(root, '.saivage', 'work', 'tmp', 'runtime'))).toBe(true);
+      expect(existsSync(join(root, '.saivage', 'work', 'cards'))).toBe(true);
+      expect(existsSync(join(root, '.saivage', 'work', 'processes'))).toBe(true);
+      expect(existsSync(join(root, '.saivage', 'work', 'tmp', 'stash'))).toBe(true);
+      expect(existsSync(join(root, '.saivage', 'work', 'tmp', 'runtime'))).toBe(false);
       expect(existsSync(join(root, priorWorkRoot))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });

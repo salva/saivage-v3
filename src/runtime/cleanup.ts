@@ -12,10 +12,6 @@ export interface CleanupResult {
   staleStashRemoved: number;
   /** Number of completed process dirs cleaned */
   processDirsCleaned: number;
-  /** Number of stale preview files removed */
-  stalePreviewsRemoved: number;
-  /** Number of stale upload files removed */
-  staleUploadsRemoved: number;
 }
 
 export interface CleanStaleProcessOptions {
@@ -98,8 +94,6 @@ export function cleanCardTmp(saivageWorkDir: string, cardId: string): boolean {
  * Remove stash files in .saivage/work/tmp/stash/ that are older
  * than maxAgeMs milliseconds.
  *
- * Never touches other tmp/ subdirectories (runtime/, uploads/, previews/).
- *
  * @param saivageWorkDir - Path to .saivage/work/ directory
  * @param maxAgeMs - Maximum age in milliseconds (default: 24 hours)
  * @returns Number of files removed
@@ -132,104 +126,6 @@ export function cleanStaleStash(
     const fullPath = join(stashDir, entry);
     try {
       if (preserve.has(normalize(resolve(fullPath)))) continue;
-      const st = statSync(fullPath);
-      if (st.mtimeMs < cutoff) {
-        rmSync(fullPath, { recursive: true, force: true });
-        removed++;
-      }
-    } catch {
-      // skip files we can't stat or remove
-    }
-  }
-
-  return removed;
-}
-
-// ── Public API: cleanStalePreviews ────────────────────────────
-
-/**
- * Remove stale preview files in .saivage/work/tmp/previews/ that
- * are older than maxAgeMs milliseconds.
- *
- * @param saivageWorkDir - Path to .saivage/work/ directory
- * @param maxAgeMs - Maximum age in milliseconds (default: 24 hours)
- * @returns Number of files removed
- */
-export function cleanStalePreviews(
-  saivageWorkDir: string,
-  maxAgeMs: number = 24 * 60 * 60 * 1000,
-): number {
-  const previewsDir = safeResolve(saivageWorkDir, join('tmp', 'previews'));
-  if (!previewsDir) return 0;
-  if (!existsSync(previewsDir)) return 0;
-
-  // Verify this is exactly the previews directory
-  const absWork = resolve(saivageWorkDir);
-  const expectedPreviews = normalize(join(absWork, 'tmp', 'previews'));
-  if (previewsDir !== expectedPreviews) return 0;
-
-  let removed = 0;
-  const cutoff = Date.now() - maxAgeMs;
-
-  let entries: string[];
-  try {
-    entries = readdirSync(previewsDir);
-  } catch {
-    return 0;
-  }
-
-  for (const entry of entries) {
-    const fullPath = join(previewsDir, entry);
-    try {
-      const st = statSync(fullPath);
-      if (st.mtimeMs < cutoff) {
-        rmSync(fullPath, { recursive: true, force: true });
-        removed++;
-      }
-    } catch {
-      // skip files we can't stat or remove
-    }
-  }
-
-  return removed;
-}
-
-// ── Public API: cleanStaleUploads ─────────────────────────────
-
-/**
- * Remove stale upload files in .saivage/work/tmp/uploads/ that
- * are older than maxAgeMs milliseconds.
- *
- * @param saivageWorkDir - Path to .saivage/work/ directory
- * @param maxAgeMs - Maximum age in milliseconds (default: 24 hours)
- * @returns Number of files removed
- */
-export function cleanStaleUploads(
-  saivageWorkDir: string,
-  maxAgeMs: number = 24 * 60 * 60 * 1000,
-): number {
-  const uploadsDir = safeResolve(saivageWorkDir, join('tmp', 'uploads'));
-  if (!uploadsDir) return 0;
-  if (!existsSync(uploadsDir)) return 0;
-
-  // Verify this is exactly the uploads directory
-  const absWork = resolve(saivageWorkDir);
-  const expectedUploads = normalize(join(absWork, 'tmp', 'uploads'));
-  if (uploadsDir !== expectedUploads) return 0;
-
-  let removed = 0;
-  const cutoff = Date.now() - maxAgeMs;
-
-  let entries: string[];
-  try {
-    entries = readdirSync(uploadsDir);
-  } catch {
-    return 0;
-  }
-
-  for (const entry of entries) {
-    const fullPath = join(uploadsDir, entry);
-    try {
       const st = statSync(fullPath);
       if (st.mtimeMs < cutoff) {
         rmSync(fullPath, { recursive: true, force: true });
@@ -314,8 +210,6 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
  * This is the primary entry point for general cleanup. It runs each
  * targeted cleanup function and aggregates the results.
  *
-  * Never removes download reviews.
- *
  * @param saivageWorkDir - Path to .saivage/work/ directory
  * @param store - CardStore instance for artifact reference checks
  * @param options - Optional overrides for max ages
@@ -327,8 +221,6 @@ export function cleanAll(
   options?: {
     stashMaxAgeMs?: number;
     processMaxAgeMs?: number;
-    previewsMaxAgeMs?: number;
-    uploadsMaxAgeMs?: number;
     liveProcessIds?: ReadonlySet<string>;
   },
 ): CleanupResult {
@@ -336,8 +228,6 @@ export function cleanAll(
     cardTmpCleaned: 0,
     staleStashRemoved: 0,
     processDirsCleaned: 0,
-    stalePreviewsRemoved: 0,
-    staleUploadsRemoved: 0,
   };
 
   const preserve = referencedRecoverableUrls(resolve(saivageWorkDir, '..', '..'));
@@ -370,18 +260,6 @@ export function cleanAll(
     maxAgeMs: options?.processMaxAgeMs,
     liveProcessIds: options?.liveProcessIds,
   });
-
-  // 4. Clean stale previews
-  result.stalePreviewsRemoved = cleanStalePreviews(
-    saivageWorkDir,
-    options?.previewsMaxAgeMs,
-  );
-
-  // 5. Clean stale uploads
-  result.staleUploadsRemoved = cleanStaleUploads(
-    saivageWorkDir,
-    options?.uploadsMaxAgeMs,
-  );
 
   return result;
 }

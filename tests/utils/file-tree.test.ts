@@ -164,6 +164,9 @@ describe('initProjectTree', () => {
     for (const dir of workDirs) {
       expect(existsSync(join(tmpDir, '.saivage', 'work', dir))).toBe(true);
     }
+    for (const dir of ['downloads', 'quarantine', 'tmp/runtime', 'tmp/uploads', 'tmp/previews']) {
+      expect(existsSync(join(tmpDir, '.saivage', 'work', dir))).toBe(false);
+    }
   });
 
   it('is idempotent — calling twice does not change files', () => {

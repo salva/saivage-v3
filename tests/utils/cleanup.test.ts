@@ -4,9 +4,7 @@
  * Verifies the safe cleanup utility operates correctly:
  * - cleanCardTmp removes only cards/<id>/tmp/
  * - cleanStaleStash removes old files, keeps new files
- * - Cleanup never touches durable records or downloads
  * - cleanStaleProcessOutput respects live in-memory process ids and conversation references
- * - Stale previews/uploads are cleaned up
  */
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -18,8 +16,6 @@ import { CardStore } from '../../src/cards/card-store.js';
 import {
   cleanCardTmp,
   cleanStaleStash,
-  cleanStalePreviews,
-  cleanStaleUploads,
   cleanStaleProcessOutput,
   cleanAll,
   referencedRecoverableUrls,
@@ -108,27 +104,6 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(existsSync(join(stashDir, 'new.txt'))).toBe(true);
   });
 
-  it('cleanStalePreviews: removes old preview files', async () => {
-    const swd = saivageWorkDir();
-    const previewsDir = join(swd, 'tmp', 'previews');
-    mkdirSync(previewsDir, { recursive: true });
-    writeFileSync(join(previewsDir, 'old-preview.png'), 'preview data');
-    await sleep(100);
-    const removed = cleanStalePreviews(swd, 1);
-    expect(removed).toBe(1);
-    expect(existsSync(join(previewsDir, 'old-preview.png'))).toBe(false);
-  });
-
-  it('cleanStaleUploads: removes old upload files', async () => {
-    const swd = saivageWorkDir();
-    const uploadsDir = join(swd, 'tmp', 'uploads');
-    mkdirSync(uploadsDir, { recursive: true });
-    writeFileSync(join(uploadsDir, 'old-upload.bin'), 'upload data');
-    await sleep(100);
-    const removed = cleanStaleUploads(swd, 1);
-    expect(removed).toBe(1);
-  });
-
   it('cleanStaleProcessOutput: removes old completed process dirs', async () => {
     const swd = saivageWorkDir();
     const procDir = join(swd, 'processes', 'proc-test-1');
@@ -208,19 +183,6 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(existsSync(tmpDir)).toBe(false);
     expect(existsSync(scratchSibling)).toBe(true);
     expect(existsSync(join(scratchSibling, 'keep.txt'))).toBe(true);
-  });
-
-  it('cleanAll: does not touch downloads/', () => {
-    const swd = saivageWorkDir();
-    const dlDir = join(swd, 'downloads', 'dl-test');
-    mkdirSync(dlDir, { recursive: true });
-    writeFileSync(join(dlDir, 'review.json'), 'download review');
-    writeFileSync(join(dlDir, 'meta.json'), 'download meta');
-
-    cleanAll(swd, store);
-
-    expect(existsSync(join(dlDir, 'review.json'))).toBe(true);
-    expect(existsSync(join(dlDir, 'meta.json'))).toBe(true);
   });
 
   it('cleanAll: preserves aged stash files referenced by tool_result rows and removes unreferenced aged files', async () => {
