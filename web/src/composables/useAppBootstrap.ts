@@ -5,8 +5,6 @@ import { useRuntimeStore } from '../stores/runtime';
 import { useSyncStore } from '../stores/sync';
 
 let started = false;
-let unregisters: Array<() => void> = [];
-let tokenChangedHandler: (() => void) | null = null;
 
 export function startAppBootstrap(): void {
   if (started) return;
@@ -18,40 +16,27 @@ export function startAppBootstrap(): void {
   const agentStore = useAgentStore();
   const authStore = useAuthStore();
 
-  unregisters = [
-    syncStore.registerResource({
+  syncStore.registerResource({
       resource: 'runtime',
       scope: 'core',
       refetch: runtimeStore.refetch,
       onRefetch: runtimeStore.markWsSync,
-    }),
-    syncStore.registerResource({ resource: 'cards', scope: 'core', refetch: cardStore.refetch }),
-    syncStore.registerResource({
+    });
+  syncStore.registerResource({ resource: 'cards', scope: 'core', refetch: cardStore.refetch });
+  syncStore.registerResource({
       resource: 'agents',
       scope: 'core',
       refetch: agentStore.refetch,
       onRefetch: agentStore.markWsSync,
-    }),
-  ];
+    });
 
   syncStore.connect();
   runtimeStore.refetch().catch(() => {});
 
-  tokenChangedHandler = () => {
+  window.addEventListener(AUTH_TOKEN_CHANGED_EVENT, () => {
     authStore.refresh();
     syncStore.disconnect();
     syncStore.connect();
     runtimeStore.refetch().catch(() => {});
-  };
-  window.addEventListener(AUTH_TOKEN_CHANGED_EVENT, tokenChangedHandler);
-}
-
-export function stopAppBootstrap(): void {
-  const syncStore = useSyncStore();
-  for (const unregister of unregisters) unregister();
-  unregisters = [];
-  if (tokenChangedHandler) window.removeEventListener(AUTH_TOKEN_CHANGED_EVENT, tokenChangedHandler);
-  tokenChangedHandler = null;
-  syncStore.disconnect();
-  started = false;
+  });
 }

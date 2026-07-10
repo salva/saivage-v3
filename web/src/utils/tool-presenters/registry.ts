@@ -51,7 +51,3 @@ export function presentToolResult(rawContent: string, opts: { tool?: string; kin
   const summary = record?.summary ?? record?.message ?? record?.content ?? parsed ?? rawContent;
   return { icon: RESULT_ICON_OK, status, name, headline: textPart(summary, 120), body: parsed ?? rawContent, bodyKind: parsed === null ? 'text' : 'json' };
 }
-
-export function registeredToolNamesForTest(): string[] { return [...new Set([...callPresenters.keys(), ...resultPresenters.keys()])].filter((name) => name !== '__default__').sort(); }
-export function registeredCallToolNamesForTest(): string[] { return [...callPresenters.keys()].sort(); }
-export function registeredResultToolNamesForTest(): string[] { return [...resultPresenters.keys()].sort(); }

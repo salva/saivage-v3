@@ -12,6 +12,8 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
 import { getAuthPolicy } from '../../src/server/auth-policy.js';
+import { configureAuthPolicy } from '../../src/server/auth-policy.js';
+import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import {
   existsSync,
   mkdirSync,
@@ -65,13 +67,13 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     await app.register(cors);
     await app.register(websocket);
 
-    const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
     const { registerInternalDebugRoutes } = await import('../../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../../src/server/websocket.js');
     const { LiveSyncSocket } = await import('../../src/server/live-sync-socket.js');
     const { createTestRuntimeApplication, createTestSaivageConfig } = await import('../helpers/test-runtime-application.js');
 
-    registerCardRoutes(app, tmpDir, undefined, cardStore);
+    configureAuthPolicy({ apiToken: authToken });
+    registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, cardStore });
     registerInternalDebugRoutes(app, tmpDir, cardStore);
     registerWebSocket(app, tmpDir, { liveSyncSocket: new LiveSyncSocket(), saivageConfig: createTestSaivageConfig(), runtimeApplication: createTestRuntimeApplication({ cardStore }), requestServerRestart: async () => undefined });
 

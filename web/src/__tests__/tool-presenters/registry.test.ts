@@ -1,15 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { presentToolCall } from '../../utils/tool-presenters';
+import { presentToolCall, presentToolResult } from '../../utils/tool-presenters';
 import { readToolCallMessage } from '../../utils/tool-presenters/helpers';
-import { registeredCallToolNamesForTest, registeredResultToolNamesForTest, registeredToolNamesForTest } from '../../utils/tool-presenters/registry';
 import { callEnvelope } from './_helpers';
 
 describe('tool presenter registry', () => {
-  it('loads the default registration and resolves known tool names', () => {
+  it('loads the default registration and presents known tool names through public APIs', () => {
     expect(() => presentToolCall(callEnvelope('unknown_tool'))).not.toThrow();
-    expect(registeredToolNamesForTest()).toContain('read');
-    expect(registeredCallToolNamesForTest()).toContain('run_command');
-    expect(registeredResultToolNamesForTest()).toContain('read');
+    expect(presentToolCall(callEnvelope('read', { path: 'src/index.ts' }))).toMatchObject({ icon: '📖', name: 'read' });
+    expect(presentToolCall(callEnvelope('run_command', { command: 'npm test' }))).toMatchObject({ icon: '⚡', name: 'run_command' });
+    expect(presentToolResult(JSON.stringify({ content: 'a\nb', total_lines: 2 }), { tool: 'read' })).toMatchObject({ icon: '↩', name: 'read', status: 'ok' });
   });
 
   it('readToolCallMessage raises on legacy {toolCalls:[...]} wrapper', () => { // legacy_message_shape: negative-test
