@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { operationalAgentRoleValues } from '../../schemas/index.js';
+import { agentMessageSchema, operationalAgentRoleValues } from '../../schemas/index.js';
 import type { OperationalAgentRole } from '../../schemas/index.js';
 import type { ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
@@ -89,6 +89,8 @@ const llmInvocationInputSchema: z.ZodType<LlmInvocationInput> = z.object({
   sessionId: z.string().min(1),
   systemPrompt: z.string(),
   contextMessages: z.array(z.unknown()),
+  genericContextMessages: z.array(agentMessageSchema).optional(),
+  activeConversationReplay: z.object({ sessionId: z.string().min(1), messages: z.array(agentMessageSchema) }).strict().optional(),
   tools: z.array(z.custom<ToolDefinition>((value) => typeof value === 'object' && value !== null)),
   terminalToolNames: z.array(z.string()),
   modelParams: z.object({ temperature: z.number().optional(), maxTokens: z.number().optional() }).strict(),

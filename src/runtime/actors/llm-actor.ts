@@ -1,11 +1,13 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
-import type { LlmInvocationInput } from './llm-invocation.js';
+import type { AgentMessage } from '../../schemas/index.js';
+import { genericContextMessagesForInvocation, type LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
-import { appendLlmProviderExchangeEntries, appendLlmTurnError, appendLlmTurnMessage, appendLlmTurnStarted, appendLlmTurnToolCall, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
-import { appendUserContextMessage, type ProviderVisibleUserContextMessage } from './conversation-store.js';
+import { appendLlmProviderExchangeEntries, appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
+import { appendUserContextMessage, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
+import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -127,7 +129,9 @@ export class ConversationLLMActor extends BaseActor {
     this.input = {
       ...input,
       inputId: deliveryInputId,
+      genericContextMessages: contextMessages,
       contextMessages,
+      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readActiveVersionMessages(this.projectRoot, input.sessionId)),
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, result } },
     };
     this.waitingToolCall = null;
@@ -143,7 +147,6 @@ export class ConversationLLMActor extends BaseActor {
     const repairInputId = this.nextDeliveryInputId(input.inputId);
     const repairMessage = appendModelRepairMessage(this.projectRoot, { ...input, inputId: repairInputId }, repairDirective);
     this.conversationPublisher?.entryAppended(repairMessage.appendResult);
-    const repairContextMessage = { role: 'user', content: repairDirective };
     const extraMessages = (continuationContextHook?.(repairInputId) ?? []).map((message, index) => {
       const result = appendUserContextMessage(this.projectRoot, input.sessionId, repairInputId, 'continuation_hook', index, message);
       this.conversationPublisher?.entryAppended(result);
@@ -152,7 +155,9 @@ export class ConversationLLMActor extends BaseActor {
     return this.startProviderTurn({
       ...input,
       inputId: repairInputId,
-      contextMessages: [...input.contextMessages, repairContextMessage, ...extraMessages],
+      genericContextMessages: [...genericContextMessagesForInvocation(input), repairMessage, ...extraMessages],
+      contextMessages: [...input.contextMessages, { role: 'user', content: repairDirective }, ...extraMessages],
+      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readActiveVersionMessages(this.projectRoot, input.sessionId)),
       episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
     }, { resetDeliveredToolCalls: false, signal });
   }
@@ -223,10 +228,11 @@ export class ConversationLLMActor extends BaseActor {
   private completeWithProviderCompletion(input: LlmInvocationInput, completion: ProviderTurnCompletion): void {
     const result = completion.result;
     if (result.kind === 'message') {
-      const message = appendLlmTurnMessage(this.projectRoot, input, result.content);
+      const message = appendLlmTurnMessageBatch(this.projectRoot, input, result.content, completion.provider_private_context);
       this.conversationPublisher?.entryAppended(message.appendResult);
       appendLlmProviderExchangeEntries(this.projectRoot, input, completion.provider_exchanges, [message.id]);
-      this.input = { ...input, contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }] };
+      const activeRows = readActiveVersionMessages(this.projectRoot, input.sessionId);
+      this.input = { ...input, genericContextMessages: conversationMessagesForModel(activeRows), contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }], activeConversationReplay: buildResponsesReplayProjection(input.sessionId, activeRows) };
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.onTurnSettled();
       this.#activationSignal = null;
@@ -244,7 +250,7 @@ export class ConversationLLMActor extends BaseActor {
       return;
     }
     const [call] = result.tool_calls;
-    const message = appendLlmTurnToolCall(this.projectRoot, input, call);
+    const message = appendLlmTurnToolCallBatch(this.projectRoot, input, call, completion.provider_private_context);
     this.conversationPublisher?.entryAppended(message.appendResult);
     appendLlmProviderExchangeEntries(this.projectRoot, input, completion.provider_exchanges, [message.id]);
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
@@ -347,7 +353,7 @@ export class ConversationLLMActor extends BaseActor {
     return `${inputId}:tool:${this.#toolDeliveryCounter}`;
   }
 
-  private continuationContextMessages(input: LlmInvocationInput, waiting: WaitingToolCall, delivery: ReturnType<typeof appendToolDelivery>, continuationContextHook?: LLMToolContinuationContextHook): unknown[] {
+  private continuationContextMessages(input: LlmInvocationInput, waiting: WaitingToolCall, delivery: ReturnType<typeof appendToolDelivery>, continuationContextHook?: LLMToolContinuationContextHook): AgentMessage[] {
     const toolCallMessage = toolCallAgentMessage(input, {
       id: waiting.toolCallId,
       type: 'function',
@@ -358,7 +364,7 @@ export class ConversationLLMActor extends BaseActor {
       this.conversationPublisher?.entryAppended(result);
       return result.message;
     });
-    return [...input.contextMessages, toolCallMessage, toolResultAgentMessage(delivery), ...extraMessages];
+    return [...genericContextMessagesForInvocation(input), toolCallMessage, toolResultAgentMessage(delivery), ...extraMessages];
   }
 
   private consumeTurnMessages(input: LlmInvocationInput): LlmInvocationInput {
@@ -469,8 +475,8 @@ export class LLMActor extends ConversationLLMActor {
       saveActorSnapshot(this.projectRoot, this.snapshot());
       const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, signal });
       this.conversationPublisher?.versionReplaced(compacted.versionReplacement);
-      const compactedRows = compacted.rows;
-      const compactedInput = { ...input, contextMessages: compactedRows } as LlmInvocationInput;
+      const compactedRows = compacted.rows as AgentMessage[];
+      const compactedInput = { ...input, genericContextMessages: conversationMessagesForModel(compactedRows), contextMessages: conversationMessagesForModel(compactedRows), activeConversationReplay: buildResponsesReplayProjection(input.sessionId, compactedRows) } as LlmInvocationInput;
       this.#compacting = false;
       if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction to refresh after compaction.`);
       this.activeReconstruction = { ...this.activeReconstruction, input: compactedInput };

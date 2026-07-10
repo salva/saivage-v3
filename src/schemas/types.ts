@@ -95,9 +95,10 @@ export type OperationalAgentRole = typeof operationalAgentRoleValues[number];
 export type SessionStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
 export interface AgentSession { id: string; role: AgentRole; goal_card_id?: string | null; card_id?: string | null; assessment_id?: string | null; status: SessionStatus; started_at: string; completed_at?: string | null; model?: string; }
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
-export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'tool_error' | 'model_issue' | 'model_repair' | 'context_compaction' | 'model_recovered' | 'system_prompt';
+export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'tool_error' | 'model_issue' | 'model_repair' | 'context_compaction' | 'model_recovered' | 'system_prompt' | 'provider_private';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
-export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; }
+export interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; source_input_id: string; private_message_id: string; projection_kind: 'assistant_message' | 'assistant_tool_call'; }
+export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
 export interface ToolErrorAgentMessage extends AgentMessage { kind: 'tool_error'; role: 'tool' | 'system'; tool: string; tool_call_id: string; }
 export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
 export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }

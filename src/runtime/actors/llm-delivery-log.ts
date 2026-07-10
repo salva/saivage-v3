@@ -2,13 +2,14 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
-import type { LlmCompleteResult, ToolCall } from '../../agents/llm-contracts.js';
+import type { LlmCompleteResult, ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
 import type { ProviderExchangeAttempt, ProviderExchangePayload } from '../../contracts/provider-exchange.js';
 import { appendProviderExchangeLogEntry } from '../../persistence/provider-exchange-log.js';
 import type { AppLogEntry } from '../../persistence/app-log.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { appendConversationMessage, listConversationSessionIds, readActiveVersionMessages, readConversationMessages, type ConversationAppendResult } from './conversation-store.js';
+import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
 import { agentIdFromSessionId, cardIdFromSessionId } from './ids.js';
 import {
   loggedToolCallIdentity,
@@ -101,7 +102,13 @@ export function appendLlmTurnFinished(projectRoot: string, input: LlmInvocationI
 }
 
 export function appendLlmTurnMessage(projectRoot: string, input: LlmInvocationInput, content: string): AgentMessage & { appendResult: ConversationAppendResult } {
-  const message = agentMessageSchema.parse({
+  const message = assistantMessage(input, content, new Date().toISOString());
+  const appendResult = appendConversationMessage(projectRoot, message);
+  return Object.assign(message, { appendResult });
+}
+
+function assistantMessage(input: LlmInvocationInput, content: string, timestamp: string): AgentMessage {
+  return agentMessageSchema.parse({
       id: `${input.inputId}:message`,
       session_id: input.sessionId,
       role: 'assistant',
@@ -110,10 +117,35 @@ export function appendLlmTurnMessage(projectRoot: string, input: LlmInvocationIn
       round_id: roundId('assistant', input.inputId),
       message_index: 1,
       block_index: 0,
-      timestamp: new Date().toISOString(),
+      timestamp,
     });
-  const appendResult = appendConversationMessage(projectRoot, message);
-  return Object.assign(message, { appendResult });
+}
+
+function providerPrivateResponsesMessage(input: LlmInvocationInput, projectionMessageId: string, privateContext: ProviderPrivateContext): AgentMessage {
+  if (privateContext.kind !== 'openai_responses') throw new Error(`Unsupported provider private context kind '${privateContext.kind}'.`);
+  if (privateContext.source_input_id !== input.inputId) throw new Error(`Provider private context source_input_id '${privateContext.source_input_id}' does not match input '${input.inputId}'.`);
+  return agentMessageSchema.parse({
+    id: `${input.inputId}:provider-private:openai-responses`,
+    session_id: input.sessionId,
+    role: 'system',
+    kind: 'provider_private',
+    content: JSON.stringify({ transport: 'openai-responses', source_input_id: input.inputId, projection_message_id: projectionMessageId, provider: privateContext.provider, model: privateContext.model, output: privateContext.output }),
+    round_id: roundId('assistant', `${input.inputId}:provider-private`),
+    message_index: 1,
+    block_index: 0,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export function appendLlmTurnMessageBatch(projectRoot: string, input: LlmInvocationInput, content: string, privateContext?: ProviderPrivateContext): AgentMessage & { appendResult: ConversationAppendResult } {
+  if (!privateContext) return appendLlmTurnMessage(projectRoot, input, content);
+  const visible = assistantMessage(input, content, new Date().toISOString());
+  const privateRow = providerPrivateResponsesMessage(input, visible.id, privateContext);
+  visible.provider_projection = { kind: 'openai_responses', source_input_id: input.inputId, private_message_id: privateRow.id, projection_kind: 'assistant_message' };
+  validateResponsesPairs(input.sessionId, [privateRow, visible]);
+  appendConversationMessage(projectRoot, privateRow);
+  const appendResult = appendConversationMessage(projectRoot, visible);
+  return Object.assign(visible, { appendResult });
 }
 
 export function appendLlmTurnError(projectRoot: string, input: LlmInvocationInput, error: string): AgentMessage & { appendResult: ConversationAppendResult } {
@@ -285,6 +317,17 @@ export function toolCallAgentMessage(input: LlmInvocationInput, toolCall: ToolCa
     block_index: index,
     timestamp,
   });
+}
+
+export function appendLlmTurnToolCallBatch(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall, privateContext?: ProviderPrivateContext): AgentMessage & { appendResult: ConversationAppendResult } {
+  if (!privateContext) return appendLlmTurnToolCall(projectRoot, input, toolCall);
+  const visible = toolCallAgentMessage(input, toolCall, 0, new Date().toISOString());
+  const privateRow = providerPrivateResponsesMessage(input, visible.id, privateContext);
+  visible.provider_projection = { kind: 'openai_responses', source_input_id: input.inputId, private_message_id: privateRow.id, projection_kind: 'assistant_tool_call' };
+  validateResponsesPairs(input.sessionId, [privateRow, visible]);
+  appendConversationMessage(projectRoot, privateRow);
+  const appendResult = appendConversationMessage(projectRoot, visible);
+  return Object.assign(visible, { appendResult });
 }
 
 export function toolResultAgentMessage(record: ToolDeliveryRecord): AgentMessage {

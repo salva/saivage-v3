@@ -10,6 +10,7 @@ export interface EffectiveProviderCapabilities {
   toolsMode: ToolsModeCapability;
   exclusiveToolChoiceSupport: ExclusiveToolChoiceCapability;
   streaming: boolean;
+  responsesReasoning?: { effort?: 'minimal' | 'low' | 'medium' | 'high' };
   contextWindowTokens?: number;
   maxOutputTokens?: number;
   quirks: string[];
@@ -71,6 +72,7 @@ export function mergeCapabilities(
     toolsMode: override.toolsMode ?? base.toolsMode,
     exclusiveToolChoiceSupport: override.exclusiveToolChoiceSupport ?? base.exclusiveToolChoiceSupport,
     streaming: override.streaming ?? base.streaming,
+    responsesReasoning: override.responsesReasoning ?? base.responsesReasoning,
     contextWindowTokens: override.contextWindowTokens ?? base.contextWindowTokens,
     maxOutputTokens: override.maxOutputTokens ?? base.maxOutputTokens,
     quirks: override.quirks ?? [...base.quirks],

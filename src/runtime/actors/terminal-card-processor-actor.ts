@@ -17,6 +17,7 @@ import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
+import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
@@ -117,7 +118,8 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const inputId = this.nextInvocationInputId('terminal');
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
     const sessionId = executorActorId(this.cardId);
-    const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
+    const loadedRows = readActiveVersionMessages(this.projectRoot, sessionId);
+    const loaded = conversationMessagesForModel(loadedRows);
     this.conversationPublisher?.entryAppended(appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId }));
     const notifications = this.notificationContext(input, inputId).map((message, index) => {
       const result = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, message);
@@ -137,7 +139,9 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
         cardType: input.card.type,
       }),
+      genericContextMessages: [...loaded, ...notifications],
       contextMessages: [...loaded, ...notifications],
+      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, ...notifications]),
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

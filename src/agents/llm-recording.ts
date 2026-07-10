@@ -45,7 +45,7 @@ export function teeStreamForRecorder(body: ReadableStream<Uint8Array>): {
 }
 
 export interface LlmRecorderRequest {
-  transport: 'generic' | 'codex';
+  transport: 'generic' | 'codex' | 'openai-responses';
   contract_id: string;
   contractName: string;
   candidate: Candidate;

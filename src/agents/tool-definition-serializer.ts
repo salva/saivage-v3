@@ -18,6 +18,13 @@ export interface WireToolDefinitionCodex {
   readonly parameters: Readonly<Record<string, unknown>>;
 }
 
+export interface WireToolDefinitionResponses {
+  readonly type: 'function';
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: Readonly<Record<string, unknown>>;
+}
+
 interface ProjectedFields {
   readonly name: string;
   readonly description: string;
@@ -94,4 +101,8 @@ export function serializeToolsForCodex(tools: readonly RuntimeToolEntry[]): read
     });
   });
   return Object.freeze(wire);
+}
+
+export function serializeToolsForResponses(tools: readonly RuntimeToolEntry[]): readonly WireToolDefinitionResponses[] {
+  return serializeToolsForCodex(tools);
 }

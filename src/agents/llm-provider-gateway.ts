@@ -2,10 +2,11 @@ import type { AgentMessage } from '../schemas/index.js';
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import { capabilityRequestForLlmOptions, supportsCapabilityRequest } from './provider-capabilities.js';
-import type { LlmCompleteOptions, ProviderTurnCompletion, LlmInvocationClient } from './llm-contracts.js';
+import { parseCompleteInvocationArgs, type LlmCompleteOptions, type ProviderTurnCompletion, type LlmInvocationClient, type ResponsesReplayProjection } from './llm-contracts.js';
 import { LlmRequestError } from './llm-errors.js';
 import { OpenAIChatGateway } from './llm-openai-chat-gateway.js';
 import { OpenAICodexGateway } from './llm-openai-codex-gateway.js';
+import { OpenAIResponsesGateway } from './llm-openai-responses-gateway.js';
 
 export interface LlmProviderGatewayConfig {
   baseUrl: string;
@@ -27,15 +28,22 @@ export class LlmProviderGateway implements LlmInvocationClient {
   async complete(
     candidate: Candidate,
     systemPrompt: string,
-    messages: AgentMessage[],
-    sessionId: string,
-    opts: LlmCompleteOptions,
+    genericContextMessages: AgentMessage[],
+    activeConversationReplayOrSessionId: ResponsesReplayProjection | string,
+    sessionIdOrOpts: string | LlmCompleteOptions,
+    maybeOpts?: LlmCompleteOptions,
   ): Promise<ProviderTurnCompletion> {
+    const { activeConversationReplay, sessionId, opts } = parseCompleteInvocationArgs(genericContextMessages, activeConversationReplayOrSessionId, sessionIdOrOpts, maybeOpts);
     this.assertCandidateCapabilities(candidate, opts);
-    if (candidate.provider === 'openai-codex') {
-      return new OpenAICodexGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey }).complete(candidate, systemPrompt, messages, sessionId, opts);
+    const transport = this.registry?.getEffectiveCapabilities(candidate).transportProtocol ?? 'openai-chat-completions';
+    if (transport === 'openai-responses') {
+      if (!this.registry) throw new Error('openai-responses dispatch requires a provider registry.');
+      return new OpenAIResponsesGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey, capabilities: this.registry.getEffectiveCapabilities(candidate) }).complete(candidate, systemPrompt, activeConversationReplay, sessionId, opts);
     }
-    return new OpenAIChatGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey }).complete(candidate, systemPrompt, messages, sessionId, opts);
+    if (transport === 'openai-codex-backend') {
+      return new OpenAICodexGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey }).complete(candidate, systemPrompt, genericContextMessages, sessionId, opts);
+    }
+    return new OpenAIChatGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey }).complete(candidate, systemPrompt, genericContextMessages, sessionId, opts);
   }
 
   private assertCandidateCapabilities(candidate: Candidate, opts: LlmCompleteOptions): void {

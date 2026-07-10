@@ -35,6 +35,25 @@ server:
 runtime: {}
 ```
 
+Direct public OpenAI GPT-5.6 through the Responses API is selected by provider capability, not by a model-name heuristic. Public OpenAI Responses uses API-key credentials only; Codex/OpenAI OAuth auth profiles are a separate `openai-codex-backend` contract and are not aliases for public OpenAI API keys.
+
+```yaml
+models:
+  default: ["gpt-5.6"]
+providers:
+  openai:
+    models: ["gpt-5.6"]
+    apiKey: "<openai-api-key>"
+    baseUrl: "https://api.openai.com"
+    capabilities:
+      transportProtocol: openai-responses
+      toolsMode: native
+      exclusiveToolChoiceSupport: native
+      streaming: true
+      responsesReasoning:
+        effort: medium
+```
+
 Agent prompts are customizable with file-level Markdown overrides in `.saivage/config/prompts/<cardType>/<role>.md`. Shipped defaults live in `src/prompts/` and are copied to `dist/prompts/`; omitted override files keep the built-in defaults. Prompt overrides are durable operator configuration: `saivage init`, `saivage reset`, and `start --create-runtime` preserve them while recreating generated state.
 
 MCP server entries in `.saivage/saivage.yaml` use `transport: stdio` or `transport: streamable-http`.

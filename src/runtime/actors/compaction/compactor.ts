@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { agentMessageSchema, type AgentMessage } from '../../../schemas/index.js';
 import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
+import { genericContextMessagesForInvocation } from '../llm-invocation.js';
 import { conversationMessagesForModel, readActiveVersionMessages } from '../conversation-store.js';
 import { ensureConversationIndex, writeCompactedConversationVersion } from '../conversation-index.js';
 import type { ConversationVersionReplacement } from '../conversation-index.js';
@@ -10,6 +11,7 @@ import { classifyConversationRounds, estimateMessageTokens, type ClassifiedRound
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors, type RecoverableEvidenceDescriptor } from './result-dropping.js';
 import { appendSummaryCacheEntry, contentHashForMessages, readSummaryCache, renderRecoverableEvidenceSection, type SummaryCacheEntry } from './summary-cache.js';
 import { summarizeMerge, summarizeRound, type SummarizerProviderPort } from './summarizer.js';
+import { buildResponsesReplayProjection } from '../../../agents/llm-openai-responses-mapper.js';
 
 export type CompactionConfig = {
   enabled: boolean;
@@ -58,7 +60,7 @@ export async function compact(args: {
   let summaryIds = pass.summaryIds;
   let bands = pass.bands;
 
-  const compactedInput = { ...args.input, contextMessages: conversationMessagesForModel(rows) };
+  const compactedInput = { ...args.input, genericContextMessages: conversationMessagesForModel(rows), contextMessages: conversationMessagesForModel(rows), activeConversationReplay: buildResponsesReplayProjection(args.sessionId, rows) };
   const after = args.bufferSizeEstimator.estimate(compactedInput);
   const targetTokens = Math.floor(after.bufferTokens * Math.max(0, args.config.trigger_fraction - args.config.completion_reserve_fraction));
   if (after.estimatedTokens > targetTokens) {
@@ -66,7 +68,7 @@ export async function compact(args: {
     rows = escalated.rows;
     summaryIds = escalated.summaryIds;
     bands = escalated.bands;
-    const escalatedAfter = args.bufferSizeEstimator.estimate({ ...args.input, contextMessages: conversationMessagesForModel(rows) });
+    const escalatedAfter = args.bufferSizeEstimator.estimate({ ...args.input, genericContextMessages: conversationMessagesForModel(rows), contextMessages: conversationMessagesForModel(rows), activeConversationReplay: buildResponsesReplayProjection(args.sessionId, rows) });
     if (escalatedAfter.estimatedTokens > Math.floor(escalatedAfter.bufferTokens * args.config.trigger_fraction)) {
       throw new Error(`Compaction did not reduce context below trigger (${escalatedAfter.estimatedTokens}/${escalatedAfter.bufferTokens}); refusing to silently truncate.`);
     }
@@ -199,7 +201,7 @@ export const heuristicBufferSizeEstimator: BufferSizeEstimator = {
   estimate(input) {
     const promptTokens = Math.max(1, Math.ceil(input.systemPrompt.length / 4));
     const toolTokens = Math.max(0, Math.ceil(JSON.stringify(input.tools).length / 4));
-    const messageTokens = (input.contextMessages as AgentMessage[]).reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+    const messageTokens = genericContextMessagesForInvocation(input).reduce((sum, message) => sum + estimateMessageTokens(message), 0);
     const requested = input.capabilityRequest as { contextWindowTokens?: unknown };
     return { estimatedTokens: promptTokens + toolTokens + messageTokens, bufferTokens: typeof requested.contextWindowTokens === 'number' ? requested.contextWindowTokens : 128000 };
   },

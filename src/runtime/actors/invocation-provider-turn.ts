@@ -3,7 +3,7 @@ import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { InvocationRequest } from '../../agents/invocation-service.js';
 import type { ProviderTurnCompletion } from '../../agents/llm-contracts.js';
-import type { LlmInvocationInput, ProviderTurnPort } from './llm-invocation.js';
+import { activeConversationReplayForInvocation, genericContextMessagesForInvocation, type LlmInvocationInput, type ProviderTurnPort } from './llm-invocation.js';
 
 export interface InvocationTurnService {
   invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion>;
@@ -20,7 +20,8 @@ export class InvocationProviderTurnPort implements ProviderTurnPort {
       role: input.role,
       sessionId: input.sessionId,
       systemPrompt: input.systemPrompt,
-      contextMessages: parseContextMessages(input.contextMessages, input.inputId),
+      genericContextMessages: parseContextMessages(genericContextMessagesForInvocation(input), input.inputId),
+      activeConversationReplay: activeConversationReplayForInvocation(input),
       tools: input.tools,
       terminalToolNames: input.terminalToolNames,
       modelParams: input.modelParams,

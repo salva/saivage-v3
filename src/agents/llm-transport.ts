@@ -33,6 +33,18 @@ export async function resolveLlmTransportConfig(
     ? (provider.getAllAccounts().find((a) => a.name === candidate.account) ??
       provider.implicitAccount)
     : provider.implicitAccount;
+  const capabilities = registry.getEffectiveCapabilities(candidate);
+  if (capabilities.transportProtocol === 'openai-responses') {
+    if (account.authProfile || provider.authProfile) {
+      throw new Error(`Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and must use an OpenAI API key, not an authProfile.`);
+    }
+    const apiKey = account.apiKey ?? provider.apiKey;
+    if (!apiKey) {
+      throw new Error(`Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and requires an OpenAI API key.`);
+    }
+    const baseUrl = account.baseUrl ?? provider.baseUrl ?? 'https://api.openai.com';
+    return { baseUrl, apiKey, cacheKey: [baseUrl, candidate.provider, candidate.account ?? '_implicit', 'openai-responses-api-key'].join(':') };
+  }
 
   const resolver = new CredentialSourceResolver({
     loadAuthProfiles: () => loadAuthProfiles(projectRoot),

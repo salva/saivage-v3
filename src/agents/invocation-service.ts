@@ -10,7 +10,7 @@ import {
 } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
-import { ProviderTurnFailure, type LlmCallFn, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
+import { ProviderTurnFailure, type LlmCallFn, type ProviderTurnCompletion, type ResponsesReplayProjection, type ToolDefinition } from './llm-contracts.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 
@@ -24,7 +24,9 @@ export interface InvocationRequest {
   role: OperationalAgentRole;
   sessionId: string;
   systemPrompt: string;
-  contextMessages: AgentMessage[];
+  genericContextMessages?: AgentMessage[];
+  activeConversationReplay?: ResponsesReplayProjection;
+  contextMessages?: AgentMessage[];
   tools: ToolDefinition[];
   terminalToolNames: string[];
   modelParams: { temperature?: number; maxTokens?: number };
@@ -74,7 +76,8 @@ export class InvocationService {
     return call(
       candidate,
       request.systemPrompt,
-      request.contextMessages,
+      genericContextMessagesForRequest(request),
+      activeConversationReplayForRequest(request),
       request.sessionId,
       buildLlmOptions(
         request.role,
@@ -104,7 +107,7 @@ export class InvocationService {
         try {
           const result = await this.invokeCall(request, candidate);
           await this.candidateAvailability.markSucceeded(candidate);
-          return { result: result.result, provider_exchanges: normalizeAttempts(request.inputId, [...settled, ...result.provider_exchanges]) };
+          return { result: result.result, provider_exchanges: normalizeAttempts(request.inputId, [...settled, ...result.provider_exchanges]), provider_private_context: result.provider_private_context };
         } catch (err) {
           if (isAbortFromSignal(err, request.abortSignal)) throw err;
           const originalFailure = err instanceof ProviderTurnFailure ? err.originalFailure : err;
@@ -235,4 +238,16 @@ function isAbortFromSignal(error: unknown, signal?: AbortSignal): boolean {
 
 function normalizeAttempts(sourceInputId: string, attempts: ProviderExchangeAttempt[]): ProviderExchangeAttempt[] {
   return attempts.map((attempt, index) => ({ ...attempt, source_input_id: sourceInputId, attempt_index: index }));
+}
+
+function genericContextMessagesForRequest(request: InvocationRequest): AgentMessage[] {
+  const messages = request.genericContextMessages ?? request.contextMessages;
+  if (!messages) throw new Error(`Invocation '${request.inputId}' is missing genericContextMessages.`);
+  return messages;
+}
+
+function activeConversationReplayForRequest(request: InvocationRequest): ResponsesReplayProjection {
+  if (request.activeConversationReplay) return request.activeConversationReplay;
+  const messages = genericContextMessagesForRequest(request);
+  return { sessionId: request.sessionId, messages };
 }

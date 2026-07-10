@@ -20,6 +20,7 @@ import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
+import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
@@ -132,7 +133,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createPlannerContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('planner');
     const sessionId = plannerActorId(this.cardId);
-    const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
+    const loadedRows = readActiveVersionMessages(this.projectRoot, sessionId);
+    const loaded = conversationMessagesForModel(loadedRows);
     const activationMarker = appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
     const notifications = this.notificationContext(input, inputId).map((message, index) => {
@@ -146,7 +148,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'planner',
       sessionId,
       systemPrompt: this.plannerPrompt(input.card, surface, contract),
+      genericContextMessages: [...loaded, ...notifications],
       contextMessages: [...loaded, ...notifications],
+      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, ...notifications]),
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
@@ -256,7 +260,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string, currentness: ReviewerCurrentnessSnapshot, surface: InvocationSurface, contract = createReviewerContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('reviewer');
-    const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
+    const loadedRows = readActiveVersionMessages(this.projectRoot, sessionId);
+    const loaded = conversationMessagesForModel(loadedRows);
     const activationMarker = appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
     const descendantContext = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness));
@@ -267,7 +272,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId, surface, contract),
+      genericContextMessages: [...loaded, descendantContext.message],
       contextMessages: [...loaded, descendantContext.message],
+      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, descendantContext.message]),
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

@@ -13,8 +13,8 @@ export const PROVIDER_DEFAULT_BASE_URLS: Record<string, string> = {
 export const PROVIDER_AUTH_PROFILE_ALIASES: Record<string, string[]> = {
   copilot: ['github-copilot'],
   'github-copilot': ['github-copilot', 'copilot'],
-  'openai-codex': ['openai-codex', 'openai'],
-  openai: ['openai', 'openai-codex'],
+  'openai-codex': ['openai-codex'],
+  openai: ['openai'],
 };
 
 export type BaseUrlSource =

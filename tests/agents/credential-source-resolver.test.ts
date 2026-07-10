@@ -139,22 +139,22 @@ describe('CredentialSourceResolver', () => {
     expect(missing.cacheKey).toContain(':explicit-provider-auth-profile:missing-profile:');
   });
 
-  it('uses unambiguous provider/provider-alias auth profile and returns none when absent', async () => {
+  it('uses only same-provider implicit auth profiles and returns none when absent', async () => {
     const profiles: AuthProfilesFile = {
       version: 1,
-      profiles: { alias: profile('openai', ALIAS_PROFILE_TOKEN_SECRET) },
+      profiles: { alias: profile('openai-codex', ALIAS_PROFILE_TOKEN_SECRET), publicOpenAi: profile('openai', ACCOUNT_PROFILE_TOKEN_SECRET) },
     };
     const p = provider({}, 'openai-codex');
     const resolved = await resolver(profiles).resolve(p, accountFor(p));
     expect(resolved.apiKey).toBe(ALIAS_PROFILE_TOKEN_SECRET);
-    expect(resolved.cacheKey).toContain(':provider-alias-auth-profile:alias:openai');
+    expect(resolved.cacheKey).toContain(':provider-alias-auth-profile:alias:openai-codex');
 
     const absent = await resolver(null).resolve(p, accountFor(p));
     expect(absent.apiKey).toBeUndefined();
     expect(absent.cacheKey).toContain(':none:_:_');
   });
 
-  it('fails closed on ambiguous implicit alias profiles without exposing token values', async () => {
+  it('does not treat public OpenAI and Codex profiles as aliases', async () => {
     const profiles: AuthProfilesFile = {
       version: 1,
       profiles: {
@@ -163,11 +163,9 @@ describe('CredentialSourceResolver', () => {
       },
     };
     const p = provider({}, 'openai-codex');
-    await expect(resolver(profiles).resolve(p, accountFor(p))).rejects.toThrow(
-      /Ambiguous auth profile match.*openai-codex.*alpha.*beta.*explicit/i,
-    );
-    await expect(resolver(profiles).resolve(p, accountFor(p))).rejects.not.toThrow(ACCOUNT_PROFILE_TOKEN_SECRET);
-    await expect(resolver(profiles).resolve(p, accountFor(p))).rejects.not.toThrow(PROVIDER_PROFILE_TOKEN_SECRET);
+    const resolved = await resolver(profiles).resolve(p, accountFor(p));
+    expect(resolved.apiKey).toBe(PROVIDER_PROFILE_TOKEN_SECRET);
+    expect(resolved.cacheKey).toContain(':provider-alias-auth-profile:beta:openai-codex');
   });
 
   it('keeps cache keys free of raw synthetic secrets', async () => {

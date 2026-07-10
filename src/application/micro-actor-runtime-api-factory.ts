@@ -7,11 +7,11 @@ import type { InvocationService } from '../agents/invocation-service.js';
 import type { SaivageConfig } from '../agents/config-api.js';
 import { parseCandidateKey } from '../contracts/provider-candidate.js';
 import { compact, heuristicBufferSizeEstimator, shouldCompact } from '../runtime/actors/compaction/compactor.js';
-import type { AgentMessage } from '../schemas/index.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
+import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
@@ -62,7 +62,8 @@ function buildCompactionWiring(invocationService: InvocationService, config: Sai
         role: input.role,
         sessionId: input.sessionId,
         systemPrompt: input.systemPrompt,
-        contextMessages: input.contextMessages as AgentMessage[],
+        genericContextMessages: genericContextMessagesForInvocation(input),
+        activeConversationReplay: activeConversationReplayForInvocation(input),
         tools: input.tools,
         terminalToolNames: input.terminalToolNames,
         modelParams: input.modelParams,
@@ -81,7 +82,8 @@ export function createInvocationServiceProvider(invocationService: InvocationSer
       role: input.role,
       sessionId: input.sessionId,
       systemPrompt: input.systemPrompt,
-      contextMessages: input.contextMessages as AgentMessage[],
+      genericContextMessages: genericContextMessagesForInvocation(input),
+      activeConversationReplay: activeConversationReplayForInvocation(input),
       tools: input.tools,
       terminalToolNames: input.terminalToolNames,
       modelParams: input.modelParams,

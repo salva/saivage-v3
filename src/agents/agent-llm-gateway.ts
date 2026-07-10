@@ -1,6 +1,6 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { EventLogger } from '../observability/index.js';
-import type { LlmCompleteOptions, ProviderTurnCompletion, LlmCallFn, LlmInvocationClient } from './llm-contracts.js';
+import { parseCompleteInvocationArgs, type LlmCompleteOptions, type ProviderTurnCompletion, type LlmCallFn, type LlmInvocationClient, type ResponsesReplayProjection } from './llm-contracts.js';
 import { LlmProviderGateway } from './llm-provider-gateway.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
@@ -36,7 +36,8 @@ export class AgentLlmInvocationGateway {
   }
 
   createLlmCallFn(): LlmCallFn {
-    return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts: LlmCompleteOptions): Promise<ProviderTurnCompletion> => {
+    return async (candidate: Candidate, systemPrompt: string, genericContextMessages: AgentMessage[], activeConversationReplayOrSessionId: ResponsesReplayProjection | string, sessionIdOrOpts: string | LlmCompleteOptions, maybeOpts?: LlmCompleteOptions): Promise<ProviderTurnCompletion> => {
+      const { activeConversationReplay, sessionId, opts } = parseCompleteInvocationArgs(genericContextMessages, activeConversationReplayOrSessionId, sessionIdOrOpts, maybeOpts);
       const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(this.projectRoot, this.registry, candidate);
       let client = this.llmClientCache.get(cacheKey);
       if (!client) {
@@ -44,7 +45,7 @@ export class AgentLlmInvocationGateway {
         this.llmClientCache.set(cacheKey, client);
       }
       const recorder = this.createRecorder(sessionId);
-      return await client.complete(candidate, systemPrompt, messages, sessionId, { ...opts, recorder });
+      return await client.complete(candidate, systemPrompt, genericContextMessages, activeConversationReplay, sessionId, { ...opts, recorder });
     };
   }
 }

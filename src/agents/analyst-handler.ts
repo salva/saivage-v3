@@ -20,10 +20,12 @@ import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
 import { buildContextTextMessage, conversationMessagesForModel, readActiveVersionMessages, readConversationMessages } from '../runtime/actors/conversation-store.js';
+import { buildResponsesReplayProjection } from './llm-openai-responses-mapper.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { createConversationChangePublisher } from '../runtime/actors/conversation-publisher.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
+import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
 import { invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
 import { createProcessProvider } from '../tools/process-provider.js';
@@ -379,9 +381,12 @@ export class AnalystSessionActor extends BaseActor {
   private buildInvocationInput(newMessages: AgentMessage[], surface: InvocationSurface): LlmInvocationInput {
     const tools = surfaceToolDefinitions(surface);
     const modelParams = getModelParamsForRole(this.args.config, 'analyst');
-    const contextMessages = this.llm.input
-      ? [...this.llm.input.contextMessages, ...newMessages]
-      : [...conversationMessagesForModel(readActiveVersionMessages(this.args.projectRoot, this.sessionId)), ...newMessages] as AgentMessage[];
+    const activeRows = this.llm.input
+      ? [...activeConversationReplayForInvocation(this.llm.input).messages, ...newMessages]
+      : [...readActiveVersionMessages(this.args.projectRoot, this.sessionId), ...newMessages];
+    const genericContextMessages = this.llm.input
+      ? [...genericContextMessagesForInvocation(this.llm.input), ...newMessages]
+      : conversationMessagesForModel(activeRows);
     return {
       inputId: `${this.llm.agentId}:turn:${Date.now()}`,
       agentId: this.llm.agentId,
@@ -392,7 +397,9 @@ export class AnalystSessionActor extends BaseActor {
         vocabularySnippet: formatVocabularySnippet(),
         projectContext: this.buildProjectContext(),
       }),
-      contextMessages,
+      genericContextMessages,
+      contextMessages: genericContextMessages,
+      activeConversationReplay: buildResponsesReplayProjection(this.sessionId, activeRows),
       turnMessages: newMessages,
       tools,
       terminalToolNames: [],

@@ -17,7 +17,7 @@ export interface ProviderExchangeHandle {
 }
 
 export interface BeginProviderExchangeInput {
-  transport: 'generic' | 'codex';
+  transport: 'generic' | 'codex' | 'openai-responses';
   contract_id: string;
   contractName: string;
   candidate: { provider: string; model: string; account?: string };

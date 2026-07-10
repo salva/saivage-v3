@@ -2,6 +2,7 @@ import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../agents/
 import type { AgentMessage } from '../../../schemas/index.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { SummaryCacheEntry } from './summary-cache.js';
+import { buildResponsesReplayProjection } from '../../../agents/llm-openai-responses-mapper.js';
 
 export interface SummarizerProviderPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
@@ -62,7 +63,9 @@ function buildSummaryInput(args: { inputId: string; sessionId: string; modelSpec
     role: 'analyst',
     sessionId: args.sessionId,
     systemPrompt: `${args.systemPrompt}\nModel: ${args.modelSpec}`,
+    genericContextMessages: args.contextMessages,
     contextMessages: args.contextMessages,
+    activeConversationReplay: buildResponsesReplayProjection(args.sessionId, args.contextMessages),
     tools: [],
     terminalToolNames: [],
     modelParams: { temperature: 0, maxTokens: 2000 },

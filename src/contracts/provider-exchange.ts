@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const providerExchangeTransportSchema = z.enum(['generic', 'codex']);
+export const providerExchangeTransportSchema = z.enum(['generic', 'codex', 'openai-responses']);
 export const providerExchangeStatusSchema = z.enum(['ok', 'error']);
 
 export const providerExchangeErrorSchema = z.object({
