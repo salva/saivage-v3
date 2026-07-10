@@ -54,7 +54,7 @@ export class AgentOperatorReadModelService {
     const session = this.buildSessionSummary(sessionId, messages, snapshots);
     if (!session) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const activity_status = this.deriveActivityStatus(sessionId, snapshots);
-    return { body: { session, entries: messages, activity_status } };
+    return { body: { session, entries: messages.filter((message) => message.kind !== 'provider_private').map(stripPrivateProjectionMarker), activity_status } };
   }
 
   private parseSessionId(sessionId: string): { role: Extract<AgentRole, 'analyst' | 'planner' | 'executor' | 'reviewer'>; card_id: string | null; assessment_id: string | null } | null {
@@ -123,6 +123,12 @@ export class AgentOperatorReadModelService {
       ...(model ? { model } : {}),
     };
   }
+}
+
+function stripPrivateProjectionMarker(message: AgentMessage): AgentMessage {
+  if (!message.provider_projection) return message;
+  const { provider_projection: _privateMarker, ...publicMessage } = message;
+  return publicMessage;
 }
 
 export { isSafeAgentSessionId };

@@ -101,4 +101,22 @@ describe('conversation compactor orchestration', () => {
     expect(summaryIds.length).toBe(new Set(summaryIds).size);
     expect(summaryIds.every((id) => cacheKeys.includes(id))).toBe(true);
   }));
+
+  it('preserves paired OpenAI Responses private rows in the active compacted version while returning provider-visible rows only', async () => withTempProject(async (projectRoot) => {
+    appendRound(projectRoot, 1, 'old round one ' + 'a'.repeat(80));
+    appendRound(projectRoot, 2, 'middle round two ' + 'b'.repeat(80));
+    appendRound(projectRoot, 3, 'recent round three ' + 'c'.repeat(80));
+    const timestamp = new Date().toISOString();
+    const privateId = 'responses-input:provider-private:openai-responses';
+    const visibleId = 'responses-input:message';
+    appendConversationMessage(projectRoot, { id: privateId, session_id: 'planner:project', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', source_input_id: 'responses-input', projection_message_id: visibleId, provider: 'openai', model: 'gpt-5.6', output: [{ type: 'reasoning', encrypted_content: 'opaque' }, { type: 'message', content: [{ type: 'output_text', text: 'visible' }] }] }), round_id: 'r-assistant-00000000000000000000000000000003', message_index: 1, block_index: 0, timestamp });
+    appendConversationMessage(projectRoot, { id: visibleId, session_id: 'planner:project', role: 'assistant', kind: 'text', content: 'visible', round_id: 'r-assistant-00000000000000000000000000000003', message_index: 1, block_index: 1, timestamp, provider_projection: { kind: 'openai_responses', source_input_id: 'responses-input', private_message_id: privateId, projection_kind: 'assistant_message' } });
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (llmInput: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] })) };
+
+    const { rows } = await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
+    const active = readActiveVersionMessages(projectRoot, 'planner:project');
+
+    expect(rows.some((row) => row.kind === 'provider_private')).toBe(false);
+    expect(active).toEqual(expect.arrayContaining([expect.objectContaining({ id: privateId, kind: 'provider_private' }), expect.objectContaining({ id: visibleId, provider_projection: expect.objectContaining({ private_message_id: privateId }) })]));
+  }));
 });

@@ -6,6 +6,7 @@ import {
 } from '../../src/agents/invocation-recovery-policy.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
+import { parseOpenAIResponsesJson } from '../../src/agents/llm-openai-responses-parser.js';
 
 const candidate: Candidate = { provider: 'openai-compatible', account: 'primary', model: 'gpt-test' };
 const policy = new InvocationRecoveryPolicy();
@@ -163,4 +164,31 @@ describe('InvocationRecoveryPolicy', () => {
       appendModelIssue: false,
     });
   });
+
+  it('keeps OpenAI Responses provider-cancelled noncompletion on failover path, not local abort path', () => {
+    const failure = responsesFailure({ status: 'cancelled', output: [] });
+    expect(failure.failure.kind).toBe('server_transient');
+    expect(policy.decideFailure(failure, baseContext)).toMatchObject({
+      action: 'cooldown_and_failover',
+      markFailed: true,
+      abort: false,
+    });
+  });
+
+  it('maps OpenAI Responses noncompleted statuses to planned recovery policy decisions', () => {
+    expect(policy.decideFailure(responsesFailure({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [] }), baseContext)).toMatchObject({ action: 'failover_without_cooldown', markFailed: false, appendModelIssue: true });
+    expect(policy.decideFailure(responsesFailure({ status: 'failed', error: { message: 'provider failed' }, output: [] }), baseContext)).toMatchObject({ action: 'cooldown_and_failover', markFailed: true, appendModelIssue: true });
+    expect(policy.decideFailure(responsesFailure({ status: 'in_progress', output: [] }), baseContext)).toMatchObject({ action: 'failover_without_cooldown', markFailed: true, appendModelIssue: true });
+    expect(policy.decideFailure(responsesFailure({ status: 'mystery', output: [] }), baseContext)).toMatchObject({ action: 'retry_same_after_delay', markFailed: false, appendModelIssue: true });
+  });
 });
+
+function responsesFailure(payload: Record<string, unknown>): LlmRequestError {
+  try {
+    parseOpenAIResponsesJson(JSON.stringify(payload), { provider: 'openai-compatible', model: 'gpt-test', sourceInputId: 'input-1' });
+  } catch (error) {
+    if (error instanceof LlmRequestError) return error;
+    throw error;
+  }
+  throw new Error('Expected Responses payload to fail');
+}

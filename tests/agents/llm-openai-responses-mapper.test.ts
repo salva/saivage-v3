@@ -24,4 +24,15 @@ describe('OpenAI Responses replay mapper', () => {
     const visible: AgentMessage = { ...base, id: 'input-1:message', role: 'assistant', kind: 'text', content: 'x', provider_projection: { kind: 'openai_responses', source_input_id: 'input-1', private_message_id: 'missing', projection_kind: 'assistant_message' } };
     expect(() => buildResponsesReplayProjection('s1', [visible])).toThrow(/missing private row/);
   });
+
+  it('fails on orphan private rows, duplicate private rows, and mismatched bidirectional ids', () => {
+    const output = [{ type: 'message', content: [{ type: 'output_text', text: 'x' }] }];
+    const privateRow: AgentMessage = { ...base, id: 'input-1:provider-private:openai-responses', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', source_input_id: 'input-1', projection_message_id: 'input-1:message', provider: 'openai', model: 'gpt-5.6', output }) };
+    const duplicatePrivate: AgentMessage = { ...privateRow, id: 'input-1:provider-private:openai-responses:duplicate' };
+    const visible: AgentMessage = { ...base, id: 'input-1:message', role: 'assistant', kind: 'text', content: 'x', provider_projection: { kind: 'openai_responses', source_input_id: 'input-1', private_message_id: privateRow.id, projection_kind: 'assistant_message' } };
+
+    expect(() => buildResponsesReplayProjection('s1', [privateRow])).toThrow(/missing marked visible projection/);
+    expect(() => buildResponsesReplayProjection('s1', [privateRow, duplicatePrivate, visible])).toThrow(/duplicated/);
+    expect(() => buildResponsesReplayProjection('s1', [privateRow, { ...visible, provider_projection: { ...visible.provider_projection!, private_message_id: 'wrong-private' } }])).toThrow(/missing private row/);
+  });
 });
