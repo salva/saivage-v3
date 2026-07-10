@@ -118,8 +118,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messagesError.value = null;
     try {
       const response = await getChatEntries(canonicalSessionId);
-      const fetchedMessages = [...response.entries].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-      messages.value = fetchedMessages;
+      messages.value = [...response.entries];
     } catch (err) {
       messages.value = [];
       messagesError.value = buildErrorState(err, 'Failed to load analyst chat messages.');

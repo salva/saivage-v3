@@ -16,6 +16,21 @@ vi.mock('../api/client', () => ({
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
 
+function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
+  return {
+    id: 'entry-1',
+    session_id: 'analyst:global',
+    role: 'user',
+    kind: 'text',
+    content: 'message',
+    round_id: 'r-user-00000000000000000000000000000001',
+    message_index: 0,
+    block_index: 0,
+    timestamp: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 describe('analyst chat store', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -59,6 +74,29 @@ describe('analyst chat store', () => {
 
     expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith('analyst:global');
     expect(store.activeSessionId).toBe('analyst:global');
+  });
+
+  it('preserves API entry order when fetching messages', async () => {
+    const first = entry({
+      id: 'newer-api-first',
+      content: 'first in API response',
+      timestamp: '2026-01-01T00:00:03.000Z',
+    });
+    const second = entry({
+      id: 'older-api-second',
+      content: 'second in API response',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      round_id: 'r-user-00000000000000000000000000000002',
+    });
+    apiMocks.getChatEntries.mockResolvedValueOnce({
+      sessionId: 'analyst:global',
+      entries: [first, second],
+    });
+
+    const store = useAnalystChat();
+    await store.fetchMessages('analyst:global');
+
+    expect(store.messages.map((message) => message.id)).toEqual([first.id, second.id]);
   });
 
   it('does not refresh transcript from card or control activity frames', async () => {

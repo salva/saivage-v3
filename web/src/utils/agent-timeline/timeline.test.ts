@@ -52,6 +52,55 @@ describe('entriesToTimeline tool pairing', () => {
     expect(timeline.rounds[0].toolPairs[0].result?.id).toBe(result.id);
   });
 
+  it('keeps a projected tool result with the original call round position', () => {
+    const before = entry({
+      id: 'before-call',
+      kind: 'text',
+      content: 'before',
+      round_id: 'r-user-00000000000000000000000000000001',
+      message_index: 0,
+      timestamp: '2026-05-30T00:00:01Z',
+    });
+    const call = entry({
+      id: 'assistant-call',
+      kind: 'tool_call',
+      role: 'assistant',
+      tool: 'read',
+      tool_call_id: 'call-a',
+      round_id: 'r-assistant-00000000000000000000000000000002',
+      message_index: 1,
+      timestamp: '2026-05-30T00:00:02Z',
+      content: JSON.stringify({
+        role: 'assistant',
+        tool_calls: [{ id: 'call-a', type: 'function', function: { name: 'read', arguments: '{}' } }],
+      }),
+    });
+    const afterCall = entry({
+      id: 'after-call',
+      kind: 'text',
+      content: 'after call before result',
+      round_id: 'r-user-00000000000000000000000000000003',
+      message_index: 0,
+      timestamp: '2026-05-30T00:00:03Z',
+    });
+    const result = entry({
+      id: 'later-result',
+      kind: 'tool_result',
+      role: 'tool',
+      tool: 'read',
+      tool_call_id: 'call-a',
+      round_id: 'r-user-00000000000000000000000000000004',
+      message_index: 2,
+      timestamp: '2026-05-30T00:00:04Z',
+      content: JSON.stringify({ ok: true }),
+    });
+
+    const timeline = entriesToTimeline([before, call, afterCall, result], null);
+
+    expect(timeline.rounds.map((round) => round.id)).toEqual([before.round_id, call.round_id, afterCall.round_id]);
+    expect(timeline.rounds[1].toolPairs[0].result?.id).toBe(result.id);
+  });
+
   it('pairs assistant tool_call (no top-level tool_call_id) with tool_result via content tool_calls[0].id', () => {
     const call = entry({
       id: 'msg-analyst-2',
@@ -151,7 +200,62 @@ describe('entriesToTimeline tool pairing', () => {
 });
 
 describe('entriesToTimeline display filtering', () => {
-  it('keeps pre-context rounds before user rounds even when persistence timestamps are close', () => {
+  it('orders rounds by API input order instead of round-local message_index', () => {
+    const repair = entry({
+      id: 'old-repair',
+      role: 'user',
+      kind: 'model_repair',
+      content: 'repair startup prompt',
+      round_id: 'r-user-00000000000000000000000000000011',
+      message_index: 3,
+      timestamp: '2026-07-10T17:28:42.840Z',
+    });
+    const laterUser = entry({
+      id: 'later-user',
+      role: 'user',
+      kind: 'text',
+      content: 'later normal turn',
+      round_id: 'r-user-00000000000000000000000000000022',
+      message_index: 0,
+      timestamp: '2026-07-10T18:00:00.000Z',
+    });
+    const laterAssistant = entry({
+      id: 'later-assistant',
+      role: 'assistant',
+      kind: 'text',
+      content: 'later answer',
+      round_id: 'r-assistant-00000000000000000000000000000033',
+      message_index: 1,
+      timestamp: '2026-07-10T18:00:01.000Z',
+    });
+
+    const timeline = entriesToTimeline([repair, laterUser, laterAssistant], null);
+
+    expect(timeline.rounds.map((round) => round.id)).toEqual([repair.round_id, laterUser.round_id, laterAssistant.round_id]);
+  });
+
+  it('does not move a later lower-message-index round before an earlier input round', () => {
+    const earlier = entry({
+      id: 'earlier-index-3',
+      kind: 'text',
+      content: 'earlier',
+      round_id: 'r-user-00000000000000000000000000000044',
+      message_index: 3,
+    });
+    const later = entry({
+      id: 'later-index-0',
+      kind: 'text',
+      content: 'later',
+      round_id: 'r-assistant-00000000000000000000000000000055',
+      message_index: 0,
+    });
+
+    const timeline = entriesToTimeline([earlier, later], null);
+
+    expect(timeline.rounds.map((round) => round.id)).toEqual([earlier.round_id, later.round_id]);
+  });
+
+  it('keeps system prompt, workspace context, and user rounds in API order when timestamps contradict it', () => {
     const context = entry({
       id: 'context',
       role: 'system',
@@ -168,7 +272,7 @@ describe('entriesToTimeline display filtering', () => {
       content: 'launch the project',
       round_id: 'r-user-00000000000000000000000000000022',
       message_index: 1,
-      timestamp: '2026-05-30T00:00:02Z',
+      timestamp: '2026-05-30T00:00:01Z',
     });
     const systemPrompt = entry({
       id: 'system-prompt',
@@ -182,7 +286,32 @@ describe('entriesToTimeline display filtering', () => {
 
     const timeline = entriesToTimeline([systemPrompt, context, user], null);
 
-    expect(timeline.rounds.map((round) => round.id)).toEqual([context.round_id, systemPrompt.round_id, user.round_id]);
+    expect(timeline.rounds.map((round) => round.id)).toEqual([systemPrompt.round_id, context.round_id, user.round_id]);
+  });
+
+  it('keeps same-timestamp rounds in API order instead of id order', () => {
+    const context = entry({
+      id: 'z-context',
+      role: 'system',
+      kind: 'text',
+      content: '[workspace-context]',
+      round_id: 'r-pre-00000000000000000000000000000066',
+      message_index: 0,
+      timestamp: '2026-05-30T00:00:01Z',
+    });
+    const user = entry({
+      id: 'a-user',
+      role: 'user',
+      kind: 'text',
+      content: 'launch the project',
+      round_id: 'r-user-00000000000000000000000000000077',
+      message_index: 0,
+      timestamp: '2026-05-30T00:00:01Z',
+    });
+
+    const timeline = entriesToTimeline([context, user], null);
+
+    expect(timeline.rounds.map((round) => round.id)).toEqual([context.round_id, user.round_id]);
   });
 
   it('does not render raw activity-only rounds as visible transcript content', () => {
