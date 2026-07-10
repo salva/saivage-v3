@@ -200,14 +200,14 @@ test('Files view restores direct query deep links, fallback previews, root switc
   await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
   await expect(page.getByTestId('files-viewer')).toHaveCount(0);
 
-  await page.goto('/files?root=meta&path=.saivage/runtime');
-  await expect(page.getByRole('button', { name: 'events.jsonl' })).toBeVisible();
+  await page.goto('/files?root=meta&path=.saivage/logs');
+  await expect(page.getByRole('button', { name: 'app.jsonl' })).toBeVisible();
   await page.getByRole('button', { name: 'Output' }).click();
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(/root=meta.*path=\.saivage\/runtime|path=\.saivage\/runtime.*root=meta/);
+  await expect(page).toHaveURL(/root=meta.*path=\.saivage\/logs|path=\.saivage\/logs.*root=meta/);
   await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'events.jsonl' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'app.jsonl' })).toBeVisible();
   await page.goForward();
   await expect(page).toHaveURL(/root=output.*path=\.saivage\/work|path=\.saivage\/work.*root=output/);
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();

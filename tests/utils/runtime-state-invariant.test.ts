@@ -13,12 +13,13 @@ import {
 } from '../../src/runtime/state.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 import type { ActiveCardRun, RuntimeState } from '../../src/schemas/types.js';
+import { runtimeStateFile } from '../../src/persistence/layout.js';
 
 let root: string;
 let originalNodeEnv: string | undefined;
 
 function statePath(): string {
-  return join(root, '.saivage', 'tmp', 'state', 'runtime.json');
+  return runtimeStateFile(root);
 }
 
 function runningRun(overrides: Partial<ActiveCardRun> = {}): ActiveCardRun {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, rmSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -11,25 +11,33 @@ import { isLocked, pauseRuntimeControl, resumeRuntimeControl } from './runtime/c
 import { readRuntimeState } from './runtime/state-api.js';
 import { readLiveLockHolder } from './runtime/control-api.js';
 import { deriveCurrentCardId } from './runtime/current-run.js';
+import { acquireLock, releaseLock } from './runtime/lock.js';
+import { runtimeProcessLockFile } from './persistence/layout.js';
 
-interface CliOptions { force?: boolean; port?: string; host?: string; }
+interface CliOptions { force?: boolean; port?: string; host?: string; config?: string; 'project-root'?: string; 'create-runtime'?: boolean; }
 const USAGE = `Saivage v3 CLI
 
 Usage:
   saivage init [--force]
-  saivage start [--port <port>] [--host <host>]
+  saivage start [--port <port>] [--host <host>] [--project-root <path>] [--create-runtime]
   saivage status
   saivage pause
   saivage resume
   saivage reset
-      Remove generated runtime state such as .saivage/cards, .saivage/state,
-      .saivage/logs, .saivage/locks, .saivage/work, and .saivage/notes.
-      Preserves credentials and project files such as .saivage/auth-profiles.json,
-      .saivage/project.json, .saivage/saivage.yaml, and research/future-objectives.
-      Refuses while the runtime lockfile is present.
+      Atomically acquires .saivage/locks/runtime.lock, removes generated roots
+      .saivage/cards, .saivage/agents, .saivage/state, .saivage/logs,
+      .saivage/locks contents except the held runtime.lock, .saivage/work,
+      optional .saivage/stages, and obsolete old roots .saivage/runtime,
+      .saivage/tmp, .saivage/archive, .saivage/supervision, and .saivage/notes.
+      It then recreates the empty current layout, default runtime state, empty
+      app log, lock namespace, and root project card before releasing the lock.
+      Preserves durable credentials/config/operator inputs such as
+      .saivage/auth-profiles.json, .saivage/saivage.yaml,
+      .saivage/project.json, .saivage/config/prompts/,
+      .saivage/skills/index.json, .saivage/instructions/, and target source/docs.
   saivage help
 `;
-function parseCommand(rawArgs: string[]): { command: string; options: CliOptions } { const args = rawArgs.slice(2); if (args.length === 0) return { command: 'help', options: {} }; const command = args[0]!; const rest = args.slice(1); let options: CliOptions = {}; if (rest.length > 0) { const parsed = parseArgs({ args: rest, options: { force: { type: 'boolean' }, port: { type: 'string' }, host: { type: 'string' } }, allowPositionals: false, strict: true }); options = parsed.values as CliOptions; } return { command, options }; }
+function parseCommand(rawArgs: string[]): { command: string; options: CliOptions } { const args = rawArgs.slice(2); if (args.length === 0) return { command: 'help', options: {} }; const command = args[0]!; const rest = args.slice(1); let options: CliOptions = {}; if (rest.length > 0) { const parsed = parseArgs({ args: rest, options: { force: { type: 'boolean' }, port: { type: 'string' }, host: { type: 'string' }, config: { type: 'string' }, 'project-root': { type: 'string' }, 'create-runtime': { type: 'boolean' } }, allowPositionals: false, strict: true }); options = parsed.values as CliOptions; } return { command, options }; }
 async function handleInit(options: CliOptions): Promise<void> { const projectRoot = process.cwd(); if (!options.force && isInitialized(projectRoot)) { console.log(`Project already initialized at ${projectRoot}`); return; } initProjectTree(projectRoot); console.log(`Project initialized at ${projectRoot}`); }
 async function handleStart(_options: CliOptions, args: string[]): Promise<void> { const app = await startApp({ argv: args }); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
 async function handleStatus(): Promise<void> { const projectRoot = findProjectRoot(); if (projectRoot === null) { console.log('Not in a Saivage project'); return; } const state = readRuntimeState(projectRoot); if (state === null) { console.log(`Project root: ${projectRoot}`); console.log('Runtime state: not initialized (missing runtime state file .saivage/state/runtime.json)'); return; } const holder = readLiveLockHolder(projectRoot); console.log(`Project root: ${projectRoot}`); console.log(`Status:       ${state.status}`); console.log(`PID:          ${holder ? holder.pid : '(not running)'}`); console.log(`Current card: ${deriveCurrentCardId(state) ?? '(none)'}`); console.log(`Started at:   ${state.started_at}`); }
@@ -51,7 +59,34 @@ async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resum
 }
 async function handleResume(): Promise<void> { await mutateRuntimeViaCli(process.cwd(), 'resume'); }
 async function handlePause(): Promise<void> { await mutateRuntimeViaCli(process.cwd(), 'pause'); }
-async function handleReset(): Promise<void> { const projectRoot = process.cwd(); if (isLocked(projectRoot)) throw new Error('Cannot reset while the server/runtime lockfile is present. Stop the server and try again.'); const targets = ['cards', 'runtime', 'notes'].map((name) => join(projectRoot, '.saivage', name)); console.log('Reset will remove:'); for (const target of targets) console.log(`- ${target}`); for (const target of targets) if (existsSync(target)) rmSync(target, { recursive: true, force: true }); }
+function removeIfPresent(path: string): void { if (existsSync(path)) rmSync(path, { recursive: true, force: true }); }
+function removeLockEntriesExceptHeldRuntime(projectRoot: string): void {
+  const locksRoot = join(projectRoot, '.saivage', 'locks');
+  if (!existsSync(locksRoot)) return;
+  const held = runtimeProcessLockFile(projectRoot);
+  for (const entry of readdirSync(locksRoot)) {
+    const path = join(locksRoot, entry);
+    if (path === held) continue;
+    removeIfPresent(path);
+  }
+}
+async function handleReset(): Promise<void> {
+  const projectRoot = process.cwd();
+  acquireLock(projectRoot);
+  try {
+    const generatedRoots = ['cards', 'agents', 'state', 'logs', 'work', 'stages'].map((name) => join(projectRoot, '.saivage', name));
+    const obsoleteRoots = ['runtime', 'tmp', 'archive', 'supervision', 'notes'].map((name) => join(projectRoot, '.saivage', name));
+    console.log('Reset will remove generated runtime roots and obsolete old roots, then reinitialize the current empty layout:');
+    for (const target of [...generatedRoots, join(projectRoot, '.saivage', 'locks', '* except runtime.lock while held'), ...obsoleteRoots]) console.log(`- ${target}`);
+    for (const target of generatedRoots) removeIfPresent(target);
+    removeLockEntriesExceptHeldRuntime(projectRoot);
+    for (const target of obsoleteRoots) removeIfPresent(target);
+    initProjectTree(projectRoot);
+    console.log('Project reset and reinitialized with an empty current layout and root project card. Durable credentials, config, prompt overrides, skills, instructions, and source/docs were preserved.');
+  } finally {
+    releaseLock(projectRoot);
+  }
+}
 function handleHelp(): void { console.log(USAGE); }
 export async function run(args: string[]): Promise<void> { const { command, options } = parseCommand(args); switch (command) { case 'init': await handleInit(options); break; case 'start': await handleStart(options, args); break; case 'status': await handleStatus(); break; case 'resume': await handleResume(); break; case 'pause': await handlePause(); break; case 'reset': await handleReset(); break; case 'help': case '--help': case '-h': handleHelp(); break; default: throw new Error(`Unknown command: ${command}`); } }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) { run(process.argv).catch((err: unknown) => { console.error(`Fatal error: ${(err as Error).message}`); process.exit(1); }); }

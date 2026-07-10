@@ -495,7 +495,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
 2. Completed: Legacy runtime-state layout cleanup.
 
-   Removed the current-runtime mixed-layout diagnostic for `.saivage/runtime/state.json`. Runtime state now reads and writes only `.saivage/tmp/state/runtime.json`; legacy path mentions remain only in historical docs and generic path-redaction tests.
+   Current disk layout has since moved runtime state to `.saivage/state/runtime.json`; `.saivage/runtime/state.json` and `.saivage/tmp/state/runtime.json` are obsolete historical paths, not supported current layout.
 
 3. Completed: Lessons module audit.
 

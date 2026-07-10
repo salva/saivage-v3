@@ -39,7 +39,7 @@ describe('secret path detection', () => {
     ['/work/project/.git/auth/log', true],
     ['/work/project/src/index.ts', false],
     ['/work/project/README.md', false],
-    ['/work/project/.saivage/tmp/state/runtime.json', false],
+    ['/work/project/.saivage/state/runtime.json', false],
     ['/work/project/docs/credentials-guide.md', false],
     ['/work/project/.github/workflows/ci.yml', false],
   ];

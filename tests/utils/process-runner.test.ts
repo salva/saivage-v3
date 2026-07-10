@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -71,20 +71,17 @@ describe('ProcessRunner', () => {
   });
 
   it('does not persist or reload ProcessRecord registry files', async () => {
-    mkdirSync(join(root, '.saivage', 'runtime'), { recursive: true });
-    writeFileSync(join(root, '.saivage', 'runtime', 'processes.json'), JSON.stringify({ schema_version: 1, records: [{ id: 'legacy' }] }));
-
     expect(new ProcessRunner(root).list()).toEqual([]);
 
     const rec = spawn('echo registry', 'card-reg');
     await runner.wait(rec.id, 1000);
 
-    expect(existsSync(join(root, '.saivage', 'runtime', 'processes.json'))).toBe(true);
+    expect(existsSync(join(root, '.saivage', 'state', 'processes.json'))).toBe(false);
     expect(new ProcessRunner(root).get(rec.id)).toBeNull();
   });
 
-  it('spawning a process does not create .saivage/runtime/processes.json', async () => {
-    const registryPath = join(root, '.saivage', 'runtime', 'processes.json');
+  it('spawning a process does not create a state/processes.json registry', async () => {
+    const registryPath = join(root, '.saivage', 'state', 'processes.json');
     expect(existsSync(registryPath)).toBe(false);
 
     const rec = spawn('echo registry-free', 'card-reg-free');

@@ -91,12 +91,12 @@ const sessions = [
 const metaRoot = {
   path: '.saivage',
   files: [
-    { name: 'runtime', path: '.saivage/runtime', type: 'directory', modifiedAt: now },
+    { name: 'logs', path: '.saivage/logs', type: 'directory', modifiedAt: now },
     { name: 'plan.json', path: '.saivage/plan.json', type: 'file', size: 32, modifiedAt: now },
   ],
 };
-const metaRuntime = {
-  path: '.saivage/runtime',
+const metaLogs = {
+  path: '.saivage/logs',
   files: [{ name: 'app.jsonl', path: '.saivage/logs/app.jsonl', type: 'file', size: 128, modifiedAt: now }],
 };
 const outputReports = {
@@ -185,7 +185,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     }
     if (request.method() === 'GET' && url.pathname === '/api/files') {
       const path = url.searchParams.get('path');
-      if (path === '.saivage/runtime') return json(route, metaRuntime);
+      if (path === '.saivage/logs') return json(route, metaLogs);
       if (path === '.saivage/work/reports') return json(route, outputReports);
       if (path === '.saivage/work' || !path) return json(route, path === '.saivage/work' ? outputRoot : metaRoot);
       if (path === '.saivage/plan.json' || path === '.saivage/logs/app.jsonl' || path === '.saivage/work/smoke-result.json' || path === '.saivage/work/LICENSE' || path === '.saivage/work/reports/summary.md') {

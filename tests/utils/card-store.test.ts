@@ -87,6 +87,7 @@ describe('Clean-slate boot', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-clean-slate-'));
     mkdirSync(join(tmpDir, '.saivage', 'cards'), { recursive: true });
+    mkdirSync(join(tmpDir, '.saivage', 'runtime'), { recursive: true });
     writeFileSync(join(tmpDir, '.saivage', 'legacy-plan.json'), JSON.stringify({ old: true }));
 
     initProjectTree(tmpDir);

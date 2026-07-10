@@ -185,17 +185,17 @@ describe('FilesView', () => {
           return {
             path: '.saivage',
             files: [
-              { name: 'runtime', path: '.saivage/runtime', type: 'directory', modifiedAt: '2025-06-01T00:00:00Z' },
+              { name: 'logs', path: '.saivage/logs', type: 'directory', modifiedAt: '2025-06-01T00:00:00Z' },
               { name: 'plan.json', path: '.saivage/plan.json', type: 'file', size: 2048, modifiedAt: '2025-06-01T12:00:00Z' },
             ],
           };
         }
-        if (path === '.saivage/runtime') {
+        if (path === '.saivage/logs') {
           return {
-            path: '.saivage/runtime',
+            path: '.saivage/logs',
             files: [
-              { name: 'events.jsonl', path: '.saivage/runtime/events.jsonl', type: 'file', size: 128, modifiedAt: '2025-06-01T12:00:00Z' },
-              { name: 'records.ndjson', path: '.saivage/runtime/records.ndjson', type: 'file', size: 128, modifiedAt: '2025-06-01T12:00:00Z' },
+              { name: 'app.jsonl', path: '.saivage/logs/app.jsonl', type: 'file', size: 128, modifiedAt: '2025-06-01T12:00:00Z' },
+              { name: 'records.ndjson', path: '.saivage/logs/records.ndjson', type: 'file', size: 128, modifiedAt: '2025-06-01T12:00:00Z' },
             ],
           };
         }

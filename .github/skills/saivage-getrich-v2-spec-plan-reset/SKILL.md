@@ -1,20 +1,33 @@
 ---
 name: saivage-getrich-v2-spec-plan-reset
-description: Use when resetting the saivage-v3-getrich-v2 instance so GetRich v2 keeps only docs/SPEC.md, docs/PLAN.md, Saivage model config, and credentials before restarting the service.
+description: Use when resetting the saivage-v3-getrich-v2 instance so GetRich v2 keeps docs/SPEC.md, docs/PLAN.md, Saivage config/credentials, project identity, prompt overrides, skills, and instructions when present before restarting the service.
 ---
 
 # Saivage GetRich V2 SPEC/PLAN Reset
 
-Use this skill only for the `saivage-v3-getrich-v2` deployment that runs Saivage v3 against `/home/salva/g/ml/getrich-v2`, mounted in the container as `/work/getrich-v2`.
+Use this skill only for the `saivage-v3-getrich-v2` deployment that runs
+Saivage v3 against `/home/salva/g/ml/getrich-v2`, mounted in the container as
+`/work/getrich-v2`.
 
-## Preserve Exactly
+## Preserve
+
+Always preserve these source documents:
 
 - `/home/salva/g/ml/getrich-v2/docs/SPEC.md`
 - `/home/salva/g/ml/getrich-v2/docs/PLAN.md`
+
+Preserve these Saivage durable inputs when present:
+
 - `/home/salva/g/ml/getrich-v2/.saivage/saivage.yaml`
 - `/home/salva/g/ml/getrich-v2/.saivage/auth-profiles.json`
+- `/home/salva/g/ml/getrich-v2/.saivage/project.json`
+- `/home/salva/g/ml/getrich-v2/.saivage/config/prompts/`
+- `/home/salva/g/ml/getrich-v2/.saivage/skills/index.json`
+- `/home/salva/g/ml/getrich-v2/.saivage/instructions/`
 
-Do not print secrets or provider configuration values from `saivage.yaml` or `auth-profiles.json` in chat or logs.
+Do not print secrets or provider configuration values from preserved Saivage
+configuration or auth files in chat or logs. Do not add reset notes to
+`.saivage/instructions/`; preserve existing instructions only.
 
 ## Reset Workflow
 
@@ -30,7 +43,8 @@ ssh root@10.0.3.170 'systemctl is-active saivage-v3-getrich.service; systemctl s
 ssh root@10.0.3.170 'systemctl stop saivage-v3-getrich.service && systemctl is-active saivage-v3-getrich.service || true'
 ```
 
-3. Create a timestamped backup under workspace `tmp/`, then copy the four preserved files into a `preserve/` subdirectory.
+3. Create a timestamped full backup under workspace `tmp/`, then copy preserved
+source docs and Saivage durable inputs into a `preserve/` subdirectory.
 
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
@@ -41,44 +55,65 @@ mkdir -p "${backup}/full" "${preserve}/docs" "${preserve}/.saivage"
 cp -a "${root}/." "${backup}/full/"
 cp -a "${root}/docs/SPEC.md" "${preserve}/docs/SPEC.md"
 cp -a "${root}/docs/PLAN.md" "${preserve}/docs/PLAN.md"
-cp -a "${root}/.saivage/saivage.yaml" "${preserve}/.saivage/saivage.yaml"
-cp -a "${root}/.saivage/auth-profiles.json" "${preserve}/.saivage/auth-profiles.json"
+for path in saivage.yaml auth-profiles.json project.json; do
+  [ -e "${root}/.saivage/${path}" ] && cp -a "${root}/.saivage/${path}" "${preserve}/.saivage/${path}"
+done
+for path in config/prompts skills/index.json instructions; do
+  if [ -e "${root}/.saivage/${path}" ]; then
+    mkdir -p "${preserve}/.saivage/$(dirname "${path}")"
+    cp -a "${root}/.saivage/${path}" "${preserve}/.saivage/${path}"
+  fi
+done
 printf '%s\n' "${backup}" > /home/salva/g/ml/tmp/getrich-v2-latest-spec-plan-config-reset.txt
 ```
 
-4. Wipe the target project contents and restore only `docs/SPEC.md` and `docs/PLAN.md`.
+4. Prune the target source tree according to this GetRich-v2-specific reset
+scope, then restore only the preserved source docs and Saivage durable inputs.
+Do not recreate a manual `.saivage` skeleton; the current reset/init helper does
+that under lock.
 
 ```bash
 rm -rf "${root}"/* "${root}"/.[!.]* "${root}"/..?*
-mkdir -p "${root}/docs"
+mkdir -p "${root}/docs" "${root}/.saivage"
 cp -a "${preserve}/docs/SPEC.md" "${root}/docs/SPEC.md"
 cp -a "${preserve}/docs/PLAN.md" "${root}/docs/PLAN.md"
+cp -a "${preserve}/.saivage/." "${root}/.saivage/" 2>/dev/null || true
 ```
 
-5. Recreate a clean Saivage runtime skeleton from the built Saivage v3 tree, then restore model config and credentials over the defaults.
+5. Invoke current locked reset/init semantics from the built Saivage v3 tree.
+The command must acquire `.saivage/locks/runtime.lock`, delete generated roots,
+call `initProjectTree`, and release the lock. It must preserve prompt overrides,
+skills, instructions, project identity, config, credentials, and docs.
 
 ```bash
-node --input-type=module -e 'import { initProjectTree } from "/home/salva/g/ml/saivage-v3/dist/src/persistence/file-tree.js"; initProjectTree("/home/salva/g/ml/getrich-v2");'
-cp -a "${preserve}/.saivage/saivage.yaml" "${root}/.saivage/saivage.yaml"
-cp -a "${preserve}/.saivage/auth-profiles.json" "${root}/.saivage/auth-profiles.json"
+cd "${root}"
+/home/salva/g/ml/saivage-v3/bin/saivage.js reset
 ```
 
-6. Verify the resulting top-level layout.
+If using a built helper directly instead of the CLI, ensure it performs the same
+locked sequence and does not wipe all of `.saivage/`.
 
-Expected top-level entries:
+6. Verify the resulting layout.
+
+Current generated `.saivage` roots should include:
 
 ```text
-.saivage/work/
-.saivage/
-docs/
+.saivage/cards/project/
+.saivage/agents/
+.saivage/state/runtime.json
+.saivage/logs/app.jsonl
+.saivage/locks/        # exists, with no runtime.lock after reset returns
+.saivage/work/cards/
+.saivage/work/processes/
+.saivage/work/tmp/stash/
+docs/SPEC.md
+docs/PLAN.md
 ```
 
-Expected docs entries:
-
-```text
-PLAN.md
-SPEC.md
-```
+Obsolete roots such as `.saivage/runtime/`, `.saivage/tmp/`,
+`.saivage/archive/`, `.saivage/supervision/`, `.saivage/notes/`, and removed
+work subdirs such as `.saivage/work/tmp/runtime/` must be absent unless they are
+inside the external backup.
 
 7. Restart and verify health.
 
@@ -91,5 +126,5 @@ curl -fsS http://10.0.3.170:8080/health/ready
 ## Notes
 
 - The target project is not a Git repository, so the backup under `tmp/` is the recovery point.
-- The reset intentionally deletes generated cards, runtime state, tests, outputs, Python packages, and all docs except `SPEC.md` and `PLAN.md`.
-- The clean `.saivage/` and `.saivage/work/` skeletons are allowed because the service needs them to boot, but persisted model routing and credentials must come from the preserved files.
+- The reset intentionally deletes generated cards, runtime state, app logs, locks, process output, stages, tests, outputs, Python packages, and all docs except `SPEC.md` and `PLAN.md`.
+- The clean runtime layout is created by Saivage reset/init, not by a hand-written skeleton. Persisted model routing, credentials, project identity, prompt overrides, skills, and instructions must come from the preserved inputs when present.

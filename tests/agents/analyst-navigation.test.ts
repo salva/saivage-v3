@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,16 +7,17 @@ import { navigate_back, navigate_workspace } from '../../src/tools/analyst-works
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { readAppLogEntries } from '../../src/persistence/app-log.js';
 
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's08-nav-'));
-  mkdirSync(join(root, '.saivage', 'runtime'), { recursive: true });
+  initProjectTree(root);
   return root;
 }
 
 function readAudit(root: string): Array<Record<string, unknown>> {
-  const raw = readFileSync(join(root, '.saivage', 'runtime', 'control-actions.jsonl'), 'utf-8').trim();
-  return raw.split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+  return readAppLogEntries(root, 'control_action').map((entry) => entry.data as Record<string, unknown>);
 }
 
 describe('analyst navigation tools', () => {
