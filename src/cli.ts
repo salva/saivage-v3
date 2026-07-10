@@ -24,12 +24,17 @@ Usage:
   saivage pause
   saivage resume
   saivage reset
-      Atomically acquires .saivage/locks/runtime.lock, removes generated roots
+      Atomically acquires .saivage/locks/runtime.lock, refuses while a valid
+      live runtime owns it regardless of lock age, and fails closed without
+      deletion if an existing lock cannot be read. It removes generated roots
       .saivage/cards, .saivage/agents, .saivage/state, .saivage/logs,
       .saivage/locks contents except the held runtime.lock, .saivage/work,
       optional .saivage/stages, and obsolete old roots .saivage/runtime,
-      .saivage/tmp, .saivage/archive, .saivage/supervision, and .saivage/notes.
-      It then recreates the empty current layout, default runtime state, empty
+      .saivage/tmp, .saivage/archive, .saivage/supervision, .saivage/notes,
+      .saivage/outputs, .saivage/views, and the external .saivage-work/ root.
+      Malformed lock content and dead-PID locks are removed by the lock layer
+      before reset proceeds. Reset then recreates the empty current layout,
+      default runtime state, empty
       app log, lock namespace, and root project card before releasing the lock.
       Preserves durable credentials/config/operator inputs such as
       .saivage/auth-profiles.json, .saivage/saivage.yaml,
@@ -75,12 +80,14 @@ async function handleReset(): Promise<void> {
   acquireLock(projectRoot);
   try {
     const generatedRoots = ['cards', 'agents', 'state', 'logs', 'work', 'stages'].map((name) => join(projectRoot, '.saivage', name));
-    const obsoleteRoots = ['runtime', 'tmp', 'archive', 'supervision', 'notes'].map((name) => join(projectRoot, '.saivage', name));
-    console.log('Reset will remove generated runtime roots and obsolete old roots, then reinitialize the current empty layout:');
-    for (const target of [...generatedRoots, join(projectRoot, '.saivage', 'locks', '* except runtime.lock while held'), ...obsoleteRoots]) console.log(`- ${target}`);
+    const obsoleteRoots = ['runtime', 'tmp', 'archive', 'supervision', 'notes', 'outputs', 'views'].map((name) => join(projectRoot, '.saivage', name));
+    const externalGeneratedRoots = [join(projectRoot, '.saivage-work')];
+    console.log('Reset will remove generated runtime roots, external generated roots, and obsolete old roots, then reinitialize the current empty layout:');
+    for (const target of [...generatedRoots, join(projectRoot, '.saivage', 'locks', '* except runtime.lock while held'), ...obsoleteRoots, ...externalGeneratedRoots]) console.log(`- ${target}`);
     for (const target of generatedRoots) removeIfPresent(target);
     removeLockEntriesExceptHeldRuntime(projectRoot);
     for (const target of obsoleteRoots) removeIfPresent(target);
+    for (const target of externalGeneratedRoots) removeIfPresent(target);
     initProjectTree(projectRoot);
     console.log('Project reset and reinitialized with an empty current layout and root project card. Durable credentials, config, prompt overrides, skills, instructions, and source/docs were preserved.');
   } finally {

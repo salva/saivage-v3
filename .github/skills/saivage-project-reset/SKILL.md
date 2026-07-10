@@ -13,7 +13,7 @@ runtime/build used to recreate target-project state; it is not the reset target.
 ## Safety Rules
 
 - Stop the relevant Saivage v3 service before modifying a target project's runtime state.
-- Do not manually wipe the whole `.saivage/` tree. Use the current locked reset/init semantics: acquire `.saivage/locks/runtime.lock`, delete only generated roots, call `initProjectTree`, then release the lock.
+- Do not manually wipe the whole `.saivage/` tree. Use the current locked reset/init semantics: acquire `.saivage/locks/runtime.lock`, delete only generated roots and known generated legacy roots, call `initProjectTree`, then release the lock.
 - Preserve durable project/security/operator inputs when present: `.saivage/saivage.yaml`, `.saivage/auth-profiles.json`, `.saivage/project.json`, `.saivage/config/prompts/`, `.saivage/skills/index.json`, `.saivage/instructions/`, and target source/spec docs such as `docs/SPEC.md` and `docs/PLAN.md`.
 - Inspect or edit secrets when authorized or needed, but do not print token/provider/auth values.
 - Do not preserve generated cards, runtime state, stages, process output, app logs, locks, or old planner outputs as authoritative reset input.
@@ -27,7 +27,12 @@ runtime/build used to recreate target-project state; it is not the reset target.
 Current `saivage reset` is a local runtime-state reset. It atomically acquires
 `.saivage/locks/runtime.lock`, refuses without mutation while a live runtime owns
 that lock, deletes generated roots, reinitializes the current empty layout/root
-project card while still holding the lock, then releases it.
+project card while still holding the lock, then releases it. A valid readable
+lock is held when its validated payload names a live PID; lock age never expires
+that lock. Malformed-content locks and valid locks with dead PIDs are removable
+through the lock acquisition/stale-cleanup path. Existing lock files that cannot
+be read fail closed: reset must not delete state or unlink the lock when lock
+ownership is unknown.
 
 Generated roots removed by reset:
 
@@ -38,10 +43,12 @@ Generated roots removed by reset:
 - `.saivage/locks/` contents other than the held `runtime.lock` during reset
 - `.saivage/work/`
 - `.saivage/stages/` when present
+- `.saivage-work/`
 
 Obsolete old roots may be cleaned when present, but are not current state:
 `.saivage/runtime/`, `.saivage/tmp/`, `.saivage/archive/`,
-`.saivage/supervision/`, and `.saivage/notes/`.
+`.saivage/supervision/`, `.saivage/notes/`, `.saivage/outputs/`, and
+`.saivage/views/`.
 
 Successful reset postcondition:
 

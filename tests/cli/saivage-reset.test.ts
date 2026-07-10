@@ -1,5 +1,5 @@
 import { describe, it, expect, jest } from '@jest/globals';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree, isInitialized } from '../../src/persistence/file-tree.js';
@@ -45,6 +45,11 @@ describe('saivage reset', () => {
       expect(output).toContain('.saivage/config/prompts/');
       expect(output).toContain('.saivage/skills/index.json');
       expect(output).toContain('.saivage/instructions/');
+      expect(output).toContain('.saivage-work/');
+      expect(output).toContain('.saivage/outputs');
+      expect(output).toContain('.saivage/views');
+      expect(output).toContain('live runtime owns it regardless of lock age');
+      expect(output).toContain('fails closed without');
       expect(output).toContain('root project card');
       expect(output).not.toContain('.saivage/work/tmp/runtime');
     } finally {
@@ -70,8 +75,11 @@ describe('saivage reset', () => {
       mkdirSync(join(root, '.saivage', 'tmp'), { recursive: true });
       mkdirSync(join(root, '.saivage', 'archive'), { recursive: true });
       mkdirSync(join(root, '.saivage', 'supervision'), { recursive: true });
+      mkdirSync(join(root, '.saivage', 'outputs'), { recursive: true });
+      mkdirSync(join(root, '.saivage', 'views'), { recursive: true });
       mkdirSync(join(root, '.saivage', 'stages', 'stage-1'), { recursive: true });
       mkdirSync(join(root, '.saivage', 'work', 'tmp', 'uploads'), { recursive: true });
+      mkdirSync(join(root, '.saivage-work', 'tmp'), { recursive: true });
       mkdirSync(join(root, 'research', 'future-objectives'), { recursive: true });
       mkdirSync(join(promptPath, '..'), { recursive: true });
       writeFileSync(join(root, '.saivage', 'auth-profiles.json'), '{"keep":true}');
@@ -91,7 +99,8 @@ describe('saivage reset', () => {
       expect(readFileSync(join(root, '.saivage', 'logs', 'app.jsonl'), 'utf8')).toBe('');
       expect(existsSync(join(root, '.saivage', 'locks'))).toBe(true);
       expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
-      for (const oldRoot of ['runtime', 'tmp', 'archive', 'supervision', 'notes']) expect(existsSync(join(root, '.saivage', oldRoot))).toBe(false);
+      for (const oldRoot of ['runtime', 'tmp', 'archive', 'supervision', 'notes', 'outputs', 'views']) expect(existsSync(join(root, '.saivage', oldRoot))).toBe(false);
+      expect(existsSync(join(root, '.saivage-work'))).toBe(false);
       expect(existsSync(join(root, '.saivage', 'stages'))).toBe(false);
       for (const removedWork of ['downloads', 'quarantine', 'tmp/runtime', 'tmp/uploads', 'tmp/previews']) expect(existsSync(join(root, '.saivage', 'work', removedWork))).toBe(false);
       expect(existsSync(join(root, '.saivage', 'auth-profiles.json'))).toBe(true);
@@ -124,6 +133,56 @@ describe('saivage reset', () => {
       expect(existsSync(join(root, '.saivage', 'cards', 'project'))).toBe(true);
     } finally {
       releaseLock(root);
+      process.chdir(cwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses without deleting when an old valid runtime lock names a live PID', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-reset-old-lock-'));
+    const cwd = process.cwd();
+    const marker = join(root, '.saivage', 'state', 'runtime.json');
+    const lockPath = join(root, '.saivage', 'locks', 'runtime.lock');
+    try {
+      initProjectTree(root);
+      const before = readFileSync(marker, 'utf8');
+      const oldStartedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: oldStartedAt }, null, 2) + '\n');
+      process.chdir(root);
+
+      await expect(run(['node', 'cli', 'reset'])).rejects.toThrow(/live PID/);
+
+      expect(readFileSync(marker, 'utf8')).toBe(before);
+      expect(existsSync(join(root, '.saivage', 'cards', 'project'))).toBe(true);
+      expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual({ pid: process.pid, started_at: oldStartedAt });
+    } finally {
+      releaseLock(root);
+      process.chdir(cwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses without deleting when the existing runtime lock cannot be read', async () => {
+    if (process.getuid?.() === 0) return;
+    const root = mkdtempSync(join(tmpdir(), 'saivage-reset-unreadable-lock-'));
+    const cwd = process.cwd();
+    const marker = join(root, '.saivage', 'state', 'runtime.json');
+    const lockPath = join(root, '.saivage', 'locks', 'runtime.lock');
+    try {
+      initProjectTree(root);
+      const before = readFileSync(marker, 'utf8');
+      writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: '2026-01-01T00:00:00.000Z' }, null, 2) + '\n');
+      chmodSync(lockPath, 0o000);
+      process.chdir(root);
+
+      await expect(run(['node', 'cli', 'reset'])).rejects.toThrow(/Cannot read runtime lock/);
+
+      chmodSync(lockPath, 0o600);
+      expect(readFileSync(marker, 'utf8')).toBe(before);
+      expect(existsSync(join(root, '.saivage', 'cards', 'project'))).toBe(true);
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      try { chmodSync(lockPath, 0o600); } catch { void 0; }
       process.chdir(cwd);
       rmSync(root, { recursive: true, force: true });
     }

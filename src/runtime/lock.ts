@@ -19,23 +19,20 @@ export interface LockPayload {
 }
 
 export interface LockConfig {
-  /** Maximum age in milliseconds before a lock is considered stale (default 14 days) */
-  maxAgeMs: number;
   /** Lock file path (overridable for testing) */
   lockFilePath?: string;
 }
 
-const DEFAULT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+type LockState =
+  | { kind: 'missing' }
+  | { kind: 'malformed' }
+  | { kind: 'valid'; payload: LockPayload };
 
 // ── Constants ─────────────────────────────────────────────────
 
 function lockPath(projectRoot: string, config?: LockConfig): string {
   if (config?.lockFilePath) return config.lockFilePath;
   return runtimeProcessLockFile(projectRoot);
-}
-
-function maxAge(config?: LockConfig): number {
-  return config?.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
 }
 
 // ── PID Check ─────────────────────────────────────────────────
@@ -54,6 +51,53 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
+// ── Lock Payload Reading ───────────────────────────────────────
+
+function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
+  return typeof err === 'object' && err !== null && 'code' in err;
+}
+
+function parseLockPayload(raw: string): LockPayload | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (!Number.isSafeInteger(candidate.pid) || (candidate.pid as number) <= 0) return null;
+  if (typeof candidate.started_at !== 'string') return null;
+  const parsed = new Date(candidate.started_at);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== candidate.started_at) return null;
+  return { pid: candidate.pid as number, started_at: candidate.started_at };
+}
+
+function readLockState(projectRoot: string, config?: LockConfig): LockState {
+  const lp = lockPath(projectRoot, config);
+  let raw: string;
+  try {
+    raw = readFileSync(lp, 'utf-8');
+  } catch (err: unknown) {
+    if (isErrnoException(err) && err.code === 'ENOENT') return { kind: 'missing' };
+    const code = isErrnoException(err) && err.code ? ` (${err.code})` : '';
+    throw new Error(`Cannot read runtime lock '${lp}'${code}; refusing to proceed while lock ownership is unknown.`);
+  }
+
+  const payload = parseLockPayload(raw);
+  return payload === null ? { kind: 'malformed' } : { kind: 'valid', payload };
+}
+
+function unlinkIfPresent(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch (err: unknown) {
+    if (isErrnoException(err) && err.code === 'ENOENT') return;
+    throw err;
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────
 
 /**
@@ -62,10 +106,10 @@ function isPidAlive(pid: number): boolean {
  * Creates the lock file atomically using O_CREAT | O_EXCL.
  * The lock file contains JSON: { pid, started_at }.
  *
- * If the lock file already exists, checks for staleness:
- * - PID is dead, or
- * - Lock age exceeds the configured maxAgeMs (default 14 days).
- * If stale, removes the old lock and re-acquires.
+ * If the lock file already exists, removes only malformed lock files and
+ * valid locks whose PID is dead, then re-acquires. A valid lock naming a live
+ * PID blocks regardless of age. Existing lock files that cannot be read fail
+ * closed and are left untouched.
  *
  * @param projectRoot - Absolute path to the project root directory.
  * @param config - Optional lock configuration.
@@ -96,29 +140,22 @@ export function acquireLock(projectRoot: string, config?: LockConfig): LockPaylo
     // File exists — check staleness
   }
 
-  // Lock file exists — read it
-  const raw = readFileSync(lp, 'utf-8');
-  let existingPayload: LockPayload;
-  try {
-    existingPayload = JSON.parse(raw) as LockPayload;
-  } catch {
-    // Corrupt lock file — remove and retry
-    unlinkSync(lp);
+  const state = readLockState(projectRoot, config);
+  if (state.kind === 'missing') {
+    return acquireLock(projectRoot, config);
+  }
+  if (state.kind === 'malformed') {
+    unlinkIfPresent(lp);
     return acquireLock(projectRoot, config);
   }
 
-  const ageMs = Date.now() - new Date(existingPayload.started_at).getTime();
-  const pidAlive = isPidAlive(existingPayload.pid);
-
-  if (!pidAlive || ageMs > maxAge(config)) {
-    // Stale — remove and retry
-    removeStaleLock(projectRoot, config);
+  if (!isPidAlive(state.payload.pid)) {
+    unlinkIfPresent(lp);
     return acquireLock(projectRoot, config);
   }
 
-  // Lock is held by a live, recent process
   throw new Error(
-    `Runtime lock is held by PID ${existingPayload.pid} (started ${existingPayload.started_at}). ` +
+    `Runtime lock is held by live PID ${state.payload.pid} (started ${state.payload.started_at}). ` +
       `Cannot acquire lock while another instance is alive.`,
   );
 }
@@ -143,79 +180,34 @@ export function releaseLock(projectRoot: string, config?: LockConfig): void {
  *
  * @param projectRoot - Absolute path to the project root directory.
  * @param config - Optional lock configuration.
- * @returns true if the lock file exists and is not stale; false otherwise.
+ * @returns true if the lock file contains a valid payload naming a live PID.
  */
 export function isLocked(projectRoot: string, config?: LockConfig): boolean {
-  const lp = lockPath(projectRoot, config);
-  // If parent directory doesn't exist, lock can't exist
-  if (!existsSync(dirname(lp))) return false;
-  if (!existsSync(lp)) {
-    return false;
-  }
-
-  let payload: LockPayload;
-  try {
-    const raw = readFileSync(lp, 'utf-8');
-    payload = JSON.parse(raw) as LockPayload;
-  } catch {
-    // Corrupt lock file — treat as not locked (will be cleaned up by acquire)
-    return false;
-  }
-
-  const ageMs = Date.now() - new Date(payload.started_at).getTime();
-  const pidAlive = isPidAlive(payload.pid);
-
-  if (!pidAlive || ageMs > maxAge(config)) {
-    return false; // stale
-  }
-
-  return true;
+  const state = readLockState(projectRoot, config);
+  return state.kind === 'valid' && isPidAlive(state.payload.pid);
 }
 
 /**
- * Remove the lock file if it is stale.
- * A lock is stale if the PID is dead or the lock is older than
- * the configured max age.
+ * Remove a malformed lock file or a valid lock whose PID is dead.
+ * Valid locks naming live PIDs are never removed due to age.
  *
  * @param projectRoot - Absolute path to the project root directory.
  * @param config - Optional lock configuration.
  */
 export function removeStaleLock(projectRoot: string, config?: LockConfig): void {
   const lp = lockPath(projectRoot, config);
-  // Gracefully handle missing parent directory
-  if (!existsSync(dirname(lp))) return;
-  if (!existsSync(lp)) {
+  const state = readLockState(projectRoot, config);
+  if (state.kind === 'missing') return;
+  if (state.kind === 'malformed') {
+    unlinkIfPresent(lp);
     return;
   }
 
-  let payload: LockPayload;
-  try {
-    const raw = readFileSync(lp, 'utf-8');
-    payload = JSON.parse(raw) as LockPayload;
-  } catch {
-    // Corrupt lock file — remove it
-    unlinkSync(lp);
-    return;
-  }
-
-  const ageMs = Date.now() - new Date(payload.started_at).getTime();
-  const pidAlive = isPidAlive(payload.pid);
-
-  if (!pidAlive || ageMs > maxAge(config)) {
-    unlinkSync(lp);
-  }
-  // If PID is alive and within max age, do nothing (lock is valid)
+  if (!isPidAlive(state.payload.pid)) unlinkIfPresent(lp);
 }
 
-export function readLiveLockHolder(projectRoot: string): { pid: number; started_at: string } | null {
-  const path = lockPath(projectRoot);
-  if (!existsSync(path)) return null;
-  let payload: { pid: number; started_at: string };
-  try {
-    payload = JSON.parse(readFileSync(path, 'utf-8')) as { pid: number; started_at: string };
-  } catch {
-    return null;
-  }
-  if (typeof payload.pid !== 'number' || !isPidAlive(payload.pid)) return null;
-  return { pid: payload.pid, started_at: payload.started_at };
+export function readLiveLockHolder(projectRoot: string, config?: LockConfig): { pid: number; started_at: string } | null {
+  const state = readLockState(projectRoot, config);
+  if (state.kind !== 'valid' || !isPidAlive(state.payload.pid)) return null;
+  return { pid: state.payload.pid, started_at: state.payload.started_at };
 }

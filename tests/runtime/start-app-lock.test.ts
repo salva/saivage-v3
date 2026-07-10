@@ -33,6 +33,23 @@ afterEach(async () => {
 });
 
 describe('startApp runtime lock ownership', () => {
+  it('refuses an old valid live-PID lock before --create-runtime initialization', async () => {
+    const { root, promptPath } = makeDurableOnlyProject();
+    const lockPath = join(root, '.saivage', 'locks', 'runtime.lock');
+    mkdirSync(join(lockPath, '..'), { recursive: true });
+    const oldStartedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: oldStartedAt }, null, 2) + '\n');
+
+    await expect(startApp({
+      argv: ['node', 'saivage', 'start', '--create-runtime'],
+      env: { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_API_TOKEN: 'lock-test-token', SAIVAGE_PORT: '0' },
+    })).rejects.toThrow(/live PID/);
+
+    expect(isInitialized(root)).toBe(false);
+    expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual({ pid: process.pid, started_at: oldStartedAt });
+    expect(readFileSync(promptPath, 'utf8')).toBe('# Locked bootstrap prompt\n');
+  });
+
   it('bootstraps --create-runtime under the canonical lock, rejects a second start, and releases on stop', async () => {
     const { root, promptPath } = makeDurableOnlyProject();
     expect(isInitialized(root)).toBe(false);
