@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { actorKindFromId, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, createConversationChangePublisher, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, createConversationChangePublisher, LLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { EventBus } from '../../../src/events/index.js';
 import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
@@ -249,22 +249,13 @@ describe('LLMActor', () => {
     await expect(pending).resolves.toMatchObject({ type: 'result' });
   }));
 
-  it('accepts analyst actor ids and persists nullable reconstruction card ids', async () => withTempProject(async (projectRoot) => {
+  it('rejects Analyst identities for snapshot-owning construction and active reconstruction', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
-    let finish!: () => void;
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finish = () => resolve(completion({ kind: 'message' as const, content: 'done' })); })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'analyst:global', provider });
-    actor.start();
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
 
-    const pending = actor.turn({ ...input(), agentId: 'analyst:global', role: 'analyst', sessionId: 'analyst:global', episodeContext: { cardId: null } });
-    await eventually(() => expect(actor.state()).toBe('calling_provider'));
-
-    expect(actorKindFromId('analyst:global')).toBe('llm');
-    expect(parseLlmActorId('analyst:global')).toEqual({ role: 'analyst', cardId: null });
-    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'analyst:global')?.context.active_reconstruction).toMatchObject({ role: 'analyst', card_id: null });
-    await eventually(() => expect(typeof finish).toBe('function'));
-    finish();
-    await expect(pending).resolves.toMatchObject({ type: 'result' });
+    expect(() => new LLMActor({ projectRoot, agentId: 'analyst:global', provider })).toThrow("LLMActor 'analyst:global' only supports autonomous card roles.");
+    expect(() => LLMActor.fromActiveReconstruction({ projectRoot, agentId: 'analyst:global', provider, state: 'calling_provider', activeReconstruction: {} as never })).toThrow("LLMActor 'analyst:global' only supports autonomous card roles.");
+    expect(() => new LLMActor({ projectRoot, agentId: 'planner:project', provider })).not.toThrow();
   }));
 
   it('waits at the runtime gate instead of failing a provider turn while paused', async () => withTempProject(async (projectRoot) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
@@ -222,6 +222,21 @@ describe('llm delivery log recovery helpers', () => {
     expect(() => appendToolErrorSettlementResults(projectRoot)).toThrow(/tool_error rows require tool/);
     expect(() => abandonStalePendingToolCalls(projectRoot, 'stale')).toThrow(/tool_error rows require tool/);
     expect(jsonl(activeVersionPath(projectRoot, 'planner:G-1', 1)).some((row) => row.kind === 'tool_result')).toBe(false);
+  }));
+
+  it('skips Analyst active versions before both global settlement reads while settling autonomous sessions', () => withTempProject((projectRoot) => {
+    appendConversationMessage(projectRoot, buildContextTextMessage('analyst:global', 'user', 'do not read this'));
+    writeFileSync(activeVersionPath(projectRoot, 'analyst:global', 1), '{"malformed"\n', 'utf8');
+    appendLlmTurnFinished(projectRoot, input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendToolError(projectRoot, 'planner:G-1', 'planner:G-1:1', 'call-error');
+    const reviewerSession = 'reviewer:G-1:assessment-G-1-1';
+    appendLlmTurnFinished(projectRoot, { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId: reviewerSession }, { kind: 'tool_calls', tool_calls: [{ id: 'call-dangling', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] });
+
+    expect(appendToolErrorSettlementResults(projectRoot)).toEqual([expect.objectContaining({ agent_id: 'planner:G-1', tool_call_id: 'call-error' })]);
+    expect(abandonStalePendingToolCalls(projectRoot, 'stale')).toEqual([expect.objectContaining({ agent_id: 'reviewer:G-1', tool_call_id: 'call-dangling' })]);
+    expect(readFileSync(activeVersionPath(projectRoot, 'analyst:global', 1), 'utf8')).toBe('{"malformed"\n');
+    expect(toolResults(projectRoot, 'planner:G-1')).toHaveLength(1);
+    expect(toolResults(projectRoot, reviewerSession)).toHaveLength(1);
   }));
 
   it('emits actionable payloads for activation, process, workspace, and generic interrupted calls', () => withTempProject((projectRoot) => {

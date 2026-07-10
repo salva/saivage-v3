@@ -68,6 +68,11 @@ export function agentIdFromSessionId(sessionId: string): string {
   return sessionId;
 }
 
+export function isAutonomousLlmSession(sessionId: string): boolean {
+  const { role } = parseLlmActorId(agentIdFromSessionId(sessionId));
+  return role === 'planner' || role === 'reviewer' || role === 'executor';
+}
+
 export function parseProcessorActorId(actorId: string): string {
   if (!actorId.startsWith('processor:')) throw new Error(`Expected processor actor id, received '${actorId}'.`);
   return actorId.slice('processor:'.length);

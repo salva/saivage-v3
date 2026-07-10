@@ -9,7 +9,7 @@ import type { ActorSnapshotRecord } from './snapshots.js';
 import { agentMessageSchema, type AgentMessage, type CardRecord, type CardStatus } from '../../schemas/index.js';
 import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { readCardActiveReconstruction, readLlmActiveReconstruction, readProcessorActiveReconstruction } from './active-reconstruction.js';
-import { agentIdFromSessionId, cardIdFromSessionId, executorActorId, parseCardActorId, parseLlmActorId, parseProcessorActorId, plannerActorId } from './ids.js';
+import { agentIdFromSessionId, cardIdFromSessionId, executorActorId, isAutonomousLlmSession, parseCardActorId, parseLlmActorId, parseProcessorActorId, plannerActorId } from './ids.js';
 import type { LlmActorRole } from '../../schemas/actor-vocabulary.js';
 import { cardActivationOutcomePatch, type CardActivationOutcome } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
@@ -421,10 +421,12 @@ function buildLlmConversationRecoveryEntries(plan: ActorRecoveryPlan, projectRoo
   const bySession = new Map<string, LlmConversationRecoveryEntry>();
   for (const llm of plan.llms) {
     const sessionId = llm.activeReconstruction?.input.sessionId ?? llm.actorId;
+    if (!isAutonomousLlmSession(sessionId)) continue;
     bySession.set(sessionId, buildLlmConversationRecoveryEntry(projectRoot, llm.actorId, llm.role, llm.cardId, sessionId, llm));
   }
   for (const sessionId of listConversationSessionIds(projectRoot)) {
     if (bySession.has(sessionId)) continue;
+    if (!isAutonomousLlmSession(sessionId)) continue;
     const roleCard = roleCardFromSession(sessionId);
     bySession.set(sessionId, buildLlmConversationRecoveryEntry(projectRoot, agentIdFromSessionId(sessionId), roleCard.role, roleCard.cardId, sessionId, null));
   }
@@ -432,6 +434,7 @@ function buildLlmConversationRecoveryEntries(plan: ActorRecoveryPlan, projectRoo
     const role = processor.activeReconstruction?.processor_kind === 'terminal' ? 'executor' : 'planner';
     const actorId = role === 'executor' ? executorActorId(processor.cardId) : plannerActorId(processor.cardId);
     const sessionId = actorId;
+    if (!isAutonomousLlmSession(sessionId)) continue;
     if (!bySession.has(sessionId)) bySession.set(sessionId, buildLlmConversationRecoveryEntry(projectRoot, actorId, role, processor.cardId, sessionId, null));
   }
   return [...bySession.values()].sort((a, b) => a.sessionId.localeCompare(b.sessionId));

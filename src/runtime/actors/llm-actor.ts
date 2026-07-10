@@ -455,6 +455,7 @@ export class LLMActor extends ConversationLLMActor {
 
   constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
+    if (parseLlmActorId(args.agentId).role === 'analyst') throw new Error(`LLMActor '${args.agentId}' only supports autonomous card roles.`);
     this.compactor = args.compactor;
     this.compactionConfig = args.compactionConfig;
     this.summarizerProvider = args.summarizerProvider;
@@ -485,16 +486,14 @@ export class LLMActor extends ConversationLLMActor {
   }
 
   private createActiveReconstruction(input: LlmInvocationInput): LlmActiveReconstructionRecord {
-    const identity = parseLlmActorId(this.agentId);
-    const cardId = identity.role === 'analyst' ? null : input.episodeContext.cardId;
-    if (identity.role !== 'analyst' && (typeof cardId !== 'string' || cardId.length === 0)) throw new Error(`LLMActor '${this.agentId}' input '${input.inputId}' has no cardId reconstruction context.`);
-    const reconstructionCardId = identity.role === 'analyst' ? null : cardId as string;
+    const cardId = input.episodeContext.cardId;
+    if (typeof cardId !== 'string' || cardId.length === 0) throw new Error(`LLMActor '${this.agentId}' input '${input.inputId}' has no cardId reconstruction context.`);
     return {
       schema_version: 1,
       kind: 'llm_turn',
       agent_id: this.agentId,
       role: input.role,
-      card_id: reconstructionCardId,
+      card_id: cardId,
       input_id: input.inputId,
       input,
       provider_call_id: `${this.agentId}:${input.inputId}`,

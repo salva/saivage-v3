@@ -590,17 +590,22 @@ describe('actor recovery plan', () => {
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain(`planner:${cardId}`);
   }));
 
-  it('appends a recovery repair directive for assistant text pending conversations', () => withTempProject((projectRoot) => {
+  it('repairs autonomous plain text without changing an Analyst conversation', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
     saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId, active_reconstruction: llmActive(cardId) });
+    saveSnapshot(projectRoot, 'analyst:global', 'llm', 'idle');
     appendLlmTurnFinished(projectRoot, { inputId: 'planner:input:1', agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'message', content: 'plain text' });
+    appendLlmTurnFinished(projectRoot, { inputId: 'analyst:global:1', agentId: 'analyst:global', role: 'analyst', sessionId: 'analyst:global', systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId: null } }, { kind: 'message', content: 'ordinary Analyst reply' });
+    const analystMessages = readConversationMessages(projectRoot, 'analyst:global');
 
     const report = runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
 
     expect(report.incidents).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'repair_assistant_text_pending_provider_snapshot', cardId })]));
     expect(readConversationMessages(projectRoot, `planner:${cardId}`).map((message) => message.kind)).toContain('model_repair');
+    expect(readConversationMessages(projectRoot, 'analyst:global')).toEqual(analystMessages);
+    expect(report.incidents.some((incident) => incident.actorId === 'analyst:global')).toBe(false);
   }));
 
   it('recovers an interrupted activate_card wait from a settled child card', () => withTempProject((projectRoot) => {

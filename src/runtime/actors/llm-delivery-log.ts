@@ -10,7 +10,7 @@ import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { appendConversationMessage, listConversationSessionIds, readActiveVersionMessages, readConversationMessages, type ConversationAppendResult } from './conversation-store.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
-import { agentIdFromSessionId, cardIdFromSessionId } from './ids.js';
+import { agentIdFromSessionId, cardIdFromSessionId, isAutonomousLlmSession } from './ids.js';
 import {
   loggedToolCallIdentity,
   loggedToolCallKey,
@@ -222,6 +222,7 @@ export function appendTerminalProjectedToolResult(projectRoot: string, record: {
 export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runtime restarted before the pending tool call reached a terminal delivery state.', preserveKeys: ReadonlySet<string> = new Set()): AbandonedToolCallRecord[] {
   const abandoned: AbandonedToolCallRecord[] = [];
   for (const sessionId of listConversationSessionIds(projectRoot)) {
+    if (!isAutonomousLlmSession(sessionId)) continue;
     const messages = readActiveVersionMessagesForSettlement(projectRoot, sessionId);
     const settledKeys = new Set<string>();
     for (const message of messages) {
@@ -264,6 +265,7 @@ export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runt
 export function appendToolErrorSettlementResults(projectRoot: string): AbandonedToolCallRecord[] {
   const appended: AbandonedToolCallRecord[] = [];
   for (const sessionId of listConversationSessionIds(projectRoot)) {
+    if (!isAutonomousLlmSession(sessionId)) continue;
     const messages = readActiveVersionMessagesForSettlement(projectRoot, sessionId);
     const resultKeys = new Set<string>();
     const errorByKey = new Map<string, AgentMessage>();
