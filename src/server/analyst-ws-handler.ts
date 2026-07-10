@@ -47,11 +47,6 @@ export class AnalystWsHandler {
             });
           });
 
-        this.options.sendToClient(ws, {
-          type: 'message',
-          content: sanitizeAnalystPayload(response.message, 200_000) as Record<string, unknown>,
-        });
-
         for (const invocation of response.toolInvocations ?? []) {
           this.options.sendToClient(ws, {
             type: 'activity',

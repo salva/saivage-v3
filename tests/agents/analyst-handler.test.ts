@@ -65,6 +65,10 @@ function readPersistedRows(root: string, sessionId: string): Array<{ role: strin
   return readConversationMessages(root, resolveAnalystSessionId(sessionId)).map((message) => ({ role: message.role, kind: message.kind, content: message.content, tool: message.tool, tool_call_id: message.tool_call_id }));
 }
 
+function latestAssistantText(root: string, sessionId: string): string | undefined {
+  return readPersistedRows(root, sessionId).filter((row) => row.role === 'assistant' && row.kind === 'text').at(-1)?.content;
+}
+
 describe('AnalystHandler F05 contract', () => {
   afterEach(() => { jest.restoreAllMocks(); });
 
@@ -74,7 +78,7 @@ describe('AnalystHandler F05 contract', () => {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => messageResponse('Hello user.'));
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-msg', { userContent: 'hi' });
-      expect(response.message.content).toBe('Hello user.');
+      expect(response).toMatchObject({ sessionId: resolveAnalystSessionId('s-msg') });
       expect(response.toolInvocations ?? []).toHaveLength(0);
       const rows = readPersistedRows(root, 's-msg');
       expect(rows.filter((r) => r.kind === 'tool_call')).toHaveLength(0);
@@ -116,7 +120,7 @@ describe('AnalystHandler F05 contract', () => {
       });
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-multi', { userContent: 'list everything' });
-      expect(response.message.content).toBe('Done.');
+      expect(latestAssistantText(root, 's-multi')).toBe('Done.');
       const rows = readPersistedRows(root, 's-multi');
       const toolCallRows = rows.filter((r) => r.role === 'assistant' && r.kind === 'tool_call');
       expect(toolCallRows).toHaveLength(1);
@@ -149,7 +153,7 @@ describe('AnalystHandler F05 contract', () => {
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps });
       const response = await runtime.submit('s-bad-json', { userContent: 'list cards' });
 
-      expect(response.message.content).toBe('Done.');
+      expect(latestAssistantText(root, 's-bad-json')).toBe('Done.');
       expect(diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_tool_arguments_protocol_violation' }),
       ]));
@@ -174,7 +178,7 @@ describe('AnalystHandler F05 contract', () => {
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps });
       const response = await runtime.submit('s-activity', { userContent: 'list cards' }, () => { throw new Error('activity boom'); });
 
-      expect(response.message.content).toBe('Done.');
+      expect(latestAssistantText(root, 's-activity')).toBe('Done.');
       expect(diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_activity_callback_failed', error_message: 'activity boom' }),
       ]));
@@ -194,7 +198,8 @@ describe('AnalystHandler F05 contract', () => {
 
       await new Promise((resolve) => setImmediate(resolve));
       resolveFetch(messageResponse('Hello once.'));
-      await expect(first).resolves.toMatchObject({ sessionId: 'analyst:global', message: { content: 'Hello once.' } });
+      await expect(first).resolves.toMatchObject({ sessionId: 'analyst:global' });
+      expect(latestAssistantText(root, 'analyst:global')).toBe('Hello once.');
       expect(runtime.listSessions()).toEqual([expect.objectContaining({ sessionId: 'analyst:global', phase: 'idle' })]);
       expect(existsSync(actorSnapshotPath(root, 'analyst:global'))).toBe(false);
     } finally { rmSync(root, { recursive: true, force: true }); }

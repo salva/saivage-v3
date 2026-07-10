@@ -21,6 +21,7 @@ import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
 import { buildContextTextMessage, conversationMessagesForModel, readActiveVersionMessages, readConversationMessages } from '../runtime/actors/conversation-store.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
+import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { createConversationChangePublisher } from '../runtime/actors/conversation-publisher.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
@@ -66,13 +67,6 @@ export interface ActivityCallback {
 export interface AnalystResponse {
   sessionId: string;
   cancelled?: boolean;
-  message: {
-    id: string;
-    role: 'assistant';
-    kind: 'text';
-    content: string;
-    timestamp: string;
-  };
   toolInvocations?: Array<{
     tool: string;
     params: Record<string, unknown>;
@@ -153,11 +147,6 @@ function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRun
   return { projectRoot: args.projectRoot, processRunner: args.runtimeDeps.processRunner, store: args.runtimeDeps.cardStore, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, requestServerRestart: args.requestServerRestart, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
 }
 
-function transientAssistantResponse(sessionId: string, content: string, toolInvocations?: AnalystToolInvocations): AnalystResponse {
-  const timestamp = new Date().toISOString();
-  return { sessionId, message: { id: `${sessionId}:assistant:${timestamp}:${Math.random().toString(36).slice(2)}`, role: 'assistant', kind: 'text', content, timestamp }, toolInvocations: toolInvocations && toolInvocations.length > 0 ? toolInvocations : undefined };
-}
-
 type PendingAnalystTurn = {
   input: AnalystTurnInput;
   onActivity?: ActivityCallback;
@@ -211,13 +200,13 @@ export class AnalystSessionActor extends BaseActor {
   cancel(reason: string): boolean {
     const result = this.result;
     if (this.state() !== 'conversing' || !result) return false;
-    const timestamp = new Date().toISOString();
     this.cancellationReason = reason;
     this.turnAbort?.abort(new Error(reason));
     this.pendingTurn = null;
     this.result = null;
     this.lastOutcome = 'cancelled';
-    result.resolve({ sessionId: this.sessionId, cancelled: true, message: { id: `${this.sessionId}:cancelled:${timestamp}`, role: 'assistant', kind: 'text', content: `Cancelled: ${reason}`, timestamp } });
+    this.persistAssistantNotice(`Cancelled: ${reason}`);
+    result.resolve({ sessionId: this.sessionId, cancelled: true });
     this.sendEvent('cancel');
     return true;
   }
@@ -273,22 +262,26 @@ export class AnalystSessionActor extends BaseActor {
     let noProgressDirectiveSent = false;
     const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(input.workspaceContext));
     const userMessage = buildContextTextMessage(sessionId, 'user', input.userContent);
+    const invocationInput = this.buildInvocationInput([workspaceContextMessage, userMessage], surface);
     let outcome: LLMActorOutcome;
 
     try {
       this.throwIfCancelled();
-      outcome = await this.llm.turn(this.buildInvocationInput([workspaceContextMessage, userMessage], surface), signal);
+      outcome = await this.llm.turn(invocationInput, signal);
     } catch (err) {
       if (this.isCancelled()) return this.cancelledLoopResponse();
-      return this.errorResponse(err, toolInvocations);
+      return this.errorResponse(err, toolInvocations, invocationInput);
     }
 
     for (;;) {
       this.throwIfCancelled();
-      if (outcome.type === 'error') return this.errorResponse(outcome.error, toolInvocations);
+      if (outcome.type === 'error') {
+        this.persistAssistantNotice(this.errorMessage(outcome.error));
+        return this.response(toolInvocations);
+      }
 
       if (outcome.type === 'result') {
-        return transientAssistantResponse(sessionId, (outcome.result.content ?? '').trim() || 'Done.', toolInvocations);
+        return this.response(toolInvocations);
       }
 
       const toolCall = outcome;
@@ -296,10 +289,12 @@ export class AnalystSessionActor extends BaseActor {
       const fingerprint = `${toolCall.toolName}:${rawArguments}`;
       if (previousToolCallFingerprints.has(fingerprint)) {
         if (this.llm.deliveredToolCallIds.has(toolCall.toolCallId)) {
-          return transientAssistantResponse(sessionId, 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.', toolInvocations);
+          this.persistAssistantNotice('I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.');
+          return this.response(toolInvocations);
         }
         if (noProgressDirectiveSent) {
-          return transientAssistantResponse(sessionId, 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.', toolInvocations);
+          this.persistAssistantNotice('I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.');
+          return this.response(toolInvocations);
         }
         noProgressDirectiveSent = true;
         outcome = await this.rejectToolCall(
@@ -375,7 +370,9 @@ export class AnalystSessionActor extends BaseActor {
       return await this.llm.appendToolResult(toolCallId, result, signal);
     } catch (err) {
       if (this.isCancelled()) return this.cancelledLoopOutcome();
-      return { type: 'result', agentId: this.llm.agentId, result: { kind: 'message', content: this.errorResponse(err, toolInvocations).message.content } };
+      const message = this.errorMessage(err);
+      this.persistAssistantNotice(message);
+      return { type: 'result', agentId: this.llm.agentId, result: { kind: 'message', content: message } };
     }
   }
 
@@ -419,15 +416,33 @@ export class AnalystSessionActor extends BaseActor {
     }
   }
 
-  private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations): AnalystResponse {
+  private errorMessage(err: unknown): string {
     const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
     const error = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
-    const errMsg = err instanceof AnalystOfflineError
+    return err instanceof AnalystOfflineError
       ? err.message
       : error === noHealthyMessage
         ? ANALYST_NO_MODEL_REPLY
         : `Analyst LLM unavailable: ${error}`;
-    return transientAssistantResponse(this.sessionId, errMsg, toolInvocations);
+  }
+
+  private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations, input?: LlmInvocationInput): AnalystResponse {
+    if (input) {
+      const message = appendLlmTurnMessage(this.args.projectRoot, input, this.errorMessage(err));
+      this.llm.conversationPublisher?.entryAppended(message.appendResult);
+    }
+    return this.response(toolInvocations);
+  }
+
+  private response(toolInvocations?: AnalystToolInvocations): AnalystResponse {
+    return { sessionId: this.sessionId, toolInvocations: toolInvocations && toolInvocations.length > 0 ? toolInvocations : undefined };
+  }
+
+  private persistAssistantNotice(content: string): void {
+    const input = this.llm.input;
+    if (!input) return;
+    const message = appendLlmTurnMessage(this.args.projectRoot, input, content);
+    this.llm.conversationPublisher?.entryAppended(message.appendResult);
   }
 
   private buildProjectContext(): string {
@@ -459,7 +474,8 @@ export class AnalystSessionActor extends BaseActor {
   }
 
   private cancelledLoopResponse(): AnalystResponse {
-    return transientAssistantResponse(this.sessionId, `Cancelled: ${this.cancellationReason ?? 'cancelled'}`);
+    this.persistAssistantNotice(`Cancelled: ${this.cancellationReason ?? 'cancelled'}`);
+    return { sessionId: this.sessionId, cancelled: true };
   }
 
   private cancelledLoopOutcome(): LLMActorOutcome {

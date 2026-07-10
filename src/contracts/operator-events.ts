@@ -31,8 +31,6 @@ export function parseLiveSyncClientFrame(input: unknown): LiveSyncClientFrame | 
 
 const stringOrNullSchema = z.string().nullable();
 const optionalStringSchema = z.string().optional();
-const passthroughRecordSchema = z.record(z.string(), z.unknown());
-
 export const ConnectedStatusContentSchema = z.object({
   event: z.literal('connected'),
   sessionId: z.string().min(1),
@@ -121,14 +119,9 @@ export const InboundAnalystMessageEnvelopeSchema = z.object({
   content: InboundAnalystMessageContentSchema,
 });
 
-export const AnalystMessageEnvelopeSchema = z.object({
-  type: z.literal('message'),
-  content: passthroughRecordSchema,
-});
-
 export const ErrorEnvelopeSchema = z.object({
   type: z.literal('error'),
-  content: passthroughRecordSchema,
+  content: z.record(z.string(), z.unknown()),
 });
 
 export const KnownStatusWsEnvelopeSchema = ConnectedStatusEnvelopeSchema;
@@ -142,7 +135,6 @@ export const KnownWsEnvelopeSchema = z.union([
   KnownStatusWsEnvelopeSchema,
   AnalystActivityEnvelopeSchema,
   InboundAnalystMessageEnvelopeSchema,
-  AnalystMessageEnvelopeSchema,
   ErrorEnvelopeSchema,
 ]);
 

@@ -67,18 +67,9 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
         if (!options.saivageConfig) return { statusCode: 503, body: { error: 'Runtime configuration unavailable.' } };
         options.runtimeApplication.setAnalystRequestServerRestart(options.requestServerRestart);
         const response = await options.runtimeApplication.analystRuntime.submit(GLOBAL_ANALYST_SESSION_ID, { userContent: requestBody.content, workspaceContext });
-        const message = response.message;
         return {
           body: {
             sessionId: response.sessionId,
-            message: {
-              ...message,
-              id: message.id,
-              role: 'assistant' as const,
-              kind: 'text' as const,
-              content: message.content,
-              timestamp: message.timestamp,
-            },
             toolInvocations: response.toolInvocations ?? [],
           },
         };

@@ -37,7 +37,6 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     resolveAnalystSessionId.mockReturnValue(analystSessionId);
     submit.mockResolvedValue({
       sessionId: analystSessionId,
-      message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },
       toolInvocations: [],
     });
   });
@@ -62,7 +61,6 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
       expect(response.statusCode).toBe(200);
       expect(ChatSendResponseSchema.parse(response.json())).toEqual({
         sessionId: analystSessionId,
-        message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },
         toolInvocations: [],
       });
       expect(submit).toHaveBeenCalledWith(analystSessionId, { userContent: 'hi', workspaceContext: undefined });
@@ -80,10 +78,9 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
   });
 
 
-  it('canonicalizes the analyst success body before contract response parsing', async () => {
+  it('returns only non-transcript send metadata before contract response parsing', async () => {
     submit.mockResolvedValueOnce({
       sessionId: analystSessionId,
-      message: { id: 'm-loose', content: 'canonical reply', timestamp: '2025-01-01T00:00:02Z', extra: 'preserved' },
     });
     const fastify = await app();
     try {
@@ -91,10 +88,17 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
       expect(response.statusCode).toBe(200);
       expect(ChatSendResponseSchema.parse(response.json())).toEqual({
         sessionId: analystSessionId,
-        message: { id: 'm-loose', role: 'assistant', kind: 'text', content: 'canonical reply', timestamp: '2025-01-01T00:00:02Z', extra: 'preserved' },
         toolInvocations: [],
       });
     } finally { await fastify.close(); }
+  });
+
+  it('rejects assistant transcript rows in the send response contract', () => {
+    expect(() => ChatSendResponseSchema.parse({
+      sessionId: analystSessionId,
+      message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' },
+      toolInvocations: [],
+    })).toThrow();
   });
 
   it('rejects malformed workspaceContext with 400', async () => {

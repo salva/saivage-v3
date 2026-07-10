@@ -26,6 +26,8 @@ import type { CardLifecycleState, CardStatus } from '../../src/schemas/index.js'
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
 import { formatPromptToolList } from '../../src/utils/prompt-api.js';
+import { readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
+import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -320,7 +322,8 @@ describe('Contract C1 unsupported-action reply', () => {
       });
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
       const response = await runtime.submit('s-c1', { userContent: 'perform unsupported action' });
-      expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
+      const assistantText = readConversationMessages(root, resolveAnalystSessionId('s-c1')).filter((message) => message.role === 'assistant' && message.kind === 'text').at(-1)?.content;
+      expect(assistantText).toContain('That action is not supported by the Analyst on this surface.');
       expect(response.toolInvocations ?? []).toHaveLength(1);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

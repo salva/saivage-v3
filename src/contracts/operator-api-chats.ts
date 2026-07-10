@@ -33,15 +33,8 @@ export const ChatEntriesResponseSchema = z.object({
 });
 export const ChatSendResponseSchema = z.object({
   sessionId: z.string(),
-  message: z.object({
-    id: z.string(),
-    role: z.literal('assistant'),
-    kind: z.literal('text'),
-    content: z.string(),
-    timestamp: z.string(),
-  }).catchall(z.unknown()),
   toolInvocations: z.array(z.unknown()),
-});
+}).strict();
 
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
 export type ChatSession = z.infer<typeof ChatListResponseSchema>['sessions'][number];

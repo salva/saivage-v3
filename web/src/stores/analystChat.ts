@@ -171,34 +171,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       draft.value = '';
       messages.value = [...messages.value, optimisticUserMessage(sessionId, content, nowIso(), messages.value.length)];
       const response = await sendChatMessage(sessionId, content, workspaceContext);
-      const baseTimestamp = nowIso();
-      const responseMessage = response.message as { id?: unknown; content?: unknown; round_id?: unknown; message_index?: unknown; block_index?: unknown; tool?: unknown; timestamp?: unknown; links?: unknown };
-      const optimistic = {
-        id: String(responseMessage.id ?? `${sessionId}-assistant-${Date.now()}`),
-        session_id: sessionId,
-        role: 'assistant' as const,
-        kind: 'text' as const,
-        content: String(responseMessage.content ?? ''),
-        round_id: typeof responseMessage.round_id === 'string'
-          ? responseMessage.round_id
-          : `r-assistant-${Date.now().toString(16).padStart(32, '0').slice(-32)}`,
-        message_index: typeof responseMessage.message_index === 'number' && Number.isFinite(responseMessage.message_index)
-          ? responseMessage.message_index
-          : messages.value.length,
-        block_index: typeof responseMessage.block_index === 'number' && Number.isFinite(responseMessage.block_index)
-          ? responseMessage.block_index
-          : 0,
-        tool: typeof responseMessage.tool === 'string'
-          ? responseMessage.tool
-          : undefined,
-        timestamp: typeof responseMessage.timestamp === 'string'
-          ? responseMessage.timestamp
-          : baseTimestamp,
-        links: Array.isArray(responseMessage.links)
-          ? responseMessage.links
-          : undefined,
-      } satisfies AgentConversationEntry;
-      messages.value = [...messages.value, optimistic];
 
       for (const rawInvocation of response.toolInvocations) {
         const invocation = asRecord(rawInvocation);

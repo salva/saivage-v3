@@ -53,7 +53,7 @@ function createRuntimeApplicationWithAnalystRuntime(overrides: Partial<ReturnTyp
 
 function createMockAnalystRuntime() {
   return {
-    submit: jest.fn(async () => ({ sessionId: 'analyst:global', message: { id: 'm1', role: 'assistant' as const, kind: 'text' as const, content: 'ok', timestamp: new Date(0).toISOString() }, toolInvocations: [] })),
+    submit: jest.fn(async () => ({ sessionId: 'analyst:global', toolInvocations: [] })),
     cancel: jest.fn(() => true),
     shutdownSessionProcesses: jest.fn(async () => undefined),
     shutdown: jest.fn(async () => undefined),
@@ -120,7 +120,7 @@ describe('websocket analyst safety and live-sync control', () => {
     expect(ws.send).toHaveBeenCalled();
   });
 
-  it('keeps analyst chat request/response behavior on the shared socket', async () => {
+  it('handles analyst chat requests without emitting outbound assistant transcript messages', async () => {
     const { route, fastify } = createRoute();
     const { runtimeApplication, analystRuntime } = createRuntimeApplicationWithAnalystRuntime();
     registerWebSocket(fastify, '/tmp/project', {
@@ -137,7 +137,7 @@ describe('websocket analyst safety and live-sync control', () => {
 
     expect(analystRuntime.submit).toHaveBeenCalledWith('analyst:global', { userContent: 'hello' }, expect.any(Function));
     const payloads = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(String(call[0])));
-    expect(payloads.some((payload) => payload.type === 'message' && payload.content.content === 'ok')).toBe(true);
+    expect(payloads.some((payload) => payload.type === 'message')).toBe(false);
   });
 
   it.each(['close', 'error'] as const)('shuts down Analyst session processes on websocket %s', (event) => {

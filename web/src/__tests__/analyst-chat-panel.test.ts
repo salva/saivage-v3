@@ -33,7 +33,7 @@ describe('AnalystChatPanel', () => {
         { id: '3', session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
       ],
     });
-    sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', message: { id: '4', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:03Z' }, toolInvocations: [] });
+    sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [] });
   });
 
   it('wires pending chip growth through the shared timeline trigger', () => {

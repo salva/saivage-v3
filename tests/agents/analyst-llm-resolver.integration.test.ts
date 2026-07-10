@@ -70,6 +70,10 @@ function readPersistedAssistant(root: string, sessionId: string): string[] {
     .map((message) => message.content);
 }
 
+function latestPersistedAssistant(root: string, sessionId: string): string | undefined {
+  return readPersistedAssistant(root, sessionId).at(-1);
+}
+
 describe('AnalystRuntime invocation service integration', () => {
   afterEach(() => {
     jest.restoreAllMocks();
@@ -99,11 +103,11 @@ describe('AnalystRuntime invocation service integration', () => {
       const spy = jest.spyOn(globalThis, 'fetch');
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-no-candidate', { userContent: 'list my cards' });
-      expect(response.message.content).toContain("no model candidate is configured for role 'analyst'");
-      expect(response.message.content).not.toContain('failed to authenticate');
+      const persisted = latestPersistedAssistant(root, 's-no-candidate');
+      expect(persisted).toContain("no model candidate is configured for role 'analyst'");
+      expect(persisted).not.toContain('failed to authenticate');
       expect(response.toolInvocations ?? []).toHaveLength(0);
       expect(spy).not.toHaveBeenCalled();
-      expect(readPersistedAssistant(root, 's-no-candidate')).not.toContain(response.message.content);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -113,9 +117,10 @@ describe('AnalystRuntime invocation service integration', () => {
       const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-auth-failed', { userContent: 'list my cards' });
-      expect(response.message.content).toContain('Analyst LLM unavailable: LLM authentication failed (HTTP 401)');
-      expect(response.message.content).not.toContain('analyst is offline');
-      expect(response.message.content).not.toContain("Configure a provider for role 'analyst'");
+      const persisted = latestPersistedAssistant(root, 's-auth-failed');
+      expect(persisted).toContain('Analyst LLM unavailable: LLM authentication failed (HTTP 401)');
+      expect(persisted).not.toContain('analyst is offline');
+      expect(persisted).not.toContain("Configure a provider for role 'analyst'");
       expect(response.toolInvocations ?? []).toHaveLength(0);
       const calls = fetchCalls(spy);
       expect(calls).toHaveLength(1);
@@ -150,7 +155,7 @@ describe('AnalystRuntime invocation service integration', () => {
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
       const response = await runtime.submit('s-content-only', { userContent: 'delete the cancelled cards' });
       expect(response.toolInvocations ?? []).toHaveLength(0);
-      expect(response.message.content).toBe(clarification);
+      expect(latestPersistedAssistant(root, 's-content-only')).toBe(clarification);
       expect(readPersistedAssistant(root, 's-content-only')).toContain(clarification);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

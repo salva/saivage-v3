@@ -175,7 +175,6 @@ export {
   AnalystActivityContentSchema,
   AnalystActivityEnvelopeSchema,
   AnalystActivityEventNames,
-  AnalystMessageEnvelopeSchema,
   AnalystToolInvokedContentSchema,
   CardHistoryAppendedContentSchema,
   ConnectedStatusContentSchema,
