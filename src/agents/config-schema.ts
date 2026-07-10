@@ -173,7 +173,7 @@ const mcpServerEntrySchema = z.object({
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
   url: z.string().optional(),
-  transport: z.enum(['stdio', 'sse']),
+  transport: z.enum(['stdio', 'streamable-http']),
   disabled: z.boolean().default(false),
   autostart: z.boolean().default(true),
 });

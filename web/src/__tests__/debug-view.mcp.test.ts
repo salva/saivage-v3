@@ -96,7 +96,7 @@ const mockRichResponse: McpToolsResponse = {
     },
     {
       name: 'web',
-      transport: 'sse',
+      transport: 'streamable-http',
       status: 'running',
       toolCount: 1,
       tools: [
@@ -125,7 +125,7 @@ const mockServerRunningNoTools: McpToolsResponse = {
   serverDetails: [
     {
       name: 'empty-server',
-      transport: 'sse',
+      transport: 'streamable-http',
       status: 'running',
       toolCount: 0,
       tools: [],
@@ -504,7 +504,7 @@ describe('DebugView — MCP tab', () => {
     const transports = wrapper.findAll('.mcp-server-transport');
     const transportTexts = transports.map((t) => t.text());
     expect(transportTexts).toContain('stdio');
-    expect(transportTexts).toContain('sse');
+    expect(transportTexts).toContain('streamable-http');
 
     // Tool counts
     const toolCounts = wrapper.findAll('.mcp-tool-count');

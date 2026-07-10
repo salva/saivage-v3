@@ -54,7 +54,7 @@ export interface ToolsCallResult {
   structuredContent?: Record<string, unknown>;
 }
 
-export type McpTransport = 'stdio' | 'sse';
+export type McpTransport = 'stdio' | 'streamable-http';
 export type McpStatus = 'running' | 'stopped' | 'error';
 
 export interface McpServerStatus {

@@ -77,7 +77,7 @@ const mockMcpToolsResponse = {
     },
     {
       name: 'web',
-      transport: 'sse',
+      transport: 'streamable-http',
       status: 'running',
       toolCount: 0,
       tools: [],

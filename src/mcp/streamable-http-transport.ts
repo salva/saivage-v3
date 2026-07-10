@@ -113,7 +113,7 @@ function sessionHeaders(handle?: McpServerHandle): Record<string, string> {
 
 export async function discoverStreamableHttpTools(input: { serverName: string; config: McpServerConfig; handle?: McpServerHandle; ids: MessageIdSource }): Promise<McpToolDefinition[]> {
   const { serverName: name, config: cfg, handle, ids } = input;
-  if (!cfg.url) throw new Error('SSE server has no URL configured');
+  if (!cfg.url) throw new Error('Streamable HTTP server has no URL configured');
   const discoveryAbort = new AbortController();
   const timeoutId = setTimeout(() => discoveryAbort.abort(), MCP_DISCOVERY_TIMEOUT_MS);
   const serverSignal = handle?.abortController?.signal;
@@ -150,14 +150,14 @@ export async function discoverStreamableHttpTools(input: { serverName: string; c
     } while (cursor);
     return tools;
   } catch (err) {
-    if (discoveryAbort.signal.aborted && !serverSignal?.aborted) throw new Error(`SSE discovery timed out after ${MCP_DISCOVERY_TIMEOUT_MS}ms`);
+    if (discoveryAbort.signal.aborted && !serverSignal?.aborted) throw new Error(`Streamable HTTP discovery timed out after ${MCP_DISCOVERY_TIMEOUT_MS}ms`);
     throw err;
   } finally { clearTimeout(timeoutId); }
 }
 
 export async function invokeStreamableHttpTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; config: McpServerConfig; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource }): Promise<unknown> {
   const { serverName, toolName, args, config: cfg, handle, timeoutMs, ids } = input;
-  if (!cfg.url) throw new TransportError(serverName, 'No URL configured for SSE server');
+  if (!cfg.url) throw new TransportError(serverName, 'No URL configured for Streamable HTTP server');
   const signal = handle?.abortController?.signal;
   const invokeAbort = new AbortController();
   const timeoutId = setTimeout(() => invokeAbort.abort(), timeoutMs);
@@ -204,12 +204,12 @@ function processToolsCallResponse(response: Record<string, unknown>, serverName:
 
 export async function probeStreamableHttpStartup(input: { serverName: string; config: McpServerConfig; signal: AbortSignal }): Promise<{ ok: true } | { ok: false; error: string; aborted: boolean }> {
   const { serverName, config: cfg, signal } = input;
-  if (!cfg.url) return { ok: false, error: `sse MCP server '${serverName}' has no 'url' configured.`, aborted: false };
+  if (!cfg.url) return { ok: false, error: `streamable-http MCP server '${serverName}' has no 'url' configured.`, aborted: false };
   try {
     const resp = await fetch(cfg.url, { method: 'HEAD', signal });
-    if (!resp.ok) return { ok: false, error: `SSE health check returned status ${resp.status}`, aborted: false };
+    if (!resp.ok) return { ok: false, error: `Streamable HTTP health check returned status ${resp.status}`, aborted: false };
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: `SSE health check failed: ${err instanceof Error ? err.message : String(err)}`, aborted: signal.aborted };
+    return { ok: false, error: `Streamable HTTP health check failed: ${err instanceof Error ? err.message : String(err)}`, aborted: signal.aborted };
   }
 }

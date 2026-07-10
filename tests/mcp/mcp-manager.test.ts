@@ -7,7 +7,7 @@
  *   3. Error handling (unknown server, missing command, missing URL)
  *   4. Health check returns false for unknown/disabled servers
  *   5. getStatus() and getServerStatus() return correct info
- *   6. SSE start errors when URL is missing
+ *   6. Streamable HTTP start errors when URL is missing
  *   7. stdio start errors when command is missing
  *   8. startAll skips disabled, starts autostart
  *   9. startServer starts and stopServer stops gracefully
@@ -158,10 +158,10 @@ function sseData(payload: unknown): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
-function sseConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function streamableHttpConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    url: 'http://localhost:9999/sse',
-    transport: 'sse',
+    url: 'http://localhost:9999/mcp',
+    transport: 'streamable-http',
     disabled: false,
     autostart: true,
     ...overrides,
@@ -204,14 +204,14 @@ describe('McpManager config loading', () => {
     writeSaivageJson(root, {
       mcpServers: {
         'test-stdio': stdioConfig(),
-        'test-sse': sseConfig(),
+        'test-streamable': streamableHttpConfig(),
       },
     });
 
     const mgr = createMcpManager(McpManager, root);
     const status = mgr.getStatus();
     expect(status).toHaveLength(2);
-    expect(status.map((s) => s.name).sort()).toEqual(['test-sse', 'test-stdio']);
+    expect(status.map((s) => s.name).sort()).toEqual(['test-stdio', 'test-streamable']);
     expect(status[0]).toHaveProperty('transport');
     expect(status[0]).toHaveProperty('status');
   });
@@ -380,17 +380,17 @@ describe('McpManager error handling', () => {
     expect(status!.error).toContain("has no 'command' configured");
   });
 
-  it('_startSse throws when URL is missing', async () => {
+  it('startStreamableHttp throws when URL is missing', async () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {
       mcpServers: {
-        'no-url': { transport: 'sse', disabled: false, autostart: true },
+        'no-url': { transport: 'streamable-http', disabled: false, autostart: true },
       },
     });
 
     const mgr = createMcpManager(McpManager, root);
     await expect(mgr.startServer('no-url')).rejects.toThrow(
-      "sse MCP server 'no-url' has no 'url' configured.",
+      "streamable-http MCP server 'no-url' has no 'url' configured.",
     );
 
     const status = mgr.getServerStatus('no-url');
@@ -597,7 +597,7 @@ describe('McpManager tool discovery', () => {
   it('discovers tools from text/event-stream initialize and paginated tools/list with session propagation', async () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {
-      mcpServers: { stream: sseConfig({ url: 'http://localhost:9999/mcp' }) },
+      mcpServers: { stream: streamableHttpConfig({ url: 'http://localhost:9999/mcp' }) },
     });
     const calls: any[] = [];
     (globalThis as any).fetch = jest.fn(async (_url: string, init?: any) => {
@@ -662,7 +662,7 @@ describe('McpManager tool discovery', () => {
   it('records unsupported legacy SSE diagnostic instead of caching tools', async () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {
-      mcpServers: { legacy: sseConfig({ url: 'http://localhost:9999/sse' }) },
+      mcpServers: { legacy: streamableHttpConfig({ url: 'http://localhost:9999/sse' }) },
     });
     (globalThis as any).fetch = jest.fn(async (_url: string, init?: any) => {
       if (init.method === 'HEAD') return { ok: true, status: 200 };

@@ -103,7 +103,7 @@ export class McpManager {
    * Stop a single MCP server by name.
    *
    * For stdio: sends SIGTERM, waits 3 s, then SIGKILL if still alive.
-   * For sse: aborts the AbortController to close the connection.
+   * For streamable-http: aborts the AbortController to close in-flight requests.
    *
    * Clears the cached tool list for this server.
    */
@@ -174,7 +174,7 @@ export class McpManager {
    * Invoke an MCP tool on a running server.
    *
    * Sends a `tools/call` JSON-RPC request over the appropriate transport
-   * (stdio or SSE) and returns the result. The response is screened for
+   * (stdio or Streamable HTTP) and returns the result. The response is screened for
    * structured error codes and mapped to typed exceptions.
    *
    * @param serverName  - The configured MCP server name.
@@ -205,7 +205,7 @@ export class McpManager {
    * Health check a specific server.
    *
    * - stdio: process must be running (pid alive, not exited with an error code).
-   * - sse: performs a HEAD request (fallback to GET) to the configured URL
+   * - streamable-http: performs a HEAD request (fallback to GET) to the configured URL
    *   and expects a 2xx response.
    *
    * Returns true if healthy, false otherwise.

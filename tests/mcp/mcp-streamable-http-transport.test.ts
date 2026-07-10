@@ -26,10 +26,10 @@ describe('Streamable HTTP MCP transport', () => {
       return sseResponse({ jsonrpc: '2.0', id: body.id, result: { content: [{ type: 'text', text: 'ok' }] } });
     });
 
-    const tools = await discoverStreamableHttpTools({ serverName: 'srv', config: { transport: 'sse', disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, ids: { next: () => id++ } });
+    const tools = await discoverStreamableHttpTools({ serverName: 'srv', config: { transport: 'streamable-http', disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, ids: { next: () => id++ } });
     expect(tools.map((tool) => tool.name)).toEqual(['one', 'two']);
     expect(handle.streamableHttpSessionId).toBe('sess-1');
-    const result = await invokeStreamableHttpTool({ serverName: 'srv', toolName: 'one', args: {}, config: { transport: 'sse', disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, timeoutMs: 1000, ids: { next: () => id++ } });
+    const result = await invokeStreamableHttpTool({ serverName: 'srv', toolName: 'one', args: {}, config: { transport: 'streamable-http', disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, timeoutMs: 1000, ids: { next: () => id++ } });
     expect(result).toEqual([{ type: 'text', text: 'ok' }]);
     expect(calls.filter((call) => call.body && JSON.parse(call.body).method !== 'initialize').every((call) => call.headers['Mcp-Session-Id'] === 'sess-1')).toBe(true);
   });

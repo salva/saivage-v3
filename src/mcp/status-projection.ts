@@ -20,7 +20,7 @@ export function buildMcpServerStatus(input: {
     if (proc.killed || proc.exitCode !== null) return { name, transport: cfg.transport, status: 'error', pid: proc.pid ?? undefined, error: proc.killed ? 'Process was killed' : `Process exited with code ${proc.exitCode}`, startedAt, tools_count: tools?.length ?? 0 };
     return { name, transport: cfg.transport, status: 'running', pid: proc.pid ?? undefined, startedAt, tools_count: tools?.length ?? 0 };
   }
-  if (cfg.transport === 'sse') {
+  if (cfg.transport === 'streamable-http') {
     if (handle.abortController?.signal.aborted) return { name, transport: cfg.transport, status: 'stopped', startedAt, tools_count: tools?.length ?? 0 };
     return { name, transport: cfg.transport, status: 'running', startedAt, tools_count: tools?.length ?? 0 };
   }

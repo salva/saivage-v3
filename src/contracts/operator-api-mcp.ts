@@ -9,7 +9,7 @@ import {
 } from './operator-api-core.js';
 import { ServerAvailabilitySchema } from './operator-api-availability.js';
 
-export const McpTransportSchema = z.enum(['stdio', 'sse']);
+export const McpTransportSchema = z.enum(['stdio', 'streamable-http']);
 export const McpStatusStateSchema = z.enum(['running', 'stopped', 'error']);
 export const McpServerStatusSchema = z.object({
   name: z.string(),

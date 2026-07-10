@@ -233,6 +233,17 @@ describe('config-schema', () => {
       }
     });
 
+    it('rejects obsolete MCP sse transport literal', () => {
+      const result = saivageConfigSchema.safeParse({
+        models: { default: ['gpt-5.5'] },
+        mcpServers: {
+          old_http: { url: 'http://localhost:9999/mcp', transport: 'sse' },
+        },
+      });
+
+      expect(result.success).toBe(false);
+    });
+
     it('accepts a role array that differs from models.default', () => {
       setupConfig({
         models: {

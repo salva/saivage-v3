@@ -2,7 +2,7 @@
  * Stage 35 — MCP Tool Invocation Tests
  *
  * Tests: error types, invokeTool validation, stdio transport,
- * SSE transport, invocation stats, and event logging.
+ * Streamable HTTP transport, invocation stats, and event logging.
  */
 
 import { describe, it, expect, beforeEach, afterEach, beforeAll, jest } from '@jest/globals';
@@ -109,10 +109,10 @@ function sseData(payload: unknown): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
-function sseCfg(overrides: Record<string, unknown> = {}) {
+function streamableHttpCfg(overrides: Record<string, unknown> = {}) {
   return {
-    url: 'http://localhost:9999/sse',
-    transport: 'sse',
+    url: 'http://localhost:9999/mcp',
+    transport: 'streamable-http',
     disabled: false,
     autostart: true,
     ...overrides,
@@ -460,7 +460,7 @@ describe('invokeTool stdio transport', () => {
   });
 });
 
-describe('invokeTool SSE transport', () => {
+describe('invokeTool Streamable HTTP transport', () => {
   let McpManager: any, TransportError: any, TimeoutError: any;
 
   beforeAll(async () => {
@@ -474,21 +474,21 @@ describe('invokeTool SSE transport', () => {
     delete (globalThis as any).fetch;
   });
 
-  const sseTools = [
+  const streamableHttpTools = [
     { name: 'greet', description: 'Hi', inputSchema: { type: 'object', properties: {} } },
   ];
 
-  function setupSseHandle(mgr: any, serverName: string) {
+  function setupStreamableHttpHandle(mgr: any, serverName: string) {
     seedRuntime(mgr, serverName, {
       abortController: new AbortController(),
-    }, sseTools);
+    }, streamableHttpTools);
   }
 
   it('sends HTTP POST and returns result.content on success', async () => {
     const r = makeProjectRoot();
-    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    writeSaivageJson(r, { mcpServers: { streamable: streamableHttpCfg() } });
     const mgr = createMcpManager(McpManager, r);
-    setupSseHandle(mgr, 'sse');
+    setupStreamableHttpHandle(mgr, 'streamable');
 
     (globalThis as any).fetch = async () => ({
       ok: true,
@@ -496,19 +496,19 @@ describe('invokeTool SSE transport', () => {
       json: async () => ({
         jsonrpc: '2.0',
         id: 1,
-        result: { content: [{ type: 'text', text: 'SSE hello' }] },
+        result: { content: [{ type: 'text', text: 'Streamable HTTP hello' }] },
       }),
     });
 
-    const res = await mgr.invokeTool('sse', 'greet', {});
-    expect(res).toEqual([{ type: 'text', text: 'SSE hello' }]);
+    const res = await mgr.invokeTool('streamable', 'greet', {});
+    expect(res).toEqual([{ type: 'text', text: 'Streamable HTTP hello' }]);
   });
 
   it('accepts text/event-stream tools/call responses and ignores unrelated notifications', async () => {
     const r = makeProjectRoot();
-    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    writeSaivageJson(r, { mcpServers: { streamable: streamableHttpCfg() } });
     const mgr = createMcpManager(McpManager, r);
-    setupSseHandle(mgr, 'sse');
+    setupStreamableHttpHandle(mgr, 'streamable');
 
     (globalThis as any).fetch = async (_url: string, init?: any) => {
       const id = JSON.parse(init.body).id;
@@ -518,21 +518,21 @@ describe('invokeTool SSE transport', () => {
           sseData({
             jsonrpc: '2.0',
             id,
-            result: { content: [{ type: 'text', text: 'SSE hello' }] },
+            result: { content: [{ type: 'text', text: 'Streamable HTTP hello' }] },
           }),
       );
     };
 
-    const res = await mgr.invokeTool('sse', 'greet', {});
-    expect(res).toEqual([{ type: 'text', text: 'SSE hello' }]);
+    const res = await mgr.invokeTool('streamable', 'greet', {});
+    expect(res).toEqual([{ type: 'text', text: 'Streamable HTTP hello' }]);
   });
 
   it('propagates captured Mcp-Session-Id on tools/call requests', async () => {
     const r = makeProjectRoot();
-    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    writeSaivageJson(r, { mcpServers: { streamable: streamableHttpCfg() } });
     const mgr = createMcpManager(McpManager, r);
-    setupSseHandle(mgr, 'sse');
-    const handle = runtimeFor(mgr, 'sse').handle as Record<string, unknown>;
+    setupStreamableHttpHandle(mgr, 'streamable');
+    const handle = runtimeFor(mgr, 'streamable').handle as Record<string, unknown>;
     handle.streamableHttpSessionId = 'synthetic-session-1';
 
     const fetchMock = jest.fn(async (_url: string, init?: any) => {
@@ -541,7 +541,7 @@ describe('invokeTool SSE transport', () => {
     });
     (globalThis as any).fetch = fetchMock;
 
-    await mgr.invokeTool('sse', 'greet', {});
+    await mgr.invokeTool('streamable', 'greet', {});
     expect(fetchMock).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
@@ -552,19 +552,19 @@ describe('invokeTool SSE transport', () => {
 
   it('surfaces sanitized errors for malformed, overlarge, and closed SSE responses', async () => {
     const r = makeProjectRoot();
-    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    writeSaivageJson(r, { mcpServers: { streamable: streamableHttpCfg() } });
     const mgr = createMcpManager(McpManager, r);
-    setupSseHandle(mgr, 'sse');
+    setupStreamableHttpHandle(mgr, 'streamable');
 
     (globalThis as any).fetch = async () =>
       sseResponse('data: {not json and secret-like value}\n\n');
-    await expect(mgr.invokeTool('sse', 'greet', {})).rejects.toMatchObject({
+    await expect(mgr.invokeTool('streamable', 'greet', {})).rejects.toMatchObject({
       name: 'TransportError',
       message: expect.stringContaining('Malformed Streamable HTTP SSE data'),
     });
 
     (globalThis as any).fetch = async () => sseResponse(`data: ${'x'.repeat(70 * 1024)}\n\n`);
-    await expect(mgr.invokeTool('sse', 'greet', {})).rejects.toMatchObject({
+    await expect(mgr.invokeTool('streamable', 'greet', {})).rejects.toMatchObject({
       name: 'TransportError',
       message: expect.stringContaining('SSE frame exceeded limit'),
     });
@@ -573,7 +573,7 @@ describe('invokeTool SSE transport', () => {
       const id = JSON.parse(init.body).id + 1;
       return sseResponse(sseData({ jsonrpc: '2.0', id, result: {} }));
     };
-    await expect(mgr.invokeTool('sse', 'greet', {})).rejects.toMatchObject({
+    await expect(mgr.invokeTool('streamable', 'greet', {})).rejects.toMatchObject({
       name: 'TransportError',
       message: expect.stringContaining('Stream ended before JSON-RPC response for tools/call'),
     });
@@ -581,9 +581,9 @@ describe('invokeTool SSE transport', () => {
 
   it('times out if an event-stream tools/call response never emits the matching id', async () => {
     const r = makeProjectRoot();
-    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    writeSaivageJson(r, { mcpServers: { streamable: streamableHttpCfg() } });
     const mgr = createMcpManager(McpManager, r);
-    setupSseHandle(mgr, 'sse');
+    setupStreamableHttpHandle(mgr, 'streamable');
 
     (globalThis as any).fetch = async () => {
       const stream = new ReadableStream<Uint8Array>({
@@ -594,27 +594,27 @@ describe('invokeTool SSE transport', () => {
       return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
     };
 
-    await expect(mgr.invokeTool('sse', 'greet', {}, { timeoutMs: 100 })).rejects.toThrow(
+    await expect(mgr.invokeTool('streamable', 'greet', {}, { timeoutMs: 100 })).rejects.toThrow(
       TimeoutError,
     );
   });
 
   it('non-2xx response -> TransportError', async () => {
     const r = makeProjectRoot();
-    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    writeSaivageJson(r, { mcpServers: { streamable: streamableHttpCfg() } });
     const mgr = createMcpManager(McpManager, r);
-    setupSseHandle(mgr, 'sse');
+    setupStreamableHttpHandle(mgr, 'streamable');
 
     (globalThis as any).fetch = async () => ({ ok: false, status: 500 }) as Response;
 
-    await expect(mgr.invokeTool('sse', 'greet', {})).rejects.toThrow(TransportError);
+    await expect(mgr.invokeTool('streamable', 'greet', {})).rejects.toThrow(TransportError);
   });
 
-  it('timeout -> TimeoutError (SSE)', async () => {
+  it('timeout -> TimeoutError (Streamable HTTP)', async () => {
     const r = makeProjectRoot();
-    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    writeSaivageJson(r, { mcpServers: { streamable: streamableHttpCfg() } });
     const mgr = createMcpManager(McpManager, r);
-    setupSseHandle(mgr, 'sse');
+    setupStreamableHttpHandle(mgr, 'streamable');
 
     (globalThis as any).fetch = async (_url: string, init?: any) => {
       return new Promise((_resolve, reject) => {
@@ -626,7 +626,7 @@ describe('invokeTool SSE transport', () => {
       }) as any;
     };
 
-    await expect(mgr.invokeTool('sse', 'greet', {}, { timeoutMs: 500 })).rejects.toThrow(
+    await expect(mgr.invokeTool('streamable', 'greet', {}, { timeoutMs: 500 })).rejects.toThrow(
       TimeoutError,
     );
   });
@@ -895,11 +895,11 @@ rl.on('line', (line) => {
     proc2.kill();
   }, 15000);
 
-  it('SSE concurrent calls are NOT serialized', async () => {
+  it('Streamable HTTP concurrent calls are NOT serialized', async () => {
     const r = makeProjectRoot();
-    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    writeSaivageJson(r, { mcpServers: { streamable: streamableHttpCfg() } });
     const mgr = createMcpManager(McpManager, r);
-    seedRuntime(mgr, 'sse', { abortController: new AbortController() }, stdioTools);
+    seedRuntime(mgr, 'streamable', { abortController: new AbortController() }, stdioTools);
 
     let concurrent = 0;
     let maxConcurrent = 0;
@@ -915,22 +915,22 @@ rl.on('line', (line) => {
         json: async () => ({
           jsonrpc: '2.0',
           id: 1,
-          result: { content: [{ type: 'text', text: 'SSE result' }] },
+          result: { content: [{ type: 'text', text: 'Streamable HTTP result' }] },
         }),
       } as Response;
     };
 
     const start = Date.now();
     const [res1, res2, res3] = await Promise.all([
-      mgr.invokeTool('sse', 'greet', {}),
-      mgr.invokeTool('sse', 'greet', {}),
-      mgr.invokeTool('sse', 'greet', {}),
+      mgr.invokeTool('streamable', 'greet', {}),
+      mgr.invokeTool('streamable', 'greet', {}),
+      mgr.invokeTool('streamable', 'greet', {}),
     ]);
     const elapsed = Date.now() - start;
 
-    expect(res1).toEqual([{ type: 'text', text: 'SSE result' }]);
-    expect(res2).toEqual([{ type: 'text', text: 'SSE result' }]);
-    expect(res3).toEqual([{ type: 'text', text: 'SSE result' }]);
+    expect(res1).toEqual([{ type: 'text', text: 'Streamable HTTP result' }]);
+    expect(res2).toEqual([{ type: 'text', text: 'Streamable HTTP result' }]);
+    expect(res3).toEqual([{ type: 'text', text: 'Streamable HTTP result' }]);
     expect(maxConcurrent).toBeGreaterThan(1);
     expect(elapsed).toBeLessThan(250);
 
@@ -1002,7 +1002,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
     mgr: any,
     serverName: string,
     tools: unknown[],
-    transport: 'stdio' | 'sse' = 'stdio',
+    transport: 'stdio' | 'streamable-http' = 'stdio',
   ) {
     seedRuntime(
       mgr,
@@ -1061,11 +1061,11 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
     expect(mgr.getInvocationStats()['local:strict'].error).toBe(1);
   });
 
-  it('rejects invalid SSE arguments before issuing fetch', async () => {
+  it('rejects invalid Streamable HTTP arguments before issuing fetch', async () => {
     const r = makeProjectRoot();
-    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    writeSaivageJson(r, { mcpServers: { streamable: streamableHttpCfg() } });
     const mgr = createMcpManager(McpManager, r);
-    setupBareRunningServer(mgr, 'sse', [strictTool], 'sse');
+    setupBareRunningServer(mgr, 'streamable', [strictTool], 'streamable-http');
     const fetchMock = jest.fn(async () => ({
       ok: true,
       status: 200,
@@ -1073,7 +1073,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
     }));
     (globalThis as any).fetch = fetchMock;
 
-    await expect(mgr.invokeTool('sse', 'strict', { name: 'Ada', count: 0 })).rejects.toThrow(
+    await expect(mgr.invokeTool('streamable', 'strict', { name: 'Ada', count: 0 })).rejects.toThrow(
       InvalidArgumentsError,
     );
     expect(fetchMock).not.toHaveBeenCalled();

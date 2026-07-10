@@ -56,12 +56,12 @@ export class McpServerRuntime {
     const existing = this.handle;
     if (existing) {
       if (cfg.transport === 'stdio' && existing.process && !existing.process.killed) return;
-      if (cfg.transport === 'sse' && existing.abortController) return;
+      if (cfg.transport === 'streamable-http' && existing.abortController) return;
     }
 
     this.statusOverride = undefined;
     if (cfg.transport === 'stdio') await this.startStdio(cfg);
-    else await this.startSse(cfg);
+    else await this.startStreamableHttp(cfg);
 
     if (this.handle) {
       try {
@@ -76,7 +76,7 @@ export class McpServerRuntime {
     const handle = this.handle;
     if (!handle) return;
     if (this.configValue.transport === 'stdio' && handle.process) await this.stopStdio(handle.process);
-    else if (this.configValue.transport === 'sse' && handle.abortController) handle.abortController.abort();
+    else if (this.configValue.transport === 'streamable-http' && handle.abortController) handle.abortController.abort();
     this.handle = undefined;
     this.statusOverride = { status: 'stopped' };
     this.clearCaches();
@@ -132,7 +132,7 @@ export class McpServerRuntime {
     const cfg = this.configValue;
     if (cfg.disabled) return false;
     if (cfg.transport === 'stdio') return healthStdioProcess(this.handle);
-    if (cfg.transport === 'sse') return healthStreamableHttpServer({ serverName: this.name, config: cfg, handle: this.handle });
+    if (cfg.transport === 'streamable-http') return healthStreamableHttpServer({ serverName: this.name, config: cfg, handle: this.handle });
     return false;
   }
 
@@ -203,9 +203,9 @@ export class McpServerRuntime {
     proc.stdout?.on('error', () => undefined);
   }
 
-  private async startSse(cfg: McpServerConfig): Promise<void> {
+  private async startStreamableHttp(cfg: McpServerConfig): Promise<void> {
     if (!cfg.url) {
-      const msg = `sse MCP server '${this.name}' has no 'url' configured.`;
+      const msg = `streamable-http MCP server '${this.name}' has no 'url' configured.`;
       this.statusOverride = { status: 'error', error: msg };
       throw new Error(msg);
     }
