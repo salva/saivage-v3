@@ -10,8 +10,8 @@ export const EventsQuerySchema = z.object({
   kind: z.string().optional(),
   session_id: z.string().optional(),
   goal_id: z.string().optional(),
-  limit: z.string().optional(),
-  offset: z.string().optional(),
+  limit: z.string().regex(/^(0|[1-9][0-9]*)$/).optional(),
+  offset: z.string().regex(/^(0|[1-9][0-9]*)$/).optional(),
 });
 
 export const EventsListResponseSchema = z.object({

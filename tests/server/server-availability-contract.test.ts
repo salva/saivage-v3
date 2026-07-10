@@ -74,6 +74,21 @@ describe('server availability contract', () => {
     expect(availability.components.mcp.diagnostic?.code).toBe('mcp-manager-empty');
   });
 
+  it('reports degraded runtime-application when live runtime status read fails', () => {
+    setupProject(tmpDir, true);
+    const runtimeApplication = createTestRuntimeApplication();
+    runtimeApplication.runtimeApi.getStatus = () => { throw new Error(`status failed under ${tmpDir}`); };
+
+    const availability = buildServerAvailability({ projectRoot: tmpDir, runtimeApplication, mcpManager: { getStatus: () => [] } });
+
+    expect(availability.components.runtime).toEqual(expect.objectContaining({
+      state: 'degraded',
+      source: 'runtime-application',
+      diagnostic: expect.objectContaining({ code: 'runtime-status-read-failed' }),
+    }));
+    expect(availability.components.runtime.diagnostic?.summary).not.toContain(tmpDir);
+  });
+
   it('adds serverAvailability to health, runtime status, MCP status, and state without removing existing fields', async () => {
     setupProject(tmpDir, true);
     const { createServer } = await import('../../src/server/server.js');

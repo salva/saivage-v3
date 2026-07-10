@@ -1,6 +1,5 @@
 import type { McpStatusProvider } from '../mcp/manager-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
-import { readRuntimeState } from '../runtime/state-api.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactSnippetForOutbound } from '../redaction/index.js';
 import type { ServerAvailability } from '../contracts/index.js';
@@ -45,19 +44,12 @@ export function buildServerAvailability(inputs: ServerAvailabilityInputs): Serve
     inputs.runtimeApplication.runtimeApi.getStatus();
     runtime = { state: 'available', source: 'runtime-application', checkedAt };
   } catch (error) {
-    try {
-      const state = readRuntimeState(inputs.projectRoot);
-      runtime = state
-        ? { state: 'available', source: 'runtime-state', checkedAt }
-        : { state: 'degraded', source: 'runtime-state', checkedAt, diagnostic: { code: 'runtime-state-missing', summary: 'Runtime application is running but runtime state is not initialized.' } };
-    } catch (stateError) {
-      runtime = {
-        state: 'degraded',
-        source: 'runtime-state',
-        checkedAt,
-        diagnostic: diagnostic('runtime-state-read-failed', stateError, inputs.projectRoot),
-      };
-    }
+    runtime = {
+      state: 'degraded',
+      source: 'runtime-application',
+      checkedAt,
+      diagnostic: diagnostic('runtime-status-read-failed', error, inputs.projectRoot),
+    };
   }
 
   let mcp: ServerAvailability['components']['mcp'];

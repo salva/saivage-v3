@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { operatorApiContracts, parseOperatorResponse } from '../../src/contracts/operator-api.js';
+import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, parseOperatorResponse } from '../../src/contracts/operator-api.js';
 
 const runtimeState = {
   status: 'stopped',
@@ -29,5 +29,17 @@ describe('operator API runtime contract without runtime ledgers', () => {
   it('rejects removed runtime ledger fields and public schema exports are absent', () => {
     expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] }, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
     expect(operatorApiContracts['runtime.status'].success.keyof().options).not.toEqual(expect.arrayContaining(['lastCommand', 'activeRun', 'latestRun']));
+  });
+
+  it('accepts only current availability component sources', () => {
+    expect(AvailabilityComponentSourceSchema.safeParse('runtime-application').success).toBe(true);
+    expect(AvailabilityComponentSourceSchema.safeParse('runtime-state').success).toBe(false);
+  });
+
+  it('requires present event pagination parameters to be non-negative integer strings', () => {
+    expect(EventsQuerySchema.safeParse({}).success).toBe(true);
+    expect(EventsQuerySchema.safeParse({ limit: '0', offset: '10' }).success).toBe(true);
+    expect(EventsQuerySchema.safeParse({ limit: '1.5' }).success).toBe(false);
+    expect(EventsQuerySchema.safeParse({ offset: '-1' }).success).toBe(false);
   });
 });

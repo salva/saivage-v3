@@ -7,15 +7,12 @@ import type { EventsListResponse, EventsQuery } from '../../contracts/index.js';
 function parseLimit(raw: string | undefined): number {
   if (raw === undefined) return 50;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 50;
   return Math.min(parsed, 500);
 }
 
 function parseOffset(raw: string | undefined): number {
   if (raw === undefined) return 0;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 0;
-  return Math.floor(parsed);
+  return Number(raw);
 }
 
 export class EventsReadModelService {

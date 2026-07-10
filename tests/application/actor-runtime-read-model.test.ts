@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
@@ -68,6 +68,23 @@ describe('actor runtime read model', () => {
       diagnostics: [],
       recovery: null,
     });
+  }));
+
+  it('throws on invalid card actor ids', () => withTempProject((projectRoot) => {
+    const actorDir = join(projectRoot, '.saivage', 'cards', 'project', 'runtime', 'actors', 'card');
+    mkdirSync(actorDir, { recursive: true });
+    writeFileSync(join(actorDir, `${encodeURIComponent('card:')}.json`), JSON.stringify({
+      version: 1,
+      data: {
+        actor_id: 'card:',
+        actor_kind: 'card',
+        state_value: 'running',
+        context: {},
+        updated_at: new Date().toISOString(),
+      },
+    }));
+
+    expect(() => buildActorRuntimeReadModel(projectRoot)).toThrow("Expected card actor id with a card id, received 'card:'.");
   }));
 
   it('projects public card state from card store status, not actor lifecycle state', () => withTempProject((projectRoot) => {

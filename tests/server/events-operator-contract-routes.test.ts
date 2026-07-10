@@ -32,6 +32,38 @@ describe('contract-backed events route', () => {
     }
   });
 
+  it.each(['abc', '-1', '1.5'])('rejects invalid limit query value %s before handler execution', async (limit) => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-events-route-'));
+    const fastify = Fastify({ logger: false });
+    try {
+      registerOperatorContractRoutes({ fastify, projectRoot });
+
+      const response = await fastify.inject({ method: 'GET', url: `/api/events?limit=${encodeURIComponent(limit)}` });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual(expect.objectContaining({ error: 'ValidationError' }));
+    } finally {
+      await fastify.close();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['abc', '-1', '1.5'])('rejects invalid offset query value %s before handler execution', async (offset) => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-events-route-'));
+    const fastify = Fastify({ logger: false });
+    try {
+      registerOperatorContractRoutes({ fastify, projectRoot });
+
+      const response = await fastify.inject({ method: 'GET', url: `/api/events?offset=${encodeURIComponent(offset)}` });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual(expect.objectContaining({ error: 'ValidationError' }));
+    } finally {
+      await fastify.close();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('declares events.list as the only contract inventory owner for GET /api/events', () => {
     expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
       expect.objectContaining({ operationId: 'events.list', method: 'GET', path: '/api/events', successSchemaName: 'EventsListResponse' }),

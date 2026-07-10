@@ -1,9 +1,8 @@
 import { basename } from 'node:path';
 import type { CardStore } from '../../cards/store-api.js';
-import type { CardHistoryEntry, CardLifecycleState, CardRecord, CardView, RuntimeState } from '../../schemas/index.js';
+import type { CardHistoryEntry, CardLifecycleState, CardRecord, CardView } from '../../schemas/index.js';
 import { allowedActions } from '../../permissions/index.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
-import type { RuntimeApi } from '../../runtime/control-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import type { ServerAvailability } from '../../contracts/index.js';
 import { orderedCardsForTree, toCardView } from './card-view.js';
@@ -36,32 +35,17 @@ function historyHeader(entry: CardHistoryEntry) {
 }
 
 export class CardsReadModelService {
-  constructor(private readonly projectRoot: string, private readonly store: CardStore, private readonly runtimeApi?: Pick<RuntimeApi, 'getStatus'>) {}
+  constructor(private readonly projectRoot: string, private readonly store: CardStore) {}
 
   getRuntimeState(serverAvailability?: ServerAvailability) {
     const projectId = basename(this.projectRoot);
     const identity = { projectRoot: this.projectRoot, projectId };
-    const state = readRuntimeState(this.projectRoot) ?? this.liveRuntimeState();
+    const state = readRuntimeState(this.projectRoot);
     const cards = this.store.list();
     const byStatus: Record<string, number> = {};
     const byType: Record<string, number> = {};
     for (const card of cards) { byStatus[card.status] = (byStatus[card.status] || 0) + 1; byType[card.type] = (byType[card.type] || 0) + 1; }
     return { body: { ...identity, runtime: state, cardIndex: { total: cards.length, byStatus, byType }, ...(serverAvailability ? { serverAvailability } : {}) } };
-  }
-
-  private liveRuntimeState(): RuntimeState | null {
-    if (!this.runtimeApi) return null;
-    const status = this.runtimeApi.getStatus();
-    const now = new Date().toISOString();
-    return {
-      status: status.status,
-      project_id: 'project',
-      pid: process.pid,
-      started_at: now,
-      active_card_run: null,
-      updated_at: now,
-      last_tick_at: status.lastTickAt,
-    };
   }
 
   listCards() {

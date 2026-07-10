@@ -33,7 +33,9 @@ export function actorKindFromId(actorId: string): ActorKind {
 
 export function parseCardActorId(actorId: string): string {
   if (!actorId.startsWith('card:')) throw new Error(`Expected card actor id, received '${actorId}'.`);
-  return actorId.slice('card:'.length);
+  const cardId = actorId.slice('card:'.length);
+  if (cardId.length === 0) throw new Error(`Expected card actor id with a card id, received '${actorId}'.`);
+  return cardId;
 }
 
 export function parseLlmActorId(actorId: string): { role: LlmActorRole; cardId: string | null } {

@@ -48,7 +48,7 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
 
   for (const snapshot of snapshots) {
     if (snapshot.actor_kind === 'card') {
-      const cardId = readCardActorId(snapshot.actor_id, diagnostics);
+      const cardId = parseCardActorId(snapshot.actor_id);
       const card = cardStore.read(cardId);
       if (!card) diagnostics.push(`card actor snapshot '${snapshot.actor_id}' has no matching card record`);
       else cards.push({ cardId, actorState: toPublicCardActorState(card.status) });
@@ -78,15 +78,6 @@ function recoveryProjection(projectRoot: string): RecoveryDiagnosticsProjection 
 function readAgent(actorId: string, value: unknown): AgentRunnerProjection {
   const parsed = parseLlmActorId(actorId);
   return { agentId: actorId, role: parsed.role, cardId: parsed.cardId, phase: toPublicAgentPhase(value) };
-}
-
-function readCardActorId(value: string, diagnostics: string[]): string {
-  try {
-    return parseCardActorId(value);
-  } catch {
-    diagnostics.push(`actor id '${value}' is missing expected 'card:' prefix`);
-  }
-  return value;
 }
 
 function pauseModeFromRuntimeStatus(status: RuntimeStatus | null): ActorPauseMode {

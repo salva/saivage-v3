@@ -28,23 +28,23 @@ describe('EventsReadModelService', () => {
     logger.appendEvent({ kind: 'runtime_actionable_error', id: 'evt-actionable', timestamp, actionable_error: { code: 'test', message: 'test', nextAction: 'test' } });
   }
 
-  it('preserves total-before-pagination and legacy limit/offset parsing', () => {
+  it('preserves total-before-pagination and applies integer limit/offset pagination', () => {
     const projectRoot = makeProjectRoot();
     seed(projectRoot);
     const readModel = new EventsReadModelService(projectRoot);
 
-    const page = readModel.listEvents({ goal_id: 'goal-1', limit: '1.5', offset: '1.8' });
+    const page = readModel.listEvents({ goal_id: 'goal-1', limit: '1', offset: '1' });
 
     expect(page.total).toBe(2);
     expect(page.events.map((event) => event.id)).toEqual(['evt-session-2']);
   });
 
-  it('defaults invalid pagination and accepts unknown event kinds as zero matches', () => {
+  it('defaults absent pagination and accepts unknown event kinds as zero matches', () => {
     const projectRoot = makeProjectRoot();
     seed(projectRoot);
     const readModel = new EventsReadModelService(projectRoot);
 
-    expect(readModel.listEvents({ limit: '-1', offset: 'not-a-number' }).events).toHaveLength(4);
+    expect(readModel.listEvents().events).toHaveLength(4);
     expect(readModel.listEvents({ kind: 'future_unknown_kind' }).events).toEqual([]);
   });
 

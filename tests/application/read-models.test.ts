@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState, runtimeStatePath, updateRuntimeState } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/store-api.js';
 import { appendConversationMessage, buildContextTextMessage, saveActorSnapshot } from '../../src/runtime/actors/index.js';
 import {
@@ -95,6 +95,17 @@ describe('application read models', () => {
     expect(state.cardIndex.byStatus.backlog).toBe(2);
     expect(state.cardIndex.byType.code).toBe(1);
     expect(list.cards.every((card) => Array.isArray(card.allowedActions))).toBe(true);
+  });
+
+  it('returns null runtime state when the persisted runtime-state projection is absent', () => {
+    rmSync(runtimeStatePath(root), { force: true });
+    const store = new CardStore(root);
+    const service = new CardsReadModelService(root, store);
+
+    const state = service.getRuntimeState().body as { runtime: unknown; cardIndex: { total: number } };
+
+    expect(state.runtime).toBeNull();
+    expect(state.cardIndex.total).toBe(1);
   });
 
   it('exposes canonical lifecycle in operator read models', () => {
