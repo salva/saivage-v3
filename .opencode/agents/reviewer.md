@@ -1,7 +1,7 @@
 ---
 description: Adversarial reviewer for Saivage v3 issue-fix design/plan documents. Use when a design or plan under docs/working/ needs a skeptical second-pass review before implementation.
 mode: subagent
-model: openai/gpt-5.5
+model: openai/gpt-5.6-terra
 temperature: 0.2
 permission:
   edit: allow

@@ -1,7 +1,7 @@
 ---
 description: Design/plan author for Saivage v3 issue fixes. Use when an issue-fix design or plan under docs/working/ needs to be written or revised before adversarial review.
 mode: subagent
-model: openai/gpt-5.5
+model: openai/gpt-5.6-terra
 temperature: 0.3
 permission:
   edit: allow
