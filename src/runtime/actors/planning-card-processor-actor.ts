@@ -10,7 +10,6 @@ import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
-import { buildPlannerStateContextText } from '../../agents/planner-state-context.js';
 import { invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../../tools/invocation.js';
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
@@ -134,20 +133,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const inputId = this.nextInvocationInputId('planner');
     const sessionId = plannerActorId(this.cardId);
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
-    this.conversationPublisher?.entryAppended(appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId }));
-    const plannerState = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'planner_state', 0, {
-      role: 'user',
-      content: buildPlannerStateContextText({
-        projectRoot: this.projectRoot,
-        sessionId,
-        goalId: this.cardId,
-        cardStore: {
-          read: (cardId) => this.store.read(cardId),
-          listChildren: (cardId) => this.store.listChildren?.(cardId) ?? [],
-        },
-      }),
-    });
-    this.conversationPublisher?.entryAppended(plannerState);
+    const activationMarker = appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
+    this.conversationPublisher?.entryAppended(activationMarker);
     const notifications = this.notificationContext(input, inputId).map((message, index) => {
       const result = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, message);
       this.conversationPublisher?.entryAppended(result);
@@ -159,7 +146,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'planner',
       sessionId,
       systemPrompt: this.plannerPrompt(input.card, surface, contract),
-      contextMessages: [...loaded, plannerState.message, ...notifications],
+      contextMessages: [...loaded, ...notifications],
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
@@ -270,7 +257,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string, currentness: ReviewerCurrentnessSnapshot, surface: InvocationSurface, contract = createReviewerContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('reviewer');
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
-    this.conversationPublisher?.entryAppended(appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId }));
+    const activationMarker = appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
+    this.conversationPublisher?.entryAppended(activationMarker);
     const descendantContext = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness));
     this.conversationPublisher?.entryAppended(descendantContext);
     return {

@@ -96,12 +96,12 @@ describe('conversation-store', () => {
   it('keeps activation markers out of provider context while active-version read returns the persisted prefix', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
 
-    appendUserContextMessage(root, 'planner:project', 'input-1', 'planner_state', 0, { role: 'user', content: 'planner state' });
+    appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 0, { role: 'user', content: 'notification context' });
     appendActivationMarker(root, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'input-1' });
 
     const active = readActiveVersionMessages(root, 'planner:project');
     expect(active.map((message) => message.kind)).toEqual(['text', 'activity']);
-    expect(conversationMessagesForModel(active).map((message) => message.content)).toEqual(['planner state']);
+    expect(conversationMessagesForModel(active).map((message) => message.content)).toEqual(['notification context']);
   });
 
   it('appends only to the active version', () => {

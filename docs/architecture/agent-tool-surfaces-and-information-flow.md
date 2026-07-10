@@ -59,7 +59,7 @@ The planner is a goal coordinator. It decomposes goals into child cards, activat
 - `run_project_command`, `start_and_wait`, `wait_for_process`, `kill_process` — process execution is executor work.
 - `reorder_child` — low value; position is managed by the store.
 - `queue_notification` — useful but not blocking; can be added later if cross-session communication is needed.
-- `list_cards`, `get_card`, `get_tree` — the planner state context message already provides the current subtree state. If the planner needs to re-read a card after a tool result, `read` + the state context message are sufficient. Adding `get_card` is optional but low-cost.
+- `list_cards`, `get_card`, `get_tree` — useful for planner state inspection when the planner needs to re-read cards after a tool result.
 - `skill`, `mcp_tool_call` — the planner does not need skill loading or MCP tools.
 
 **Terminal tools (contract):**
@@ -200,7 +200,7 @@ The reviewer is invoked by the parent planner after the planner reports `done`. 
 3. Reviewable evidence: accepted descendant cards plus their status records.
 4. Read-only tools to verify work: `read`, `glob`, `grep` — currently NOT provided.
 
-**Design: provide descendant summaries as a context message** (similar to `buildPlannerStateContextMessage`). Add read-only workspace tools later only if summaries are insufficient.
+**Design: provide descendant summaries as a context message.** Add read-only workspace tools later only if summaries are insufficient.
 
 The descendant summary message should include, for each descendant of the goal card:
 - `id`, `type`, `title`, `status`
@@ -397,7 +397,6 @@ Guidelines:
 
 - System prompts contain generic role/tool behavior only.
 - Card-specific data moves to user context messages.
-- Planner state remains in `buildPlannerStateContextMessage`.
 - Reviewer descendant summaries live in a reviewer context message.
 - No prompt mentions tools not present in `tools`.
 
@@ -407,7 +406,6 @@ Create small reusable context builders:
 
 ```typescript
 buildCardWorkContextMessage(card, mode: 'plan' | 'execute' | 'review')
-buildPlannerStateContextMessage(...existing...)
 buildReviewerDescendantSummaryMessage(...)
 ```
 

@@ -39,7 +39,7 @@ export function appendConversationMessage(projectRoot: string, message: AgentMes
   return { message: parsed, appended: appendSyncIdempotentByKey(activeConversationVersionPath(projectRoot, parsed.session_id), parsed, 'id') };
 }
 
-export type UserContextMessageCategory = 'planner_state' | 'notification' | 'reviewer_descendant' | 'continuation_hook';
+export type UserContextMessageCategory = 'notification' | 'reviewer_descendant' | 'continuation_hook';
 
 export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
 

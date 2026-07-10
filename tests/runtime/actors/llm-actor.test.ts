@@ -157,14 +157,14 @@ describe('LLMActor', () => {
     const harness = new InitialOutcomeHarness(projectRoot, provider);
     const factory = jest.fn(() => {
       appendActivationMarker(projectRoot, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
-      appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'planner_state', 0, { role: 'user', content: 'lazy planner state' });
+      appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'notification', 0, { role: 'user', content: 'lazy notification context' });
       return input('lazy-input');
     });
 
     const recovered = harness.resolveForTest(actor, factory);
 
     expect(factory).not.toHaveBeenCalled();
-    expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.content === 'lazy planner state')).toBe(false);
+    expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.content === 'lazy notification context')).toBe(false);
     await eventually(() => expect(typeof finishCalling).toBe('function'));
     finishCalling();
     await expect(recovered).resolves.toMatchObject({ type: 'result' });
@@ -195,8 +195,8 @@ describe('LLMActor', () => {
     const harness = new InitialOutcomeHarness(projectRoot, provider);
     const factory = jest.fn(() => {
       appendActivationMarker(projectRoot, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
-      const context = appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'planner_state', 0, { role: 'user', content: 'lazy planner state' });
-      return { ...input('lazy-input'), contextMessages: [context] };
+      const context = appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'notification', 0, { role: 'user', content: 'lazy notification context' });
+      return { ...input('lazy-input'), contextMessages: [context.message] };
     });
 
     await expect(harness.resolveForTest(actor, factory)).resolves.toMatchObject({ type: 'result' });
@@ -204,7 +204,7 @@ describe('LLMActor', () => {
     expect(factory).toHaveBeenCalledTimes(1);
     expect(readConversationMessages(projectRoot, 'planner:project')).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'activity', role: 'system', content: expect.stringContaining('activation_open') }),
-      expect.objectContaining({ kind: 'text', role: 'user', content: 'lazy planner state' }),
+      expect.objectContaining({ kind: 'text', role: 'user', content: 'lazy notification context' }),
     ]));
   }));
 

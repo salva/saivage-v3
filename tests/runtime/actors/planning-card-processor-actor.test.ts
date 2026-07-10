@@ -278,9 +278,13 @@ describe('PlanningCardProcessorActor', () => {
       'create_plan',
       'update_plan',
     ]));
-    expect(readConversationMessages(projectRoot, `planner:${project.id}`)).toEqual(expect.arrayContaining([
+    const plannerConversation = readConversationMessages(projectRoot, `planner:${project.id}`);
+    expect(plannerConversation).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'activity', role: 'system', content: expect.stringContaining('activation_open') }),
       expect.objectContaining({ kind: 'text', role: 'user', content: 'Cancellation requested: stop' }),
     ]));
+    const removedSnapshotHeading = ['Current Planner', 'State Snapshot'].join(' ');
+    expect(plannerConversation.some((message) => message.content.includes(removedSnapshotHeading))).toBe(false);
     expect(readConversationMessages(projectRoot, `reviewer:${project.id}:assessment-${project.id}-1`)).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'text', role: 'user', content: expect.stringContaining('Descendant work:') }),
     ]));

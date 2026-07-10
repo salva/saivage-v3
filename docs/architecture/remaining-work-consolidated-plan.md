@@ -198,7 +198,7 @@ Whole modules from the pre-micro-actor runtime that were replaced by working equ
 
 2. **Delete dead `runtime/context-builder.ts` and `runtime/goal-context.ts`.**
 
-   Both files are vestigial pre-micro-actor prompt assembly. The live planner prompt path uses `buildPlannerStateContextMessage` in `agents/planner-state-context.ts`. `goal-context.ts` also duplicates a type union already present in `context-builder.ts`.
+   Both files are vestigial pre-micro-actor prompt assembly. `goal-context.ts` also duplicates a type union already present in `context-builder.ts`.
 
    Status: completed in the Stage 1 cleanup slice after the notification fix.
 
