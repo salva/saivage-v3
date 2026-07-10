@@ -56,7 +56,7 @@ function severityToNumber(severity: SeverityLevel): number {
   return idx >= 0 ? idx : 0;
 }
 
-function eventToLegacyRecord(event: DomainEvent): Record<string, unknown> {
+export function toEventLogRecord(event: DomainEvent): Record<string, unknown> {
   return {
     id: event.id,
     kind: event.kind,
@@ -227,8 +227,4 @@ export class EventBus {
     const idx = this.subscriptions.indexOf(sub);
     if (idx >= 0) this.subscriptions.splice(idx, 1);
   }
-}
-
-export function toLoggedEvent(event: DomainEvent): Record<string, unknown> {
-  return eventToLegacyRecord(event);
 }

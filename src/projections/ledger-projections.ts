@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { DomainEvent, EventBus, EventKind } from '../events/index.js';
-import { eventKindValues, toLoggedEvent } from '../events/index.js';
+import { eventKindValues, toEventLogRecord } from '../events/index.js';
 import { JsonlLedger, ProjectLock } from '../persistence/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { controlActionAuditEntrySchema, loggedEventSchema } from '../schemas/index.js';
@@ -89,7 +89,7 @@ export class EventLogProjection implements Projection {
 
   apply(event: DomainEvent): void {
     const suppliedRecord = projectionPayload(event)['record'];
-    const sourceRecord = suppliedRecord ?? toLoggedEvent(event);
+    const sourceRecord = suppliedRecord ?? toEventLogRecord(event);
     const record = redactForOutbound(sourceRecord, 'observability.log', { source: 'event-log-projection' }) as unknown as LoggedEvent;
     const lock = saivageLock(this.saivageDir);
     const ledger = new JsonlLedger(join(this.saivageDir, 'runtime', 'events.jsonl'), loggedEventSchema, lock, { version: null });

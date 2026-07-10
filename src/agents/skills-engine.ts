@@ -296,16 +296,6 @@ export class SkillsEngine {
   }
 
   /**
-   * Load the planner instructions file.
-   *
-   * This compatibility wrapper preserves the historical planner-specific API
-   * while delegating to the role-generic instruction loader used by runtime.
-   */
-  async loadPlannerInstructions(customFilePath?: string): Promise<string> {
-    return this.loadInstructions('planner', customFilePath);
-  }
-
-  /**
    * Load role default instructions from .saivage/instructions/<role>.md, or a
    * custom project-relative file when provided. Custom files are used for
    * planner card overrides; default role files are cached for the normal TTL.

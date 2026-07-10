@@ -21,7 +21,7 @@ export {
   SEVERITY_ORDER,
   EventBus,
   BusDisposed,
-  toLoggedEvent,
+  toEventLogRecord,
   type DomainEvent,
   type Subscription,
   type EventHandler,

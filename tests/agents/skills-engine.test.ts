@@ -535,15 +535,15 @@ describe('SkillsEngine', () => {
     });
   });
 
-  // ═══════════════ loadPlannerInstructions() ═══════════════
+  // ═══════════════ loadInstructions('planner') ═══════════════
 
-  describe('loadPlannerInstructions()', () => {
+  describe("loadInstructions('planner')", () => {
     it('returns formatted content when planner.md exists', async () => {
       const instrDir = join(tmpDir, '.saivage', 'instructions');
       mkdirSync(instrDir, { recursive: true });
       writeFileSync(join(instrDir, 'planner.md'),
         '# Planner\nStrategy: be incremental', 'utf-8');
-      const result = await engine.loadPlannerInstructions();
+      const result = await engine.loadInstructions('planner');
       expect(result).toContain('--- PLANNER INSTRUCTIONS ---');
       expect(result).toContain('# Planner');
       expect(result).toContain('Strategy: be incremental');
@@ -551,26 +551,26 @@ describe('SkillsEngine', () => {
     });
 
     it("returns '' when file does not exist", async () => {
-      expect(await engine.loadPlannerInstructions()).toBe('');
+      expect(await engine.loadInstructions('planner')).toBe('');
     });
 
     it("returns '' for empty file", async () => {
       const instrDir = join(tmpDir, '.saivage', 'instructions');
       mkdirSync(instrDir, { recursive: true });
       writeFileSync(join(instrDir, 'planner.md'), '   \n  ', 'utf-8');
-      expect(await engine.loadPlannerInstructions()).toBe('');
+      expect(await engine.loadInstructions('planner')).toBe('');
     });
   });
 
-  // ═══════════════ loadPlannerInstructions() — custom path ═══════
+  // ═══════════════ loadInstructions('planner') — custom path ═══════
 
-  describe('loadPlannerInstructions() — custom path', () => {
+  describe("loadInstructions('planner') — custom path", () => {
     it('loads custom path when customFilePath provided', async () => {
       const instrDir = join(tmpDir, 'my-goal-instructions');
       mkdirSync(instrDir, { recursive: true });
       writeFileSync(join(instrDir, 'custom.md'),
         '# Custom\nDo things differently', 'utf-8');
-      const result = await engine.loadPlannerInstructions('my-goal-instructions/custom.md');
+      const result = await engine.loadInstructions('planner', 'my-goal-instructions/custom.md');
       expect(result).toContain('--- PLANNER INSTRUCTIONS ---');
       expect(result).toContain('# Custom');
       expect(result).toContain('Do things differently');
@@ -578,7 +578,7 @@ describe('SkillsEngine', () => {
     });
 
     it("returns '' when custom path does not exist", async () => {
-      const result = await engine.loadPlannerInstructions('nonexistent/path.md');
+      const result = await engine.loadInstructions('planner', 'nonexistent/path.md');
       expect(result).toBe('');
     });
 
@@ -586,7 +586,7 @@ describe('SkillsEngine', () => {
       const instrDir = join(tmpDir, 'empty');
       mkdirSync(instrDir, { recursive: true });
       writeFileSync(join(instrDir, 'empty.md'), '   \n  ', 'utf-8');
-      expect(await engine.loadPlannerInstructions('empty/empty.md')).toBe('');
+      expect(await engine.loadInstructions('planner', 'empty/empty.md')).toBe('');
     });
 
     it('default path still works when customFilePath omitted', async () => {
@@ -594,7 +594,7 @@ describe('SkillsEngine', () => {
       mkdirSync(instrDir, { recursive: true });
       writeFileSync(join(instrDir, 'planner.md'),
         '# Default\nDefault strategy', 'utf-8');
-      const result = await engine.loadPlannerInstructions();
+      const result = await engine.loadInstructions('planner');
       expect(result).toContain('--- PLANNER INSTRUCTIONS ---');
       expect(result).toContain('# Default');
       expect(result).toContain('Default strategy');
@@ -605,10 +605,10 @@ describe('SkillsEngine', () => {
       const d1 = join(tmpDir, 'c1');
       mkdirSync(d1, { recursive: true });
       writeFileSync(join(d1, 'a.md'), 'Custom A', 'utf-8');
-      await engine.loadPlannerInstructions('c1/a.md');
+      await engine.loadInstructions('planner', 'c1/a.md');
 
       // Default path should still be '' since planner.md doesn't exist
-      expect(await engine.loadPlannerInstructions()).toBe('');
+      expect(await engine.loadInstructions('planner')).toBe('');
     });
   });
 

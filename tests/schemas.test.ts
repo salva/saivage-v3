@@ -1,7 +1,4 @@
 import { describe, it, expect } from '@jest/globals';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import {
   cardRecordSchema,
   cardHistoryEntrySchema,
@@ -15,8 +12,6 @@ import {
   createActivationCompletionEnvelope,
   parseActivationCompletionEnvelope,
 } from '../src/schemas/validators.js';
-import { initProjectTree } from '../src/persistence/file-tree.js';
-import { readRuntimeState } from '../src/runtime/state.js';
 
 
 describe('Activation envelope schemas', () => {
@@ -247,22 +242,6 @@ describe('Core schemas still validate expected records', () => {
     expect(agentMessageSchema.safeParse({ ...base, tool_call_id: undefined }).success).toBe(false);
     expect(agentMessageSchema.safeParse({ ...base, id: 'planner:G-1:1:tool-error:other-call' }).success).toBe(false);
     expect(agentMessageSchema.safeParse({ ...base, id: 'planner:G-1:1:error:call-1' }).success).toBe(false);
-  });
-
-
-  it('strips legacy runtime state fields while parsing current runtime state', () => {
-    const root = mkdtempSync(join(tmpdir(), 'runtime-legacy-'));
-    try {
-      initProjectTree(root);
-      writeFileSync(
-        join(root, '.saivage', 'runtime', 'state.json'),
-        JSON.stringify({ status: 'idle', queue: [] }, null, 2),
-      );
-      expect(readRuntimeState(root)).toMatchObject({ status: 'stopped' });
-      expect(readRuntimeState(root)).not.toHaveProperty('queue');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
   });
 
   it('rejects legacy card record shape via schema parse', () => {

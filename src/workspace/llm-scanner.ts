@@ -29,8 +29,8 @@ export interface LlmScanOptions {
   /**
    * Optional callback that actually invokes the LLM.
    *
-   * In production this is wired to the agent adapter's model
-   * invocation machinery.  In tests a mock is provided.
+   * In production this is wired to the configured model invocation path. In
+   * tests a mock is provided.
    *
    * @param model      - The model identifier string.
    * @param systemPrompt - The system prompt for the injection-detection task.

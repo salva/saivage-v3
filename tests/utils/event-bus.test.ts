@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { EventBus, EventRegistry, agentEventKindValues, eventKindValues, getEventSeverity, runtimeEventKindValues, toLoggedEvent } from '../../src/events/index.js';
+import { EventBus, EventRegistry, agentEventKindValues, eventKindValues, getEventSeverity, runtimeEventKindValues, toEventLogRecord } from '../../src/events/index.js';
 
 describe('typed EventBus', () => {
   it('derives severity and known event metadata from the registry', () => {
@@ -73,10 +73,10 @@ describe('typed EventBus', () => {
     jest.useRealTimers();
   });
 
-  it('converts domain events to legacy logged-event records for transitional sinks', () => {
+  it('projects domain events to flattened event-log records', () => {
     const bus = new EventBus();
     let logged: Record<string, unknown> | null = null;
-    bus.subscribe('runtime_diagnostic', (event) => { logged = toLoggedEvent(event); });
+    bus.subscribe('runtime_diagnostic', (event) => { logged = toEventLogRecord(event); });
     bus.emit('runtime_diagnostic', { error_message: 'boom', goal_id: 'goal-1' });
     expect(logged).toMatchObject({ kind: 'runtime_diagnostic', goal_id: 'goal-1', error_message: 'boom' });
   });
