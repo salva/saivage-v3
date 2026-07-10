@@ -178,6 +178,7 @@ export class ConversationLLMActor extends BaseActor {
   }
 
   _on_enter__calling_provider(): void {
+    this.#providerBoundaryEntered = false;
     try {
       const input = this.requireInput();
       this.runTask(async (signal) => {
@@ -202,7 +203,6 @@ export class ConversationLLMActor extends BaseActor {
             this.completeWithProviderCompletion(effectiveInput, completion);
           } catch (error) {
             this.failPendingTurnFatally(error);
-            throw error;
           }
         },
         on_failed: (error) => {
@@ -215,13 +215,11 @@ export class ConversationLLMActor extends BaseActor {
             this.completeProviderFailure(this.requireInput(), error);
           } catch (fatal) {
             this.failPendingTurnFatally(fatal);
-            throw fatal;
           }
         },
       });
     } catch (error) {
       this.failPendingTurnFatally(error);
-      throw error;
     }
   }
 
@@ -294,12 +292,16 @@ export class ConversationLLMActor extends BaseActor {
   }
 
   private failPendingTurnFatally(error: unknown): void {
+    if (this.state() !== 'calling_provider') throw new Error(`LLMActor '${this.agentId}' cannot fatally settle a turn from '${this.state()}'.`);
+    if (!this.#result) throw new Error(`LLMActor '${this.agentId}' has no armed turn to fatally settle.`);
     const fatal = error instanceof Error ? error : new Error(String(error));
     const pending = this.#result;
+    this.onTurnSettled();
     this.#result = null;
     this.#currentInvocationSignal = null;
     this.#activationSignal = null;
-    if (pending) pending.reject(fatal);
+    this.sendEvent('failed');
+    pending.reject(fatal);
     console.error(`LLMActor '${this.agentId}' fatal handler failure`, fatal);
   }
 
@@ -317,7 +319,6 @@ export class ConversationLLMActor extends BaseActor {
     this.outcome = null;
     this.#activationSignal = options.signal ?? null;
     this.onTurnStarting(input);
-    this.#providerBoundaryEntered = false;
     const promise = this.armTurn();
     this.parkedSendEvent('turn');
     return promise;

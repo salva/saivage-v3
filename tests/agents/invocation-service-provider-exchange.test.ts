@@ -1,13 +1,17 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
+import { createInvocationServiceProvider } from '../../src/application/micro-actor-runtime-api-factory.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { LLMActor } from '../../src/runtime/actors/llm-actor.js';
+import { readActorSnapshots } from '../../src/runtime/actors/snapshots.js';
 
 const candidates: Candidate[] = [
   { provider: 'a', account: null, model: 'm-a' },
@@ -65,5 +69,37 @@ describe('InvocationService provider exchange accumulation', () => {
       ['a', 'error', 0],
       ['b', 'ok', 1],
     ]);
+  });
+
+  it('settles the real InvocationService malformed-attempt rejection through the LLM actor', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-actor-test-'));
+    const saivageDir = mkdtempSync(join(tmpdir(), 'saivage-invoke-actor-state-'));
+    initProjectTree(projectRoot);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const service = new InvocationService({
+        projectRoot,
+        saivageDir,
+        registry: {} as never,
+        router: { resolve: async () => [candidates[0]!], getLastCapabilitySkips: () => [] } as never,
+        llmCallFn: async () => {
+          throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [], originalFailure: new Error('missing envelope') });
+        },
+      });
+      const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider: createInvocationServiceProvider(service) });
+      actor.start();
+
+      await expect(actor.turn({
+        inputId: 'planner:project:1', agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId: 'project' },
+      })).rejects.toThrow("Provider boundary for 'planner:project:1' failed without ProviderTurnFailure metadata.");
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(actor.state()).toBe('idle');
+      expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
+    } finally {
+      consoleError.mockRestore();
+      rmSync(projectRoot, { recursive: true, force: true });
+      rmSync(saivageDir, { recursive: true, force: true });
+    }
   });
 });

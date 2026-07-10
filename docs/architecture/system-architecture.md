@@ -101,6 +101,8 @@ Model routing and live availability are separated at the provider boundary. `Mod
 
 All `InvocationService` waits receive the active invocation `AbortSignal`. `LLMActor` creates and stores that signal before pre-provider compaction starts, passes it through compaction summarizer calls and the main provider call, and recognizes either the exact signal reason or a standard `AbortError` from the already-aborted signal as cancellation. This keeps runtime stop, activation/card cancellation, and caller aborts from being recorded as provider failures or fatal pre-provider compaction failures. Provider-turn adapters that invoke `InvocationService` require a signal and forward it as `abortSignal`; there is no supported no-signal provider invocation path.
 
+Provider-boundary admission is scoped to each `calling_provider` entry, including model repairs and post-tool continuations: the LLM actor resets its admission marker before input setup or compaction and sets it immediately before that entry's provider call. A non-abort fatal error after an armed turn—whether a raw post-admission rejection, a malformed `provider_attempt` without an exchange envelope, or pre-provider setup failure—clears active reconstruction, clears invocation signals, queues `failed` while still in `calling_provider`, then rejects the detached turn promise. The queued transition writes the idle/no-reconstruction snapshot before card-processor promise reactions run. Strict raw and malformed failures never synthesize a provider exchange or model issue; valid typed provider failures and cancellation retain their separate normal paths.
+
 ## 6. Runtime Control Flow
 
 Run:

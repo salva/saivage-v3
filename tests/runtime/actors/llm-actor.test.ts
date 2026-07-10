@@ -8,9 +8,10 @@ import { EventBus } from '../../../src/events/index.js';
 import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
-import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import type { InvocationSurface } from '../../../src/tools/invocation.js';
 import type { CompactionConfig } from '../../../src/runtime/actors/compaction/compactor.js';
+import { readAppLogEntries } from '../../../src/persistence/app-log.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-actor-'));
@@ -466,6 +467,82 @@ describe('LLMActor', () => {
     await eventually(() => expect(actor.state()).toBe('idle'));
   }));
 
+  it('fatally settles a raw post-admission provider rejection without a model issue or exchange', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => { throw new Error('raw provider rejection'); }) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    await expect(actor.turn(input())).rejects.toThrow("Provider boundary for 'turn-1' failed without ProviderTurnFailure metadata.");
+    await eventually(() => expect(actor.state()).toBe('idle'));
+
+    expect(provider.completeTurn).toHaveBeenCalledTimes(1);
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
+    expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.kind === 'model_issue')).toBe(false);
+    expect(readAppLogEntries(projectRoot, 'provider_exchange')).toEqual([]);
+    consoleError.mockRestore();
+  }));
+
+  it('fatally settles a malformed provider-attempt failure without inventing an exchange', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => {
+      throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [], originalFailure: new Error('missing envelope') });
+    }) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    await expect(actor.turn(input())).rejects.toThrow("Provider attempt for 'turn-1' failed without provider_exchange envelope.");
+    await eventually(() => expect(actor.state()).toBe('idle'));
+
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
+    expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.kind === 'model_issue')).toBe(false);
+    expect(readAppLogEntries(projectRoot, 'provider_exchange')).toEqual([]);
+    consoleError.mockRestore();
+  }));
+
+  it('fatally settles a non-abort pre-provider failure without calling the provider', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message', content: 'unused' })) };
+    class FailingSetupLLMActor extends LLMActor {
+      protected override async onBeforeProviderCall(): Promise<void> { throw new Error('pre-provider setup failed'); }
+    }
+    const actor = new FailingSetupLLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    await expect(actor.turn(input())).rejects.toThrow('pre-provider setup failed');
+    await eventually(() => expect(actor.state()).toBe('idle'));
+
+    expect(provider.completeTurn).not.toHaveBeenCalled();
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
+    expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.kind === 'model_issue')).toBe(false);
+    expect(readAppLogEntries(projectRoot, 'provider_exchange')).toEqual([]);
+    consoleError.mockRestore();
+  }));
+
+  it('resets provider-boundary classification for a post-tool pre-provider failure', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'inspect', arguments: '{}' } }] })) };
+    class ContinuationSetupFailureLLMActor extends LLMActor {
+      protected override async onBeforeProviderCall(turnInput: LlmInvocationInput): Promise<void> {
+        if (turnInput.inputId.includes(':tool:')) throw new Error('continuation setup failed');
+      }
+    }
+    const actor = new ContinuationSetupFailureLLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    await expect(actor.turn(input())).resolves.toMatchObject({ type: 'tool_call', toolCallId: 'call-1' });
+    await expect(actor.appendToolResult('call-1', { success: true })).rejects.toThrow('continuation setup failed');
+    await eventually(() => expect(actor.state()).toBe('idle'));
+
+    expect(provider.completeTurn).toHaveBeenCalledTimes(1);
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
+    consoleError.mockRestore();
+  }));
+
   it('rejects the pending turn when entering provider call throws before provider registration', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     corruptActorMessages(projectRoot);
@@ -477,6 +554,8 @@ describe('LLMActor', () => {
     await expect(actor.turn(input())).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);
 
     expect(provider.completeTurn).not.toHaveBeenCalled();
+    await eventually(() => expect(actor.state()).toBe('idle'));
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
     consoleError.mockRestore();
   }));
@@ -496,6 +575,8 @@ describe('LLMActor', () => {
     finish();
 
     await expect(pending).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);
+    await eventually(() => expect(actor.state()).toBe('idle'));
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
     consoleError.mockRestore();
   }));
@@ -514,6 +595,8 @@ describe('LLMActor', () => {
     fail();
 
     await expect(pending).rejects.toThrow(/Provider boundary .* failed without ProviderTurnFailure metadata/);
+    await eventually(() => expect(actor.state()).toBe('idle'));
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
     consoleError.mockRestore();
   }));
@@ -533,6 +616,8 @@ describe('LLMActor', () => {
     await expect(actor.turn(input())).rejects.toThrow('runTask exploded');
 
     expect(provider.completeTurn).not.toHaveBeenCalled();
+    await eventually(() => expect(actor.state()).toBe('idle'));
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
     consoleError.mockRestore();
   }));

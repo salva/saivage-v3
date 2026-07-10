@@ -31,6 +31,10 @@ function createGoal(store: CardStore, parent = 'project'): CardRecord {
   return store.create({ type: 'goal', parent, depth: parent === 'project' ? 1 : 2, title: 'goal', brief: 'goal', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
 }
 
+function createCode(store: CardStore, parent = 'project'): CardRecord {
+  return store.create({ type: 'code', parent, depth: parent === 'project' ? 1 : 2, title: 'code', brief: 'code', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+}
+
 function writeBrief(projectRoot: string, cardId: string, content: string, cardVersionSeq = 1): void {
   const slot = openRecordSlot(projectRoot, { cardId, filename: 'brief.md' });
   writeFileSync(slot.absolutePath, content, 'utf-8');
@@ -389,6 +393,35 @@ describe('PlanningCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ data: expect.objectContaining({ outcome: 'done', card_id: goal.id }) }) }) }),
     }), expect.any(AbortSignal));
+  }));
+
+  it('settles a real child provider-contract failure through its parent activate_card barrier', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const child = createCode(store, project.id);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const provider = withMandatoryRecords((turnInput: LlmInvocationInput) => {
+      if (turnInput.role === 'executor') throw new Error('raw child provider rejection');
+      if (turnInput.episodeContext.lastToolResult) return plannerResult('failed', 'child failed');
+      return { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-child-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: child.id }) } }] };
+    });
+    const deps = { ...cardActorDeps(projectRoot, store), provider };
+    const root = CardActor.fromCard({ card: project, deps });
+
+    const outcome = await root.activate({ kind: 'root' });
+
+    const strictError = `Provider boundary for 'terminal:${child.id}:1' failed without ProviderTurnFailure metadata.`;
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'child failed' });
+    expect(store.read(child.id)).toMatchObject({ status: 'failed', lifecycle: { status: 'failed', error: strictError } });
+    const plannerInputs = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.map(([turnInput]) => turnInput).filter((turnInput) => turnInput.role === 'planner');
+    expect(plannerInputs.filter((turnInput) => turnInput.episodeContext.lastToolResult).filter((turnInput) => JSON.stringify(turnInput.episodeContext.lastToolResult).includes(child.id))).toHaveLength(1);
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `card:${child.id}`)?.context.active_reconstruction).toBeNull();
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `processor:${child.id}`)?.context.active_reconstruction).toBeNull();
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `executor:${child.id}`)?.context.active_reconstruction ?? null).toBeNull();
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'card:project')?.context.active_reconstruction).toBeNull();
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'processor:project')?.context.active_reconstruction).toBeNull();
+    consoleError.mockRestore();
   }));
 
   it('creates a planner child and activates it in the same planning activation', async () => withTempProject(async (projectRoot) => {
