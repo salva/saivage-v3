@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import { z } from 'zod';
 import type { DomainEvent, EventBus, EventKind } from '../events/index.js';
 import { eventKindValues, toEventLogRecord } from '../events/index.js';
@@ -7,6 +6,8 @@ import { redactForOutbound } from '../redaction/index.js';
 import { controlActionAuditEntrySchema, loggedEventSchema } from '../schemas/index.js';
 import type { ControlActionAuditEntry, LoggedEvent } from '../schemas/index.js';
 import type { ErrorRecord } from '../observability/index.js';
+import { appLogEntrySchema, type AppLogEntry } from '../persistence/app-log.js';
+import { appLogFile, appLogLockFile } from '../persistence/layout.js';
 
 export interface Projection {
   readonly name: string;
@@ -17,11 +18,16 @@ export interface Projection {
 const registeredProjectionKeys = new WeakMap<EventBus, Set<string>>();
 
 function runtimeLock(projectRoot: string): ProjectLock {
-  return new ProjectLock(join(projectRoot, '.saivage', 'runtime', 'project.lock'));
+  return new ProjectLock(appLogLockFile(projectRoot));
 }
 
 function saivageLock(saivageDir: string): ProjectLock {
-  return new ProjectLock(join(saivageDir, 'runtime', 'project.lock'));
+  const projectRoot = saivageDir.endsWith('/.saivage') ? saivageDir.slice(0, -'/.saivage'.length) : saivageDir;
+  return new ProjectLock(appLogLockFile(projectRoot));
+}
+
+function projectRootFromSaivageDir(saivageDir: string): string {
+  return saivageDir.endsWith('/.saivage') ? saivageDir.slice(0, -'/.saivage'.length) : saivageDir;
 }
 
 function projectionPayload(event: DomainEvent): Record<string, unknown> {
@@ -41,14 +47,6 @@ function registerProjection(eventBus: EventBus, projection: Projection, options?
   keys.add(projection.name);
 }
 
-export function controlActionLedger(projectRoot: string): JsonlLedger<ControlActionAuditEntry> {
-  return new JsonlLedger(join(projectRoot, '.saivage', 'runtime', 'control-actions.jsonl'), controlActionAuditEntrySchema, runtimeLock(projectRoot), { version: null });
-}
-
-export function eventLogLedger(saivageDir: string): JsonlLedger<LoggedEvent> {
-  return new JsonlLedger(join(saivageDir, 'runtime', 'events.jsonl'), loggedEventSchema, saivageLock(saivageDir), { version: null });
-}
-
 export const errorRecordSchema: z.ZodType<ErrorRecord> = z.object({
   id: z.string().min(1),
   timestamp: z.string().datetime(),
@@ -58,10 +56,6 @@ export const errorRecordSchema: z.ZodType<ErrorRecord> = z.object({
   goalId: z.string().optional(),
   phase: z.string().optional(),
 }).passthrough() as z.ZodType<ErrorRecord>;
-
-export function errorLogLedger(saivageDir: string): JsonlLedger<ErrorRecord> {
-  return new JsonlLedger(join(saivageDir, 'runtime', 'errors.jsonl'), errorRecordSchema, saivageLock(saivageDir), { version: null });
-}
 
 export class ControlActionAuditProjection implements Projection {
   readonly name = 'control-action-audit-ledger';
@@ -74,8 +68,8 @@ export class ControlActionAuditProjection implements Projection {
     if (!record) return;
     const parsed = controlActionAuditEntrySchema.parse(record);
     const lock = runtimeLock(this.projectRoot);
-    const ledger = new JsonlLedger(join(this.projectRoot, '.saivage', 'runtime', 'control-actions.jsonl'), controlActionAuditEntrySchema, lock, { version: null });
-    lock.withLockSync((handle) => ledger.appendSync(handle, parsed));
+    const ledger = new JsonlLedger<AppLogEntry>(appLogFile(this.projectRoot), appLogEntrySchema, lock, { version: null });
+    lock.withLockSync((handle) => ledger.appendSync(handle, { id: parsed.id, timestamp: parsed.created_at, type: 'control_action', data: parsed }));
   }
 }
 
@@ -91,9 +85,11 @@ export class EventLogProjection implements Projection {
     const suppliedRecord = projectionPayload(event)['record'];
     const sourceRecord = suppliedRecord ?? toEventLogRecord(event);
     const record = redactForOutbound(sourceRecord, 'observability.log', { source: 'event-log-projection' }) as unknown as LoggedEvent;
+    const parsed = loggedEventSchema.parse(record);
+    const projectRoot = projectRootFromSaivageDir(this.saivageDir);
     const lock = saivageLock(this.saivageDir);
-    const ledger = new JsonlLedger(join(this.saivageDir, 'runtime', 'events.jsonl'), loggedEventSchema, lock, { version: null });
-    lock.withLockSync((handle) => ledger.appendSync(handle, loggedEventSchema.parse(record)));
+    const ledger = new JsonlLedger<AppLogEntry>(appLogFile(projectRoot), appLogEntrySchema, lock, { version: null });
+    lock.withLockSync((handle) => ledger.appendSync(handle, { id: parsed.id, timestamp: parsed.timestamp, type: 'event', data: parsed }));
   }
 }
 
@@ -107,9 +103,10 @@ export class ErrorLogProjection implements Projection {
     const record = projectionPayload(event)['record'];
     if (!record) return;
     const parsed = errorRecordSchema.parse(redactForOutbound(record, 'error.log', { source: 'error-log-projection' }));
+    const projectRoot = projectRootFromSaivageDir(this.saivageDir);
     const lock = saivageLock(this.saivageDir);
-    const ledger = new JsonlLedger(join(this.saivageDir, 'runtime', 'errors.jsonl'), errorRecordSchema, lock, { version: null });
-    lock.withLockSync((handle) => ledger.appendSync(handle, parsed));
+    const ledger = new JsonlLedger<AppLogEntry>(appLogFile(projectRoot), appLogEntrySchema, lock, { version: null });
+    lock.withLockSync((handle) => ledger.appendSync(handle, { id: parsed.id, timestamp: parsed.timestamp, type: 'error', data: parsed }));
   }
 }
 

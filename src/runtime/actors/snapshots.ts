@@ -2,7 +2,7 @@ import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
-import { saivageCardsRoot } from '../../persistence/layout.js';
+import { actorSnapshotsLockFile, saivageCardsRoot } from '../../persistence/layout.js';
 import { actorKindFromId, parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
 import { actorKindSchema } from '../../schemas/actor-vocabulary.js';
 import type { ActorKind } from './ids.js';
@@ -21,7 +21,7 @@ const actorSnapshotSchema = z.object({
 export type ActorSnapshotRecord = z.infer<typeof actorSnapshotSchema>;
 
 function actorSnapshotsLock(projectRoot: string): ProjectLock {
-  return new ProjectLock(join(projectRoot, '.saivage', '.lock'), { staleLockAction: 'remove' });
+  return new ProjectLock(actorSnapshotsLockFile(projectRoot), { staleLockAction: 'remove' });
 }
 
 export function actorSnapshotPath(projectRoot: string, actorId: string): string {

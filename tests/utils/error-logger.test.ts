@@ -19,7 +19,7 @@ describe('ErrorLogger', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-el-'));
     saivageDir = join(tmpDir, '.saivage');
-    mkdirSync(join(saivageDir, 'runtime'), { recursive: true });
+    mkdirSync(join(saivageDir, 'logs'), { recursive: true });
     errorLogger = new ErrorLogger(saivageDir);
   });
 
@@ -53,7 +53,9 @@ describe('ErrorLogger', () => {
     const lines = content.trim().split('\n');
     expect(lines.length).toBe(1);
 
-    const parsed = JSON.parse(lines[0]) as ErrorRecord;
+    const envelope = JSON.parse(lines[0]) as { type: string; data: ErrorRecord };
+    expect(envelope.type).toBe('error');
+    const parsed = envelope.data;
     expect(parsed.id).toBe(record.id);
     expect(parsed.kind).toBe('error');
     expect(parsed.timestamp).toBe(record.timestamp);
@@ -77,7 +79,7 @@ describe('ErrorLogger', () => {
 
   it('getErrorsPath() returns the correct path', () => {
     const path = errorLogger.getErrorsPath();
-    expect(path).toBe(join(saivageDir, 'runtime', 'errors.jsonl'));
+    expect(path).toBe(join(saivageDir, 'logs', 'app.jsonl'));
   });
 
   it('filter by cardId works', () => {
@@ -268,7 +270,7 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-el-fmt-'));
     saivageDir = join(tmpDir, '.saivage');
-    mkdirSync(join(saivageDir, 'runtime'), { recursive: true });
+    mkdirSync(join(saivageDir, 'logs'), { recursive: true });
     errorLogger = new ErrorLogger(saivageDir);
   });
 
@@ -299,19 +301,20 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
     expect(lines.length).toBe(3);
 
     for (const line of lines) {
-      let parsed: ErrorRecord;
+      let parsed: { id: string; timestamp: string; type: string; data: ErrorRecord };
       expect(() => {
-        parsed = JSON.parse(line) as ErrorRecord;
+        parsed = JSON.parse(line) as { id: string; timestamp: string; type: string; data: ErrorRecord };
       }).not.toThrow();
 
-      parsed = JSON.parse(line) as ErrorRecord;
-      expect(parsed.kind).toBe('error');
+      parsed = JSON.parse(line) as { id: string; timestamp: string; type: string; data: ErrorRecord };
+      expect(parsed.type).toBe('error');
+      expect(parsed.data.kind).toBe('error');
       expect(parsed.timestamp).toBeTruthy();
       expect(typeof parsed.timestamp).toBe('string');
       const tsMs = Date.parse(parsed.timestamp);
       expect(isNaN(tsMs)).toBe(false);
-      expect(parsed.message).toBeTruthy();
-      expect(typeof parsed.message).toBe('string');
+      expect(parsed.data.message).toBeTruthy();
+      expect(typeof parsed.data.message).toBe('string');
       expect(parsed.id).toBeTruthy();
       expect(typeof parsed.id).toBe('string');
     }
@@ -325,12 +328,12 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
       phase: 'reviewer',
     });
 
-    const errorsPath = join(saivageDir, 'runtime', 'errors.jsonl');
+    const errorsPath = join(saivageDir, 'logs', 'app.jsonl');
     const raw = readFileSync(errorsPath, 'utf-8');
     const errors: unknown[] = [];
 
     for (const line of raw.split('\n').filter(Boolean)) {
-      errors.push(JSON.parse(line));
+      errors.push((JSON.parse(line) as { data: unknown }).data);
     }
 
     expect(errors.length).toBe(1);

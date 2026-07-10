@@ -16,16 +16,13 @@ export {
 
 const NON_SECRET_SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.yaml',
-  '.saivage/work/tmp/runtime/runtime.lock',
 ]);
 
 const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
 ]);
 
-const NON_SECRET_WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([
-  '.saivage/work/tmp/runtime/runtime.lock',
-]);
+const NON_SECRET_WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([]);
 
 const NON_SECRET_REDACT_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.yaml',
@@ -63,11 +60,12 @@ export function sanitizeFilePath(filePath: string): string {
 
 export function isSensitivePath(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
-  return sharedLooksLikeSecretPath(clean) || NON_SECRET_SENSITIVE_PATHS.has(clean) || NON_SECRET_READ_BLOCKED_PATHS.has(clean);
+  return sharedLooksLikeSecretPath(clean) || NON_SECRET_SENSITIVE_PATHS.has(clean) || NON_SECRET_READ_BLOCKED_PATHS.has(clean) || clean.startsWith('.saivage/locks/');
 }
 
 export function isReadBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
+  if (clean.startsWith('.saivage/locks/')) return true;
   if (NON_SECRET_READ_BLOCKED_PATHS.has(clean)) return true;
   try {
     assertNotSecretPath(clean);
@@ -82,7 +80,7 @@ export function isWriteBlocked(filePath: string): boolean {
   if (sharedLooksLikeSecretPath(clean)) {
     return true;
   }
-  return NON_SECRET_WRITE_BLOCKED_PATHS.has(clean);
+  return NON_SECRET_WRITE_BLOCKED_PATHS.has(clean) || clean.startsWith('.saivage/locks/');
 }
 
 export function isRedacted(filePath: string): boolean {

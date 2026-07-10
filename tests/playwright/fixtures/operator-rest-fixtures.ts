@@ -97,7 +97,7 @@ const metaRoot = {
 };
 const metaRuntime = {
   path: '.saivage/runtime',
-  files: [{ name: 'events.jsonl', path: '.saivage/runtime/events.jsonl', type: 'file', size: 128, modifiedAt: now }],
+  files: [{ name: 'app.jsonl', path: '.saivage/logs/app.jsonl', type: 'file', size: 128, modifiedAt: now }],
 };
 const outputReports = {
   path: '.saivage/work/reports',
@@ -189,7 +189,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       if (path === '.saivage/work/reports') return json(route, outputReports);
       if (path === '.saivage/work' || !path) return json(route, path === '.saivage/work' ? outputRoot : metaRoot);
       if (path === '.saivage/work/quarantine') return json(route, { path, files: [] });
-      if (path === '.saivage/plan.json' || path === '.saivage/runtime/events.jsonl' || path === '.saivage/work/smoke-result.json' || path === '.saivage/work/LICENSE' || path === '.saivage/work/reports/summary.md') {
+      if (path === '.saivage/plan.json' || path === '.saivage/logs/app.jsonl' || path === '.saivage/work/smoke-result.json' || path === '.saivage/work/LICENSE' || path === '.saivage/work/reports/summary.md') {
         return json(route, { error: 'Path is not a directory', path }, 400);
       }
       if (path === '.saivage/work/stale' || path === '.saivage/work/stale/missing-log.txt') {

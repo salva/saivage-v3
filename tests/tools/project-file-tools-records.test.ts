@@ -87,12 +87,12 @@ describe('project file tools record enforcement', () => {
 
   it('does not leak directly-addressed hidden scoped files through grep or glob', async () => withTempProject(async (projectRoot) => {
     mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
-    mkdirSync(join(projectRoot, '.saivage/work', 'tmp', 'runtime'), { recursive: true });
+    mkdirSync(join(projectRoot, '.saivage', 'locks'), { recursive: true });
     writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), 'HIDDEN_SAIVAGE_TOKEN', 'utf8');
-    writeFileSync(join(projectRoot, '.saivage/work', 'tmp', 'runtime', 'runtime.lock'), 'HIDDEN_LOCK_TOKEN', 'utf8');
+    writeFileSync(join(projectRoot, '.saivage', 'locks', 'runtime.lock'), 'HIDDEN_LOCK_TOKEN', 'utf8');
 
     const saivageGrep = await grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'project:///.saivage/saivage.yaml', pattern: 'HIDDEN_SAIVAGE_TOKEN' });
-    const lockGrep = await grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'project:///.saivage/work/tmp/runtime/runtime.lock', pattern: 'HIDDEN_LOCK_TOKEN' });
+    const lockGrep = await grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'project:///.saivage/locks/runtime.lock', pattern: 'HIDDEN_LOCK_TOKEN' });
     const saivageGlob = await globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'project:///.saivage/saivage.yaml', pattern: '*' });
 
     expect(saivageGrep).toEqual({ pattern: 'HIDDEN_SAIVAGE_TOKEN', matches: [], truncated: false });

@@ -29,7 +29,7 @@ describe('redaction port file-safety behavior', () => {
 
 describe('redactOperatorErrorMessage strips projectRoot from error text', () => {
   it('replaces the resolved project root with [PROJECT_ROOT]', () => {
-    const message = 'ENOENT: no such file or directory, open \'/work/saivage-v3/.saivage/tmp/state/runtime.json\'';
+    const message = 'ENOENT: no such file or directory, open \'/work/saivage-v3/.saivage/state/runtime.json\'';
     const redacted = redactOperatorErrorMessage(message, '/work/saivage-v3');
     expect(redacted).toContain('[PROJECT_ROOT]');
     expect(redacted).not.toContain('/work/saivage-v3/');
@@ -43,8 +43,8 @@ describe('redactOperatorErrorMessage strips projectRoot from error text', () => 
   });
 
   it('keeps .saivage relative paths visible for operator diagnostics', () => {
-    const message = 'Failed to read .saivage/tmp/state/runtime.json';
+    const message = 'Failed to read .saivage/state/runtime.json';
     const redacted = redactOperatorErrorMessage(message, '/work/saivage-v3');
-    expect(redacted).toContain('.saivage/tmp/state/runtime.json');
+    expect(redacted).toContain('.saivage/state/runtime.json');
   });
 });

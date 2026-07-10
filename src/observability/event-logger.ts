@@ -1,18 +1,18 @@
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { LoggedEvent, EventKind } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { loggedEventSchema } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
 import { registerEventLogProjection } from '../projections/index.js';
+import { readAppLogEntries } from '../persistence/app-log.js';
+import { appLogFile, saivageLogsRoot } from '../persistence/layout.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
-const DEFAULT_LOG_FILE = 'events.jsonl';
-
 function eventsPath(saivageDir: string): string {
-  return join(saivageDir, 'runtime', DEFAULT_LOG_FILE);
+  const projectRoot = saivageDir.endsWith('/.saivage') ? saivageDir.slice(0, -'/.saivage'.length) : saivageDir;
+  return appLogFile(projectRoot);
 }
 
 // ── Event ID Generator ───────────────────────────────────────
@@ -89,8 +89,7 @@ export class EventLogger {
     this.eventBus = eventBus;
     registerEventLogProjection(this.eventBus, this.saivageDir, ['event_log_record_appended']);
 
-    // Ensure the runtime directory exists
-    mkdirSync(join(this.saivageDir, 'runtime'), { recursive: true });
+    mkdirSync(saivageLogsRoot(this.saivageDir.endsWith('/.saivage') ? this.saivageDir.slice(0, -'/.saivage'.length) : this.saivageDir), { recursive: true });
   }
 
   /**
@@ -125,26 +124,11 @@ export class EventLogger {
    * Events are returned in file order (chronological, oldest first).
    */
   getEvents(filter?: EventFilter): LoggedEvent[] {
-    if (!existsSync(this.logPath)) {
-      return [];
-    }
-
-    const raw = readFileSync(this.logPath, 'utf-8');
-    if (raw.trim() === '') return [];
-
-    let events: LoggedEvent[] = [];
-    for (const line of raw.split('\n').filter(Boolean)) {
-      try {
-        const parsed = loggedEventSchema.safeParse(JSON.parse(line));
-        if (parsed.success) {
-          events.push(parsed.data);
-        } else {
-          console.warn(`Ignoring invalid runtime event log record: ${parsed.error.message}`);
-        }
-      } catch {
-        // Skip malformed lines
-      }
-    }
+    const projectRoot = this.saivageDir.endsWith('/.saivage') ? this.saivageDir.slice(0, -'/.saivage'.length) : this.saivageDir;
+    let events = readAppLogEntries(projectRoot, 'event')
+      .map((entry) => loggedEventSchema.safeParse(entry.data))
+      .filter((parsed) => parsed.success)
+      .map((parsed) => parsed.data);
 
     // Step 1: Apply content filters
     if (filter) {

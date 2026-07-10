@@ -74,12 +74,12 @@ describe('FsCandidateAvailability', () => {
     store = new FsCandidateAvailability(root);
     expect(store.isAvailable(c)).toBe(false);
     expect(store.getEntry(c)?.untilMs).toBe(until);
-    expect(existsSync(join(root, '.saivage', 'runtime', 'candidate-availability.jsonl'))).toBe(true);
+    expect(existsSync(join(root, '.saivage', 'state', 'provider-availability.jsonl'))).toBe(true);
   });
 
   it('compacts the JSONL once it exceeds compactBytes', async () => {
     store = new FsCandidateAvailability(root, { compactBytes: 200 });
-    const file = join(root, '.saivage', 'runtime', 'candidate-availability.jsonl');
+    const file = join(root, '.saivage', 'state', 'provider-availability.jsonl');
     for (let i = 0; i < 50; i += 1) {
       await store.markFailed({ provider: 'p', account: 'a', model: 'm' }, { state: 'COOLING', untilMs: Date.now() + 1_000 + i, reason: `r${i}` });
     }

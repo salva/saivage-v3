@@ -92,16 +92,16 @@ describe('workspace VFS', () => {
 
   it('collects scoped single files while filtering hidden and secret single-file paths', () => withTempProject((projectRoot) => {
     mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
-    mkdirSync(join(projectRoot, '.saivage/work', 'tmp', 'runtime'), { recursive: true });
+    mkdirSync(join(projectRoot, '.saivage', 'locks'), { recursive: true });
     mkdirSync(join(projectRoot, 'docs'), { recursive: true });
     writeFileSync(join(projectRoot, 'docs', 'SPEC.md'), 'spec', 'utf8');
     writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), 'hidden', 'utf8');
-    writeFileSync(join(projectRoot, '.saivage/work', 'tmp', 'runtime', 'runtime.lock'), 'hidden', 'utf8');
+    writeFileSync(join(projectRoot, '.saivage', 'locks', 'runtime.lock'), 'hidden', 'utf8');
     writeFileSync(join(projectRoot, '.env'), 'secret', 'utf8');
 
     expect(collect(projectRoot, 'project:///docs/SPEC.md')).toEqual([{ absolutePath: join(projectRoot, 'docs', 'SPEC.md'), displayPath: 'docs/SPEC.md', matchPath: 'docs/SPEC.md' }]);
     expect(collect(projectRoot, 'project:///.saivage/saivage.yaml')).toEqual([]);
-    expect(collect(projectRoot, 'project:///.saivage/work/tmp/runtime/runtime.lock')).toEqual([]);
+    expect(collect(projectRoot, 'project:///.saivage/locks/runtime.lock')).toEqual([]);
     expect(collect(projectRoot, 'project:///.env')).toEqual([]);
   }));
 

@@ -8,7 +8,6 @@ import {
   existsSync,
   rmSync,
 } from 'node:fs';
-import { join } from 'node:path';
 import { ProjectLock } from '../persistence/index.js';
 import type {
   CardHistoryEntry,
@@ -26,6 +25,7 @@ import { CardArchiveService } from './archive-service.js';
 import { CardHistoryReader, type CardDiffEntry } from './history-reader.js';
 import { CardLifecycleCommands } from './lifecycle-commands.js';
 import { cardHistoryPath, loadCardStoreState } from '../persistence/card-loader.js';
+import { projectMutationLockFile } from '../persistence/layout.js';
 import {
   applyMutationSync,
   type ApplyMutationDeps,
@@ -61,7 +61,7 @@ export class CardStore {
     this.projectRoot = projectRoot;
     this.eventBus = eventBus ?? new EventBus();
     this.maxDepth = 5;
-    this.projectLock = new ProjectLock(join(projectRoot, '.saivage', 'project.lock'));
+    this.projectLock = new ProjectLock(projectMutationLockFile(projectRoot));
     repairSiblingPositions(projectRoot, this.maxDepth, this.projectLock, this.eventBus);
     this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });
     this.reader = new CardReader(() => this.state);

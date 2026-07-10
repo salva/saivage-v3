@@ -62,6 +62,12 @@ describe('isInitialized', () => {
     initProjectTree(tmpDir);
     expect(isInitialized(tmpDir)).toBe(true);
   });
+
+  it('returns false for project.json without the generated root card layout', () => {
+    mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
+    writeFileSync(join(tmpDir, '.saivage', 'project.json'), JSON.stringify({ id: 'project', name: 'preserved', context: '', goals_summary: '', constraints: [], planner_enabled: true, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }));
+    expect(isInitialized(tmpDir)).toBe(false);
+  });
 });
 
 describe('initProjectTree', () => {
@@ -115,27 +121,19 @@ describe('initProjectTree', () => {
     expect(skills).toEqual([]);
   });
 
-  it('creates runtime/events.jsonl', () => {
+  it('creates logs/app.jsonl', () => {
     initProjectTree(tmpDir);
-    expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'events.jsonl'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage', 'logs', 'app.jsonl'))).toBe(true);
   });
 
-  it('creates runtime/errors.jsonl', () => {
+  it('creates state/runtime.json', () => {
     initProjectTree(tmpDir);
-    expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'errors.jsonl'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage', 'state', 'runtime.json'))).toBe(true);
   });
 
-  it('creates supervision/reviews.jsonl', () => {
+  it('creates config/prompts without override files', () => {
     initProjectTree(tmpDir);
-    expect(existsSync(join(tmpDir, '.saivage', 'supervision', 'reviews.jsonl'))).toBe(true);
-  });
-
-  it('creates supervision/quarantine-index.json', () => {
-    initProjectTree(tmpDir);
-    const qi = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'supervision', 'quarantine-index.json'), 'utf-8'),
-    );
-    expect(qi).toEqual([]);
+    expect(existsSync(join(tmpDir, '.saivage', 'config', 'prompts'))).toBe(true);
   });
 
   it('creates all .saivage/ directories', () => {
@@ -145,8 +143,10 @@ describe('initProjectTree', () => {
       'cards',
       'agents/conversations',
       'agents/runtime/actors/llm',
-      'runtime',
-      'supervision',
+      'state',
+      'logs',
+      'locks',
+      'config/prompts',
       'instructions',
     ];
     for (const dir of saivageDirs) {
@@ -159,12 +159,7 @@ describe('initProjectTree', () => {
     const workDirs = [
       'cards',
       'processes',
-      'downloads',
-      'quarantine',
-      'tmp/runtime',
       'tmp/stash',
-      'tmp/uploads',
-      'tmp/previews',
     ];
     for (const dir of workDirs) {
       expect(existsSync(join(tmpDir, '.saivage', 'work', dir))).toBe(true);
@@ -184,6 +179,21 @@ describe('initProjectTree', () => {
     expect(cardsAfter).toEqual(cardsBefore);
     expect(configAfter).toBe(configBefore);
     expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
+  });
+
+  it('preserves prompt overrides while completing a preserved durable project', () => {
+    const overridePath = join(tmpDir, '.saivage', 'config', 'prompts', 'project', 'planner.md');
+    mkdirSync(join(overridePath, '..'), { recursive: true });
+    writeFileSync(join(tmpDir, '.saivage', 'project.json'), JSON.stringify({ id: 'project', name: 'preserved', context: '', goals_summary: '', constraints: [], planner_enabled: true, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }));
+    writeFileSync(overridePath, '# Custom planner\n');
+
+    initProjectTree(tmpDir);
+
+    expect(readFileSync(overridePath, 'utf-8')).toBe('# Custom planner\n');
+    expect(isInitialized(tmpDir)).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'project'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage', 'state', 'runtime.json'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage', 'logs', 'app.jsonl'))).toBe(true);
   });
 
   it('does not create duplicate project cards on repeated calls', () => {
@@ -236,7 +246,7 @@ describe('initProjectTree', () => {
 
   it('keeps already-new .saivage state instead of discarding it', () => {
     initProjectTree(tmpDir);
-    const sentinelPath = join(tmpDir, '.saivage', 'runtime', 'events.jsonl');
+    const sentinelPath = join(tmpDir, '.saivage', 'logs', 'app.jsonl');
     const workSentinelPath = join(tmpDir, '.saivage', 'work', 'processes', 'sentinel.txt');
     writeFileSync(sentinelPath, 'sentinel-event\n');
     writeFileSync(workSentinelPath, 'work-sentinel\n');
@@ -327,9 +337,9 @@ describe('initProjectTree', () => {
   it('fails fast instead of discarding legacy state while a live runtime lock is held', () => {
     seedPostStage1RequiredLegacyState(tmpDir);
     mkdirSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-1'), { recursive: true });
-    mkdirSync(join(tmpDir, '.saivage', 'work', 'tmp', 'runtime'), { recursive: true });
+    mkdirSync(join(tmpDir, '.saivage', 'locks'), { recursive: true });
     writeFileSync(join(tmpDir, priorWorkRoot, 'processes', 'proc-1', 'combined.log'), 'combined');
-    const lockPath = join(tmpDir, '.saivage', 'work', 'tmp', 'runtime', 'runtime.lock');
+    const lockPath = join(tmpDir, '.saivage', 'locks', 'runtime.lock');
     writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
 
     expect(() => initProjectTree(tmpDir)).toThrow(/runtime lock .*Stop the runtime first/);

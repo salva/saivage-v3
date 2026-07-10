@@ -33,13 +33,12 @@ describe('EventLogger runtime event validation', () => {
   it('uses tolerant historical parsing and skips unknown-kind records without failing the whole log', () => {
     const saivageDir = makeSaivageDir();
     const logger = new EventLogger(saivageDir);
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
       writeFileSync(
         logger.getLogPath(),
         [
-          JSON.stringify({ id: 'evt-known', kind: 'runtime_diagnostic', timestamp, error_message: 'known' }),
-          JSON.stringify({ id: 'evt-old', kind: 'legacy_historical_kind', timestamp, old_payload: true }),
+          JSON.stringify({ id: 'app-known', timestamp, type: 'event', data: { id: 'evt-known', kind: 'runtime_diagnostic', timestamp, error_message: 'known' } }),
+          JSON.stringify({ id: 'app-old', timestamp, type: 'event', data: { id: 'evt-old', kind: 'legacy_historical_kind', timestamp, old_payload: true } }),
           '{malformed json',
           '',
         ].join('\n'),
@@ -47,7 +46,6 @@ describe('EventLogger runtime event validation', () => {
 
       const events = logger.getEvents();
       expect(events.map((event) => event.kind)).toEqual(['runtime_diagnostic']);
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring invalid runtime event log record'));
     } finally {
     }
   });

@@ -3,6 +3,7 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
+import { recoveryDiagnosticsFile as layoutRecoveryDiagnosticsFile, recoveryDiagnosticsLockFile } from '../../persistence/layout.js';
 import { readActorSnapshots, removeActorSnapshot } from './snapshots.js';
 import type { ActorSnapshotRecord } from './snapshots.js';
 import { agentMessageSchema, type AgentMessage, type CardRecord, type CardStatus } from '../../schemas/index.js';
@@ -200,7 +201,7 @@ const recoveryDiagnosticsSnapshotSchema = z.object({
 });
 
 export function recoveryDiagnosticsPath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'runtime', 'recovery-diagnostics.json');
+  return layoutRecoveryDiagnosticsFile(projectRoot);
 }
 
 export function readRecoveryDiagnostics(projectRoot: string): ActorRecoveryDiagnosticsSnapshot | null {
@@ -669,7 +670,7 @@ function addCardSnapshotActor(actorsByCard: Map<string, Set<string>>, cardId: st
 }
 
 function recoveryDiagnosticsLock(projectRoot: string): ProjectLock {
-  return new ProjectLock(join(projectRoot, '.saivage', '.lock'), { staleLockAction: 'remove' });
+  return new ProjectLock(recoveryDiagnosticsLockFile(projectRoot), { staleLockAction: 'remove' });
 }
 
 function recoveryDiagnosticsFile(projectRoot: string, lock: ProjectLock = recoveryDiagnosticsLock(projectRoot)): AtomicJsonFile<ActorRecoveryDiagnosticsSnapshot> {

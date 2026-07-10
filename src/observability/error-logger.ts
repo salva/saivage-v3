@@ -1,16 +1,16 @@
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { redactForOutbound } from '../redaction/index.js';
 import { EventBus } from '../events/index.js';
 import { registerErrorLogProjection } from '../projections/index.js';
+import { readAppLogEntries } from '../persistence/app-log.js';
+import { appLogFile, saivageLogsRoot } from '../persistence/layout.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
-const DEFAULT_LOG_FILE = 'errors.jsonl';
-
 function errorsPath(saivageDir: string): string {
-  return join(saivageDir, 'runtime', DEFAULT_LOG_FILE);
+  const projectRoot = saivageDir.endsWith('/.saivage') ? saivageDir.slice(0, -'/.saivage'.length) : saivageDir;
+  return appLogFile(projectRoot);
 }
 
 // ── Error ID Generator ────────────────────────────────────────
@@ -81,8 +81,7 @@ export class ErrorLogger {
     this.eventBus = eventBus;
     registerErrorLogProjection(this.eventBus, this.saivageDir);
 
-    // Ensure the runtime directory exists
-    mkdirSync(join(this.saivageDir, 'runtime'), { recursive: true });
+    mkdirSync(saivageLogsRoot(this.saivageDir.endsWith('/.saivage') ? this.saivageDir.slice(0, -'/.saivage'.length) : this.saivageDir), { recursive: true });
   }
 
   /**
@@ -110,22 +109,8 @@ export class ErrorLogger {
    * Reads from the persisted file, so it reflects all written errors.
    */
   getErrors(filter?: ErrorFilter): ErrorRecord[] {
-    if (!existsSync(this.logPath)) {
-      return [];
-    }
-
-    const raw = readFileSync(this.logPath, 'utf-8');
-    if (raw.trim() === '') return [];
-
-    let errors: ErrorRecord[] = [];
-    for (const line of raw.split('\n').filter(Boolean)) {
-      try {
-        const parsed = JSON.parse(line) as ErrorRecord;
-        errors.push(parsed);
-      } catch {
-        // Skip malformed lines
-      }
-    }
+    const projectRoot = this.saivageDir.endsWith('/.saivage') ? this.saivageDir.slice(0, -'/.saivage'.length) : this.saivageDir;
+    let errors = readAppLogEntries(projectRoot, 'error').map((entry) => entry.data as ErrorRecord);
 
     // Apply filters
     if (filter) {

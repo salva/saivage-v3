@@ -1,15 +1,15 @@
 import { z } from 'zod';
-import { join } from 'node:path';
 
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import { listControlActions } from '../persistence/index.js';
+import { readAppLogEntries } from '../persistence/app-log.js';
 import type { ProcessRecord } from '../schemas/index.js';
 import { redactCommandForOperator, toContainedRelativePath, workUrlFromAbsolutePath } from '../workspace/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
-import { readJsonlTail, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
+import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
@@ -78,12 +78,12 @@ export async function restart_server(ctx: ToolContext, params: Record<string, ne
 }
 
 export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<ToolResult> {
-  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total, parseErrors } = readJsonlTail(join(ctx.projectRoot, '.saivage', 'runtime', 'events.jsonl'), limit); const filtered = params.kind ? entries.filter((e) => typeof e === 'object' && e !== null && (e as Record<string, unknown>)['kind'] === params.kind) : entries; return { success: true, data: { total_lines: total, returned: filtered.length, parse_errors: parseErrors, events: filtered } }; }
+  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const all = readAppLogEntries(ctx.projectRoot, 'event').map((entry) => entry.data); const filtered = params.kind ? all.filter((e) => typeof e === 'object' && e !== null && (e as Record<string, unknown>)['kind'] === params.kind) : all; const tail = filtered.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, parse_errors: 0, events: tail } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 
 export async function read_runtime_errors(ctx: ToolContext, params: { limit?: number }): Promise<ToolResult> {
-  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total, parseErrors } = readJsonlTail(join(ctx.projectRoot, '.saivage', 'runtime', 'errors.jsonl'), limit); return { success: true, data: { total_lines: total, returned: entries.length, parse_errors: parseErrors, errors: entries } }; }
+  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const all = readAppLogEntries(ctx.projectRoot, 'error').map((entry) => entry.data); const tail = all.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, parse_errors: 0, errors: tail } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 
@@ -103,8 +103,8 @@ export const analystRuntimeTools: readonly UnifiedToolDefinition<string, any>[] 
   { name: 'pause_runtime', description: 'Globally pause the runtime.', input: emptyInput, roles: ['analyst'], executor: pause_runtime },
   { name: 'resume_runtime', description: 'Resume the runtime after a pause.', input: emptyInput, roles: ['analyst'], executor: resume_runtime },
   { name: 'restart_server', description: 'Request a supervised server restart.', input: emptyInput, roles: ['analyst'], executor: restart_server },
-  { name: 'read_runtime_events', description: 'Tail the project runtime events log (.saivage/runtime/events.jsonl). Optionally filter by event kind.', input: z.object({ limit: z.number().int().optional(), kind: z.string().optional() }).strict(), roles: ['analyst'], executor: read_runtime_events },
-  { name: 'read_runtime_errors', description: 'Tail the project runtime errors log (.saivage/runtime/errors.jsonl).', input: z.object({ limit: z.number().int().optional() }).strict(), roles: ['analyst'], executor: read_runtime_errors },
-  { name: 'read_control_actions', description: 'Tail the control-action audit log (.saivage/runtime/control-actions.jsonl). Shows mutating actions performed by analyst/planner/operator.', input: z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict(), roles: ['analyst'], executor: read_control_actions },
+  { name: 'read_runtime_events', description: 'Tail app-log-backed runtime event entries (.saivage/logs/app.jsonl, type=event). Optionally filter by event kind.', input: z.object({ limit: z.number().int().optional(), kind: z.string().optional() }).strict(), roles: ['analyst'], executor: read_runtime_events },
+  { name: 'read_runtime_errors', description: 'Tail app-log-backed runtime error entries (.saivage/logs/app.jsonl, type=error).', input: z.object({ limit: z.number().int().optional() }).strict(), roles: ['analyst'], executor: read_runtime_errors },
+  { name: 'read_control_actions', description: 'Tail app-log-backed control-action entries (.saivage/logs/app.jsonl, type=control_action). Shows mutating actions performed by analyst/planner/operator.', input: z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict(), roles: ['analyst'], executor: read_control_actions },
   { name: 'list_processes_tool', description: 'List runtime processes. Processes may be card-owned or non-card; card_id is null for Analyst/operator/runtime processes, and owner_kind/owner_id identify the owner. Optionally filter by status (running, finished, failed, killed) or cardId.', input: z.object({ status: z.string().optional(), cardId: z.string().optional() }).strict(), roles: ['analyst'], executor: list_processes_tool },
 ] as const;

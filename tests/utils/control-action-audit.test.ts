@@ -39,7 +39,7 @@ describe('control action audit persistence', () => {
     expect(created.error).toContain('[REDACTED]');
     expect(created.error).not.toMatch(/shh-secret|still-secret/);
 
-    const auditPath = join(projectRoot, '.saivage', 'runtime', 'control-actions.jsonl');
+    const auditPath = join(projectRoot, '.saivage', 'logs', 'app.jsonl');
     expect(existsSync(auditPath)).toBe(true);
     const rawLines = readFileSync(auditPath, 'utf-8').trim().split('\n').filter(Boolean);
     expect(rawLines).toHaveLength(1);
@@ -65,21 +65,26 @@ describe('control action audit persistence', () => {
       outcome_summary: 'paused',
     });
 
-    const auditPath = join(projectRoot, '.saivage', 'runtime', 'control-actions.jsonl');
+    const auditPath = join(projectRoot, '.saivage', 'logs', 'app.jsonl');
     const appended = [
       readFileSync(auditPath, 'utf-8'),
       '{"id":"broken"\n',
       JSON.stringify({
-        id: 'audit-2',
-        actor: 'analyst',
-        surface: 'cli',
-        action: 'note.append',
-        target_kind: 'note',
-        target_id: 'n-goal-1-1',
-        params_summary: 'password=swordfish',
-        outcome: 'denied',
-        outcome_summary: 'denied',
-        created_at: '2026-01-02T00:00:00.000Z',
+        id: 'app-audit-2',
+        timestamp: '2026-01-02T00:00:00.000Z',
+        type: 'control_action',
+        data: {
+          id: 'audit-2',
+          actor: 'analyst',
+          surface: 'cli',
+          action: 'note.append',
+          target_kind: 'note',
+          target_id: 'n-goal-1-1',
+          params_summary: 'password=swordfish',
+          outcome: 'denied',
+          outcome_summary: 'denied',
+          created_at: '2026-01-02T00:00:00.000Z',
+        },
       }) + '\n',
     ].join('');
     writeFileSync(auditPath, appended, 'utf-8');

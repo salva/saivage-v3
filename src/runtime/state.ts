@@ -1,11 +1,11 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { runtimeStateSchema } from '../schemas/index.js';
 import type { ZodType } from 'zod';
 import { explainStateValidationRejection } from '../persistence/index.js';
 import { AtomicJsonFile, ProjectLock, PersistenceReadError, PersistenceValidationError } from '../persistence/index.js';
 import type { RuntimeState } from '../schemas/index.js';
 import { createDefaultRuntimeState } from './default-state.js';
+import { runtimeStateFile as layoutRuntimeStateFile, runtimeStateLockFile } from '../persistence/layout.js';
 
 const AUTHORITATIVE_STATE_FILE = 'runtime.json';
 const runtimeStatePersistenceSchema = runtimeStateSchema as ZodType<RuntimeState>;
@@ -32,11 +32,11 @@ export class RuntimeDispatchInvariantError extends RuntimeStateInvariantError {
 }
 
 export function runtimeStatePath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'tmp', 'state', AUTHORITATIVE_STATE_FILE);
+  return layoutRuntimeStateFile(projectRoot);
 }
 
 function runtimeStateLock(projectRoot: string): ProjectLock {
-  return new ProjectLock(join(projectRoot, '.saivage', '.lock'));
+  return new ProjectLock(runtimeStateLockFile(projectRoot));
 }
 
 function runtimeStateFile(projectRoot: string): AtomicJsonFile<RuntimeState> {

@@ -1,17 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { controlActionAuditEntrySchema } from '../schemas/index.js';
 import type { ControlActionAuditEntry } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
 import { registerControlActionAuditProjection } from '../projections/index.js';
+import { readAppLogEntries } from './app-log.js';
 
 const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
-
-function auditPath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'runtime', 'control-actions.jsonl');
-}
 
 export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -24,29 +19,10 @@ function sanitizeAuditText(text: string): string {
   return redactTextForOutbound(text, 'operator.api', { source: 'control-action-audit' }).replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
 }
 
-function parseAuditEntry(line: string): ControlActionAuditEntry | null {
-  try {
-    const raw = JSON.parse(line) as Record<string, unknown>;
-    const normalized = {
-      ...raw,
-      target_kind: raw.target_kind === undefined ? null : raw.target_kind,
-      target_id: raw.target_id === undefined ? null : raw.target_id,
-    };
-    return controlActionAuditEntrySchema.parse(normalized);
-  } catch {
-    return null;
-  }
-}
-
 export function listControlActions(projectRoot: string, filters?: { card_id?: string; since?: string }): ControlActionAuditEntry[] {
-  const path = auditPath(projectRoot);
-  if (!existsSync(path)) return [];
-  const raw = readFileSync(path, 'utf-8').trim();
-  if (!raw) return [];
-  return raw
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => parseAuditEntry(line))
+  return readAppLogEntries(projectRoot, 'control_action')
+    .map((entry) => controlActionAuditEntrySchema.safeParse(entry.data))
+    .map((parsed) => parsed.success ? parsed.data : null)
     .filter((entry): entry is ControlActionAuditEntry => entry !== null)
     .map((entry) => ({
       ...entry,

@@ -38,7 +38,7 @@ afterEach(() => {
 });
 
 describe('RuntimeState authoritative file layout', () => {
-  it('init/save/update/read create and use .saivage/tmp/state/runtime.json as authoritative', () => {
+  it('init/save/update/read create and use .saivage/state/runtime.json as authoritative', () => {
     const initialized = initRuntimeState(root);
     expect(existsSync(authoritativePath())).toBe(true);
     expect(readAuthoritative()).toMatchObject({ status: 'stopped', project_id: initialized.project_id });

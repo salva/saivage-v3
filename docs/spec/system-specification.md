@@ -323,7 +323,7 @@ The specification does not impose a process concurrency limit for now. Future ru
 
 ## 17. Operator API And Live Projections
 
-`/api/state` returns the persisted runtime-state projection from `.saivage/tmp/state/runtime.json`; the `runtime` field may be `null` when that file is absent. Live server availability is a separate projection sourced from the running runtime application. If that live runtime-status read fails, availability reports a degraded diagnostic for `runtime-application`; `runtime-state` is not an availability component source.
+`/api/state` returns the persisted runtime-state projection from `.saivage/state/runtime.json`; the `runtime` field may be `null` when that file is absent. Live server availability is a separate projection sourced from the running runtime application. If that live runtime-status read fails, availability reports a degraded diagnostic for `runtime-application`; `runtime-state` is not an availability component source. Runtime event, error, and control-action APIs are logical projections from the single application log at `.saivage/logs/app.jsonl`.
 
 Runtime events are read through paginated operator endpoints. Missing `limit` and `offset` use their defaults, but malformed present values such as negative numbers, decimals, or non-numeric strings fail request validation instead of being silently defaulted.
 
@@ -333,7 +333,7 @@ Chat send responses and Analyst websocket responses are not transcript sources a
 
 Startup recovery validates the root card record before recovery planning. If the project card record is corrupt or missing, startup throws before actor recovery so the operator can repair the card record and restart.
 
-Recovery diagnostics are persisted under runtime state and projected through `actorRuntime.recovery` in the runtime status read model. They must not include provider payloads, auth data, prompts, raw actor context, or other secret-bearing fields.
+Recovery diagnostics are persisted at `.saivage/state/recovery-diagnostics.json` and projected through `actorRuntime.recovery` in the runtime status read model. They must not include provider payloads, auth data, prompts, raw actor context, or other secret-bearing fields.
 
 `GET /api/runtime/status` is a live runtime projection. It requires the runtime API and does not fall back to disk snapshots or return `runtime: "unknown"`. `runtime` uses the `RuntimeStatus` vocabulary (`stopped`, `running`, `paused`, `error`). `actorRuntime.cards[].actorState` uses the public card actor vocabulary (`backlog`, `changed`, `blocked`, `failed`, `done`, `running`, `cancelled`). `actorRuntime.agents[]` exposes structured identity and phase fields: `agentId`, `role`, `cardId`, and `phase`, where `phase` is `idle`, `calling_provider`, or `waiting_for_tool`.
 

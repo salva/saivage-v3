@@ -13,10 +13,11 @@ import { isReadBlocked } from '../workspace/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { writeFileAtomic } from './durable-write.js';
 import { CardStore } from '../cards/card-store.js';
+import { PROJECT_CARD_ID } from '../cards/project-card.js';
 import { createDefaultRuntimeState } from '../runtime/default-state.js';
 import { isLocked } from '../runtime/lock.js';
 import { cardIdFromSessionId } from '../runtime/actors/ids.js';
-import { saivageWorkRoot } from './layout.js';
+import { appLogFile, runtimeProcessLockFile, runtimeStateFile, saivageCardsRoot, saivageLogsRoot, saivageRoot, saivageStateRoot, saivageWorkRoot, saivageLocksRoot } from './layout.js';
 
 const PRIOR_WORK_DIRNAME = `.saivage-${'work'}`;
 const PRIOR_DURABLE_CARDS_SEGMENTS = ['outputs', 'cards'] as const;
@@ -67,12 +68,13 @@ function defaultProjectConfig(name: string): ProjectConfig {
 
 const SAIVAGE_DIRS: string[] = [
   'skills',
+  'config/prompts',
   'cards',
   'agents/conversations',
   'agents/runtime/actors/llm',
-  'runtime',
-  'tmp/state',
-  'supervision',
+  'state',
+  'logs',
+  'locks',
   'instructions',
 ];
 
@@ -91,7 +93,7 @@ const LEGACY_REJECTED_ARTIFACTS: string[] = [
   'runtime/actors',
   'views',
 ];
-const SAIVAGE_WORK_DIRS: string[] = ['cards', 'processes', 'downloads', 'quarantine', 'tmp/runtime', 'tmp/stash', 'tmp/uploads', 'tmp/previews'];
+const SAIVAGE_WORK_DIRS: string[] = ['cards', 'processes', 'tmp/stash'];
 
 function validationHint(projectRoot: string): string {
   return `Legacy .saivage state is not supported. Move it aside or let Saivage discard it under ${join(projectRoot, '.saivage.discarded-<timestamp>')} and restart with empty state.`;
@@ -118,29 +120,16 @@ function isValidJsonFile(
 function isNewSaivageState(projectRoot: string): boolean {
   const saivageDir = join(projectRoot, '.saivage');
   if (!existsSync(saivageDir)) return false;
-  const requiredDirs = [
-    'cards',
-    'agents/conversations',
-    'agents/runtime/actors/llm',
-    'runtime',
-    'supervision',
-  ];
   if (existsSync(join(saivageDir, ...PRIOR_DURABLE_CARDS_SEGMENTS))) return false;
   if (existsSync(join(projectRoot, PRIOR_WORK_DIRNAME))) return false;
-  for (const dir of requiredDirs) {
-    try {
-      if (!statSync(join(saivageDir, dir)).isDirectory()) return false;
-    } catch {
-      return false;
-    }
-  }
+  for (const obsolete of ['runtime', 'tmp', 'supervision']) if (existsSync(join(saivageDir, obsolete))) return false;
   // Reject any leftover legacy artifact from the pre-F13 layout.
   for (const artifact of LEGACY_REJECTED_ARTIFACTS) {
     if (existsSync(join(saivageDir, artifact))) return false;
   }
   if (hasCardScopedConversationUnderAgents(saivageDir)) return false;
   if (hasV1ConversationSegments(saivageDir)) return false;
-  return isValidJsonFile(join(saivageDir, 'project.json'), projectConfigSchema);
+  return !existsSync(join(saivageDir, 'project.json')) || isValidJsonFile(join(saivageDir, 'project.json'), projectConfigSchema);
 }
 
 function hasCardScopedConversationUnderAgents(saivageDir: string): boolean {
@@ -204,7 +193,7 @@ function ensureCleanSlateBoot(projectRoot: string): void {
   const saivageWorkDir = join(projectRoot, PRIOR_WORK_DIRNAME);
   if (!existsSync(saivageDir) && !existsSync(saivageWorkDir)) return;
   if (isNewSaivageState(projectRoot)) return;
-  if (isLocked(projectRoot)) throw new Error(`Cannot discard legacy Saivage state while runtime lock '${join(projectRoot, '.saivage', 'work', 'tmp', 'runtime', 'runtime.lock')}' is held. Stop the runtime first.`);
+  if (isLocked(projectRoot)) throw new Error(`Cannot discard legacy Saivage state while runtime lock '${runtimeProcessLockFile(projectRoot)}' is held. Stop the runtime first.`);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   discardLegacyState(projectRoot, stamp);
 }
@@ -219,33 +208,35 @@ export function explainStateValidationRejection(
 
 export function initProjectTree(projectRoot: string): { projectRoot: string } {
   ensureCleanSlateBoot(projectRoot);
-  const saivageDir = join(projectRoot, '.saivage');
+  const saivageDir = saivageRoot(projectRoot);
   const projectJsonPath = join(saivageDir, 'project.json');
-  if (existsSync(projectJsonPath)) { ensureWorkDirs(projectRoot); return { projectRoot }; }
   const name = projectRoot.split('/').pop() || 'saivage-project';
   for (const dir of SAIVAGE_DIRS) mkdirSync(join(saivageDir, dir), { recursive: true });
   ensureWorkDirs(projectRoot);
-  writeFileAtomic(projectJsonPath, JSON.stringify(defaultProjectConfig(name), null, 2) + '\n');
-  writeFileAtomic(join(saivageDir, 'skills', 'index.json'), JSON.stringify([], null, 2) + '\n');
-  writeFileAtomic(join(saivageDir, 'runtime', 'events.jsonl'), '');
-  writeFileAtomic(join(saivageDir, 'runtime', 'errors.jsonl'), '');
+  const projectConfig = existsSync(projectJsonPath)
+    ? projectConfigSchema.parse(JSON.parse(readFileSync(projectJsonPath, 'utf-8')))
+    : defaultProjectConfig(name);
+  if (!existsSync(projectJsonPath)) writeFileAtomic(projectJsonPath, JSON.stringify(projectConfig, null, 2) + '\n');
+  const skillsIndexPath = join(saivageDir, 'skills', 'index.json');
+  if (!existsSync(skillsIndexPath)) writeFileAtomic(skillsIndexPath, JSON.stringify([], null, 2) + '\n');
+  if (!existsSync(appLogFile(projectRoot))) writeFileAtomic(appLogFile(projectRoot), '');
   const runtimeState = runtimeStateSchema.parse(createDefaultRuntimeState());
-  writeFileAtomic(join(saivageDir, 'tmp', 'state', 'runtime.json'), JSON.stringify({ version: 1, data: runtimeState }, null, 2) + '\n');
-  writeFileAtomic(join(saivageDir, 'supervision', 'reviews.jsonl'), '');
-  writeFileAtomic(
-    join(saivageDir, 'supervision', 'quarantine-index.json'),
-    JSON.stringify([], null, 2) + '\n',
-  );
-  writeFileAtomic(
-    join(saivageDir, 'saivage.yaml'),
-    'server:\n  host: "0.0.0.0"\n  port: 8080\nruntime: {}\n',
-  );
+  if (!existsSync(runtimeStateFile(projectRoot))) writeFileAtomic(runtimeStateFile(projectRoot), JSON.stringify({ version: 1, data: runtimeState }, null, 2) + '\n');
+  const configPath = join(saivageDir, 'saivage.yaml');
+  if (!existsSync(configPath)) writeFileAtomic(configPath, 'server:\n  host: "0.0.0.0"\n  port: 8080\nruntime: {}\n');
+  const cardsRoot = saivageCardsRoot(projectRoot);
+  const cardEntries = existsSync(cardsRoot) ? readdirSync(cardsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()) : [];
+  if (cardEntries.length > 0) {
+    const store = new CardStore(projectRoot);
+    if (!store.read(PROJECT_CARD_ID)) throw new Error(`Initialized card store is missing root project card '${PROJECT_CARD_ID}'.`);
+    return { projectRoot };
+  }
   new CardStore(projectRoot).create({
     type: 'project',
     parent: null,
     depth: 0,
-    title: name,
-    brief: `# Goal\n\nDefine and execute the ${name} project.\n\n# Instructions\n\nUse this root card as the canonical project objective and planning anchor.\n\n# Acceptance Criteria\n\n- The project objective is captured in the root card brief.\n- Child work is created under this project card.\n`,
+    title: projectConfig.name,
+    brief: `# Goal\n\nDefine and execute the ${projectConfig.name} project.\n\n# Instructions\n\nUse this root card as the canonical project objective and planning anchor.\n\n# Acceptance Criteria\n\n- The project objective is captured in the root card brief.\n- Child work is created under this project card.\n`,
     status: 'backlog',
     tags: [],
     priority: 0,
@@ -259,5 +250,14 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
 }
 
 export function isInitialized(projectRoot: string): boolean {
-  return existsSync(join(projectRoot, '.saivage', 'project.json'));
+  if (!isValidJsonFile(join(projectRoot, '.saivage', 'project.json'), projectConfigSchema)) return false;
+  for (const dir of [saivageCardsRoot(projectRoot), saivageStateRoot(projectRoot), saivageLogsRoot(projectRoot), saivageLocksRoot(projectRoot), saivageWorkRoot(projectRoot)]) {
+    try { if (!statSync(dir).isDirectory()) return false; } catch { return false; }
+  }
+  if (!existsSync(runtimeStateFile(projectRoot)) || !existsSync(appLogFile(projectRoot))) return false;
+  try {
+    return new CardStore(projectRoot).read(PROJECT_CARD_ID) !== null;
+  } catch {
+    return false;
+  }
 }

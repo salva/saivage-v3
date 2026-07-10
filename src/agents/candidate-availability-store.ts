@@ -1,9 +1,9 @@
 /**
  * FsCandidateAvailability — durable JSONL-backed CandidateAvailability with an
- * O_EXCL pidfile lock. Lives under `<projectRoot>/.saivage/runtime/`.
+ * O_EXCL pidfile lock.
  *
- * - `candidate-availability.jsonl`  — append-only event log of entries.
- * - `candidate-availability.lock`   — exclusive lock holding the owner PID.
+ * - `.saivage/state/provider-availability.jsonl`  — append-only event log of entries.
+ * - `.saivage/locks/provider-availability.lock`   — exclusive lock holding the owner PID.
  *
  * On construction the lock is acquired (throws CandidateAvailabilityLockedError
  * if another live process holds it) and the JSONL is replayed into memory.
@@ -22,7 +22,7 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname } from 'node:path';
 
 import {
   type AvailabilityDecision,
@@ -30,6 +30,7 @@ import {
   MemoryCandidateAvailability,
 } from './candidate-availability.js';
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
+import { providerAvailabilityFile, providerAvailabilityLockFile } from '../persistence/layout.js';
 
 export class CandidateAvailabilityLockedError extends Error {
   readonly holderPid: number | null;
@@ -71,10 +72,10 @@ export class FsCandidateAvailability extends MemoryCandidateAvailability {
 
   constructor(projectRoot: string, opts: { compactBytes?: number } = {}) {
     super();
-    const runtimeDir = join(projectRoot, '.saivage', 'runtime');
-    mkdirSync(runtimeDir, { recursive: true });
-    this.jsonlPath = join(runtimeDir, 'candidate-availability.jsonl');
-    this.lockPath = join(runtimeDir, 'candidate-availability.lock');
+    this.jsonlPath = providerAvailabilityFile(projectRoot);
+    this.lockPath = providerAvailabilityLockFile(projectRoot);
+    mkdirSync(dirname(this.jsonlPath), { recursive: true });
+    mkdirSync(dirname(this.lockPath), { recursive: true });
     this.compactBytes = opts.compactBytes ?? 262144;
     this.acquireLock();
     this.replay();

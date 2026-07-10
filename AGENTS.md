@@ -102,4 +102,4 @@ large or cross-cutting refactor.
 
 - Do not print tokens, provider configs, `.saivage/auth-profiles.json`, `.saivage/saivage.yaml`, env files, or backups.
 - API bearer tokens must not be placed in URLs.
-- Treat `.saivage/stages/**` and `.saivage/runtime/**` as live/generated runtime state unless the task targets them.
+- Treat `.saivage/stages/**`, `.saivage/state/**`, `.saivage/logs/**`, `.saivage/locks/**`, and `.saivage/work/**` as live/generated runtime state unless the task targets them.

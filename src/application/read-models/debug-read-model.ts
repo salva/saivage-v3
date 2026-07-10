@@ -1,10 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { CardStore } from '../../cards/store-api.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { runtimeStateSchema } from '../../schemas/index.js';
 import type { RuntimeState } from '../../schemas/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
+import { readAppLogEntries } from '../../persistence/app-log.js';
 
 export type DebugRuntimeReadModel = RuntimeState & { pid: number };
 export interface DebugStateReadModel { runtime: DebugRuntimeReadModel | null; cards: Array<Record<string, unknown>>; totalCards: number; }
@@ -21,25 +20,15 @@ export class DebugReadModelService {
   }
 
   getErrors(): DebugJsonlReadModel {
-    const errors = this.readJsonl(join(this.projectRoot, '.saivage', 'runtime', 'errors.jsonl'));
+    const errors = readAppLogEntries(this.projectRoot, 'error').map((entry) => entry.data);
     const redactedErrors = errors.map((entry) => redactForOutbound(entry, 'operator.api', { source: 'debug-read-model.errors' }));
     return { errors: redactedErrors, total: redactedErrors.length };
   }
 
   getTimeline(): DebugJsonlReadModel {
-    const events = this.readJsonl(join(this.projectRoot, '.saivage', 'runtime', 'events.jsonl'));
+    const events = readAppLogEntries(this.projectRoot, 'event').map((entry) => entry.data);
     const redactedEvents = events.map((entry) => redactForOutbound(entry, 'operator.api', { source: 'debug-read-model.timeline' }));
     return { events: redactedEvents, total: redactedEvents.length };
   }
 
-  private readJsonl(path: string): unknown[] {
-    const entries: unknown[] = [];
-    if (existsSync(path)) {
-      const raw = readFileSync(path, 'utf-8');
-      for (const line of raw.split('\n').filter(Boolean)) {
-        try { entries.push(JSON.parse(line)); } catch { void 0; }
-      }
-    }
-    return entries;
-  }
 }
