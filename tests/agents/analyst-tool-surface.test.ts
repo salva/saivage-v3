@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as YAML from 'yaml';
@@ -23,6 +23,7 @@ import { createRuntimeApplication } from '../../src/application/runtime-composit
 import { EventBus } from '../../src/events/bus.js';
 import { EventLogger, ErrorLogger } from '../../src/observability/index.js';
 import type { CardLifecycleState, CardStatus } from '../../src/schemas/index.js';
+import { readDeletedCardIds } from '../../src/persistence/deleted-card-ids.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
 import { formatPromptToolList } from '../../src/utils/prompt-api.js';
@@ -294,7 +295,7 @@ describe('Analyst paused card-management gates', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('uses archive-backed delete for non-running subtrees while paused', async () => {
+  it('deletes non-running subtrees while paused without archive side files', async () => {
     const root = setupRoot();
     try {
       pauseRuntime(root);
@@ -304,7 +305,8 @@ describe('Analyst paused card-management gates', () => {
       const result = await delete_card(toolCtx(root, store), { ids: [childIds[0]] });
       expect(result.success).toBe(true);
       expect(store.read(childIds[0])).toBeNull();
-      expect(readFileSync(join(root, '.saivage', 'archive', 'cards', `${childIds[0]}.json`), 'utf-8')).toContain(childIds[0]);
+      expect(readDeletedCardIds(root)).toContain(childIds[0]);
+      expect(existsSync(join(root, '.saivage', 'archive'))).toBe(false);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

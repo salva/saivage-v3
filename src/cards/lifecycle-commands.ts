@@ -65,7 +65,7 @@ export class CardLifecycleCommands {
 
       if (state.isReservedId(id)) {
         throw new Error(
-          `Cannot create card '${id}': card ids are durable and this id is already reserved by history or archive state.`,
+          `Cannot create card '${id}': card ids are durable and this id is already reserved by deleted-card state.`,
         );
       }
 

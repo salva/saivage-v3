@@ -4,11 +4,9 @@
 // `card_history_appended` event AFTER the lock drops.
 
 import {
-  mkdirSync,
-  renameSync,
   rmSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EventBus } from '../events/index.js';
 import type {
@@ -25,6 +23,7 @@ import { CardStoreState } from './state.js';
 import { CardStoreInvariantError } from './errors.js';
 import { cardRecordNamespaceDir, writeBriefRecordVersion, writeCardRecordVersion } from '../persistence/card-loader.js';
 import type { CardMutationContext } from './lifecycle.js';
+import { reserveDeletedCardIds } from '../persistence/deleted-card-ids.js';
 
 export type ApplyMutationOp =
   | {
@@ -140,7 +139,7 @@ function applyMutationLocked(
     }
     if (state.isReservedId(card.id)) {
       throw new CardStoreInvariantError(
-        `Cannot create card '${card.id}': card ids are durable and this id is already reserved by history or archive state.`,
+        `Cannot create card '${card.id}': card ids are durable and this id is already reserved by deleted-card state.`,
       );
     }
     if (card.version_seq !== 1) {
@@ -197,11 +196,8 @@ function applyMutationLocked(
     op.changeSummary,
   );
   const liveDir = cardRecordNamespaceDir(deps.projectRoot, op.cardId);
-  const archiveDir = join(deps.projectRoot, '.saivage', 'archive', 'cards', op.cardId);
-  mkdirSync(dirname(archiveDir), { recursive: true });
-  rmSync(archiveDir, { recursive: true, force: true });
-  renameSync(liveDir, archiveDir);
-  fsyncDir(dirname(archiveDir));
+  reserveDeletedCardIds(deps.projectRoot, [op.cardId]);
+  rmSync(liveDir, { recursive: true, force: true });
   fsyncDir(dirname(liveDir));
   state.remove(op.cardId);
   const event: CardHistoryAppendedPayload = {

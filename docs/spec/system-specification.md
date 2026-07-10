@@ -98,7 +98,7 @@ The project card is mostly a regular goal card. Its special properties are struc
 
 If the user asks the Analyst to replace the project objective, the expected path is to update the existing project card's `record:///brief.md?card=project&v=next` with `write` or `edit` while runtime status is `stopped` or `paused`, subject to the same card-status gate as other brief edits. Direct destructive replacement of the project card is not an Analyst capability.
 
-Archiving is not a card status. To archive a card, the system moves its on-disk representation to a card archive directory and removes it from the runtime's active card tree.
+Archiving is not a card status. Deleting or archiving a card removes it from the active card tree and removes its live `.saivage/cards/<id>/` record namespace. Deleted card ids remain reserved in `.saivage/state/deleted-card-ids.json`; there is no card restore or archive-content contract.
 
 Goal and project cards carry their own planning state: decomposition, assumptions, sequencing notes, reviewer feedback, and relevant correction history, held in card records and card state.
 
@@ -120,9 +120,9 @@ The durable card status records lifecycle state. `working_status` records ongoin
 
 Children under a parent form an explicit ordered list. Creation appends to the end by default.
 
-The Analyst has limited card authority on behalf of the user. All Analyst card mutations require runtime status `stopped` or `paused`. In those states, the Analyst may manage cards through semantic operations such as create card, reorder direct children where supported, cancel dormant work, and delete cards/subtrees from the active tree with archive-backed preservation. It may also update the goal/instructions/acceptance brief of any existing card whose current status is exactly `backlog`, `done`, `failed`, or `running` by calling `write` or `edit` on `record:///brief.md?card=<id>&v=next`, or by committing fetched content with `webfetch.save_as` to that same record URL. Direct `brief.md` edits to `changed`, `blocked`, or `cancelled` cards fail before a new record version is opened or written. Analyst `write`, `edit`, and `webfetch.save_as` for `record:///brief.md?card=<id>&v=next` share the same new-version contract: validate runtime/card/record state, validate the final brief markdown, create and close a new `brief.md` version, and then apply card-edit propagation. `edit` loads the latest closed brief as its source and never rewrites a historical closed version in place.
+The Analyst has limited card authority on behalf of the user. All Analyst card mutations require runtime status `stopped` or `paused`. In those states, the Analyst may manage cards through semantic operations such as create card, reorder direct children where supported, cancel dormant work, and delete cards/subtrees from the active tree with deleted-id reservation. It may also update the goal/instructions/acceptance brief of any existing card whose current status is exactly `backlog`, `done`, `failed`, or `running` by calling `write` or `edit` on `record:///brief.md?card=<id>&v=next`, or by committing fetched content with `webfetch.save_as` to that same record URL. Direct `brief.md` edits to `changed`, `blocked`, or `cancelled` cards fail before a new record version is opened or written. Analyst `write`, `edit`, and `webfetch.save_as` for `record:///brief.md?card=<id>&v=next` share the same new-version contract: validate runtime/card/record state, validate the final brief markdown, create and close a new `brief.md` version, and then apply card-edit propagation. `edit` loads the latest closed brief as its source and never rewrites a historical closed version in place.
 
-The Analyst must not directly rewrite primary card state, lifecycle/output state, `status.md`, or `review.md`. Analyst structural mutations that would invalidate a running subtree remain denied unless a later design explicitly allows them. A running card's `brief.md` may be updated while runtime status is `stopped` or `paused`; the card remains `running` and only that card is notified. Cross-parent card movement, restart/reset, direct activation, and raw archive manipulation are not Analyst card operations.
+The Analyst must not directly rewrite primary card state, lifecycle/output state, `status.md`, or `review.md`. Analyst structural mutations that would invalidate a running subtree remain denied unless a later design explicitly allows them. A running card's `brief.md` may be updated while runtime status is `stopped` or `paused`; the card remains `running` and only that card is notified. Cross-parent card movement, restart/reset, direct activation, and direct deleted-id state manipulation are not Analyst card operations.
 
 A planner's card authority is local to the goal it owns. It may directly target only that goal's direct children: create them, edit them, reorder them, cancel/delete them where supported, and activate them. Some supported operations, such as cancelling or deleting a direct child, may recursively affect that child's descendants. The planner still targets only the direct child; it may not directly mutate ancestors, siblings, unrelated cards, or descendants below one of its children. Larger tree changes are Analyst-owned, but cross-parent card movement is not a supported card operation.
 
@@ -252,7 +252,7 @@ Notifications are forgotten as queue items after delivery. The platform does not
 
 The runtime records delivery markers for delivered notifications so operators can distinguish delivered context from still-pending context in runtime diagnostics. Delivery happens while constructing the next provider input, not while validating a terminal result. Safe delivery points are initial main-agent turns, non-terminal tool continuations, failed terminal `emit_result` repair continuations, and plain-text repair continuations. Terminal validation does not sample pending notification state, does not deliver notifications, and does not reject or defer a terminal result solely because notifications are pending. Notifications arriving on an already-done card after settlement are queued for future delivery and do not mutate lifecycle state. `changed` is produced only by card edits/subtree mutations, never by notification delivery. The runtime must not silently discard pending context.
 
-If a card is deleted or archived with undelivered notifications, those notifications remain with the deleted or archived card representation and are no longer deliverable through the active runtime.
+If a card is deleted or archived with undelivered notifications, those notifications are removed with the live card namespace and are no longer deliverable through the active runtime.
 
 If a user phrases a notification in role terms, such as "tell the executor for goal-7," the Analyst resolves that request to the relevant card or asks one clarifying question.
 
@@ -264,7 +264,7 @@ The Analyst must let the user complete these tasks in natural language:
 
 - inspect cards, runtime state, runtime events, errors, control actions, agent sessions, live process projections, process logs, directory listings, file contents, configuration, credentials, and secret-bearing state when needed;
 - navigate the workspace to cards, files, debug views, processes, runtime cards, and agent sessions;
-- manage cards while runtime status is `stopped` or `paused` through supported semantic operations, including card creation, child reordering, dormant cancellation, and delete/archive-backed removal where allowed;
+- manage cards while runtime status is `stopped` or `paused` through supported semantic operations, including card creation, child reordering, dormant cancellation, and delete/archive removal where allowed;
 - update card goal/instructions/acceptance content while runtime status is `stopped` or `paused` by using `write`, `edit`, or `webfetch.save_as` for `record:///brief.md?card=<id>&v=next` when the card is `backlog`, `done`, `failed`, or `running`;
 - queue card-addressed notifications;
 - run/continue, pause, and shutdown the runtime;
@@ -422,7 +422,7 @@ The system satisfies this specification when:
 - reviewer approval is invalidated if the assessed planning card or any descendant changes before approval commits;
 - negative reviewer results are stored with the card and injected into planner context, while positive reviewer text is attached for recordkeeping only;
 - notifications are card-addressed, ephemeral, immutable, and non-inspectable as objects;
-- undelivered notifications remain with deleted or archived card representations and are no longer delivered through the active runtime;
+- undelivered notifications on deleted or archived cards are no longer delivered through the active runtime;
 - restart/reset of planner state is not required;
 - planner sessions are planning-card-lived and resume as the same logical session when the same project or goal card is reactivated;
 - process execution follows launch, monitor, bounded wait, and explicit termination semantics;
@@ -430,5 +430,5 @@ The system satisfies this specification when:
 - the Analyst can inspect, diagnose, configure, repair, navigate the workspace, and mutate supported card state through canonical services, including secret inspection when needed;
 - the Analyst can drive workspace navigation and receives enough UI context to reason about what the user is seeing;
 - sibling reorder is supported where allowed, but cross-parent card movement is not supported;
-- archiving removes a card from active runtime state by moving its on-disk representation to an archive directory rather than setting an `archived` status;
+- archiving removes a card from active runtime state and reserves its id in `.saivage/state/deleted-card-ids.json` rather than setting an `archived` status or writing archive side files;
 - UI details are governed by the operator UI specification and remain subordinate to the Analyst-as-control-surface model.

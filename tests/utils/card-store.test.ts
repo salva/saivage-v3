@@ -16,6 +16,8 @@ import { CardStore } from '../../src/cards/card-store.js';
 import { CardStoreState } from '../../src/cards/state.js';
 import { validateParsedCards } from '../../src/cards/validator.js';
 import { cardHistoryPath, cardRecordNamespaceDir, cardRecordVersionPath, parseCard, readHistoryEntriesStrict } from '../../src/persistence/card-loader.js';
+import { readDeletedCardIds } from '../../src/persistence/deleted-card-ids.js';
+import { deletedCardIdsFile } from '../../src/persistence/layout.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
@@ -278,6 +280,9 @@ describe('CardStore CRUD still works with validated indexes', () => {
 
     store.delete(deleted.id);
 
+    expect(readDeletedCardIds(tmpDir)).toEqual([deleted.id]);
+    expect(existsSync(join(tmpDir, '.saivage', 'archive'))).toBe(false);
+
     const next = store.create(makeCard({ type: 'goal', title: 'Next' }));
     expect(next.id).toBe('card-2');
   });
@@ -287,6 +292,9 @@ describe('CardStore CRUD still works with validated indexes', () => {
     expect(archived.id).toBe('card-1');
 
     store.archiveAndDeleteSubtree([archived.id]);
+
+    expect(readDeletedCardIds(tmpDir)).toEqual([archived.id]);
+    expect(existsSync(join(tmpDir, '.saivage', 'archive'))).toBe(false);
 
     const next = store.create(makeCard({ type: 'goal', title: 'Next' }));
     expect(next.id).toBe('card-2');
@@ -299,6 +307,17 @@ describe('CardStore CRUD still works with validated indexes', () => {
 
     const reloaded = new CardStore(tmpDir);
     const next = reloaded.create(makeCard({ type: 'goal', title: 'After Reload' }));
+    expect(next.id).toBe('card-2');
+  });
+
+  it('loads deleted id reservations only from deleted-card state', () => {
+    writeFileSync(deletedCardIdsFile(tmpDir), JSON.stringify(['card-1'], null, 2) + '\n');
+    mkdirSync(join(tmpDir, '.saivage', 'archive', 'cards'), { recursive: true });
+    writeFileSync(join(tmpDir, '.saivage', 'archive', 'cards', 'card-2.json'), '{}\n');
+
+    const reloaded = new CardStore(tmpDir);
+    const next = reloaded.create(makeCard({ type: 'goal', title: 'After Reservation' }));
+
     expect(next.id).toBe('card-2');
   });
 
@@ -573,10 +592,8 @@ describe('ARCH-026 hierarchy graph authority', () => {
     store.archiveAndDeleteSubtree([subtree.id, subtreeChild.id]);
     expect(store.read(subtree.id)).toBeNull();
     expect(store.read(subtreeChild.id)).toBeNull();
-    const archive = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'archive', 'cards', `${subtree.id}.json`), 'utf-8'),
-    ) as { children: string[] };
-    expect(archive.children).toEqual([subtreeChild.id]);
+    expect(readDeletedCardIds(tmpDir)).toEqual(expect.arrayContaining([leaf.id, subtree.id, subtreeChild.id]));
+    expect(existsSync(join(tmpDir, '.saivage', 'archive'))).toBe(false);
   });
 
   it('does not use loadChildren in CardStore semantic readers or destructive traversal', () => {

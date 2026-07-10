@@ -7,6 +7,7 @@ import { CardStoreInvariantError } from '../cards/errors.js';
 import { validateCardHistoryInvariant, validateParsedCards } from '../cards/validator.js';
 import { allocateGlobalRecordSeq, readRecordSlotIndex, recordPath, recordSlotDir, writeRecordSlotIndex, type RecordSlotIndex } from '../runtime/records/record-slots.js';
 import { saivageCardsRoot } from './layout.js';
+import { readDeletedCardIds } from './deleted-card-ids.js';
 
 export interface LoadCardStoreStateOptions {
   maxDepth?: number;
@@ -129,7 +130,10 @@ export function loadCardStoreState(projectRoot: string, options: LoadCardStoreSt
   const maxDepth = options.maxDepth !== undefined && options.maxDepth > 0 ? options.maxDepth : 5;
   const state = new CardStoreState(maxDepth);
   const dir = cardRecordsRoot(projectRoot);
-  if (!existsSync(dir)) return state;
+  if (!existsSync(dir)) {
+    for (const id of readDeletedCardIds(projectRoot)) state.addReservedId(id);
+    return state;
+  }
   const cards = readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((name) => {
@@ -151,12 +155,6 @@ export function loadCardStoreState(projectRoot: string, options: LoadCardStoreSt
     );
   }
   const liveIdSet = new Set(cards.map((card) => card.id));
-  const archiveDir = join(projectRoot, '.saivage', 'archive', 'cards');
-  if (existsSync(archiveDir)) {
-    for (const name of readdirSync(archiveDir)) {
-      const id = name.replace(/\.json$/, '');
-      if (!liveIdSet.has(id)) state.addReservedId(id);
-    }
-  }
+  for (const id of readDeletedCardIds(projectRoot)) if (!liveIdSet.has(id)) state.addReservedId(id);
   return state;
 }

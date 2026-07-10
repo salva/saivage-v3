@@ -28,6 +28,10 @@ export function runtimeStateFile(projectRoot: string): string {
   return join(saivageStateRoot(projectRoot), 'runtime.json');
 }
 
+export function deletedCardIdsFile(projectRoot: string): string {
+  return join(saivageStateRoot(projectRoot), 'deleted-card-ids.json');
+}
+
 export function appLogFile(projectRoot: string): string {
   return join(saivageLogsRoot(projectRoot), 'app.jsonl');
 }
