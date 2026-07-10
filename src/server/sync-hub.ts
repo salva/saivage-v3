@@ -12,6 +12,7 @@ export const liveSyncEventKinds = [
   'notification_added',
   'control_action_recorded',
   'analyst_tool_invoked',
+  'conversation_changed',
 ] as const satisfies readonly OperatorBroadcastEventKind[];
 
 export type LiveSyncEventKind = typeof liveSyncEventKinds[number];
@@ -55,7 +56,6 @@ export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyn
       break;
 
     case 'mcp_tool_invocation':
-      addConversation();
       break;
 
     case 'runtime_actionable_error':
@@ -73,6 +73,10 @@ export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyn
     case 'analyst_tool_invoked':
       if (isCardAnalystTool(event)) add({ resource: 'cards' });
       add({ resource: 'timeline' });
+      break;
+
+    case 'conversation_changed':
+      addConversation();
       break;
 
   }

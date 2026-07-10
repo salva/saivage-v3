@@ -7,7 +7,7 @@ import type { ProviderExchangeAttempt, ProviderExchangePayload } from '../../con
 import { serializeProviderExchangePayload } from '../../contracts/provider-exchange.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
-import { appendConversationMessage, appendProviderExchangeMessage, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from './conversation-store.js';
+import { appendConversationMessage, appendProviderExchangeMessage, listConversationSessionIds, readActiveVersionMessages, readConversationMessages, type ConversationAppendResult } from './conversation-store.js';
 import { agentIdFromSessionId, cardIdFromSessionId } from './ids.js';
 import {
   loggedToolCallIdentity,
@@ -59,9 +59,10 @@ export interface LoggedToolCall {
   args: unknown;
 }
 
-export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationInput, options: { includeSystemPrompt?: boolean } = {}): void {
+export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationInput, options: { includeSystemPrompt?: boolean } = {}): ConversationAppendResult[] {
+  const results: ConversationAppendResult[] = [];
   if (options.includeSystemPrompt ?? true) {
-    appendConversationMessage(projectRoot, {
+    results.push(appendConversationMessage(projectRoot, {
       id: `${input.agentId}:system-prompt`,
       session_id: input.sessionId,
       role: 'system',
@@ -71,10 +72,10 @@ export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationIn
       message_index: 0,
       block_index: 0,
       timestamp: new Date().toISOString(),
-    });
+    }));
   }
-  for (const message of input.turnMessages ?? []) appendConversationMessage(projectRoot, message);
-  appendConversationMessage(projectRoot, {
+  for (const message of input.turnMessages ?? []) results.push(appendConversationMessage(projectRoot, message));
+  results.push(appendConversationMessage(projectRoot, {
     id: `${input.inputId}:started`,
     session_id: input.sessionId,
     role: 'system',
@@ -84,7 +85,8 @@ export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationIn
     message_index: 0,
     block_index: 0,
     timestamp: new Date().toISOString(),
-  });
+  }));
+  return results;
 }
 
 export function appendLlmTurnFinished(projectRoot: string, input: LlmInvocationInput, result: LlmCompleteResult): void {
@@ -97,7 +99,7 @@ export function appendLlmTurnFinished(projectRoot: string, input: LlmInvocationI
   });
 }
 
-export function appendLlmTurnMessage(projectRoot: string, input: LlmInvocationInput, content: string): AgentMessage {
+export function appendLlmTurnMessage(projectRoot: string, input: LlmInvocationInput, content: string): AgentMessage & { appendResult: ConversationAppendResult } {
   const message = agentMessageSchema.parse({
       id: `${input.inputId}:message`,
       session_id: input.sessionId,
@@ -109,11 +111,11 @@ export function appendLlmTurnMessage(projectRoot: string, input: LlmInvocationIn
       block_index: 0,
       timestamp: new Date().toISOString(),
     });
-  appendConversationMessage(projectRoot, message);
-  return message;
+  const appendResult = appendConversationMessage(projectRoot, message);
+  return Object.assign(message, { appendResult });
 }
 
-export function appendLlmTurnError(projectRoot: string, input: LlmInvocationInput, error: string): AgentMessage {
+export function appendLlmTurnError(projectRoot: string, input: LlmInvocationInput, error: string): AgentMessage & { appendResult: ConversationAppendResult } {
   const message = agentMessageSchema.parse({
     id: `${input.inputId}:error`,
     session_id: input.sessionId,
@@ -125,19 +127,20 @@ export function appendLlmTurnError(projectRoot: string, input: LlmInvocationInpu
     block_index: 0,
     timestamp: new Date().toISOString(),
   });
-  appendConversationMessage(projectRoot, message);
-  return message;
+  const appendResult = appendConversationMessage(projectRoot, message);
+  return Object.assign(message, { appendResult });
 }
 
-export function appendLlmProviderExchangeRows(projectRoot: string, input: LlmInvocationInput, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[], assistantTurnBlockCount = 1): void {
-  if (attempts.length === 0) return;
+export function appendLlmProviderExchangeRows(projectRoot: string, input: LlmInvocationInput, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[], assistantTurnBlockCount = 1): ConversationAppendResult[] {
+  if (attempts.length === 0) return [];
+  const results: ConversationAppendResult[] = [];
   const sorted = [...attempts].sort((a, b) => (a.attempt_index ?? -1) - (b.attempt_index ?? -1));
   sorted.forEach((attempt, index) => {
     if (attempt.source_input_id !== input.inputId) throw new Error(`provider_exchange source_input_id '${attempt.source_input_id}' does not match input '${input.inputId}'.`);
     if (attempt.attempt_index !== index) throw new Error(`provider_exchange attempt indexes for '${input.inputId}' must be consecutive 0..N.`);
     const payload = providerExchangePayload(attempt, assistantOutputIds);
     const id = `${input.inputId}:provider-exchange:${attempt.attempt_index}`;
-    appendProviderExchangeMessage(projectRoot, agentMessageSchema.parse({
+    results.push(appendProviderExchangeMessage(projectRoot, agentMessageSchema.parse({
       id,
       session_id: input.sessionId,
       role: 'system',
@@ -147,19 +150,20 @@ export function appendLlmProviderExchangeRows(projectRoot: string, input: LlmInv
       message_index: 1,
       block_index: assistantTurnBlockCount + attempt.attempt_index,
       timestamp: attempt.completed_at,
-    }));
+    })));
   });
+  return results;
 }
 
-export function appendToolDelivery(projectRoot: string, record: Omit<ToolDeliveryRecord, 'delivery_id' | 'created_at'>): ToolDeliveryRecord {
+export function appendToolDelivery(projectRoot: string, record: Omit<ToolDeliveryRecord, 'delivery_id' | 'created_at'>): ToolDeliveryRecord & { appendResult: ConversationAppendResult } {
   const delivery: ToolDeliveryRecord = {
     ...record,
     delivery_id: `${record.agent_id}:${record.tool_call_id}:${record.delivery_input_id}`,
     created_at: new Date().toISOString(),
   };
   const parsed = toolDeliveryRecordSchema.parse(delivery);
-  appendConversationMessage(projectRoot, toolResultAgentMessage(parsed));
-  return parsed;
+  const appendResult = appendConversationMessage(projectRoot, toolResultAgentMessage(parsed));
+  return Object.assign(parsed, { appendResult });
 }
 
 export function readLoggedToolCall(projectRoot: string, sessionId: string, agentId: string, sourceInputId: string, toolCallId: string): LoggedToolCall {
@@ -177,7 +181,7 @@ export function readLoggedToolCall(projectRoot: string, sessionId: string, agent
   }
 }
 
-export function appendTerminalProjectedToolResult(projectRoot: string, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string }): AgentMessage {
+export function appendTerminalProjectedToolResult(projectRoot: string, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string }): AgentMessage & { appendResult: ConversationAppendResult } {
   return appendSyntheticToolResult(projectRoot, {
     sessionId: record.sessionId,
     sourceInputId: record.sourceInputId,
@@ -303,7 +307,7 @@ export function toolResultAgentMessage(record: ToolDeliveryRecord): AgentMessage
   });
 }
 
-function appendSyntheticToolResult(projectRoot: string, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string; result: unknown }): AgentMessage {
+function appendSyntheticToolResult(projectRoot: string, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string; result: unknown }): AgentMessage & { appendResult: ConversationAppendResult } {
   const deliveryInputId = `${record.sourceInputId}:tool:0`;
   const message = agentMessageSchema.parse({
     id: `${deliveryInputId}:tool-result:${record.toolCallId}`,
@@ -318,11 +322,11 @@ function appendSyntheticToolResult(projectRoot: string, record: { sessionId: str
     block_index: 0,
     timestamp: new Date().toISOString(),
   });
-  appendConversationMessage(projectRoot, message);
-  return message;
+  const appendResult = appendConversationMessage(projectRoot, message);
+  return Object.assign(message, { appendResult });
 }
 
-export function appendProviderVisibleSyntheticFailedToolResult(projectRoot: string, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): AgentMessage {
+export function appendProviderVisibleSyntheticFailedToolResult(projectRoot: string, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): AgentMessage & { appendResult: ConversationAppendResult } {
   const payload: SyntheticFailedToolResultPayload = { success: false, error: record.error };
   if (record.data !== undefined) payload.data = record.data;
   return appendSyntheticToolResult(projectRoot, { ...record, result: payload });
@@ -373,14 +377,14 @@ function stringArg(args: Record<string, unknown>, key: string): string | undefin
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-export function appendLlmTurnToolCall(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall): AgentMessage {
+export function appendLlmTurnToolCall(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall): AgentMessage & { appendResult: ConversationAppendResult } {
   return appendToolCallMessage(projectRoot, input, toolCall, 0);
 }
 
-function appendToolCallMessage(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall, index: number): AgentMessage {
+function appendToolCallMessage(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall, index: number): AgentMessage & { appendResult: ConversationAppendResult } {
   const message = toolCallAgentMessage(input, toolCall, index);
-  appendConversationMessage(projectRoot, message);
-  return message;
+  const appendResult = appendConversationMessage(projectRoot, message);
+  return Object.assign(message, { appendResult });
 }
 
 function toolCallAgentContent(toolCall: ToolCall): unknown {
@@ -399,7 +403,7 @@ function toolCallAgentContent(toolCall: ToolCall): unknown {
   };
 }
 
-export function appendModelRepairMessage(projectRoot: string, input: LlmInvocationInput, content: string): AgentMessage {
+export function appendModelRepairMessage(projectRoot: string, input: LlmInvocationInput, content: string): AgentMessage & { appendResult: ConversationAppendResult } {
   const message = agentMessageSchema.parse({
     id: `${input.inputId}:repair`,
     session_id: input.sessionId,
@@ -411,8 +415,8 @@ export function appendModelRepairMessage(projectRoot: string, input: LlmInvocati
     block_index: 0,
     timestamp: new Date().toISOString(),
   });
-  appendConversationMessage(projectRoot, message);
-  return message;
+  const appendResult = appendConversationMessage(projectRoot, message);
+  return Object.assign(message, { appendResult });
 }
 
 function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {

@@ -7,6 +7,7 @@ import { replayToolForRecovery, type InvocationSurface } from '../../tools/invoc
 import { readLlmActiveReconstruction } from './active-reconstruction.js';
 import { readActorSnapshot } from './snapshots.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
+import type { ConversationChangePublisher } from './conversation-publisher.js';
 import { listConversationSessionIds, readConversationMessages, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import type { AgentMessage } from '../../schemas/index.js';
 
@@ -17,10 +18,11 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   readonly compactionConfig?: CompactionConfig;
   readonly summarizerProvider?: LLMProviderPort;
   readonly bufferSizeEstimator?: BufferSizeEstimator;
+  readonly conversationPublisher?: ConversationChangePublisher;
   readonly activeLlmActors = new Map<string, LLMActor>();
   #invocationInputCounter = 0;
 
-  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
+  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.provider = args.provider;
     this.gate = args.gate ?? new RuntimeGate();
@@ -28,12 +30,13 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     this.compactionConfig = args.compactionConfig;
     this.summarizerProvider = args.summarizerProvider;
     this.bufferSizeEstimator = args.bufferSizeEstimator;
+    this.conversationPublisher = args.conversationPublisher;
   }
 
   protected createMainLlm(agentId: string): LLMActor {
     const existing = this.activeLlmActors.get(agentId);
     if (existing) return existing;
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator });
+    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, conversationPublisher: this.conversationPublisher });
     llm.start();
     this.activeLlmActors.set(agentId, llm);
     return llm;
@@ -103,6 +106,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
         compactionConfig: this.compactionConfig,
         summarizerProvider: this.summarizerProvider,
         bufferSizeEstimator: this.bufferSizeEstimator,
+        conversationPublisher: this.conversationPublisher,
         state: String(snapshot.state_value),
         activeReconstruction,
       });

@@ -39,7 +39,7 @@ describe('conversation-store', () => {
     expect(existsSync(join(dir, 'seg-001.jsonl'))).toBe(true);
   });
 
-  it('reads active rows separately from all version rows and removes orphan version files on load', () => {
+  it('canonical transcript reads only active version rows and removes orphan version files on load', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     const sessionId = 'planner:project';
     const dir = conversationDir(root, sessionId);
@@ -67,8 +67,8 @@ describe('conversation-store', () => {
     const all = readConversationMessages(root, sessionId);
 
     expect(active.map((message) => message.id)).toEqual(['shared', 'active-1']);
-    expect(all.map((message) => message.id)).toEqual(['frozen-1', 'shared', 'active-1']);
-    expect(all.find((message) => message.id === 'shared')?.content).toBe('dedupe from frozen');
+    expect(all.map((message) => message.id)).toEqual(['shared', 'active-1']);
+    expect(all.find((message) => message.id === 'shared')?.content).toBe('dedupe from active');
     expect(existsSync(join(dir, '3.jsonl'))).toBe(false);
   });
 
@@ -79,9 +79,18 @@ describe('conversation-store', () => {
     const second = appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 1, { role: 'user', content: 'same content' });
     const messages = readConversationMessages(root, 'planner:project');
 
-    expect(first.id).not.toBe(second.id);
+    expect(first.message.id).not.toBe(second.message.id);
     expect(messages.filter((message) => message.content === 'same content')).toHaveLength(2);
     expect(new Set(messages.map((message) => message.id)).size).toBe(2);
+  });
+
+  it('reports append results and idempotent tail duplicates', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    const message = makeMessage({ id: 'same-id', session_id: 'analyst:global' });
+
+    expect(appendConversationMessage(root, message)).toMatchObject({ message, appended: true });
+    expect(appendConversationMessage(root, message)).toMatchObject({ message, appended: false });
+    expect(readConversationMessages(root, 'analyst:global').map((row) => row.id)).toEqual(['same-id']);
   });
 
   it('keeps activation markers out of provider context while active-version read returns the persisted prefix', () => {

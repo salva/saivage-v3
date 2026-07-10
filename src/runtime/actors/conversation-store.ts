@@ -15,21 +15,10 @@ import {
 
 export { conversationDir, conversationIndexPath } from './conversation-index.js';
 
+export type ConversationAppendResult = { message: AgentMessage; appended: boolean };
+
 export function readConversationMessages(projectRoot: string, sessionId: string): AgentMessage[] {
-  const index = readConversationIndex(projectRoot, sessionId);
-  if (!index) return [];
-  const seen = new Set<string>();
-  const messages: AgentMessage[] = [];
-  for (const version of Object.keys(index.versions).map(Number).sort((a, b) => a - b)) {
-    const path = activeVersionPath(projectRoot, sessionId, version);
-    if (!existsSync(path)) throw new Error(`Conversation version '${version}' for '${sessionId}' was not found.`);
-    for (const message of readConversationVersion(path)) {
-      if (seen.has(message.id)) continue;
-      seen.add(message.id);
-      messages.push(message);
-    }
-  }
-  return messages;
+  return readActiveVersionMessages(projectRoot, sessionId);
 }
 
 export function readActiveVersionMessages(projectRoot: string, sessionId: string): AgentMessage[] {
@@ -46,12 +35,12 @@ export function listConversationSessionIds(projectRoot: string): string[] {
     .sort();
 }
 
-export function appendConversationMessage(projectRoot: string, message: AgentMessage): void {
+export function appendConversationMessage(projectRoot: string, message: AgentMessage): ConversationAppendResult {
   const parsed = agentMessageSchema.parse(message);
-  appendSyncIdempotentByKey(activeConversationVersionPath(projectRoot, parsed.session_id), parsed, 'id');
+  return { message: parsed, appended: appendSyncIdempotentByKey(activeConversationVersionPath(projectRoot, parsed.session_id), parsed, 'id') };
 }
 
-export function appendProviderExchangeMessage(projectRoot: string, message: AgentMessage): void {
+export function appendProviderExchangeMessage(projectRoot: string, message: AgentMessage): ConversationAppendResult {
   const parsed = agentMessageSchema.parse(message);
   if (parsed.kind !== 'provider_exchange') throw new Error(`appendProviderExchangeMessage requires kind provider_exchange, got '${parsed.kind}'.`);
   parseProviderExchangePayload(parsed.content);
@@ -59,10 +48,10 @@ export function appendProviderExchangeMessage(projectRoot: string, message: Agen
   const canonicalRow = JSON.stringify(parsed);
   for (const existing of readConversationVersion(path)) {
     if (existing.kind !== 'provider_exchange' || existing.id !== parsed.id) continue;
-    if (JSON.stringify(existing) === canonicalRow) return;
+    if (JSON.stringify(existing) === canonicalRow) return { message: parsed, appended: false };
     throw new Error(`provider_exchange duplicate id contract violation for session '${parsed.session_id}' message '${parsed.id}' in active conversation version.`);
   }
-  appendSyncIdempotentByKey(path, parsed, 'id');
+  return { message: parsed, appended: appendSyncIdempotentByKey(path, parsed, 'id') };
 }
 
 export type UserContextMessageCategory = 'planner_state' | 'notification' | 'reviewer_descendant' | 'continuation_hook';
@@ -76,7 +65,7 @@ export function appendUserContextMessage(
   category: UserContextMessageCategory,
   ordinal: number,
   userContextMessage: ProviderVisibleUserContextMessage,
-): AgentMessage {
+): ConversationAppendResult {
   const content = userContextMessage.content;
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:user:${inputId}:${category}:${ordinal}:${timestamp}:${content}`;
@@ -91,14 +80,13 @@ export function appendUserContextMessage(
     block_index: 0,
     timestamp,
   });
-  appendConversationMessage(projectRoot, message);
-  return message;
+  return appendConversationMessage(projectRoot, message);
 }
 
-export function appendActivationMarker(projectRoot: string, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): void {
+export function appendActivationMarker(projectRoot: string, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): ConversationAppendResult {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
-  appendConversationMessage(projectRoot, agentMessageSchema.parse({
+  return appendConversationMessage(projectRoot, agentMessageSchema.parse({
     id: `${sessionId}:activation:${createHash('sha256').update(seed).digest('hex').slice(0, 16)}`,
     session_id: sessionId,
     role: 'system',

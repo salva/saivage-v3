@@ -49,6 +49,12 @@ export const conversationIndexSchema = z.object({
 });
 
 export type ConversationIndex = z.infer<typeof conversationIndexSchema>;
+export type ConversationVersionReplacement = {
+  sessionId: string;
+  activeVersion: number;
+  compactedThrough: { message_id: string; round_id: string; timestamp: string };
+  compactionGeneration: number;
+};
 
 export function conversationDir(projectRoot: string, sessionId: string): string {
   const encodedSessionId = encodeURIComponent(sessionId);
@@ -89,7 +95,7 @@ export function writeCompactedConversationVersion(args: {
   summaryIds: string[];
   compactionGeneration: number;
   bands: { merge_line: number; summary_line: number; trigger: number; snap: 'keep_straddler_verbatim' | 'compact_straddler' };
-}): ConversationIndex {
+}): { index: ConversationIndex; versionReplacement: ConversationVersionReplacement } {
   const index = ensureConversationIndex(args.projectRoot, args.sessionId);
   if (index.active_version !== args.sourceVersion) throw new Error(`Conversation '${args.sessionId}' active version changed from ${args.sourceVersion} to ${index.active_version} during compaction.`);
   const sourceEntry = index.versions[String(args.sourceVersion)];
@@ -122,7 +128,15 @@ export function writeCompactedConversationVersion(args: {
     },
   };
   writeConversationIndex(args.projectRoot, args.sessionId, nextIndex);
-  return nextIndex;
+  return {
+    index: nextIndex,
+    versionReplacement: {
+      sessionId: args.sessionId,
+      activeVersion: nextVersion,
+      compactedThrough: args.compactedThrough,
+      compactionGeneration: args.compactionGeneration,
+    },
+  };
 }
 
 export function readConversationIndex(projectRoot: string, sessionId: string): ConversationIndex | null {

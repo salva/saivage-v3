@@ -16,6 +16,7 @@ import type { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
+import type { ConversationChangePublisher } from './conversation-publisher.js';
 
 export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
 
@@ -89,6 +90,7 @@ export interface CardActorDeps {
   promptTemplates: PromptTemplateRegistry;
   notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
   lookup: Map<string, CardActor>;
+  conversationPublisher?: ConversationChangePublisher;
 }
 
 export class CardActor extends BaseActor {
@@ -426,6 +428,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       summarizerProvider: owner.deps.summarizerProvider,
       bufferSizeEstimator: owner.deps.bufferSizeEstimator,
       promptTemplates: owner.deps.promptTemplates,
+      conversationPublisher: owner.deps.conversationPublisher,
     });
   }
   return new TerminalCardProcessorActor({
@@ -441,6 +444,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
     summarizerProvider: owner.deps.summarizerProvider,
     bufferSizeEstimator: owner.deps.bufferSizeEstimator,
     promptTemplates: owner.deps.promptTemplates,
+    conversationPublisher: owner.deps.conversationPublisher,
   });
 }
 

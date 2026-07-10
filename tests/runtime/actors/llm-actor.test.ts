@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { actorKindFromId, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { actorKindFromId, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, createConversationChangePublisher, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { EventBus } from '../../../src/events/index.js';
 import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
@@ -113,10 +114,13 @@ describe('LLMActor', () => {
     const config = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim', summarizer_model: 'test/_/summary' } satisfies CompactionConfig;
     const compactor = {
       shouldCompact: jest.fn(() => ({ shouldCompact: true })),
-      compact: jest.fn(async () => [compacted]),
+      compact: jest.fn(async () => ({ rows: [compacted], versionReplacement: { sessionId: 'planner:project', activeVersion: 2, compactedThrough: { message_id: compacted.id, round_id: compacted.round_id, timestamp: compacted.timestamp }, compactionGeneration: 1 } })),
     };
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (providerInput: LlmInvocationInput) => completion({ kind: 'message' as const, content: `saw:${(providerInput.contextMessages as unknown[]).length}:${(providerInput.contextMessages[0] as { content: string }).content}` })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) } });
+    const eventBus = new EventBus();
+    const changed = jest.fn();
+    eventBus.subscribe('conversation_changed', (event) => { changed(event); });
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) }, conversationPublisher: createConversationChangePublisher(eventBus) });
     actor.start();
 
     const outcome = await actor.turn({ ...input(), contextMessages: [{ ...compacted, id: 'raw', kind: 'text', content: 'raw context before compaction', round_id: 'r-user-00000000000000000000000000000001' }] });
@@ -124,13 +128,14 @@ describe('LLMActor', () => {
     expect(compactor.shouldCompact).toHaveBeenCalledTimes(1);
     expect(compactor.compact).toHaveBeenCalledTimes(1);
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ contextMessages: [compacted] }), expect.any(AbortSignal));
+    expect(changed).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ mutation: 'version_replaced', session_id: 'planner:project', active_version: 2 }) }));
     expect(outcome).toMatchObject({ type: 'result', result: { content: expect.stringContaining('saw:1:[Compacted prior conversation') } });
   }));
 
   it('does not set compacting when shouldCompact is false', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const config = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim', summarizer_model: 'test/_/summary' } satisfies CompactionConfig;
-    const compactor = { shouldCompact: jest.fn(() => ({ shouldCompact: false })), compact: jest.fn(async () => []) };
+    const compactor = { shouldCompact: jest.fn(() => ({ shouldCompact: false })), compact: jest.fn(async () => ({ rows: [], versionReplacement: { sessionId: 'planner:project', activeVersion: 2, compactedThrough: { message_id: 'none', round_id: 'none', timestamp: new Date().toISOString() }, compactionGeneration: 1 } })) };
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 1, bufferTokens: 100 }) } });
     actor.start();

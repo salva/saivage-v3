@@ -39,7 +39,7 @@ export function appendSyncIdempotentByKey<T extends Record<string, unknown>>(
   jsonlPath: string,
   entry: T,
   idField: keyof T & string,
-): void {
+): boolean {
   const entryId = entry[idField];
   if (typeof entryId !== 'string' || entryId.length === 0) {
     throw new PersistenceValidationError(jsonlPath, `id field '${idField}' must be a non-empty string`);
@@ -62,7 +62,7 @@ export function appendSyncIdempotentByKey<T extends Record<string, unknown>>(
         `last complete JSONL line is unparseable; refusing to append ${idField}=${entryId}`,
       );
     }
-    if (parsed && parsed[idField] === entryId) return;
+    if (parsed && parsed[idField] === entryId) return false;
   }
 
   mkdirSync(dirname(jsonlPath), { recursive: true });
@@ -71,6 +71,7 @@ export function appendSyncIdempotentByKey<T extends Record<string, unknown>>(
     fd = openSync(jsonlPath, 'a');
     appendFileSync(fd, JSON.stringify(entry) + '\n', 'utf-8');
     fsyncSync(fd);
+    return true;
   } catch (error) {
     throw new PersistenceWriteError(jsonlPath, (error as Error).message, { cause: error });
   } finally {

@@ -22,6 +22,29 @@ type RegistryEntry = {
 };
 
 const open = <T extends z.ZodRawShape>(baseShape: T, rest: Omit<RegistryEntry, 'baseShape' | 'strict'>) => ({ ...rest, baseShape, strict: false as const, refine: undefined as ((data: unknown, ctx: z.RefinementCtx) => void) | undefined });
+const strict = <T extends z.ZodRawShape>(baseShape: T, rest: Omit<RegistryEntry, 'baseShape' | 'strict' | 'refine'> & { refine?: (data: unknown, ctx: z.RefinementCtx) => void }) => ({ ...rest, baseShape, strict: true as const });
+
+const compactedThroughSchema = z.object({ message_id: z.string(), round_id: z.string(), timestamp: z.string() }).strict();
+function refineConversationChanged(data: unknown, ctx: z.RefinementCtx): void {
+  const payload = data as Record<string, unknown>;
+  if (payload.mutation === 'entry_appended') {
+    for (const key of ['message_id', 'message_kind', 'role', 'message_timestamp']) {
+      if (payload[key] === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is required for entry_appended` });
+    }
+    for (const key of ['active_version', 'compacted_through', 'compaction_generation']) {
+      if (payload[key] !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is not valid for entry_appended` });
+    }
+    return;
+  }
+  if (payload.mutation === 'version_replaced') {
+    for (const key of ['active_version', 'compacted_through', 'compaction_generation']) {
+      if (payload[key] === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is required for version_replaced` });
+    }
+    for (const key of ['message_id', 'message_kind', 'role', 'message_timestamp']) {
+      if (payload[key] !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is not valid for version_replaced` });
+    }
+  }
+}
 
 export const EventRegistry = {
   runtime_diagnostic: open({ goal_id: z.string().optional(), card_id: z.string().optional(), phase: z.string().optional(), error_message: z.string(), error_name: z.string().optional() }, { domain: 'runtime', severity: 'error', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
@@ -32,6 +55,7 @@ export const EventRegistry = {
   notification_added: open({ session_id: z.string().nullable(), notification_kind: z.string() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' }),
   control_action_recorded: open({ id: z.string(), action: z.string(), target_kind: z.string().nullable(), target_id: z.string().nullable(), outcome: z.string(), created_at: z.string(), actor: z.string().optional(), surface: z.string().optional() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' }),
   analyst_tool_invoked: open({ sessionId: z.string(), tool: z.string(), success: z.boolean(), summary: z.string(), classified_as: z.string().optional(), related_card_id: z.string().optional(), related_note_id: z.string().optional(), related_process_id: z.string().optional() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' }),
+  conversation_changed: strict({ session_id: z.string(), mutation: z.enum(['entry_appended', 'version_replaced']), message_id: z.string().optional(), message_kind: z.string().optional(), role: z.string().optional(), message_timestamp: z.string().datetime().optional(), active_version: z.number().int().positive().optional(), compacted_through: compactedThroughSchema.optional(), compaction_generation: z.number().int().nonnegative().optional() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator', refine: refineConversationChanged }),
   control_action_record_appended: open({ record: anyRecord }, { domain: 'runtime', severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' }),
   event_log_record_appended: open({ record: anyRecord }, { domain: 'runtime', severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' }),
   error_log_record_appended: open({ record: anyRecord }, { domain: 'runtime', severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' }),

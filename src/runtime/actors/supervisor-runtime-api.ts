@@ -21,6 +21,7 @@ import type { ProcessRunner } from '../process-runner.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from '../runtime-control-state.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
+import { createConversationChangePublisher } from './conversation-publisher.js';
 
 export interface ProjectRootCardReader {
   read(cardId: string): { id: string; type: string } | null;
@@ -307,6 +308,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       mcpManagerProvider: this.options.mcpManagerProvider,
       notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification),
       lookup: this.cardActors,
+      conversationPublisher: createConversationChangePublisher(this.eventBus),
     };
   }
 

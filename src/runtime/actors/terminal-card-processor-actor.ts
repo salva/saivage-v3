@@ -19,6 +19,7 @@ import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
+import type { ConversationChangePublisher } from './conversation-publisher.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' | 'blocked' }>;
 
@@ -38,7 +39,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly processRunner: ProcessRunner;
   private readonly promptTemplates: PromptTemplateRegistry;
 
-  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store?: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
+  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store?: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.processRunner = args.processRunner;
@@ -117,8 +118,12 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
     const sessionId = executorActorId(this.cardId);
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
-    appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId });
-    const notifications = this.notificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, message));
+    this.conversationPublisher?.entryAppended(appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId }));
+    const notifications = this.notificationContext(input, inputId).map((message, index) => {
+      const result = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, message);
+      this.conversationPublisher?.entryAppended(result);
+      return result.message;
+    });
     return {
       inputId,
       agentId: sessionId,
@@ -160,12 +165,13 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, sessionId: string): void {
-    appendTerminalProjectedToolResult(this.projectRoot, {
+    const result = appendTerminalProjectedToolResult(this.projectRoot, {
       sessionId,
       sourceInputId: outcome.inputId,
       toolCallId: outcome.toolCallId,
       toolName: outcome.toolName,
     });
+    this.conversationPublisher?.entryAppended(result.appendResult);
   }
 
   protected get processorLabel(): string {

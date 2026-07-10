@@ -12,6 +12,7 @@ describe('EventRegistry', () => {
       'notification_added',
       'control_action_recorded',
       'analyst_tool_invoked',
+      'conversation_changed',
       'control_action_record_appended',
       'event_log_record_appended',
       'error_log_record_appended',

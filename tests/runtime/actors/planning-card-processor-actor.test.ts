@@ -280,7 +280,6 @@ describe('PlanningCardProcessorActor', () => {
     ]));
     expect(readConversationMessages(projectRoot, `planner:${project.id}`)).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'text', role: 'user', content: 'Cancellation requested: stop' }),
-      expect.objectContaining({ kind: 'activity', role: 'system', content: expect.stringContaining('activation_open') }),
     ]));
     expect(readConversationMessages(projectRoot, `reviewer:${project.id}:assessment-${project.id}-1`)).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'text', role: 'user', content: expect.stringContaining('Descendant work:') }),

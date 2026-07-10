@@ -63,7 +63,7 @@ describe('conversation compactor orchestration', () => {
     appendRound(projectRoot, 3, 'recent round three ' + 'c'.repeat(80));
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (llmInput: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] })) };
 
-    const rows = await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
+    const { rows } = await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
 
     expect(rows.every((row) => row.kind !== 'activity')).toBe(true);
     const summaries = rows.filter((row) => row.kind === 'context_compaction');

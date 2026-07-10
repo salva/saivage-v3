@@ -23,6 +23,7 @@ import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
+import type { ConversationChangePublisher } from './conversation-publisher.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -54,7 +55,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly promptTemplates: PromptTemplateRegistry;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
@@ -133,7 +134,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const inputId = this.nextInvocationInputId('planner');
     const sessionId = plannerActorId(this.cardId);
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
-    appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
+    this.conversationPublisher?.entryAppended(appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId }));
     const plannerState = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'planner_state', 0, {
       role: 'user',
       content: buildPlannerStateContextText({
@@ -146,14 +147,19 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         },
       }),
     });
-    const notifications = this.notificationContext(input, inputId).map((message, index) => appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, message));
+    this.conversationPublisher?.entryAppended(plannerState);
+    const notifications = this.notificationContext(input, inputId).map((message, index) => {
+      const result = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, message);
+      this.conversationPublisher?.entryAppended(result);
+      return result.message;
+    });
     return {
       inputId,
       agentId: sessionId,
       role: 'planner',
       sessionId,
       systemPrompt: this.plannerPrompt(input.card, surface, contract),
-      contextMessages: [...loaded, plannerState, ...notifications],
+      contextMessages: [...loaded, plannerState.message, ...notifications],
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
@@ -194,12 +200,13 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, sessionId: string): void {
-    appendTerminalProjectedToolResult(this.projectRoot, {
+    const result = appendTerminalProjectedToolResult(this.projectRoot, {
       sessionId,
       sourceInputId: outcome.inputId,
       toolCallId: outcome.toolCallId,
       toolName: outcome.toolName,
     });
+    this.conversationPublisher?.entryAppended(result.appendResult);
   }
 
   private reviewerReworkPlannerMessage(cardId: string, summary: string): string {
@@ -263,15 +270,16 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string, currentness: ReviewerCurrentnessSnapshot, surface: InvocationSurface, contract = createReviewerContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('reviewer');
     const loaded = conversationMessagesForModel(readActiveVersionMessages(this.projectRoot, sessionId));
-    appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
+    this.conversationPublisher?.entryAppended(appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId }));
     const descendantContext = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness));
+    this.conversationPublisher?.entryAppended(descendantContext);
     return {
       inputId,
       agentId: reviewerActorId(input.card.id),
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId, surface, contract),
-      contextMessages: [...loaded, descendantContext],
+      contextMessages: [...loaded, descendantContext.message],
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

@@ -4,6 +4,7 @@ import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import { conversationMessagesForModel, readActiveVersionMessages } from '../conversation-store.js';
 import { ensureConversationIndex, writeCompactedConversationVersion } from '../conversation-index.js';
+import type { ConversationVersionReplacement } from '../conversation-index.js';
 import { computeCompactionBands, type BandConfig, type SnapPolicy } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedRound } from './round-classifier.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors, type RecoverableEvidenceDescriptor } from './result-dropping.js';
@@ -44,7 +45,7 @@ export async function compact(args: {
   summarizerProvider: SummarizerProviderPort;
   bufferSizeEstimator: BufferSizeEstimator;
   signal?: AbortSignal;
-}): Promise<AgentMessage[]> {
+}): Promise<{ rows: AgentMessage[]; versionReplacement: ConversationVersionReplacement }> {
   if (!args.config.enabled) throw new Error('Compaction was invoked while disabled.');
   if (!args.config.summarizer_model || args.config.summarizer_model.trim().length === 0) throw new Error('Compaction is enabled but compaction.summarizer_model is unset.');
 
@@ -73,7 +74,7 @@ export async function compact(args: {
 
   const content = rows.map((row) => JSON.stringify(agentMessageSchema.parse(row))).join('\n') + (rows.length === 0 ? '' : '\n');
   const compactedThrough = compactedThroughFor(rows, activeRows);
-  writeCompactedConversationVersion({
+  const writeResult = writeCompactedConversationVersion({
     projectRoot: args.projectRoot,
     sessionId: args.sessionId,
     sourceVersion: index.active_version,
@@ -83,7 +84,7 @@ export async function compact(args: {
     compactionGeneration: generation,
     bands,
   });
-  return conversationMessagesForModel(rows);
+  return { rows: conversationMessagesForModel(rows), versionReplacement: writeResult.versionReplacement };
 }
 
 async function buildCompactedRows(args: {
