@@ -63,6 +63,7 @@ export class ConversationLLMActor extends BaseActor {
   deliveredToolCallIds = new Set<string>();
   #result: Deferred<LLMActorOutcome> | null = null;
   #activationSignal: AbortSignal | null = null;
+  #currentInvocationSignal: AbortSignal | null = null;
   #toolDeliveryCounter = 0;
   #systemPromptLoggedSessionIds = new Set<string>();
   #providerBoundaryEntered = false;
@@ -164,6 +165,7 @@ export class ConversationLLMActor extends BaseActor {
     this.outcome = null;
     this.waitingToolCall = null;
     this.#activationSignal = null;
+    this.#currentInvocationSignal = null;
     this.onTurnSettled();
     this.deliveredToolCallIds.clear();
     this.#toolDeliveryCounter = 0;
@@ -174,7 +176,9 @@ export class ConversationLLMActor extends BaseActor {
     try {
       const input = this.requireInput();
       this.runTask(async (signal) => {
-        const hookInput = await this.onBeforeProviderCall(input, signal);
+        const invocationSignal = this.createInvocationSignal(signal);
+        this.#currentInvocationSignal = invocationSignal;
+        const hookInput = await this.onBeforeProviderCall(input, invocationSignal);
         const effectiveInput = hookInput ?? input;
         if (hookInput) this.input = effectiveInput;
         const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(effectiveInput.sessionId);
@@ -182,7 +186,7 @@ export class ConversationLLMActor extends BaseActor {
         if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(effectiveInput.sessionId);
         await this.gate.waitUntilOpen();
         this.#providerBoundaryEntered = true;
-        return this.provider.completeTurn(effectiveInput, this.providerSignal(signal));
+        return this.provider.completeTurn(effectiveInput, invocationSignal);
       }, {
         on_done: (completion) => {
           try {
@@ -223,6 +227,7 @@ export class ConversationLLMActor extends BaseActor {
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.onTurnSettled();
       this.#activationSignal = null;
+      this.#currentInvocationSignal = null;
       this.#result?.resolve(this.outcome);
       this.#result = null;
       this.sendEvent('done');
@@ -242,6 +247,8 @@ export class ConversationLLMActor extends BaseActor {
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
     this.onTurnStateUpdated({ input, waitingToolCall: this.waitingToolCall });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
+    this.#currentInvocationSignal = null;
+    this.#activationSignal = null;
     this.#result?.resolve(this.outcome);
     this.#result = null;
     this.sendEvent('tool_call');
@@ -265,6 +272,7 @@ export class ConversationLLMActor extends BaseActor {
     this.outcome = { type: 'error', agentId: this.agentId, error };
     this.onTurnSettled();
     this.#activationSignal = null;
+    this.#currentInvocationSignal = null;
     this.#result?.resolve(this.outcome);
     this.#result = null;
     this.sendEvent('failed');
@@ -274,6 +282,7 @@ export class ConversationLLMActor extends BaseActor {
     this.outcome = null;
     this.onTurnSettled();
     this.#activationSignal = null;
+    this.#currentInvocationSignal = null;
     this.#result?.reject(error);
     this.#result = null;
     this.sendEvent('failed');
@@ -283,6 +292,8 @@ export class ConversationLLMActor extends BaseActor {
     const fatal = error instanceof Error ? error : new Error(String(error));
     const pending = this.#result;
     this.#result = null;
+    this.#currentInvocationSignal = null;
+    this.#activationSignal = null;
     if (pending) pending.reject(fatal);
     console.error(`LLMActor '${this.agentId}' fatal handler failure`, fatal);
   }
@@ -352,12 +363,16 @@ export class ConversationLLMActor extends BaseActor {
     return this.input;
   }
 
-  private providerSignal(runTaskSignal: AbortSignal): AbortSignal {
+  private createInvocationSignal(runTaskSignal: AbortSignal): AbortSignal {
     return this.#activationSignal ? AbortSignal.any([runTaskSignal, this.#activationSignal]) : runTaskSignal;
   }
 
   private isCurrentTurnAborted(error: unknown): boolean {
-    return this.#activationSignal?.aborted === true || error === this.#activationSignal?.reason;
+    if (this.#activationSignal?.aborted === true) return true;
+    const signal = this.#currentInvocationSignal;
+    if (!signal?.aborted) return false;
+    if (error === signal.reason) return true;
+    return error instanceof Error && error.name === 'AbortError';
   }
 
   protected onTurnStarting(_input: LlmInvocationInput): void {}

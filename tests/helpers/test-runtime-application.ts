@@ -118,7 +118,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     projectRoot,
     saivageDir: join(projectRoot, '.saivage'),
     registry,
-    router: new ModelRouter(config, registry, availability),
+    router: new ModelRouter(config, registry),
     candidateAvailability: availability,
   });
   return {
@@ -165,7 +165,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         projectRoot,
         saivageDir: join(projectRoot, '.saivage'),
         registry,
-        router: new ModelRouter(config, registry, availability),
+        router: new ModelRouter(config, registry),
         candidateAvailability: availability,
       });
       return {

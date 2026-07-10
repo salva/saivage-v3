@@ -2,7 +2,6 @@ import type { SaivageConfig } from './config-schema.js';
 import { getModelListForRole } from '../config/model-role-resolution.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import { ProviderRegistry } from './provider.js';
-import { type CandidateAvailability, MemoryCandidateAvailability } from './candidate-availability.js';
 import {
   supportsCapabilityRequest,
   type CapabilityRequest,
@@ -18,39 +17,30 @@ import {
 export class ModelRouter {
   private registry: ProviderRegistry;
   private config: SaivageConfig;
-  private availability: CandidateAvailability;
   private lastCapabilitySkips: CapabilitySkipDiagnostic[] = [];
 
-  constructor(
-    config: SaivageConfig,
-    registry: ProviderRegistry,
-    availability: CandidateAvailability = new MemoryCandidateAvailability(),
-  ) {
+  constructor(config: SaivageConfig, registry: ProviderRegistry) {
     this.config = config;
     this.registry = registry;
-    this.availability = availability;
   }
 
   /**
-   * Resolve a role into an ordered candidate chain.
+   * Resolve a role into the full configured/capability-compatible candidate route.
    *
    * The chain is built as follows:
    * 1. Iterate the role's configured model list in order.
    * 2. For each model, find providers that can serve it.
-   * 3. Sort providers by priority, then skip those in cooldown.
+   * 3. Sort providers by priority.
    * 4. For each provider, sort accounts by priority.
    * 5. Produce provider/account/model candidates.
-   * 6. Move to next model only after all candidates for current
-   *    model are exhausted.
+   * 6. For each configured base model, append its equivalence-group models and
+   *    configured failover models after the base model. Process every configured
+   *    base model for its own edges even if it was already emitted through an
+   *    earlier route; deduplicate only emitted model batches/concrete candidates.
    *
-   * If the config includes model equivalents, they are tried
-   * after all candidates for the current model are exhausted.
-   * If failover chains are configured, they are tried after
-   * equivalents are exhausted.
-   *
-   * This method is intentionally network-free: it must not load or refresh
+   * This method is intentionally network-free and availability-free: it must not load or refresh
    * OAuth profiles during startup-time candidate resolution. Transport/auth
-   * validation happens later at real LLM invocation time.
+   * validation and live cooldown/block filtering happen later at real LLM invocation time.
    */
   async resolve(role: string, request?: CapabilityRequest): Promise<Candidate[]> {
     this.lastCapabilitySkips = [];
@@ -60,40 +50,24 @@ export class ModelRouter {
     const equivalents = this.config.models.equivalents ?? [];
     const failover = this.config.models.failover ?? {};
 
-    const seenModels = new Set<string>();
+    const emittedModelBatches = new Set<string>();
+    const emittedCandidates = new Set<string>();
 
     for (const model of modelList) {
-      if (seenModels.has(model)) continue;
-      seenModels.add(model);
-
-      const modelCandidates = this.resolveModel(model, request);
-      candidates.push(...modelCandidates);
-
-      if (modelCandidates.length > 0) continue;
+      this.appendModelCandidates(model, request, emittedModelBatches, emittedCandidates, candidates);
 
       const eqGroup = equivalents.find((group) => group.includes(model));
       if (eqGroup) {
         for (const eqModel of eqGroup) {
-          if (eqModel === model || seenModels.has(eqModel)) continue;
-          seenModels.add(eqModel);
-          const eqCandidates = this.resolveModel(eqModel, request);
-          if (eqCandidates.length > 0) {
-            candidates.push(...eqCandidates);
-            break;
-          }
+          if (eqModel === model) continue;
+          this.appendModelCandidates(eqModel, request, emittedModelBatches, emittedCandidates, candidates);
         }
       }
 
       const chain = failover[model];
       if (chain) {
         for (const foModel of chain) {
-          if (seenModels.has(foModel)) continue;
-          seenModels.add(foModel);
-          const foCandidates = this.resolveModel(foModel, request);
-          if (foCandidates.length > 0) {
-            candidates.push(...foCandidates);
-            break;
-          }
+          this.appendModelCandidates(foModel, request, emittedModelBatches, emittedCandidates, candidates);
         }
       }
     }
@@ -102,7 +76,7 @@ export class ModelRouter {
   }
 
   /**
-   * Resolve a single model to its healthy and capability-compatible candidates.
+   * Resolve a single model to its capability-compatible candidates.
    * Providers sorted by priority, then accounts sorted by priority.
    */
   private resolveModel(model: string, request?: CapabilityRequest): Candidate[] {
@@ -120,12 +94,22 @@ export class ModelRouter {
           this.lastCapabilitySkips.push({ candidate: c, reasons: match.reasons });
           continue;
         }
-        if (!this.availability.isAvailable(c)) continue;
         candidates.push(c);
       }
     }
 
     return candidates;
+  }
+
+  private appendModelCandidates(model: string, request: CapabilityRequest | undefined, emittedModelBatches: Set<string>, emittedCandidates: Set<string>, output: Candidate[]): void {
+    if (emittedModelBatches.has(model)) return;
+    emittedModelBatches.add(model);
+    for (const candidate of this.resolveModel(model, request)) {
+      const key = `${candidate.provider}\u0000${candidate.account ?? ''}\u0000${candidate.model}`;
+      if (emittedCandidates.has(key)) continue;
+      emittedCandidates.add(key);
+      output.push(candidate);
+    }
   }
 
   /** Return non-secret diagnostics for candidates skipped by the last resolve call. */

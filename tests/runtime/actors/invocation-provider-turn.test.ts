@@ -25,8 +25,9 @@ describe('InvocationProviderTurnPort', () => {
       invokeWithRecovery: jest.fn(async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] })),
     };
     const port = createInvocationProviderTurnPort(service);
+    const signal = new AbortController().signal;
 
-    const result = await port.completeTurn(input());
+    const result = await port.completeTurn(input(), signal);
 
     expect(result).toEqual({ result: { kind: 'message', content: 'done' }, provider_exchanges: [] });
     expect(service.invokeWithRecovery).toHaveBeenCalledWith({
@@ -39,6 +40,7 @@ describe('InvocationProviderTurnPort', () => {
       terminalToolNames: ['report_done'],
       modelParams: { temperature: 0.2, maxTokens: 1000 },
       capabilityRequest: { requiresTools: true },
+      abortSignal: signal,
     });
   });
 
@@ -48,7 +50,7 @@ describe('InvocationProviderTurnPort', () => {
     };
     const port = createInvocationProviderTurnPort(service);
 
-    await expect(port.completeTurn(input({ contextMessages: [{ role: 'user' }] }))).rejects.toThrow("Invalid LLM context messages for 'turn-1'");
+    await expect(port.completeTurn(input({ contextMessages: [{ role: 'user' }] }), new AbortController().signal)).rejects.toThrow("Invalid LLM context messages for 'turn-1'");
     expect(service.invokeWithRecovery).not.toHaveBeenCalled();
   });
 });

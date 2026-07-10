@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { actorKindFromId, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, createConversationChangePublisher, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { actorKindFromId, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, createConversationChangePublisher, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { EventBus } from '../../../src/events/index.js';
 import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
@@ -498,5 +498,57 @@ describe('LLMActor', () => {
     expect(provider.completeTurn).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
     consoleError.mockRestore();
+  }));
+
+  it('classifies main provider aborts from the active invocation signal as cancellation', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const activation = new AbortController();
+    const reason = new Error('cancel main turn');
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn((_turnInput: LlmInvocationInput, signal: AbortSignal) => new Promise<ProviderTurnCompletion>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      })),
+    };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    const pending = actor.turn(input(), activation.signal);
+    await eventually(() => expect(provider.completeTurn).toHaveBeenCalledTimes(1));
+    activation.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    await eventually(() => expect(actor.state()).toBe('idle'));
+    expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.kind === 'model_issue')).toBe(false);
+  }));
+
+  it('classifies compaction summarizer aborts before the provider boundary as cancellation', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const activation = new AbortController();
+    const reason = new Error('cancel compaction');
+    const config = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim', summarizer_model: 'test/_/summary' } satisfies CompactionConfig;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'unused' })) };
+    const summarizerProvider: LLMProviderPort = {
+      completeTurn: jest.fn((_turnInput: LlmInvocationInput, signal: AbortSignal) => new Promise<ProviderTurnCompletion>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      })),
+    };
+    const compactor = {
+      shouldCompact: jest.fn(() => ({ shouldCompact: true })),
+      compact: jest.fn(async ({ input: turnInput, summarizerProvider: summarizer, signal }: Parameters<CompactorPort['compact']>[0]) => {
+        await summarizer.completeTurn(turnInput, signal!);
+        throw new Error('unreachable');
+      }),
+    };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) } });
+    actor.start();
+
+    const pending = actor.turn(input(), activation.signal);
+    await eventually(() => expect(summarizerProvider.completeTurn).toHaveBeenCalledTimes(1));
+    activation.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    await eventually(() => expect(actor.state()).toBe('idle'));
+    expect(provider.completeTurn).not.toHaveBeenCalled();
+    expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.kind === 'model_issue')).toBe(false);
   }));
 });

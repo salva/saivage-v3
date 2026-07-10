@@ -89,6 +89,10 @@ The summary cache stores immutable per-round `summary_text` plus recoverable-evi
 
 Configuration knobs live under `compaction`: enablement, trigger/completion-reserve fractions, merge/summary lines, escalation lines, snapping policy, and summarizer model routing. The default leaves automatic compaction disabled unless configured. During an actual summarizer window the LLM actor snapshot reports `compacting: true`; no no-op turn reports that status.
 
+Model routing and live availability are separated at the provider boundary. `ModelRouter` resolves the full configured and capability-compatible route order for a role: base model candidates first, then configured equivalent models and failover models, with duplicate concrete candidates emitted only once. It does not filter on live candidate availability. `InvocationService` owns live availability decisions for every LLM invocation, including compaction summarizer invocations: it skips currently cooled/blocked candidates for the current round, tries all available alternates in route order, applies provider failure recovery updates, and waits/retries up to a fixed two-hour deadline only when every configured/capability-compatible candidate is temporarily unavailable for server-transient, timeout, rate-limit, or unknown reasons. Empty routes, capability incompatibility, and permanent auth/configuration failures fail fast.
+
+All `InvocationService` waits receive the active invocation `AbortSignal`. `LLMActor` creates and stores that signal before pre-provider compaction starts, passes it through compaction summarizer calls and the main provider call, and recognizes either the exact signal reason or a standard `AbortError` from the already-aborted signal as cancellation. This keeps runtime stop, activation/card cancellation, and caller aborts from being recorded as provider failures or fatal pre-provider compaction failures. Provider-turn adapters that invoke `InvocationService` require a signal and forward it as `abortSignal`; there is no supported no-signal provider invocation path.
+
 ## 6. Runtime Control Flow
 
 Run:

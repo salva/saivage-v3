@@ -14,7 +14,7 @@ const agentMessageArraySchema = z.array(agentMessageSchema);
 export class InvocationProviderTurnPort implements ProviderTurnPort {
   constructor(private readonly invocationService: InvocationTurnService) {}
 
-  async completeTurn(input: LlmInvocationInput): Promise<ProviderTurnCompletion> {
+  async completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
     return this.invocationService.invokeWithRecovery({
       inputId: input.inputId,
       role: input.role,
@@ -25,6 +25,7 @@ export class InvocationProviderTurnPort implements ProviderTurnPort {
       terminalToolNames: input.terminalToolNames,
       modelParams: input.modelParams,
       capabilityRequest: input.capabilityRequest,
+      abortSignal: signal,
     });
   }
 }

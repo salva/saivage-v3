@@ -97,7 +97,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const router = new ModelRouter(
     config,
     registry,
-    candidateAvailability,
   );
   const invocationService = new InvocationService({
     projectRoot,

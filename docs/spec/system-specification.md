@@ -152,6 +152,8 @@ Resume reopens the gate. Work already blocked at provider calls proceeds exactly
 
 The single global `RuntimeGate` implements this behavior at `LLMActor` provider-call admission: provider calls await the gate before starting, so pause waits rather than failing the turn.
 
+LLM candidate unavailability is handled after provider-call admission and is separate from pause. For a role with at least one configured, capability-compatible candidate, the invocation tries configured candidates in route order, including equivalent and failover models, before waiting for a cooled primary. If every configured, capability-compatible candidate is temporarily unavailable because of transient server errors, timeouts, rate limits, or unknown temporary failures, the active provider turn remains pending and retries until a candidate becomes available or a fixed two-hour timeout expires. No configured/capability-compatible candidate, capability mismatch, and permanent authentication/configuration failures remain fail-fast conditions.
+
 `Stopped` and `paused` are the normal intervention states. While stopped or paused, the Analyst can manage cards within its supported authority, update `record:///brief.md?card=<id>&v=next` through `write` or `edit`, queue notifications, change configuration, and inspect state.
 
 ### Shutdown

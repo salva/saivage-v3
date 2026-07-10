@@ -18,5 +18,5 @@ export interface LlmInvocationInput {
 }
 
 export interface ProviderTurnPort {
-  completeTurn(input: LlmInvocationInput): Promise<ProviderTurnCompletion>;
+  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
 }

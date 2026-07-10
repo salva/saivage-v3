@@ -104,7 +104,7 @@ describe('ModelRouter', () => {
       expect(chain[2].model).toBe('kimi-k2.6');
     });
 
-    it('should skip providers/accounts in cooldown', async () => {
+    it('keeps cooled candidates in route order because invocation owns live availability', async () => {
       const cfg = mockConfig({
         models: { planner: ['gpt-5.5'] },
         providers: {
@@ -125,14 +125,15 @@ describe('ModelRouter', () => {
         { provider: 'github', account: 'primary', model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, availability);
+      const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      expect(chain).toHaveLength(1);
-      expect(chain[0].provider).toBe('opencode');
+      expect(chain).toHaveLength(2);
+      expect(chain[0].provider).toBe('github');
+      expect(chain[1].provider).toBe('opencode');
     });
 
-    it('should advance to next model only after all candidates for current model exhausted', async () => {
+    it('orders candidates by configured model before advancing to the next configured model', async () => {
       const cfg = mockConfig({
         models: { planner: ['gpt-5.5', 'kimi-k2.6'] },
         providers: {
@@ -152,15 +153,17 @@ describe('ModelRouter', () => {
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, availability);
+      const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      expect(chain).toHaveLength(1);
-      expect(chain[0].model).toBe('kimi-k2.6');
-      expect(chain[0].provider).toBe('opencode');
+      expect(chain).toHaveLength(2);
+      expect(chain[0].model).toBe('gpt-5.5');
+      expect(chain[0].provider).toBe('github');
+      expect(chain[1].model).toBe('kimi-k2.6');
+      expect(chain[1].provider).toBe('opencode');
     });
 
-    it('should try model equivalents after exhausting all candidates', async () => {
+    it('appends model equivalents after base candidates', async () => {
       const cfg = mockConfig({
         models: {
           planner: ['gpt-5.5'],
@@ -183,14 +186,13 @@ describe('ModelRouter', () => {
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, availability);
+      const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      expect(chain.length).toBeGreaterThan(0);
-      expect(chain[0].model).toBe('claude-sonnet-4');
+      expect(chain.map((candidate) => candidate.model)).toEqual(['gpt-5.5', 'claude-sonnet-4']);
     });
 
-    it('should try failover chains after equivalents', async () => {
+    it('appends failover chains after base candidates and equivalents', async () => {
       const cfg = mockConfig({
         models: {
           planner: ['gpt-5.5'],
@@ -213,11 +215,29 @@ describe('ModelRouter', () => {
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, availability);
+      const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      expect(chain.length).toBeGreaterThan(0);
-      expect(chain[0].model).toBe('deepseek-v4-pro');
+      expect(chain.map((candidate) => candidate.model)).toEqual(['gpt-5.5', 'deepseek-v4-pro']);
+    });
+
+    it('processes every configured base route root even when already emitted as an equivalent', async () => {
+      const cfg = mockConfig({
+        models: {
+          planner: ['model-a', 'model-b'],
+          equivalents: [['model-a', 'model-b']],
+          failover: { 'model-b': ['model-c'] },
+        },
+        providers: {
+          p: { priority: 10, models: ['model-a', 'model-b', 'model-c'] },
+        },
+      });
+      const registry = new ProviderRegistry(cfg);
+      const router = new ModelRouter(cfg, registry);
+
+      const chain = await router.resolve('planner');
+
+      expect(chain.map((candidate) => candidate.model)).toEqual(['model-a', 'model-b', 'model-c']);
     });
 
     it('should use routing profiles when configured', async () => {
@@ -278,7 +298,7 @@ describe('ModelRouter', () => {
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, availability);
+      const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
       expect(chain.find((c) => c.model === 'deepseek-v4-pro')).toBeUndefined();
@@ -481,7 +501,7 @@ describe('ModelRouter capability filtering', () => {
     });
     const registry = new ProviderRegistry(cfg);
     const availability = new MemoryCandidateAvailability();
-    const router = new ModelRouter(cfg, registry, availability);
+    const router = new ModelRouter(cfg, registry);
 
     const chain = await router.resolve('planner', { requiresTools: true });
 
@@ -492,7 +512,7 @@ describe('ModelRouter capability filtering', () => {
     expect(availability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(true);
   });
 
-  it('keeps health cooldown semantics separate from capability skips', async () => {
+  it('keeps availability cooldown semantics separate from capability skips', async () => {
     const cfg = mockConfig({
       models: { planner: ['m1'] },
       providers: {
@@ -503,11 +523,11 @@ describe('ModelRouter capability filtering', () => {
     const registry = new ProviderRegistry(cfg);
     const availability = new MemoryCandidateAvailability();
     await availability.markFailed({ provider: 'compatibleButCooling', account: null, model: 'm1' }, blockedDecision());
-    const router = new ModelRouter(cfg, registry, availability);
+    const router = new ModelRouter(cfg, registry);
 
     const chain = await router.resolve('planner', { requiresExclusiveToolChoice: true });
 
-    expect(chain).toHaveLength(0);
+    expect(chain).toEqual([{ provider: 'compatibleButCooling', account: null, model: 'm1' }]);
     expect(router.getLastCapabilitySkips()[0].reasons).toEqual(['unsupported_exclusive_tool_choice']);
     expect(availability.isAvailable({ provider: 'compatibleButCooling', account: null, model: 'm1' })).toBe(false);
   });

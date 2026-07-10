@@ -43,6 +43,8 @@ Agent conversations in the Analyst panel, Agents conversation detail, and Debug 
 
 Agent activity status may be `compacting` while the backend is summarizing an oversized card-lifetime conversation before a provider call. The status is transient and read-only; it means the runtime is preserving the active conversation by writing a new compacted version, not that the card has changed state.
 
+When all configured, capability-compatible LLM candidates for an active provider turn are temporarily unavailable, the backend keeps the turn pending for up to two hours while retrying. The operator UI should continue to show the card/agent as active or running during that wait and must not invent an immediate terminal failure. No new API fields, countdowns, or UI controls are required; terminal failure appears only when the backend reports the two-hour timeout or a permanent/non-waitable provider failure.
+
 The backend exposes compacted conversation rows for future `CompactedCluster` rendering. Each compacted row is a `context_compaction` entry with `role: 'user'`, `round_id` using the `compacted` round kind, and `content` containing the runtime framing marker, summary text, and deterministic `Recoverable evidence` section. Read-model metadata for compacted clusters includes `compaction_generation`, `compacted_through`, `summary_ids`, and `bands` when present. The `CompactedCluster.vue` component is owned by the agent-conversation-ui-redesign phases and is not required by this change.
 
 The workspace may provide projection-only affordances:

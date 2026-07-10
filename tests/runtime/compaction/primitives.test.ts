@@ -148,8 +148,8 @@ describe('compaction primitives', () => {
   it('summarizer APIs reject existing summary rows and keep pointer sections out of provider output', async () => {
     const calls: unknown[] = [];
     const provider: SummarizerProviderPort = {
-      async completeTurn(input) {
-        calls.push(input);
+      async completeTurn(input, signal) {
+        calls.push({ input, signal });
         return { result: { kind: 'message', content: 'Plain prose summary.' }, provider_exchanges: [] };
       },
     };
