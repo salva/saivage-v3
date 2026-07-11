@@ -6,7 +6,7 @@ import { genericContextMessagesForInvocation, type LlmInvocationInput } from './
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
-import { appendUserContextMessage, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
+import { appendUserContextMessage, hasIndexedConversationMessageOfKind, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
@@ -80,10 +80,6 @@ export class ConversationLLMActor extends BaseActor {
     this.provider = args.provider;
     this.gate = args.gate ?? new RuntimeGate();
     this.conversationPublisher = args.conversationPublisher;
-  }
-
-  seedSystemPromptLogged(sessionId: string): void {
-    this.#systemPromptLoggedSessionIds.add(sessionId);
   }
 
   turn(input: LlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome> {
@@ -182,6 +178,10 @@ export class ConversationLLMActor extends BaseActor {
     try {
       const input = this.requireInput();
       this.runTask(async (signal) => {
+        if (!this.#systemPromptLoggedSessionIds.has(input.sessionId)
+          && hasIndexedConversationMessageOfKind(this.projectRoot, input.sessionId, `${this.agentId}:system-prompt`, 'system_prompt')) {
+          this.#systemPromptLoggedSessionIds.add(input.sessionId);
+        }
         const invocationSignal = this.createInvocationSignal(signal);
         this.#currentInvocationSignal = invocationSignal;
         const hookInput = await this.onBeforeProviderCall(input, invocationSignal);

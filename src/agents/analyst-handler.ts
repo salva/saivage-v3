@@ -19,7 +19,7 @@ import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
-import { buildContextTextMessage, conversationMessagesForModel, readActiveVersionMessages, readConversationMessages } from '../runtime/actors/conversation-store.js';
+import { buildContextTextMessage, conversationMessagesForModel, readActiveVersionMessages } from '../runtime/actors/conversation-store.js';
 import { buildResponsesReplayProjection } from './llm-openai-responses-mapper.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
@@ -175,9 +175,6 @@ export class AnalystSessionActor extends BaseActor {
   constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }) {
     super();
     this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
-    if (readConversationMessages(args.projectRoot, args.sessionId).some((message) => message.kind === 'system_prompt')) {
-      this.llm.seedSystemPromptLogged(args.sessionId);
-    }
   }
 
   override start(): void {

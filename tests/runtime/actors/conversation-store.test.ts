@@ -1,8 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendActivationMarker, appendConversationMessage, appendUserContextMessage, conversationDir, conversationMessagesForModel, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import { appendActivationMarker, appendConversationMessage, appendUserContextMessage, conversationDir, conversationMessagesForModel, hasIndexedConversationMessageOfKind, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { activeVersionPath, conversationIndexPath, writeConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
 import { codexMessages } from '../../../src/agents/llm-openai-codex-gateway.js';
 import { buildOpenAIChatRequest } from '../../../src/agents/llm-openai-chat-gateway.js';
@@ -72,6 +72,40 @@ describe('conversation-store', () => {
     expect(existsSync(join(dir, '3.jsonl'))).toBe(false);
   });
 
+  it('reads exact prompt identity from indexed history without cleaning an orphan', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    const sessionId = 'planner:project';
+    const dir = conversationDir(root, sessionId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })) + '\n');
+    writeFileSync(join(dir, '2.jsonl'), JSON.stringify(makeMessage({ id: 'active', session_id: sessionId })) + '\n');
+    writeFileSync(join(dir, '3.jsonl'), JSON.stringify(makeMessage({ id: 'orphan', session_id: sessionId })) + '\n');
+    writeConversationIndex(root, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
+    const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
+    const before = snapshot();
+
+    expect(hasIndexedConversationMessageOfKind(root, sessionId, 'planner:project:system-prompt', 'system_prompt')).toBe(true);
+
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('rejects a wrong-kind exact prompt identity without mutating indexed history or orphans', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    const sessionId = 'planner:project';
+    const dir = conversationDir(root, sessionId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })) + '\n');
+    writeFileSync(join(dir, '2.jsonl'), JSON.stringify(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, kind: 'text' })) + '\n');
+    writeFileSync(join(dir, '3.jsonl'), JSON.stringify(makeMessage({ id: 'orphan', session_id: sessionId })) + '\n');
+    writeConversationIndex(root, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
+    const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
+    const before = snapshot();
+
+    expect(() => hasIndexedConversationMessageOfKind(root, sessionId, 'planner:project:system-prompt', 'system_prompt')).toThrow(/expected 'system_prompt'/);
+
+    expect(snapshot()).toEqual(before);
+  });
+
   it('persists identical user context content with unique ids', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
 
@@ -84,7 +118,7 @@ describe('conversation-store', () => {
     expect(new Set(messages.map((message) => message.id)).size).toBe(2);
   });
 
-  it('reports append results and idempotent tail duplicates', () => {
+  it('reports append results and idempotent file-wide duplicates', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     const message = makeMessage({ id: 'same-id', session_id: 'analyst:global' });
 

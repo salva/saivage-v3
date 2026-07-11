@@ -10,6 +10,7 @@ import {
   activeVersionPath,
   ensureConversationIndex,
   readConversationIndex,
+  readValidatedConversationIndex,
 } from './conversation-index.js';
 
 export { conversationDir, conversationIndexPath } from './conversation-index.js';
@@ -26,6 +27,25 @@ export function readActiveVersionMessages(projectRoot: string, sessionId: string
   const path = activeVersionPath(projectRoot, sessionId, index.active_version);
   if (!existsSync(path)) throw new Error(`Conversation active version '${index.active_version}' for '${sessionId}' was not found.`);
   return readConversationVersion(path);
+}
+
+export function hasIndexedConversationMessageOfKind(projectRoot: string, sessionId: string, messageId: string, expectedKind: AgentMessage['kind']): boolean {
+  const index = readValidatedConversationIndex(projectRoot, sessionId);
+  if (!index) return false;
+
+  let found = false;
+  for (const version of Object.keys(index.versions).map(Number).sort((left, right) => left - right)) {
+    const path = activeVersionPath(projectRoot, sessionId, version);
+    if (!existsSync(path)) throw new Error(`Conversation indexed version '${path}' was not found.`);
+    for (const message of readConversationVersion(path)) {
+      if (message.id !== messageId) continue;
+      if (message.kind !== expectedKind) {
+        throw new Error(`Conversation indexed version '${path}' has '${messageId}' with kind '${message.kind}', expected '${expectedKind}'.`);
+      }
+      found = true;
+    }
+  }
+  return found;
 }
 
 export function listConversationSessionIds(projectRoot: string): string[] {
@@ -120,10 +140,14 @@ function activeConversationVersionPath(projectRoot: string, sessionId: string): 
 }
 
 function readConversationVersion(path: string): AgentMessage[] {
-  return readFileSync(path, 'utf-8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => agentMessageSchema.parse(JSON.parse(line)));
+  try {
+    return readFileSync(path, 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => agentMessageSchema.parse(JSON.parse(line)));
+  } catch (error) {
+    throw new Error(`Conversation version '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function conversationDirectories(projectRoot: string): Array<{ dir: string; encodedSessionId: string }> {

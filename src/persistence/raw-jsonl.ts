@@ -2,39 +2,6 @@ import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, 
 import { dirname } from 'node:path';
 import { PersistenceReadError, PersistenceValidationError, PersistenceWriteError } from './errors.js';
 
-interface LastLineSyncResult {
-  line: string | null;
-  endsWithNewline: boolean;
-  partialTail: string | null;
-}
-
-function lastLineSync(jsonlPath: string): LastLineSyncResult {
-  if (!existsSync(jsonlPath)) return { line: null, endsWithNewline: true, partialTail: null };
-  const buf = readFileSync(jsonlPath);
-  if (buf.length === 0) return { line: null, endsWithNewline: true, partialTail: null };
-  const endsWithNewline = buf[buf.length - 1] === 0x0a;
-  if (endsWithNewline) {
-    const end = buf.length - 1;
-    if (end === 0) return { line: '', endsWithNewline: true, partialTail: null };
-    let start = end - 1;
-    while (start > 0 && buf[start - 1] !== 0x0a) start--;
-    return { line: buf.slice(start, end).toString('utf-8'), endsWithNewline: true, partialTail: null };
-  }
-  const end = buf.length;
-  let start = end - 1;
-  while (start > 0 && buf[start - 1] !== 0x0a) start--;
-  const partial = buf.slice(start, end).toString('utf-8');
-  if (start === 0) return { line: null, endsWithNewline: false, partialTail: partial };
-  const prevEnd = start - 1;
-  let prevStart = prevEnd;
-  while (prevStart > 0 && buf[prevStart - 1] !== 0x0a) prevStart--;
-  return {
-    line: buf.slice(prevStart, prevEnd).toString('utf-8'),
-    endsWithNewline: false,
-    partialTail: partial,
-  };
-}
-
 export function appendSyncIdempotentByKey<T extends Record<string, unknown>>(
   jsonlPath: string,
   entry: T,
@@ -45,24 +12,24 @@ export function appendSyncIdempotentByKey<T extends Record<string, unknown>>(
     throw new PersistenceValidationError(jsonlPath, `id field '${idField}' must be a non-empty string`);
   }
 
-  const tail = lastLineSync(jsonlPath);
-  if (!tail.endsWithNewline) {
+  const content = existsSync(jsonlPath) ? readFileSync(jsonlPath, 'utf-8') : '';
+  if (content.length > 0 && !content.endsWith('\n')) {
     throw new PersistenceReadError(
       jsonlPath,
       `JSONL file has a partial tail; refusing to append ${idField}=${entryId}`,
     );
   }
-  if (tail.line !== null) {
-    let parsed: Record<string, unknown> | null = null;
+  for (const line of content.split('\n').filter(Boolean)) {
+    let parsed: unknown;
     try {
-      parsed = JSON.parse(tail.line) as Record<string, unknown>;
+      parsed = JSON.parse(line);
     } catch {
       throw new PersistenceReadError(
         jsonlPath,
-        `last complete JSONL line is unparseable; refusing to append ${idField}=${entryId}`,
+        `complete JSONL line is unparseable; refusing to append ${idField}=${entryId}`,
       );
     }
-    if (parsed && parsed[idField] === entryId) return false;
+    if (typeof parsed === 'object' && parsed !== null && (parsed as Record<string, unknown>)[idField] === entryId) return false;
   }
 
   mkdirSync(dirname(jsonlPath), { recursive: true });

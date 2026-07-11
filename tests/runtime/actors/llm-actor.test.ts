@@ -3,9 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, createConversationChangePublisher, LLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, ConversationLLMActor, createConversationChangePublisher, LLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { EventBus } from '../../../src/events/index.js';
-import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
+import { activeVersionPath, writeConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
+import { conversationDir } from '../../../src/runtime/actors/conversation-store.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
@@ -107,6 +108,42 @@ describe('LLMActor', () => {
     expect(jsonl(activeVersionPath(projectRoot, 'planner:project', 1)).map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toContain('planner:project');
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
+  }));
+
+  it('suppresses the prompt for a direct conversation actor when indexed frozen history has its exact identity', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const sessionId = 'planner:project';
+    const dir = conversationDir(projectRoot, sessionId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
+    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
+    const actor = new ConversationLLMActor({ projectRoot, agentId: sessionId, provider });
+    actor.start();
+
+    await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result' });
+
+    expect(provider.completeTurn).toHaveBeenCalledTimes(1);
+    expect(jsonl(activeVersionPath(projectRoot, sessionId, 2)).map((row) => row.kind)).toEqual(['activity', 'text']);
+  }));
+
+  it('fails a fresh turn before provider I/O when indexed prompt identity has the wrong kind', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const sessionId = 'planner:project';
+    const dir = conversationDir(projectRoot, sessionId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'text', content: 'bad', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
+    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
+    const actor = new LLMActor({ projectRoot, agentId: sessionId, provider });
+    actor.start();
+
+    await expect(actor.turn(input())).rejects.toThrow(/expected 'system_prompt'/);
+
+    expect(provider.completeTurn).not.toHaveBeenCalled();
+    expect(readFileSync(activeVersionPath(projectRoot, sessionId, 2), 'utf-8')).toBe('');
   }));
 
   it('runs compaction only from the base pre-provider hook and swaps context wholesale', async () => withTempProject(async (projectRoot) => {

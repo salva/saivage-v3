@@ -140,12 +140,18 @@ export function writeCompactedConversationVersion(args: {
 }
 
 export function readConversationIndex(projectRoot: string, sessionId: string): ConversationIndex | null {
+  const index = readValidatedConversationIndex(projectRoot, sessionId);
+  if (!index) return null;
+  cleanupOrphanJsonl(projectRoot, sessionId, index);
+  return index;
+}
+
+export function readValidatedConversationIndex(projectRoot: string, sessionId: string): ConversationIndex | null {
   const path = conversationIndexPath(projectRoot, sessionId);
   if (!existsSync(path)) return null;
   const raw = readRawIndex(path);
   const index = parseV2Index(path, raw);
   if (index.session_id !== sessionId) throw new Error(`Conversation index '${path}' is for session '${index.session_id}', not '${sessionId}'.`);
-  cleanupOrphanJsonl(projectRoot, sessionId, index);
   return index;
 }
 
