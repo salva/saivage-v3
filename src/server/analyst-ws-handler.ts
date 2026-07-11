@@ -75,12 +75,8 @@ export class AnalystWsHandler {
   }
 
   cleanup(ws: WebSocket): void {
-    const sessionId = this.sessions.get(ws);
     this.turnQueues.delete(ws);
     this.sessions.delete(ws);
-    if (!sessionId) return;
-    this.options.runtimeApplication.analystRuntime.cancel(sessionId, 'websocket closed');
-    void this.options.runtimeApplication.analystRuntime.shutdownSessionProcesses(sessionId);
   }
 
   private queueTurn(ws: WebSocket, turn: () => Promise<void>): Promise<void> {

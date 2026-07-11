@@ -17,18 +17,21 @@ function route(name: string, params: Record<string, unknown> = {}, query: Record
   } as unknown as RouteLocationNormalizedLoaded;
 }
 
-function makeRouter(initial = route('dashboard')): Router & { pushMock: ReturnType<typeof vi.fn>; triggerAfterEach: (to: RouteLocationNormalizedLoaded, from: RouteLocationNormalizedLoaded) => void } {
+function makeRouter(initial = route('dashboard')): Router & { pushMock: ReturnType<typeof vi.fn>; replaceMock: ReturnType<typeof vi.fn>; triggerAfterEach: (to: RouteLocationNormalizedLoaded, from: RouteLocationNormalizedLoaded) => void } {
   let afterEachHook: ((to: RouteLocationNormalizedLoaded, from: RouteLocationNormalizedLoaded) => void) | null = null;
   const pushMock = vi.fn();
+  const replaceMock = vi.fn();
   return {
     currentRoute: { value: initial },
     afterEach: vi.fn((hook) => { afterEachHook = hook as typeof afterEachHook; return vi.fn(); }),
     push: pushMock,
+    replace: replaceMock,
     pushMock,
+    replaceMock,
     triggerAfterEach(to: RouteLocationNormalizedLoaded, from: RouteLocationNormalizedLoaded) {
       afterEachHook?.(to, from);
     },
-  } as unknown as Router & { pushMock: ReturnType<typeof vi.fn>; triggerAfterEach: (to: RouteLocationNormalizedLoaded, from: RouteLocationNormalizedLoaded) => void };
+  } as unknown as Router & { pushMock: ReturnType<typeof vi.fn>; replaceMock: ReturnType<typeof vi.fn>; triggerAfterEach: (to: RouteLocationNormalizedLoaded, from: RouteLocationNormalizedLoaded) => void };
 }
 
 describe('workspaceRoute store', () => {
@@ -50,7 +53,7 @@ describe('workspaceRoute store', () => {
     router.triggerAfterEach(route('agent-detail', { id: 'agent-7' }), route('dashboard'));
     expect(store.current).toEqual({ view: 'agents', entityId: 'agent-7', refinement: null });
     store.apply({ intent: 'navigate_back' });
-    expect(router.pushMock).toHaveBeenCalledWith({ name: 'dashboard', query: undefined });
+    expect(router.replaceMock).toHaveBeenCalledWith({ name: 'dashboard', query: undefined });
   });
 
   it('maps every navigate_workspace target kind to its exact router.push argument', () => {
@@ -72,18 +75,18 @@ describe('workspaceRoute store', () => {
     expect(router.pushMock).toHaveBeenCalledTimes(rows.length);
   });
 
-  it('navigate_back pops the back-stack, pushes the popped snapshot, and lets afterEach record the route being left', () => {
+  it('navigate_back restores without re-recording the route being left', () => {
     const router = makeRouter(route('cards'));
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
     router.triggerAfterEach(route('card-detail', { id: 'child' }), route('cards'));
 
     store.apply({ intent: 'navigate_back' });
-    expect(router.pushMock).toHaveBeenCalledWith({ name: 'cards', query: undefined });
+    expect(router.replaceMock).toHaveBeenCalledWith({ name: 'cards', query: undefined });
 
     router.triggerAfterEach(route('cards'), route('card-detail', { id: 'child' }));
     store.apply({ intent: 'navigate_back' });
-    expect(router.pushMock).toHaveBeenLastCalledWith({ name: 'card-detail', params: { id: 'child' }, query: undefined });
+    expect(router.replaceMock).toHaveBeenCalledTimes(1);
   });
 
   it('bounds the back-stack to 16 entries', () => {
@@ -94,7 +97,7 @@ describe('workspaceRoute store', () => {
       router.triggerAfterEach(route('card-detail', { id: `card-${index + 1}` }), route('card-detail', { id: `card-${index}` }));
     }
     store.apply({ intent: 'navigate_back' });
-    expect(router.pushMock).toHaveBeenCalledWith({ name: 'card-detail', params: { id: 'card-16' }, query: undefined });
+    expect(router.replaceMock).toHaveBeenCalledWith({ name: 'card-detail', params: { id: 'card-16' }, query: undefined });
   });
 
   it('navigate_back on an empty stack does not push and does not throw', () => {

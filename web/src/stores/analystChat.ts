@@ -58,6 +58,8 @@ function optimisticUserMessage(sessionId: string, content: string, timestamp: st
 }
 
 export const useAnalystChat = defineStore('analyst-chat', () => {
+  let sessionsRequestSeq = 0;
+  let messagesRequestSeq = 0;
   const sessions = ref<ChatSession[]>([]);
   const activeSessionId = ref<string | null>(ANALYST_SESSION_ID);
   const messages = ref<AgentConversationEntry[]>([]);
@@ -100,19 +102,22 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   }
 
   async function fetchSessions(): Promise<void> {
+    const requestSeq = ++sessionsRequestSeq;
     sessionsLoading.value = true;
     sessionsError.value = null;
     try {
       const response = await listChatSessions();
+      if (requestSeq !== sessionsRequestSeq) return;
       const canonical = response.sessions.find((session) => session.id === ANALYST_SESSION_ID)
         ?? { id: ANALYST_SESSION_ID, role: 'analyst', status: 'active', started_at: nowIso() };
       sessions.value = [{ ...canonical, role: 'analyst' }];
       activeSessionId.value = ANALYST_SESSION_ID;
     } catch (err) {
+      if (requestSeq !== sessionsRequestSeq) return;
       sessionsError.value = buildErrorState(err, 'Failed to load analyst chat sessions.');
       throw err;
     } finally {
-      sessionsLoading.value = false;
+      if (requestSeq === sessionsRequestSeq) sessionsLoading.value = false;
     }
   }
 
@@ -123,6 +128,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   }
 
   async function fetchMessages(sessionId = activeSessionId.value): Promise<void> {
+    const requestSeq = ++messagesRequestSeq;
     const canonicalSessionId = sessionId === ANALYST_SESSION_ID ? sessionId : ANALYST_SESSION_ID;
     activeSessionId.value = ANALYST_SESSION_ID;
     ensureSessionInList();
@@ -130,13 +136,15 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messagesError.value = null;
     try {
       const response = await getChatEntries(canonicalSessionId);
+      if (requestSeq !== messagesRequestSeq || activeSessionId.value !== ANALYST_SESSION_ID) return;
       messages.value = [...response.entries];
     } catch (err) {
+      if (requestSeq !== messagesRequestSeq || activeSessionId.value !== ANALYST_SESSION_ID) return;
       messages.value = [];
       messagesError.value = buildErrorState(err, 'Failed to load analyst chat messages.');
       throw err;
     } finally {
-      messagesLoading.value = false;
+      if (requestSeq === messagesRequestSeq && activeSessionId.value === ANALYST_SESSION_ID) messagesLoading.value = false;
     }
   }
 

@@ -7,7 +7,6 @@ import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:agents');
 const STALE_AFTER_MS = 30_000;
-let conversationRequestSeq = 0;
 const idleActivity = (): ActivityStatus => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() });
 function nowIso(): string { return new Date().toISOString(); }
 function isLiveStatus(status: SessionStatus): boolean { return status === 'active' || status === 'waiting'; }
@@ -27,6 +26,9 @@ export const useAgentStore = defineStore('agents', () => {
   const llmExchangeLoading = ref(false);
   const llmExchangeError = ref<string | null>(null);
   const llmExchangeSessionId = ref<string | null>(null);
+  let sessionsRequestSeq = 0;
+  let conversationRequestSeq = 0;
+  let exchangeRequestSeq = 0;
 
   const isStale = computed(() => { const latest = lastWsEventAt.value ?? lastFetchedAt.value; return latest ? Date.now() - new Date(latest).getTime() > STALE_AFTER_MS : false; });
   const sessionsByRole = computed<Map<AgentRole, AgentSession[]>>(() => { const map = new Map<AgentRole, AgentSession[]>(); for (const session of sessions.value) { const list = map.get(session.role) ?? []; list.push(session); map.set(session.role, list); } return map; });
@@ -38,10 +40,11 @@ export const useAgentStore = defineStore('agents', () => {
   function markWsSync(timestamp = nowIso()): void { lastWsEventAt.value = timestamp; lastUpdatedBy.value = 'ws'; }
 
   async function fetchSessions(): Promise<void> {
+    const requestSeq = ++sessionsRequestSeq;
     loading.value = true; error.value = null; unauthorized.value = false;
-    try { const response = await listAgentSessions(); sessions.value = response.sessions; markRestSync(); }
-    catch (err) { const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent sessions'; error.value = msg; unauthorized.value = err instanceof ApiError && err.isUnauthorized; log.error('fetchSessions', msg); throw err; }
-    finally { loading.value = false; }
+    try { const response = await listAgentSessions(); if (requestSeq !== sessionsRequestSeq) return; sessions.value = response.sessions; markRestSync(); }
+    catch (err) { if (requestSeq !== sessionsRequestSeq) return; const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent sessions'; error.value = msg; unauthorized.value = err instanceof ApiError && err.isUnauthorized; log.error('fetchSessions', msg); throw err; }
+    finally { if (requestSeq === sessionsRequestSeq) loading.value = false; }
   }
 
   async function fetchConversation(sessionId: string): Promise<void> {
@@ -62,8 +65,8 @@ export const useAgentStore = defineStore('agents', () => {
   }
   const refreshConversation = fetchConversation;
 
-  async function fetchLlmExchange(sessionId: string): Promise<void> { llmExchangeSessionId.value = sessionId; llmExchangeLoading.value = true; llmExchangeError.value = null; try { const { exchange } = await getAgentLlmExchange(sessionId); if (llmExchangeSessionId.value === sessionId) currentLlmExchange.value = exchange; } catch (err) { if (llmExchangeSessionId.value !== sessionId) return; currentLlmExchange.value = null; llmExchangeError.value = err instanceof ApiError && err.isNotFound ? null : err instanceof Error ? err.message : String(err); } finally { if (llmExchangeSessionId.value === sessionId) llmExchangeLoading.value = false; } }
-  function clearLlmExchange(): void { currentLlmExchange.value = null; llmExchangeLoading.value = false; llmExchangeError.value = null; llmExchangeSessionId.value = null; }
+  async function fetchLlmExchange(sessionId: string): Promise<void> { const requestSeq = ++exchangeRequestSeq; llmExchangeSessionId.value = sessionId; llmExchangeLoading.value = true; llmExchangeError.value = null; try { const { exchange } = await getAgentLlmExchange(sessionId); if (requestSeq === exchangeRequestSeq && llmExchangeSessionId.value === sessionId) currentLlmExchange.value = exchange; } catch (err) { if (requestSeq !== exchangeRequestSeq || llmExchangeSessionId.value !== sessionId) return; currentLlmExchange.value = null; llmExchangeError.value = err instanceof ApiError && err.isNotFound ? null : err instanceof Error ? err.message : String(err); } finally { if (requestSeq === exchangeRequestSeq && llmExchangeSessionId.value === sessionId) llmExchangeLoading.value = false; } }
+  function clearLlmExchange(): void { ++exchangeRequestSeq; currentLlmExchange.value = null; llmExchangeLoading.value = false; llmExchangeError.value = null; llmExchangeSessionId.value = null; }
 
   async function refetchConversation(sessionId = currentSession.value?.id): Promise<void> { if (sessionId) await fetchConversation(sessionId); }
   async function refetch(): Promise<void> { await fetchSessions(); if (currentSession.value?.id) await refetchConversation(currentSession.value.id); }

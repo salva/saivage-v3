@@ -169,7 +169,7 @@ describe('websocket analyst safety and live-sync control', () => {
     expect(acknowledge).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['close', 'error'] as const)('shuts down Analyst session processes on websocket %s', (event) => {
+  it.each(['close', 'error'] as const)('keeps global Analyst work alive on websocket %s', (event) => {
     const { runtimeApplication, analystRuntime } = createRuntimeApplicationWithAnalystRuntime();
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project', {
@@ -183,7 +183,28 @@ describe('websocket analyst safety and live-sync control', () => {
 
     handlers.get(event)?.();
 
-    expect(analystRuntime.cancel).toHaveBeenCalledWith('analyst:global', 'websocket closed');
-    expect(analystRuntime.shutdownSessionProcesses).toHaveBeenCalledWith('analyst:global');
+    expect(analystRuntime.cancel).not.toHaveBeenCalled();
+    expect(analystRuntime.shutdownSessionProcesses).not.toHaveBeenCalled();
+  });
+
+  it('does not let one socket closing cancel a turn started through another socket', async () => {
+    let resolveTurn!: () => void;
+    const turn = new Promise<void>((resolve) => { resolveTurn = resolve; });
+    const { runtimeApplication, analystRuntime } = createRuntimeApplicationWithAnalystRuntime({
+      submit: jest.fn(async () => { await turn; return { sessionId: 'analyst:global', toolInvocations: [], restart: null }; }),
+    });
+    const { route, fastify } = createRoute();
+    registerWebSocket(fastify, '/tmp/project', { authPolicy: new AuthPolicy(), liveSyncSocket: new LiveSyncSocket(), saivageConfig: createTestSaivageConfig(), runtimeApplication });
+    const first = createSocket();
+    const second = createSocket();
+    route.handler(first.ws, { headers: {}, query: {} });
+    route.handler(second.ws, { headers: {}, query: {} });
+    first.handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: { text: 'hello' } })));
+    await flushQueuedTurn();
+    second.handlers.get('close')?.();
+    expect(analystRuntime.cancel).not.toHaveBeenCalled();
+    resolveTurn();
+    await flushQueuedTurn();
+    expect(analystRuntime.submit).toHaveBeenCalledTimes(1);
   });
 });

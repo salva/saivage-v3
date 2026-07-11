@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import CardHistoryPanel from '../components/cards/CardHistoryPanel.vue';
+import { useCardStore } from '../stores/cards';
 
 vi.mock('../api/client', () => ({
   listCards: vi.fn(), getCard: vi.fn(),
@@ -11,9 +12,12 @@ vi.mock('../api/client', () => ({
 import { listCardHistory, getCardHistoryEntry, getCardDiff } from '../api/client';
 
 describe('CardHistoryPanel analyst filter', () => {
+  let pinia: ReturnType<typeof createPinia>;
   beforeEach(() => {
     vi.clearAllMocks();
-    setActivePinia(createPinia());
+    pinia = createPinia();
+    setActivePinia(pinia);
+    useCardStore().currentCard = { id: 'card-1', version_seq: 3 } as any;
   });
 
   it('filters down to analyst-authored entries only', async () => {
@@ -24,7 +28,7 @@ describe('CardHistoryPanel analyst filter', () => {
     vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'analyst update', snapshot: { id: 'card-1' } as any } });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 2, to: 3, diff: [] });
 
-    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [createPinia()] } });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     expect(wrapper.text()).toContain('planner update');
     await wrapper.find('.filter-chip').trigger('click');
@@ -36,9 +40,12 @@ describe('CardHistoryPanel analyst filter', () => {
 });
 
 describe('CardHistoryPanel analyst filter affordance', () => {
+  let pinia: ReturnType<typeof createPinia>;
   beforeEach(() => {
     vi.clearAllMocks();
-    setActivePinia(createPinia());
+    pinia = createPinia();
+    setActivePinia(pinia);
+    useCardStore().currentCard = { id: 'card-1', version_seq: 2 } as any;
   });
 
   it('explains the analyst filter and changes label when active', async () => {
@@ -48,7 +55,7 @@ describe('CardHistoryPanel analyst filter affordance', () => {
     vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-1-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['title'], change_summary: 'analyst update', snapshot: { id: 'card-1' } as any } });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 1, to: 2, diff: [] });
 
-    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [createPinia()] } });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     const chip = wrapper.get('.filter-chip');
     expect(chip.attributes('title')).toBe('Filter card history by editor (currently: analyst)');

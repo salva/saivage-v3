@@ -87,4 +87,45 @@ describe('websocket ticket client', () => {
     expect(conn.state.value).toBe('unauthorized');
     expect(MockWebSocket.instances).toHaveLength(0);
   });
+
+  it('replaces a closing socket without letting its close callback take the new generation offline', async () => {
+    mocks.issueWebSocketTicket
+      .mockResolvedValueOnce({ ticket: 'first', expiresAt: '2026-01-01T00:00:00.000Z' })
+      .mockResolvedValueOnce({ ticket: 'second', expiresAt: '2026-01-01T00:00:00.000Z' });
+    const conn = createWsConnection();
+    conn.connect();
+    await vi.runAllTicks();
+    const first = MockWebSocket.instances[0]!;
+    first.onopen?.();
+
+    conn.reconfigure();
+    await vi.runAllTicks();
+    const second = MockWebSocket.instances[1]!;
+    first.onclose?.({ code: 1006, reason: 'obsolete' });
+    second.onopen?.();
+
+    expect(first.close).toHaveBeenCalledWith(1000, 'Connection reconfigured');
+    expect(new URL(second.url).searchParams.get('ticket')).toBe('second');
+    expect(conn.state.value).toBe('connected');
+  });
+
+  it('ignores an obsolete ticket rejection and treats a current 1008 as terminal', async () => {
+    let rejectFirst!: (error: Error) => void;
+    mocks.issueWebSocketTicket
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject; }))
+      .mockResolvedValueOnce({ ticket: 'current', expiresAt: '2026-01-01T00:00:00.000Z' });
+    const conn = createWsConnection();
+    conn.connect();
+    conn.reconfigure();
+    await vi.runAllTicks();
+    rejectFirst(new Error('old token'));
+    await vi.runAllTicks();
+    const current = MockWebSocket.instances[0]!;
+    current.onclose?.({ code: 1008, reason: 'bad ticket' });
+
+    expect(conn.state.value).toBe('unauthorized');
+    vi.advanceTimersByTime(60_000);
+    await vi.runAllTicks();
+    expect(mocks.issueWebSocketTicket).toHaveBeenCalledTimes(2);
+  });
 });

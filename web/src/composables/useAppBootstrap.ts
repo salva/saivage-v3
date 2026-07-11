@@ -35,8 +35,7 @@ export function startAppBootstrap(): void {
 
   window.addEventListener(AUTH_TOKEN_CHANGED_EVENT, () => {
     authStore.refresh();
-    syncStore.disconnect();
-    syncStore.connect();
+    syncStore.reconfigure();
     runtimeStore.refetch().catch(() => {});
   });
 }

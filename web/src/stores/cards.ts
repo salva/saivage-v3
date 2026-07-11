@@ -27,7 +27,6 @@ import {
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:cards');
-let cardDetailRequestSeq = 0;
 
 /* ─── Selectors ───────────────────────────────────────────────────────────── */
 
@@ -263,6 +262,9 @@ export function toCardDetailViewModel(response: { card: CardRecord; children: Ca
 /* ─── Pinia Store ─────────────────────────────────────────────────────────── */
 
 export const useCardStore = defineStore('cards', () => {
+  let cardDetailRequestSeq = 0;
+  let cardHistoryRequestSeq = 0;
+  let cardHistoryEntryRequestSeq = 0;
   const cards = ref<CardRecord[]>([]);
   const total = ref(0);
   const loading = ref(false);
@@ -305,6 +307,8 @@ export const useCardStore = defineStore('cards', () => {
   }
 
   function clearCurrentDetail(): void {
+    ++cardHistoryRequestSeq;
+    ++cardHistoryEntryRequestSeq;
     currentCard.value = null;
     currentChildren.value = [];
     currentLifecycle.value = null;
@@ -355,10 +359,12 @@ export const useCardStore = defineStore('cards', () => {
   }
 
   async function fetchCardHistoryForCard(cardId: string): Promise<void> {
+    const requestSeq = ++cardHistoryRequestSeq;
     cardHistoryLoading.value = true;
     cardHistoryError.value = null;
     try {
       const response = await listCardHistory(cardId);
+      if (requestSeq !== cardHistoryRequestSeq || currentCard.value?.id !== cardId) return;
       cardHistory.value = response.history;
       clearCurrentCardStaleNotification(cardId);
       if (response.history.length === 0) {
@@ -367,13 +373,16 @@ export const useCardStore = defineStore('cards', () => {
         cardHistoryDiff.value = [];
       }
     } catch (err) {
+      if (requestSeq !== cardHistoryRequestSeq || currentCard.value?.id !== cardId) return;
       cardHistoryError.value = buildDetailError(err, 'Failed to load card history');
     } finally {
-      cardHistoryLoading.value = false;
+      if (requestSeq === cardHistoryRequestSeq && currentCard.value?.id === cardId) cardHistoryLoading.value = false;
     }
   }
 
   async function selectCardHistoryVersion(cardId: string, seq: number): Promise<void> {
+    const requestSeq = ++cardHistoryEntryRequestSeq;
+    const versionSeq = currentCard.value?.id === cardId ? currentCard.value.version_seq : null;
     cardHistorySelectedSeq.value = seq;
     cardHistoryEntryLoading.value = true;
     cardHistoryEntryError.value = null;
@@ -382,25 +391,30 @@ export const useCardStore = defineStore('cards', () => {
     try {
       const [entryResponse, diffResponse] = await Promise.all([
         getCardHistoryEntry(cardId, seq),
-        getCardDiff(cardId, seq, currentCard.value?.version_seq ?? seq + 1),
+        getCardDiff(cardId, seq, versionSeq ?? seq + 1),
       ]);
+      if (requestSeq !== cardHistoryEntryRequestSeq || currentCard.value?.id !== cardId || cardHistorySelectedSeq.value !== seq) return;
       cardHistoryEntry.value = entryResponse.entry;
       cardHistoryDiff.value = diffResponse.diff;
     } catch (err) {
+      if (requestSeq !== cardHistoryEntryRequestSeq || currentCard.value?.id !== cardId || cardHistorySelectedSeq.value !== seq) return;
       const panelError = buildDetailError(err, 'Failed to load card history details');
       cardHistoryEntryError.value = panelError;
       cardHistoryDiffError.value = panelError;
     } finally {
-      cardHistoryEntryLoading.value = false;
-      cardHistoryDiffLoading.value = false;
+      if (requestSeq === cardHistoryEntryRequestSeq && currentCard.value?.id === cardId && cardHistorySelectedSeq.value === seq) {
+        cardHistoryEntryLoading.value = false;
+        cardHistoryDiffLoading.value = false;
+      }
     }
   }
 
   async function refreshCardHistory(cardId?: string | null): Promise<void> {
     if (!cardId) return;
+    const selectedSeq = currentCard.value?.id === cardId ? cardHistorySelectedSeq.value : null;
     await fetchCardHistoryForCard(cardId);
-    if (cardHistorySelectedSeq.value != null) {
-      await selectCardHistoryVersion(cardId, cardHistorySelectedSeq.value);
+    if (currentCard.value?.id === cardId && selectedSeq != null && cardHistorySelectedSeq.value === selectedSeq) {
+      await selectCardHistoryVersion(cardId, selectedSeq);
     }
   }
 
@@ -425,6 +439,9 @@ export const useCardStore = defineStore('cards', () => {
 
   async function fetchCardDetail(id: string): Promise<void> {
     const requestSeq = ++cardDetailRequestSeq;
+    ++cardHistoryRequestSeq;
+    ++cardHistoryEntryRequestSeq;
+    if (currentCard.value?.id !== id) clearCurrentDetail();
     loading.value = true;
     error.value = null;
     currentDetailError.value = null;

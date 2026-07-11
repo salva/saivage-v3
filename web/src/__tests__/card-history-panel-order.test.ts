@@ -12,9 +12,11 @@ vi.mock('../api/client', () => ({
 import { listCardHistory, getCardHistoryEntry, getCardDiff } from '../api/client';
 
 describe('CardHistoryPanel order', () => {
+  let pinia: ReturnType<typeof createPinia>;
   beforeEach(() => {
     vi.clearAllMocks();
-    setActivePinia(createPinia());
+    pinia = createPinia();
+    setActivePinia(pinia);
     useCardStore().currentCard = { id: 'parent', version_seq: 4 } as any;
   });
 
@@ -23,7 +25,7 @@ describe('CardHistoryPanel order', () => {
     vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-2', kind: 'mutate' as const, card_id: 'parent', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'reorder', changed_fields: ['children'], change_summary: 'children reordered', snapshot: { id: 'parent', children: [{ id: 'low', title: 'Zulu low', priority: 1 }, { id: 'high', title: 'Alpha high', priority: 99 }, { id: 'mid', title: 'Middle', priority: 50 }] } as any } });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'parent', from: 2, to: 4, diff: [{ field: 'children', before: [{ id: 'low', title: 'Zulu low', priority: 1 }, { id: 'high', title: 'Alpha high', priority: 99 }, { id: 'mid', title: 'Middle', priority: 50 }], after: [] }] });
 
-    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'parent' }, global: { plugins: [createPinia()] } });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'parent' }, global: { plugins: [pinia] } });
     await flushPromises();
 
     const text = wrapper.text();

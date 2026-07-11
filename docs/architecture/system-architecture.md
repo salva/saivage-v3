@@ -21,7 +21,7 @@ The major subsystems are:
 - Agent services: LLM invocation, tool dispatch, model-visible message construction, and transcript persistence.
 - Process registry: durable process records, safe process read models, restart reconciliation.
 - Notification queue: card-addressed ephemeral context delivery.
-- HTTP/WebSocket server: authenticated projections, chat transport, and invalidate/event delivery.
+- HTTP/WebSocket server: server-composition-owned `AuthPolicy` instances authenticate projections, debug ingress, ticket issuance, and chat transport; policies and tickets are never module-global.
 
 ## 2. Semantic Layers
 
@@ -206,7 +206,7 @@ Expected persisted concerns include:
 
 HTTP routes and WebSocket frames are projection and transport surfaces. They do not define runtime semantics.
 
-The UI fetches authoritative read models through REST and receives freshness hints through WebSocket invalidation or event frames. WebSocket does not replace REST as source of truth.
+The UI fetches authoritative read models through REST and receives freshness hints through WebSocket invalidation or event frames. WebSocket does not replace REST as source of truth. Each UI-store instance owns monotonically increasing read generations for its selected card/version/session/transcript/exchange; stale resolve, reject, and finally callbacks do not mutate the current selection.
 
 `LoggedEvent` is the current flattened operator event-log public shape. Domain event payload fields are projected into the logged record for the operator event API; moving to nested domain-event payload records is deferred. Runtime event pagination validates present `limit` and `offset` as non-negative integer strings at the operator API boundary.
 
@@ -221,6 +221,8 @@ Internal actor state and compiled transition tables must not leak directly throu
 All protected API and WebSocket routes require authenticated access when a token is configured.
 
 API bearer tokens are accepted in `Authorization: Bearer` headers, not URL query strings. Browser WebSocket connections use short-lived one-use tickets rather than bearer tokens in URLs.
+
+An `AuthPolicy` and its ticket store belong to one server composition. Token rotation advances the browser connection generation, and only callbacks for that generation may alter connection state; obsolete ticket/socket callbacks are ignored, while the current connection's authentication failure is terminal.
 
 The Analyst may inspect secrets when the authenticated user request requires it. UI projections and logs may redact secrets by default, but that redaction is a display/output policy rather than a limit on Analyst authority.
 
@@ -240,7 +242,7 @@ Target actor ownership:
 - `PlanningCardProcessorActor` owns project/goal planner and reviewer semantics;
 - `TerminalCardProcessorActor` owns executor semantics for terminal cards; it constructs card-scoped capabilities and does not own child cards.
 
-Process execution follows a launch-and-monitor model through the process runner's in-memory registry and process tool provider. Agents launch project commands, inspect status/logs over time, use bounded waits for completion, and explicitly terminate currently known processes when needed. Normal shutdown best-effort terminates live child processes through their `ChildProcess` handles; abrupt-crash survivors are ignored on the next start. `run_command`, `wait_process`, and `kill_process` share one metadata-only result shape with process identity, exit/status, byte counts, and canonical stdout/stderr log URLs. Card-owned logs use `work:///cards/<cardId>/processes/<id>/stdout.log` / `stderr.log`; non-card Analyst/operator/runtime logs use `work:///processes/<id>/stdout.log` / `stderr.log`. Process-list read models derive stdout and stderr log URLs from the in-memory process records; process output directories contain `stdout.log` and `stderr.log` only, with no duplicate `combined.log`. The functional specification does not impose process concurrency limits for now.
+Process execution follows a launch-and-monitor model through the process runner's in-memory registry and process tool provider. Every managed POSIX spawn is detached into an owned process group. The retained group control outlives an exited direct shell while descendants remain: it polls group liveness, keeps the public record `running`, and lets explicit kill, owner cleanup, runtime shutdown, and scope disposal use TERM → group-absence wait → KILL. Group absence alone settles the record: natural completion preserves the leader outcome and runner termination is `killed`. `wait_process` is group-based: zero timeout inspects current liveness, a positive timeout returns the running view without killing, and terminal output waits for group settlement. Abrupt-crash survivors are ignored on the next start; no process-group reattachment is claimed. `run_command`, `wait_process`, and `kill_process` share one metadata-only result shape with process identity, exit/status, byte counts, and canonical stdout/stderr log URLs. Card-owned logs use `work:///cards/<cardId>/processes/<id>/stdout.log` / `stderr.log`; non-card Analyst/operator/runtime logs use `work:///processes/<id>/stdout.log` / `stderr.log`. Process-list read models derive stdout and stderr log URLs from the in-memory process records; process output directories contain `stdout.log` and `stderr.log` only, with no duplicate `combined.log`. The functional specification does not impose process concurrency limits for now.
 
 Planner, executor, and reviewer initial provider inputs are built only for fresh idle turns. The builder loads the persisted conversation prefix, writes a structural `activation_open` activity row that is excluded from provider context, persists this turn's runtime-provided user-context rows, and sends the provider the persisted prefix plus those new rows. Later continuation inputs are built through `LLMActor` continuation methods after tool results, failed terminal repairs, or plain-text repair directives; caller-provided continuation context, including safe notification delivery for planner/executor flows, is appended at that pre-provider point. Recovery paths for in-flight provider calls or waiting tool calls do not build a new input and therefore do not append unsent activation markers or context rows.
 

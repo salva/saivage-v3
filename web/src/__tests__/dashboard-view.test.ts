@@ -11,7 +11,7 @@ describe('DashboardView S06 read-only contract', () => {
     expect(source).toContain('class="ui-refresh-button"');
     expect(source).toContain('@click="refreshRuntime"');
     expect(source).toContain('goToCard');
-    expect(source).toContain('goToAgent');
+    expect(source).not.toContain('goToAgent');
 
     expect(source).not.toContain('sendChatMessage');
     expect(source).not.toContain('Analyst Chat');

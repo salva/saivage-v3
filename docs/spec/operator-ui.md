@@ -71,7 +71,7 @@ The Analyst panel is the user's mutation path. The user asks for changes in natu
 
 The workspace remains read-only. Runtime lifecycle requests use the retained Analyst Run and Pause/Resume controls, and server restart remains an Analyst request. Internal server/application disposal cleanup is not an Analyst, UI, or HTTP control.
 
-The shared Analyst session is the singular authenticated operator authority at `analyst:global`, not a private per-browser chat. HTTP bearer and WebSocket ticket validation admit normal web access to that same authority without creating an individual identity. Server restart is exposed only when API-token authentication is enabled; disabled-auth deployments retain ordinary chat but do not expose restart.
+The shared Analyst session is the singular authenticated operator authority at `analyst:global`, not a private per-browser chat. HTTP bearer and WebSocket ticket validation admit normal web access to that same authority without creating an individual identity. Closing any browser socket removes only that socket's local queue; it never cancels shared Analyst work. Token changes intentionally replace the WebSocket generation; stale ticket, message, and close callbacks cannot take the current connection offline, while a current `1008` remains terminal unauthorized. Server restart is exposed only when API-token authentication is enabled; disabled-auth deployments retain ordinary chat but do not expose restart.
 
 After the Analyst returns restart confirmation-required, the composer shows the inline warning: `Restart confirmation required. Send exactly RESTART SERVER to schedule server shutdown.` It is presentation of actor-owned pending state, not a transcript entry. The warning remains after a failed or aborted next submission and changes only after a successful response proves that actor ingress consumed that message: a new confirmation-required acknowledgement replaces it, while `null` or `scheduled` clears it.
 
@@ -114,6 +114,8 @@ Examples:
 - "Go back" restores the previous workspace view/entity when available.
 
 Navigation can be combined with mutation in one Analyst turn. For example, the Analyst can open a relevant session, queue a card notification, and report both outcomes.
+
+Analyst Back owns logical workspace history rather than browser transport history. Restoration replaces the displayed route without re-recording it, so Back cannot oscillate between two views. REST remains the source of read models: card, history, agent-session, transcript, and LLM-exchange reads carry local request ownership, and a stale resolve, rejection, or completion cannot overwrite a newer card, version, or session selection.
 
 ## 7. Forbidden UI Mutations
 

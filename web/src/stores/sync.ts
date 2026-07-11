@@ -14,6 +14,7 @@ export const useSyncStore = defineStore('sync', () => {
   function disconnect(): void {
     syncClient.stop();
   }
+  function reconfigure(): void { syncClient.reconfigure(); }
 
   function registerResource(registration: SyncResourceRegistration): () => void {
     return syncClient.register(registration);
@@ -27,5 +28,5 @@ export const useSyncStore = defineStore('sync', () => {
     syncClient.sendMessage(text);
   }
 
-  return { connectionState, lastConnectedAt, lastEventAt, connect, disconnect, registerResource, openConversation, sendMessage };
+  return { connectionState, lastConnectedAt, lastEventAt, connect, disconnect, reconfigure, registerResource, openConversation, sendMessage };
 });

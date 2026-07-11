@@ -244,8 +244,8 @@ jobs:
       - name: Default Jest suite
         run: npm test
 
-  ui-smoke:
-    name: ui-smoke
+  ui-vitest:
+    name: ui-vitest
     runs-on: ubuntu-latest
     needs: classify-changes
     if: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.ui == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
@@ -265,8 +265,8 @@ jobs:
       - name: Install web dependencies
         run: cd web && npm ci
 
-      - name: UI smoke validation profile
-        run: npm run validate:ui-smoke
+      - name: Complete UI Vitest suite
+        run: npm run web:typecheck && npm run web:test
 
   browser-smoke:
     name: browser-smoke
@@ -375,7 +375,7 @@ jobs:
       - classify-changes
       - routine-docs
       - backend-jest-build
-      - ui-smoke
+      - ui-vitest
       - browser-smoke
       - scheduled-release-backstop
       - dependency-hygiene
@@ -387,7 +387,7 @@ jobs:
           CLASSIFIER_RESULT: ${{ needs.classify-changes.result }}
           ROUTINE_RESULT: ${{ needs.routine-docs.result }}
           BACKEND_RESULT: ${{ needs.backend-jest-build.result }}
-          UI_RESULT: ${{ needs.ui-smoke.result }}
+          UI_RESULT: ${{ needs.ui-vitest.result }}
           BROWSER_RESULT: ${{ needs.browser-smoke.result }}
           SCHEDULED_RESULT: ${{ needs.scheduled-release-backstop.result }}
           DEPENDENCY_RESULT: ${{ needs.dependency-hygiene.result }}
@@ -427,7 +427,7 @@ jobs:
           require_success classify-changes "$CLASSIFIER_RESULT"
           require_success routine-docs "$ROUTINE_RESULT"
           require_applicable backend-jest-build "$BACKEND_APPLIES" "$BACKEND_RESULT"
-          require_applicable ui-smoke "$UI_APPLIES" "$UI_RESULT"
+          require_applicable ui-vitest "$UI_APPLIES" "$UI_RESULT"
           require_applicable browser-smoke "$BROWSER_APPLIES" "$BROWSER_RESULT"
           require_applicable scheduled-release-backstop "$SCHEDULED_APPLIES" "$SCHEDULED_RESULT"
           require_applicable dependency-hygiene "$DEPENDENCY_APPLIES" "$DEPENDENCY_RESULT"
@@ -437,7 +437,7 @@ jobs:
             echo "- classifier: $CLASSIFIER_RESULT ($CLASSIFIER_SUMMARY)"
             echo "- routine-docs: $ROUTINE_RESULT"
             echo "- backend-jest-build: $BACKEND_RESULT (applies=$BACKEND_APPLIES)"
-            echo "- ui-smoke: $UI_RESULT (applies=$UI_APPLIES)"
+            echo "- ui-vitest: $UI_RESULT (applies=$UI_APPLIES)"
             echo "- browser-smoke: $BROWSER_RESULT (applies=$BROWSER_APPLIES)"
             echo "- scheduled-release-backstop: $SCHEDULED_RESULT (applies=$SCHEDULED_APPLIES)"
             echo "- dependency-hygiene: $DEPENDENCY_RESULT (applies=$DEPENDENCY_APPLIES)"

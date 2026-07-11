@@ -82,7 +82,7 @@ const REQUIRED_VALIDATION_PROFILES = [
   },
   {
     name: 'validate:ui',
-    mustInclude: ['npm run web:typecheck', 'npm run web:test:sweep', 'npm run web:test:operator-smoke'],
+    mustInclude: ['npm run web:typecheck', 'npm run web:test', 'npm run web:test:operator-smoke'],
     description: 'UI/operator surface validation profile',
   },
   {

@@ -77,6 +77,10 @@ export class SyncClient {
     this.lastConnectedAtRef.value = null;
   }
 
+  reconfigure(): void {
+    this.conn.reconfigure();
+  }
+
   register(registration: SyncResourceRegistration): () => void {
     this.resources.set(registration.resource, registration);
     if (this.conn.state.value === 'connected') this.refetchResource(registration.resource);

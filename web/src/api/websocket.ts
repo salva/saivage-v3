@@ -38,6 +38,7 @@ export interface WsConnectionManager {
 
   /** Disconnect and stop auto-reconnect. */
   disconnect(): void;
+  reconfigure(): void;
 
   /** Send a chat message to the analyst via WebSocket. */
   sendMessage(text: string): void;
@@ -113,6 +114,18 @@ export function createWsConnection(): WsConnectionManager {
     void openWithFreshTicket(attempt);
   }
 
+  function reconfigure(): void {
+    shouldReconnect = true;
+    const generation = ++connectAttempt;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    const previous = ws;
+    ws = null;
+    sessionId.value = null;
+    if (previous) previous.close(1000, 'Connection reconfigured');
+    setState('connecting');
+    void openWithFreshTicket(generation);
+  }
+
   async function openWithFreshTicket(attempt: number): Promise<void> {
     try {
       const { ticket } = await issueWebSocketTicket();
@@ -126,9 +139,11 @@ export function createWsConnection(): WsConnectionManager {
       const wsUrl = new URL('/ws', `${protocol}//${window.location.host}`);
       wsUrl.searchParams.set('ticket', ticket);
 
-      ws = new WebSocket(wsUrl.toString());
+      const socket = new WebSocket(wsUrl.toString());
+      ws = socket;
 
-      ws.onopen = () => {
+      socket.onopen = () => {
+        if (attempt !== connectAttempt || ws !== socket) return;
         setState('connected');
         reconnectAttempts.value = 0;
         log.info('WebSocket connected');
@@ -137,7 +152,8 @@ export function createWsConnection(): WsConnectionManager {
         }
       };
 
-      ws.onclose = (event) => {
+      socket.onclose = (event) => {
+        if (attempt !== connectAttempt || ws !== socket) return;
         log.warn(`WebSocket closed: code=${event.code} reason=${event.reason}`);
         ws = null;
 
@@ -154,12 +170,13 @@ export function createWsConnection(): WsConnectionManager {
         }
       };
 
-      ws.onerror = () => {
+      socket.onerror = () => {
         log.error('WebSocket error');
         // onclose will fire after onerror
       };
 
-      ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (attempt !== connectAttempt || ws !== socket) return;
         try {
           const data = typeof event.data === 'string'
             ? event.data
@@ -203,6 +220,7 @@ export function createWsConnection(): WsConnectionManager {
         }
       };
     } catch (err) {
+      if (attempt !== connectAttempt) return;
       log.error('Failed to create WebSocket', err);
       setState('unauthorized');
       sessionId.value = null;
@@ -294,6 +312,7 @@ export function createWsConnection(): WsConnectionManager {
     sessionId,
     connect,
     disconnect,
+    reconfigure,
     sendMessage,
     sendRaw,
     onEvent,

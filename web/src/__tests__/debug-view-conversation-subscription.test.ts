@@ -64,7 +64,7 @@ function makeConversation(session: AgentSession, entryId: string): AgentConversa
       role: 'assistant',
       kind: 'text',
       content: entryId,
-      round_id: `round-${entryId}`,
+      round_id: 'r-assistant-00000000000000000000000000000001',
       message_index: 0,
       block_index: 0,
       timestamp: '2026-01-01T00:00:00.000Z',
