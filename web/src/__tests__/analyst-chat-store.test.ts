@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../stores/analystChat';
+import { useFeedbackStore } from '../stores/feedback';
 import type { AgentConversationEntry } from '../api/types';
 
 const apiMocks = vi.hoisted(() => ({
@@ -42,7 +43,7 @@ describe('analyst chat store', () => {
     apiMocks.sendChatMessage.mockReset();
     apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst:global', entries: [] as AgentConversationEntry[] });
-    apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [] });
+    apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
   });
 
   it('createNewChat resolves to the canonical analyst session', async () => {
@@ -108,5 +109,83 @@ describe('analyst chat store', () => {
     store.ingestWsEvent({ event: 'control_action_recorded', sessionId: 'analyst:global', actor: 'analyst', surface: 'web-chat', action: 'approved', target_id: 'card-1' });
 
     expect(apiMocks.getChatEntries).not.toHaveBeenCalled();
+  });
+
+  it('presents a confirmation-required response without adding a status transcript entry', async () => {
+    apiMocks.sendChatMessage.mockResolvedValueOnce({
+      sessionId: 'analyst:global',
+      toolInvocations: [],
+      restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
+    });
+    const store = useAnalystChat();
+    store.setDraft('restart it');
+
+    await store.sendMessage();
+
+    expect(store.restartAcknowledgement).toEqual({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    expect(store.messages).toEqual([]);
+  });
+
+  it.each([
+    ['rejection', new Error('network down')],
+    ['abort', new DOMException('Aborted', 'AbortError')],
+  ])('retains confirmation acknowledgement on a response-less %s', async (_name, error) => {
+    const store = useAnalystChat();
+    store.ingestRestartAcknowledgement('analyst:global', { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    store.setDraft('RESTART SERVER');
+    apiMocks.sendChatMessage.mockRejectedValueOnce(error);
+
+    await expect(store.sendMessage()).rejects.toThrow();
+
+    expect(store.restartAcknowledgement).toEqual({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    expect(store.draft).toBe('RESTART SERVER');
+    expect(store.messages).toEqual([]);
+  });
+
+  it('updates confirmation state only after a successful response consumes the next turn', async () => {
+    const store = useAnalystChat();
+    store.ingestRestartAcknowledgement('analyst:global', { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    apiMocks.sendChatMessage.mockResolvedValueOnce({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
+    store.setDraft('not the phrase');
+
+    await store.sendMessage();
+
+    expect(store.restartAcknowledgement).toBeNull();
+  });
+
+  it('preserves the scheduled acknowledgement and optimistic confirmation when shutdown interrupts refetch', async () => {
+    const store = useAnalystChat();
+    store.ingestRestartAcknowledgement('analyst:global', { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    apiMocks.sendChatMessage.mockResolvedValueOnce({ sessionId: 'analyst:global', toolInvocations: [], restart: { status: 'scheduled' } });
+    apiMocks.getChatEntries.mockRejectedValueOnce(new Error('server shutting down'));
+    store.setDraft('RESTART SERVER');
+
+    await store.sendMessage();
+
+    expect(store.restartAcknowledgement).toBeNull();
+    expect(store.draft).toBe('');
+    expect(store.messages).toHaveLength(1);
+    expect(store.messages[0].content).toBe('RESTART SERVER');
+    expect(store.sendError).toBeNull();
+    expect(useFeedbackStore().toasts).toContainEqual(expect.objectContaining({
+      tone: 'warning',
+      title: 'Server restart scheduled',
+      message: 'The server is shutting down. This does not confirm that a replacement is running.',
+    }));
+  });
+
+  it('retains a consumed acknowledgement when a non-scheduled response refetch fails', async () => {
+    const store = useAnalystChat();
+    apiMocks.sendChatMessage.mockResolvedValueOnce({
+      sessionId: 'analyst:global',
+      toolInvocations: [],
+      restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
+    });
+    apiMocks.getChatEntries.mockRejectedValueOnce(new Error('refetch failed'));
+    store.setDraft('restart it');
+
+    await expect(store.sendMessage()).rejects.toThrow('refetch failed');
+
+    expect(store.restartAcknowledgement).toEqual({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
   });
 });

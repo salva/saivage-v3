@@ -1,7 +1,7 @@
 import { readonly, ref } from 'vue';
 import { getWsConnection, type WsConnectionManager } from '../api/websocket';
 import type { LiveSyncInvalidateFrame, LiveSyncUnscopedResource, WsConnectionState } from '../api/types';
-import { isAnalystActivityContent } from '../api/contracts';
+import { isAnalystActivityContent, parseAnalystTurnAcknowledgedStatusContent } from '../api/contracts';
 import { useAnalystChat } from '../stores/analystChat';
 import { createLogger } from '../utils/logger';
 
@@ -61,6 +61,11 @@ export class SyncClient {
     this.conn.onSyncFrame((frame) => this.handleSyncFrame(frame));
     this.conn.onEvent((envelope) => {
       this.lastEventAtRef.value = new Date().toISOString();
+      const restartAcknowledgement = parseAnalystTurnAcknowledgedStatusContent(envelope.content);
+      if (restartAcknowledgement) {
+        useAnalystChat().ingestRestartAcknowledgement(restartAcknowledgement.sessionId, restartAcknowledgement.restart);
+        return;
+      }
       if (isAnalystActivityContent(envelope.content)) useAnalystChat().ingestWsEvent(envelope.content);
     });
     this.conn.connect();

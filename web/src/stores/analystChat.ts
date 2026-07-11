@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AgentConversationEntry, ChatSession, DetailErrorState } from '../api/types';
+import type { AgentConversationEntry, ChatSession, DetailErrorState, RestartChatAcknowledgement } from '../api/types';
 import {
   ApiError,
   getChatEntries,
@@ -68,6 +68,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const messagesError = ref<DetailErrorState | null>(null);
   const sending = ref(false);
   const sendError = ref<DetailErrorState | null>(null);
+  const restartAcknowledgement = ref<RestartChatAcknowledgement | null>(null);
 
   const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
 
@@ -85,6 +86,17 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   function setDraft(value: string): void {
     draft.value = value;
+  }
+
+  function presentRestartAcknowledgement(restart: RestartChatAcknowledgement | null): void {
+    restartAcknowledgement.value = restart?.status === 'confirmation_required' ? restart : null;
+    if (restart?.status === 'scheduled') {
+      useFeedbackStore().notify({
+        tone: 'warning',
+        title: 'Server restart scheduled',
+        message: 'The server is shutting down. This does not confirm that a replacement is running.',
+      });
+    }
   }
 
   async function fetchSessions(): Promise<void> {
@@ -155,8 +167,10 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       const workspaceRoute = useWorkspaceRouteStore();
       const workspaceContext = workspaceRoute.current ?? { view: null, entityId: null, refinement: null };
       draft.value = '';
-      messages.value = [...messages.value, optimisticUserMessage(sessionId, content, nowIso(), messages.value.length)];
+      const optimisticMessage = optimisticUserMessage(sessionId, content, nowIso(), messages.value.length);
+      messages.value = [...messages.value, optimisticMessage];
       const response = await sendChatMessage(sessionId, content, workspaceContext);
+      presentRestartAcknowledgement(response.restart);
 
       for (const rawInvocation of response.toolInvocations) {
         const invocation = asRecord(rawInvocation);
@@ -166,7 +180,15 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         workspaceRoute.apply(result.data as Parameters<typeof workspaceRoute.apply>[0]);
       }
 
-      await fetchMessages(response.sessionId);
+      try {
+        await fetchMessages(response.sessionId);
+      } catch (err) {
+        if (response.restart?.status === 'scheduled') {
+          messages.value = [...previousMessages, optimisticMessage];
+          return;
+        }
+        throw err;
+      }
     } catch (err) {
       sendError.value = buildErrorState(err, 'Failed to send analyst chat message.');
       draft.value = previousDraft;
@@ -206,6 +228,11 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
   }
 
+  function ingestRestartAcknowledgement(sessionId: string, restart: RestartChatAcknowledgement | null): void {
+    if (sessionId !== ANALYST_SESSION_ID) return;
+    presentRestartAcknowledgement(restart);
+  }
+
   return {
     sessions,
     activeSessionId,
@@ -218,6 +245,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messagesError,
     sending,
     sendError,
+    restartAcknowledgement,
     activeSessionWritable: computed(() => isWritableSession(activeSession.value)),
     setDraft,
     fetchSessions,
@@ -226,5 +254,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     createNewChat,
     sendMessage,
     ingestWsEvent,
+    ingestRestartAcknowledgement,
   };
 });

@@ -207,6 +207,7 @@ export {
   parseLiveSyncClientFrame,
   parseKnownWsContent,
   parseKnownWsEnvelope,
+  parseAnalystTurnAcknowledgedStatusContent,
   parseWsEnvelope,
   validateKnownWsEnvelope,
 } from './operator-events.js';

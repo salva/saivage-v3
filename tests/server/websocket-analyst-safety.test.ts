@@ -53,7 +53,7 @@ function createRuntimeApplicationWithAnalystRuntime(overrides: Partial<ReturnTyp
 
 function createMockAnalystRuntime() {
   return {
-    submit: jest.fn(async () => ({ sessionId: 'analyst:global', toolInvocations: [], restart: null })),
+    submit: jest.fn(async () => ({ sessionId: 'analyst:global', toolInvocations: [], restart: null as { status: 'scheduled' } | null })),
     cancel: jest.fn(() => true),
     shutdownSessionProcesses: jest.fn(async () => undefined),
     shutdown: jest.fn(async () => undefined),

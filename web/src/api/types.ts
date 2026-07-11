@@ -22,6 +22,7 @@ import type {
   ServerAvailability,
   SessionStatus,
   SupervisionResponse,
+  RestartChatAcknowledgement,
 } from './contracts';
 export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
 
@@ -54,6 +55,7 @@ export type {
   ServerAvailability,
   SessionStatus,
   SupervisionResponse,
+  RestartChatAcknowledgement,
 } from './contracts';
 
 export interface NoteRecord {

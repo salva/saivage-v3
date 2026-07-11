@@ -30,6 +30,7 @@ describe('analyst chat workspace context', () => {
     apiMocks.sendChatMessage.mockResolvedValue({
       sessionId: 'analyst:global',
       toolInvocations: [],
+      restart: null,
     });
   });
 
@@ -59,6 +60,7 @@ describe('analyst chat workspace context', () => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       sessionId: 'analyst:global',
       toolInvocations: [{ tool: 'navigate_workspace', params: {}, result: { success: true, data: payload } }],
+      restart: null,
     });
     const workspaceRoute = useWorkspaceRouteStore();
     const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
@@ -74,6 +76,7 @@ describe('analyst chat workspace context', () => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       sessionId: 'analyst:global',
       toolInvocations: [{ tool: 'navigate_back', params: {}, result: { success: false, error: 'denied' } }],
+      restart: null,
     });
     const workspaceRoute = useWorkspaceRouteStore();
     const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);

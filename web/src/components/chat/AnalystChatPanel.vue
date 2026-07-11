@@ -35,6 +35,7 @@
     >Jump to latest<span v-if="timelineControls.unseenCount.value > 0"> · {{ timelineControls.unseenCount.value }} new</span></button>
 
     <form class="chat-input-panel" @submit.prevent="submitMessage">
+      <div v-if="restartAcknowledgement" class="chat-status-card chat-status-warning" role="status">Restart confirmation required. Send exactly <code>RESTART SERVER</code> to schedule server shutdown.</div>
       <textarea
         ref="composerRef"
         :value="draft"
@@ -94,6 +95,7 @@ const {
   messagesError,
   sending,
   sendError,
+  restartAcknowledgement,
   activeSessionWritable,
 } = storeToRefs(chat);
 
@@ -234,6 +236,10 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   background: var(--surface-1);
   color: var(--text);
+}
+
+.chat-status-warning {
+  color: var(--warning, var(--text));
 }
 
 .chat-thinking {

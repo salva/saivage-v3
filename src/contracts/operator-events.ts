@@ -215,6 +215,11 @@ export function isAnalystActivityContent(content: unknown): content is AnalystAc
   return Boolean(event && analystActivityEventNameSet.has(event) && AnalystActivityContentSchema.safeParse(content).success);
 }
 
+export function parseAnalystTurnAcknowledgedStatusContent(input: unknown): z.infer<typeof AnalystTurnAcknowledgedStatusContentSchema> | null {
+  const parsed = AnalystTurnAcknowledgedStatusContentSchema.safeParse(input);
+  return parsed.success ? parsed.data : null;
+}
+
 export function isConnectedEnvelope(envelope: unknown): envelope is z.infer<typeof ConnectedStatusEnvelopeSchema> {
   return ConnectedStatusEnvelopeSchema.safeParse(envelope).success;
 }

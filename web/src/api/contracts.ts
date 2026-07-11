@@ -76,6 +76,7 @@ export {
   buildConnectedEnvelope,
   buildInboundAnalystMessageEnvelope,
   isAnalystActivityContent,
+  parseAnalystTurnAcknowledgedStatusContent,
   isConnectedEnvelope,
   parseLiveSyncClientFrame,
   parseKnownWsContent,

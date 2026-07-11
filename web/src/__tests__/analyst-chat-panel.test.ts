@@ -43,7 +43,7 @@ describe('AnalystChatPanel', () => {
         { id: '3', session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
       ],
     });
-    sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [] });
+    sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
   });
 
   it('subscribes the analyst transcript to the canonical conversation live-sync resource', async () => {
@@ -158,6 +158,25 @@ describe('AnalystChatPanel', () => {
 
     expect(sendChatMessage).toHaveBeenCalledWith('analyst:global', 'please inspect', { view: null, entityId: null, refinement: null });
     expect(document.activeElement).toBe(textarea.element);
+    wrapper.unmount();
+  });
+
+  it('renders the exact restart confirmation warning above the composer without a transcript entry', async () => {
+    sendChatMessage.mockResolvedValueOnce({
+      sessionId: 'analyst:global',
+      toolInvocations: [],
+      restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
+    });
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.find('textarea').setValue('restart the server');
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    const warning = wrapper.find('.chat-input-panel [role="status"]');
+    expect(warning.text()).toBe('Restart confirmation required. Send exactly RESTART SERVER to schedule server shutdown.');
+    expect(wrapper.findAll('.chat-round').length).toBeGreaterThanOrEqual(0);
+    expect(wrapper.text()).not.toContain('Server restart scheduled');
     wrapper.unmount();
   });
 

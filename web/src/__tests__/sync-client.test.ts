@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from 'pinia';
 import type { LiveSyncInvalidateFrame, WsConnectionState } from '../api/types';
 import type { WsConnectionManager, WsEventHandler, WsOpenHandler, WsStateHandler, WsSyncFrameHandler } from '../api/websocket';
 import { SyncClient } from '../sync/client';
+import { useAnalystChat } from '../stores/analystChat';
+import { useFeedbackStore } from '../stores/feedback';
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -138,5 +140,31 @@ describe('SyncClient', () => {
     harness.emitSync({ t: 'invalidate', resource: 'conversation', id: 'analyst:global' });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('ingests only canonical Analyst WS restart acknowledgements through the shared presenter', async () => {
+    const harness = createConn();
+    const client = new SyncClient(harness.conn);
+    const chat = useAnalystChat();
+    client.start();
+
+    harness.emitEvent({
+      type: 'status',
+      content: { event: 'analyst_turn_acknowledged', sessionId: 'other-session', restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } },
+    } as Parameters<WsEventHandler>[0]);
+    expect(chat.restartAcknowledgement).toBeNull();
+
+    harness.emitEvent({
+      type: 'status',
+      content: { event: 'analyst_turn_acknowledged', sessionId: 'analyst:global', restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } },
+    } as Parameters<WsEventHandler>[0]);
+    expect(chat.restartAcknowledgement).toEqual({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+
+    harness.emitEvent({
+      type: 'status',
+      content: { event: 'analyst_turn_acknowledged', sessionId: 'analyst:global', restart: { status: 'scheduled' } },
+    } as Parameters<WsEventHandler>[0]);
+    expect(chat.restartAcknowledgement).toBeNull();
+    expect(useFeedbackStore().toasts).toContainEqual(expect.objectContaining({ title: 'Server restart scheduled' }));
   });
 });
