@@ -27,6 +27,37 @@ describe('ProcessRunner', () => {
     return runner.spawn({ command, cardId, ownerId: `owner:${cardId}`, ownerKind: 'agent' });
   }
 
+  async function backgroundDescendant(command = 'sleep 60'): Promise<{ rec: ReturnType<typeof spawn>; descendantPid: number }> {
+    const pidFile = join(root, `descendant-${Date.now()}-${Math.random()}.pid`);
+    const rec = spawn(`${command} & echo $! > ${JSON.stringify(pidFile)}; exit`, 'card-descendant');
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (existsSync(pidFile)) {
+        const descendantPid = Number(readFileSync(pidFile, 'utf8').trim());
+        if (Number.isInteger(descendantPid) && descendantPid > 0) return { rec, descendantPid };
+      }
+      await sleep(10);
+    }
+    throw new Error('background descendant did not write its PID');
+  }
+
+  function isAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+      throw error;
+    }
+  }
+
+  async function expectDead(pid: number): Promise<void> {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (!isAlive(pid)) return;
+      await sleep(10);
+    }
+    throw new Error(`descendant ${pid} remained alive`);
+  }
+
   it('spawns a process and records durable output paths', async () => {
     const rec = spawn('echo "hello stdout"; echo "hello stderr" >&2', 'card-out');
     expect(rec.status).toBe('running');
@@ -149,6 +180,37 @@ describe('ProcessRunner', () => {
 
     expect(Date.now() - started).toBeLessThan(1500);
     expect(killed?.status).toBe('killed');
+  });
+
+  it('retains an exited leader group as running and settles wait only after its descendant exits', async () => {
+    const { rec, descendantPid } = await backgroundDescendant('sleep 0.25');
+    try {
+      await sleep(75);
+      expect(runner.get(rec.id)).toMatchObject({ status: 'running' });
+      expect(isAlive(descendantPid)).toBe(true);
+      await expect(runner.wait(rec.id, 0)).resolves.toMatchObject({ status: 'running', timedOut: false });
+      await expect(runner.wait(rec.id, 20)).resolves.toMatchObject({ status: 'running', timedOut: true });
+      await expect(runner.wait(rec.id, 1000)).resolves.toMatchObject({ status: 'exited', timedOut: false });
+    } finally {
+      await runner.kill(rec.id, 'test cleanup', { graceMs: 100 });
+    }
+  });
+
+  it.each([
+    ['explicit kill', async (id: string) => runner.kill(id, 'explicit cleanup', { graceMs: 100 })],
+    ['owner cleanup', async (id: string) => runner.stopByOwner(`owner:card-descendant`, 'owner cleanup', { graceMs: 100 })],
+    ['runtime cleanup', async (_id: string) => runner.stopRuntimeOwned('runtime cleanup', { graceMs: 100 })],
+  ])('kills a retained descendant through %s', async (_label, cleanup) => {
+    const { rec, descendantPid } = await backgroundDescendant();
+    try {
+      await sleep(75);
+      expect(runner.get(rec.id)).toMatchObject({ status: 'running' });
+      await cleanup(rec.id);
+      await expectDead(descendantPid);
+      expect(runner.get(rec.id)).toMatchObject({ status: 'killed' });
+    } finally {
+      await runner.kill(rec.id, 'test cleanup', { graceMs: 100 });
+    }
   });
 
   it('starts a fresh runtime with an empty in-memory registry', async () => {

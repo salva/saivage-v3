@@ -50,6 +50,9 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private readonly runtimeState: RuntimeStateMutationPort;
   private readonly runtimeGate: RuntimeGate;
   private started = false;
+  private lifecycle: 'ready' | 'running' | 'shutting_down' | 'shutdown' = 'ready';
+  private shutdownPromise: Promise<void> | null = null;
+  private runGeneration = 0;
   private currentCardId: string | null = null;
   private startupRecoveryReport: ActorStartupRecoveryReport | null = null;
   private readonly cardActors = new Map<string, CardActor>();
@@ -62,6 +65,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   async start(): Promise<void> {
+    if (this.lifecycle === 'shutting_down' || this.lifecycle === 'shutdown') throw new Error('Cannot start a shutdown runtime.');
     if (this.started) return;
 
     const rootError = this.tryReadRootCardRecord();
@@ -85,20 +89,40 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       this.runtimeGate.setOpen(readRuntimeState(this.options.projectRoot)?.status !== 'paused');
     }
     this.started = true;
+    this.lifecycle = 'running';
   }
 
   getStartupRecoveryReport(): ActorStartupRecoveryReport | null {
     return this.startupRecoveryReport;
   }
 
-  async shutdown(): Promise<void> {
-    if (!this.started) return;
+  shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.lifecycle = 'shutting_down';
+    this.runtimeGate.close();
+    ++this.runGeneration;
+    let resolveShutdown!: () => void;
+    let rejectShutdown!: (error: unknown) => void;
+    this.shutdownPromise = new Promise<void>((resolve, reject) => {
+      resolveShutdown = resolve;
+      rejectShutdown = reject;
+    });
+    void this.shutdownOnce().then(resolveShutdown, rejectShutdown);
+    return this.shutdownPromise;
+  }
+
+  private async shutdownOnce(): Promise<void> {
+    for (const actor of this.cardActors.values()) actor.cancel({ reason: 'runtime shutdown' });
     await this.options.processRunner.stopRuntimeOwned('runtime shutdown', { graceMs: 5000 });
-    this.started = false;
+    this.cardActors.clear();
     this.currentCardId = null;
+    this.started = false;
+    this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'stopped', active_card_run: null, updated_at: this.now() } });
+    this.lifecycle = 'shutdown';
   }
 
   pause(): void {
+    if (this.lifecycle === 'shutting_down' || this.lifecycle === 'shutdown') throw new Error('Cannot pause a shutdown runtime.');
     if (!this.started) throw new Error('Cannot pause runtime before it is started.');
     const status = this.runtimeStatus() ?? 'stopped';
     if (status !== 'running') throw new Error(`Cannot pause runtime from '${status}'.`);
@@ -107,6 +131,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   resume(): void {
+    if (this.lifecycle === 'shutting_down' || this.lifecycle === 'shutdown') throw new Error('Cannot resume a shutdown runtime.');
     if (!this.started) throw new Error('Cannot resume runtime before it is started.');
     const status = this.runtimeStatus() ?? 'stopped';
     if (status !== 'paused') throw new Error(`Cannot resume runtime from '${status}'.`);
@@ -116,6 +141,9 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult {
+    if (this.lifecycle === 'shutting_down' || this.lifecycle === 'shutdown') {
+      throw new Error('Cannot notify a shutdown runtime.');
+    }
     const actor = this.cardActors.get(cardId);
     if (actor) {
       actor.enqueueNotification(notification);
@@ -134,7 +162,9 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   async startProject(_source: RuntimeCommandSource = 'operator'): Promise<StartProjectResult> {
+    if (this.isShutdownLifecycle()) return this.rejectStart('Cannot start runtime: runtime is shutting down.');
     await this.start();
+    if (this.isShutdownLifecycle()) return this.rejectStart('Cannot start runtime: runtime is shutting down.');
     const rejection = this.startProjectRejection(_source);
     if (rejection) return rejection;
 
@@ -142,7 +172,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.runtimeGate.open();
     this.currentCardId = PROJECT_CARD_ID;
     const runtime = this.runtimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...(readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt)), status: 'running', active_card_run: this.activeCardRun(startedAt), updated_at: startedAt } });
-    void this.runRootProject(startedAt);
+    const generation = ++this.runGeneration;
+    void this.runRootProject(startedAt, generation);
     return { runtime, status: runtime.status, started: true, stopped: false };
   }
 
@@ -216,15 +247,18 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     };
   }
 
-  private async runRootProject(startedAt: string): Promise<void> {
+  private async runRootProject(startedAt: string, generation: number): Promise<void> {
     try {
       const actor = this.cardActor(PROJECT_CARD_ID);
+      if (generation !== this.runGeneration || this.lifecycle !== 'running') return;
       await actor.activate({ kind: 'root' });
     } catch (err) {
+      if (generation !== this.runGeneration || this.lifecycle !== 'running') return;
       const at = this.now();
       const current = readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt);
       this.runtimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...current, status: 'error', active_card_run: null, updated_at: at } });
     } finally {
+      if (generation !== this.runGeneration || this.lifecycle !== 'running') return;
       this.currentCardId = null;
       const current = readRuntimeState(this.options.projectRoot);
       if (current?.status === 'running') this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'stopped', active_card_run: null, updated_at: this.now() } });
@@ -315,6 +349,10 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   private runtimeStatus(): RuntimeStatus | null {
     return readRuntimeState(this.options.projectRoot)?.status ?? null;
+  }
+
+  private isShutdownLifecycle(): boolean {
+    return this.lifecycle === 'shutting_down' || this.lifecycle === 'shutdown';
   }
 }
 

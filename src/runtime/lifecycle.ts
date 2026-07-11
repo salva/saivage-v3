@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Writable } from 'node:stream';
+import { processGroupAlive, terminateProcessGroup } from './posix-process-group.js';
 
 export type RuntimeResourceKind = 'timer' | 'listener' | 'child_process' | 'stream' | 'disposable';
 export type RuntimeDisposeStatus = 'cleared' | 'removed' | 'killed' | 'closed' | 'detached' | 'failed' | 'noop';
@@ -111,11 +112,13 @@ export class RuntimeLifecycleScope {
       id,
       kind: 'child_process',
       label,
-      dispose: () => {
+      dispose: async () => {
         if (policy === 'detach') return 'detached';
-        if (child.killed || child.exitCode !== null || child.signalCode !== null) return 'noop';
+        if (!child.pid) throw new Error('Managed child process has no PID.');
+        if (!processGroupAlive(child.pid)) return 'noop';
         try {
-          return child.kill('SIGTERM') ? 'killed' : 'noop';
+          await terminateProcessGroup(child.pid, 5000);
+          return 'killed';
         } catch (error) {
           return { id: id ?? '', kind: 'child_process', label, status: 'failed', error: errorMessage(error) };
         }

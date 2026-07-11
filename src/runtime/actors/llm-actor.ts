@@ -218,7 +218,7 @@ export class ConversationLLMActor extends BaseActor {
         const providerInput = this.consumeTurnMessages(effectiveInput);
         this.input = providerInput;
         this.onTurnStateUpdated({ input: providerInput, waitingToolCall: null });
-        await this.gate.waitUntilOpen();
+        await this.gate.waitUntilOpen(signal);
         this.#providerBoundaryEntered = true;
         return this.provider.completeTurn(providerInput, invocationSignal);
       }, {

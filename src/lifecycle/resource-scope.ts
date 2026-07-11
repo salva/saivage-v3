@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { watch as nodeWatch, type FSWatcher, type WatchOptions } from 'node:fs';
 import type { EventEmitter } from 'node:events';
+import { processGroupAlive, signalProcessGroup, waitForProcessGroupAbsence } from '../runtime/posix-process-group.js';
 
 export interface Disposable {
   dispose(): Promise<void> | void;
@@ -65,43 +66,17 @@ function timeoutError(name: string, timeoutMs: number): Error {
   return new Error(`Timed out disposing '${name}' after ${timeoutMs}ms`);
 }
 
-function childExited(child: ChildProcess): boolean {
-  return child.exitCode !== null || child.signalCode !== null;
-}
-
-async function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<'closed' | 'timeout'> {
-  if (childExited(child)) return 'closed';
-
-  let timeout: NodeJS.Timeout | undefined;
-  return new Promise<'closed' | 'timeout'>((resolve) => {
-    const cleanup = (): void => {
-      if (timeout) clearTimeout(timeout);
-      child.removeListener('close', onClose);
-    };
-    const onClose = (): void => {
-      cleanup();
-      resolve('closed');
-    };
-    timeout = setTimeout(() => {
-      cleanup();
-      resolve('timeout');
-    }, timeoutMs);
-    timeout.unref?.();
-    child.once('close', onClose);
-  });
-}
-
 async function disposeChildProcess(child: ChildProcess, name: string, timeoutMs: number): Promise<void> {
-  if (childExited(child)) return;
+  if (!child.pid) throw new Error(`Child process '${name}' has no PID.`);
+  const pgid = child.pid;
+  if (!processGroupAlive(pgid)) return;
 
   const graceMs = Math.max(MIN_CHILD_KILL_GRACE_MS, Math.floor(timeoutMs / 2));
-  child.kill('SIGTERM');
-  if (await waitForChildClose(child, graceMs) === 'closed') return;
+  signalProcessGroup(pgid, 'SIGTERM');
+  if (await waitForProcessGroupAbsence(pgid, graceMs)) return;
 
-  child.kill('SIGKILL');
-  if (await waitForChildClose(child, graceMs) === 'closed') {
-    throw new Error(`Child process '${name}' did not exit after SIGTERM within ${graceMs}ms; sent SIGKILL`);
-  }
+  signalProcessGroup(pgid, 'SIGKILL');
+  if (await waitForProcessGroupAbsence(pgid, graceMs)) return;
 
   throw new Error(`Child process '${name}' did not exit after SIGTERM or SIGKILL within ${timeoutMs}ms`);
 }
@@ -181,7 +156,7 @@ class DefaultResourceScope implements ResourceScope {
     const { name, timeoutMs, ...spawnOpts } = opts ?? {};
     const resourceName = name ?? `child:${cmd}`;
     const disposalTimeoutMs = timeoutMs ?? this.defaultDisposeTimeoutMs;
-    const child = nodeSpawn(cmd, args, spawnOpts);
+    const child = nodeSpawn(cmd, args, { ...spawnOpts, detached: true });
     return this.add({
       name: resourceName,
       process: child,

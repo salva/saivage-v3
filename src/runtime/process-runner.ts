@@ -12,6 +12,14 @@ import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js
 import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
 import { now } from '../utils/clock.js';
 import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/layout.js';
+import { processGroupAlive, processGroupId, signalProcessGroup } from './posix-process-group.js';
+
+interface ProcessGroupControl {
+  pgid: number;
+  leaderOutcome: Pick<ProcessRecord, 'status' | 'exit_code' | 'signal' | 'terminal_reason'> | null;
+  terminationReason: string | null;
+  settlement: Promise<void>;
+}
 
 export interface ProcessSpawnSpec {
   command: string;
@@ -55,6 +63,7 @@ export class ProcessRunner {
   readonly streamCloseWaiters = new Map<string, Promise<void>>();
   private scope: RuntimeLifecycleScope | null = null;
   readonly processResourceHandles = new Map<string, RuntimeResourceHandle[]>();
+  readonly processGroups = new Map<string, ProcessGroupControl>();
 
   constructor(readonly projectRoot: string) {}
 
@@ -134,32 +143,6 @@ function commandHash(service: ProcessRunner, command: string): string {
 
 function transientRegistry(service: ProcessRunner): Map<string, ProcessRecord> {
   return service.getTransientRegistry();
-}
-
-function resolveStatus(proc: ChildProcess): ProcessStatus {
-  if (proc.signalCode !== null) {
-    return proc.signalCode === 'SIGKILL' || proc.signalCode === 'SIGTERM'
-      ? 'killed'
-      : 'failed';
-  }
-  if (proc.exitCode !== null) {
-    return proc.exitCode === 0 ? 'exited' : 'failed';
-  }
-  return 'running';
-}
-
-function resolveExitCode(proc: ChildProcess): number | null {
-  if (proc.exitCode !== null) return proc.exitCode;
-  if (proc.signalCode !== null) return null;
-  return null;
-}
-
-function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): boolean {
-  try {
-    return child.kill(signal);
-  } catch {
-    return false;
-  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -280,7 +263,7 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
     cwd,
     env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: false,
+    detached: true,
   });
 
   if (child.stdout) {
@@ -298,6 +281,7 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
   }
 
   service.activeProcesses.set(id, child);
+  const pgid = processGroupId(child);
   service.outputStreams.set(id, streams);
   const scope = processScope(service);
   rememberProcessResource(service, id, scope.registerChildProcess(child, 'kill', `child:${id}`, `child:${id}`));
@@ -334,6 +318,15 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
 
   upsertRegistryRecord(service, record);
 
+  const control: ProcessGroupControl = {
+    pgid,
+    leaderOutcome: null,
+    terminationReason: null,
+    settlement: Promise.resolve(),
+  };
+  control.settlement = settleProcessGroup(service, id, control);
+  service.processGroups.set(id, control);
+
   child.on('exit', (exitCode, signalCode) => {
     const finalStatus: ProcessStatus =
       signalCode === 'SIGKILL' || signalCode === 'SIGTERM'
@@ -342,33 +335,13 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
           ? 'exited'
           : 'failed';
 
-    const latest = getProcessForRunner(service, id) ?? record;
-    const updatedRecord: ProcessRecord = {
-      ...latest,
+    control.leaderOutcome = {
       status: finalStatus,
       exit_code: exitCode,
       signal: signalCode ?? null,
       terminal_reason: signalCode ? 'signal' : 'exit',
-      completed_at: now(),
     };
-
-    try {
-      upsertRegistryRecord(service, updatedRecord);
-    } catch { void 0; }
-
-    const pending = service.pendingStreamCloses.get(id);
-    if (pending !== undefined && pending <= 0) {
-      finalizeProcess(service, id);
-    }
-
-    const cleanupTimer = setTimeout(() => {
-      if (service.activeProcesses.has(id) || service.outputStreams.has(id)) {
-        finalizeProcess(service, id);
-      }
-      unregisterProcessResource(service, id, cleanupTimerHandle);
-    }, 5000);
-    cleanupTimer.unref();
-    const cleanupTimerHandle = rememberProcessResource(service, id, processScope(service).registerTimer(cleanupTimer, `cleanup-timer:${id}`, `timer:cleanup:${id}`));
+    service.activeProcesses.delete(id);
   });
 
   child.on('error', (err) => {
@@ -387,6 +360,7 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
       completed_at: now(),
     };
 
+    service.processGroups.delete(id);
     finalizeProcess(service, id);
 
     try {
@@ -404,11 +378,21 @@ function onStreamEnd(service: ProcessRunner, procId: string): void {
   const remaining = current - 1;
   if (remaining <= 0) {
     service.pendingStreamCloses.set(procId, 0);
-    const child = service.activeProcesses.get(procId);
-    if (!child || resolveStatus(child) !== 'running') finalizeProcess(service, procId);
   } else {
     service.pendingStreamCloses.set(procId, remaining);
   }
+}
+
+async function settleProcessGroup(service: ProcessRunner, procId: string, control: ProcessGroupControl): Promise<void> {
+  while (processGroupAlive(control.pgid)) await sleep(50);
+  const current = getProcessForRunner(service, procId);
+  if (!current) return;
+  const outcome: Pick<ProcessRecord, 'status' | 'exit_code' | 'signal' | 'terminal_reason'> = control.terminationReason
+    ? { status: 'killed', exit_code: null, signal: 'SIGTERM', terminal_reason: 'signal' }
+    : control.leaderOutcome ?? { status: 'failed', exit_code: null, signal: null, terminal_reason: 'spawn_error' };
+  upsertRegistryRecord(service, { ...current, ...outcome, completed_at: now() });
+  service.processGroups.delete(procId);
+  finalizeProcess(service, procId);
 }
 
 function waitProcessForRunner(
@@ -418,9 +402,8 @@ function waitProcessForRunner(
 ): Promise<ProcessWaitResult> {
   return new Promise((resolve) => {
     const waitStart = Date.now();
-    const child = service.activeProcesses.get(procId);
-
-    if (!child) {
+    const control = service.processGroups.get(procId);
+    if (!control) {
       const registry = loadRegistryForRunner(service);
       const record = registry.get(procId);
       if (!record) {
@@ -432,10 +415,6 @@ function waitProcessForRunner(
           waitDurationMs: Date.now() - waitStart,
         });
         return;
-      }
-
-      if (record.status === 'running') {
-        throw new Error(`Cannot wait for running process ${procId} without a live child handle.`);
       }
 
       void waitForDurableOutput(service, procId).finally(() => {
@@ -450,82 +429,28 @@ function waitProcessForRunner(
       return;
     }
 
-    const currentStatus = resolveStatus(child);
-    if (currentStatus !== 'running') {
-      void waitForDurableOutput(service, procId).finally(() => {
-        resolve({
-          id: procId,
-          status: currentStatus,
-          exitCode: resolveExitCode(child),
-          timedOut: false,
-          waitDurationMs: Date.now() - waitStart,
-        });
+    if (timeoutMs === 0) {
+      if (processGroupAlive(control.pgid)) {
+        resolve({ id: procId, status: 'running', exitCode: null, timedOut: false, waitDurationMs: Date.now() - waitStart });
+        return;
+      }
+      void control.settlement.then(async () => {
+        await waitForDurableOutput(service, procId);
+        const latest = getProcessForRunner(service, procId)!;
+        resolve({ id: procId, status: latest.status, exitCode: latest.exit_code ?? null, timedOut: false, waitDurationMs: Date.now() - waitStart });
       });
       return;
     }
-
-    let timer: NodeJS.Timeout | null = null;
-    let timerHandle: RuntimeResourceHandle | null = null;
-    let exitHandle: RuntimeResourceHandle | null = null;
-    let closeHandle: RuntimeResourceHandle | null = null;
-    let errorHandle: RuntimeResourceHandle | null = null;
-    let resolved = false;
-
-    const doResolve = (timedOut: boolean) => {
-      if (resolved) return;
-      resolved = true;
-
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
+    const timer = sleep(timeoutMs).then(() => 'timeout' as const);
+    Promise.race([control.settlement.then(() => 'settled' as const), timer]).then(async (result) => {
+      if (result === 'timeout' && service.processGroups.has(procId)) {
+        resolve({ id: procId, status: 'running', exitCode: null, timedOut: true, waitDurationMs: Date.now() - waitStart });
+        return;
       }
-
-      if (timerHandle) { unregisterProcessResource(service, procId, timerHandle); timerHandle = null; }
-      if (exitHandle) { unregisterProcessResource(service, procId, exitHandle); exitHandle = null; }
-      if (closeHandle) { unregisterProcessResource(service, procId, closeHandle); closeHandle = null; }
-      if (errorHandle) { unregisterProcessResource(service, procId, errorHandle); errorHandle = null; }
-      child.removeListener('exit', onExit);
-      child.removeListener('close', onClose);
-      child.removeListener('error', onError);
-
-      if (timedOut) {
-        resolve({
-          id: procId,
-          status: 'running',
-          exitCode: null,
-          timedOut: true,
-          waitDurationMs: Date.now() - waitStart,
-        });
-      } else {
-        void waitForDurableOutput(service, procId).finally(() => {
-          const latest = getProcessForRunner(service, procId);
-          resolve({
-            id: procId,
-            status: latest?.status ?? resolveStatus(child),
-            exitCode: latest?.exit_code ?? resolveExitCode(child),
-            timedOut: false,
-            waitDurationMs: Date.now() - waitStart,
-          });
-        });
-      }
-    };
-
-    const onExit = () => doResolve(false);
-    const onClose = () => doResolve(false);
-    const onError = () => doResolve(false);
-
-    child.on('exit', onExit);
-    child.on('close', onClose);
-    child.on('error', onError);
-    const scope = processScope(service);
-    exitHandle = rememberProcessResource(service, procId, scope.registerListener(child, 'exit', onExit as (...args: unknown[]) => void, `wait-exit:${procId}`));
-    closeHandle = rememberProcessResource(service, procId, scope.registerListener(child, 'close', onClose as (...args: unknown[]) => void, `wait-close:${procId}`));
-    errorHandle = rememberProcessResource(service, procId, scope.registerListener(child, 'error', onError as (...args: unknown[]) => void, `wait-error:${procId}`));
-
-    if (timeoutMs > 0) {
-      timer = setTimeout(() => doResolve(true), timeoutMs);
-      timerHandle = rememberProcessResource(service, procId, scope.registerTimer(timer, `wait-timeout:${procId}`));
-    }
+      await waitForDurableOutput(service, procId);
+      const latest = getProcessForRunner(service, procId)!;
+      resolve({ id: procId, status: latest.status, exitCode: latest.exit_code ?? null, timedOut: false, waitDurationMs: Date.now() - waitStart });
+    });
   });
 }
 
@@ -533,12 +458,13 @@ async function stopProcess(service: ProcessRunner, procId: string, reason: strin
   const record = getProcessForRunner(service, procId);
   if (!record) return null;
   if (record.status !== 'running') return record;
-  const child = service.activeProcesses.get(procId);
-  if (child && resolveStatus(child) === 'running') {
-    signalProcessTree(child, 'SIGTERM');
+  const control = service.processGroups.get(procId);
+  if (control) {
+    control.terminationReason = reason;
+    signalProcessGroup(control.pgid, 'SIGTERM');
     const waitResult = await waitProcessForRunner(service, procId, graceMs);
     if (waitResult.timedOut || waitResult.status === 'running') {
-      signalProcessTree(child, 'SIGKILL');
+      signalProcessGroup(control.pgid, 'SIGKILL');
       await waitProcessForRunner(service, procId, 2000);
     }
     const latest = getProcessForRunner(service, procId);
@@ -556,15 +482,13 @@ function listProcessesForRunner(
   const registry = loadRegistryForRunner(service);
   const records = Array.from(registry.values());
 
-  for (const [procId, child] of service.activeProcesses) {
-    const memStatus = resolveStatus(child);
-    if (memStatus !== 'running') continue;
+  for (const [procId] of service.processGroups) {
 
     const existing = registry.get(procId);
     if (existing) {
       const idx = records.findIndex((r) => r.id === procId);
       if (idx >= 0) {
-        records[idx] = { ...existing, status: 'running', pid: child.pid ?? existing.pid };
+        records[idx] = { ...existing, status: 'running' };
       }
     }
   }
@@ -595,9 +519,10 @@ async function stopMatching(service: ProcessRunner, predicate: (record: ProcessR
   const report: ProcessStopReport = { attempted, stopped: [], failed: [] };
 
   for (const record of records) {
-    const child = service.activeProcesses.get(record.id);
-    if (child && resolveStatus(child) === 'running') {
-      signalProcessTree(child, 'SIGTERM');
+    const control = service.processGroups.get(record.id);
+    if (control) {
+      control.terminationReason = reason;
+      signalProcessGroup(control.pgid, 'SIGTERM');
       continue;
     }
     report.failed.push({ id: record.id, error: 'running process has no live child handle' });
@@ -605,8 +530,7 @@ async function stopMatching(service: ProcessRunner, predicate: (record: ProcessR
 
   await Promise.all(records.map(async (record) => {
     try {
-      const child = service.activeProcesses.get(record.id);
-      if (child && resolveStatus(child) === 'running') {
+      if (service.processGroups.has(record.id)) {
         await waitProcessForRunner(service, record.id, graceMs);
       }
     } catch (error) {
@@ -617,17 +541,16 @@ async function stopMatching(service: ProcessRunner, predicate: (record: ProcessR
   for (const record of records) {
     const latest = getProcessForRunner(service, record.id) ?? record;
     if (latest.status !== 'running') continue;
-    const child = service.activeProcesses.get(record.id);
-    if (child && resolveStatus(child) === 'running') {
-      signalProcessTree(child, 'SIGKILL');
+    const control = service.processGroups.get(record.id);
+    if (control) {
+      signalProcessGroup(control.pgid, 'SIGKILL');
     }
   }
 
   await Promise.all(records.map(async (record) => {
     if (report.failed.some((item) => item.id === record.id)) return;
     try {
-      const child = service.activeProcesses.get(record.id);
-      if (child && resolveStatus(child) === 'running') {
+      if (service.processGroups.has(record.id)) {
         await waitProcessForRunner(service, record.id, 2000);
       }
 

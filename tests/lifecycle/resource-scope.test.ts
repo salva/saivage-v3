@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync, watch as fsWatch, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, watch as fsWatch, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createResourceScope, ScopeDisposed } from '../../src/lifecycle/index.js';
@@ -123,9 +123,25 @@ describe('ResourceScope', () => {
     const report = await scope.dispose();
 
     expect(child.process.signalCode).toBe('SIGKILL');
-    expect(report.errors).toHaveLength(1);
-    expect(report.errors[0].name).toBe('stubborn-child');
-    expect(String((report.errors[0].error as Error).message)).toContain('sent SIGKILL');
+    expect(report.errors).toEqual([]);
+  });
+
+  it('scope disposal kills a descendant after its detached leader exits', async () => {
+    const pidFile = join(mkdtempSync(join(tmpdir(), 'saivage-resource-scope-child-')), 'descendant.pid');
+    const scope = createResourceScope('descendant-scope', { disposeTimeoutMs: 1_000 });
+    const child = scope.spawn('sh', ['-c', `sleep 60 & echo $! > ${JSON.stringify(pidFile)}; exit`], { name: 'leader-exited-descendant' });
+    try {
+      for (let attempt = 0; attempt < 100 && !existsSync(pidFile); attempt += 1) await delay(10);
+      const descendantPid = Number(readFileSync(pidFile, 'utf8').trim());
+      if (child.process.exitCode === null && child.process.signalCode === null) {
+        await new Promise<void>((resolve) => child.process.once('exit', () => resolve()));
+      }
+      await scope.dispose();
+      expect(() => process.kill(descendantPid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
+    } finally {
+      await scope.dispose();
+      rmSync(join(pidFile, '..'), { recursive: true, force: true });
+    }
   });
 
   watchTest('owns fs watchers and closes them during disposal', async () => {
