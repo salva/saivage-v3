@@ -36,6 +36,7 @@ export type {
   ChatEntriesResponse,
   ChatSession,
   ChatSendResponse,
+  RestartChatAcknowledgement,
   ChatWorkspaceContext,
   DebugErrorsResponse,
   DebugStateResponse,

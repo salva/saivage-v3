@@ -41,10 +41,11 @@ export {
   ChatListResponseSchema,
   ChatSendRequestSchema,
   ChatSendResponseSchema,
+  RestartChatAcknowledgementSchema,
   ChatSessionParamsSchema,
   ChatWorkspaceContextSchema,
 } from './operator-api-chats.js';
-export type { ChatEntriesResponse, ChatListResponse, ChatSendRequest, ChatSendResponse, ChatSession, ChatWorkspaceContext } from './operator-api-chats.js';
+export type { ChatEntriesResponse, ChatListResponse, ChatSendRequest, ChatSendResponse, ChatSession, ChatWorkspaceContext, RestartChatAcknowledgement } from './operator-api-chats.js';
 export {
   DebugErrorsResponseSchema,
   DebugRuntimeStateSchema,

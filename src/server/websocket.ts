@@ -18,6 +18,7 @@ import { getAuthPolicy } from './auth-policy.js';
 import { redactForOutbound, type Redacted } from '../redaction/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { AnalystWsHandler } from './analyst-ws-handler.js';
+import type { RestartPort } from '../boot/restart-port.js';
 
 export type { WsEnvelope, WsEventType };
 
@@ -38,10 +39,10 @@ function broadcast(liveSyncSocket: LiveSyncSocket, event: WsEnvelope): void {
   });
 }
 
-export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
+export function sendToClient(ws: WebSocket, event: WsEnvelope, callback?: (error?: Error) => void): void {
   try {
     if (ws.readyState === ws.OPEN) {
-      ws.send(serializeOutboundEnvelope(event));
+      ws.send(serializeOutboundEnvelope(event), callback);
     }
   } catch { void 0; 
   }
@@ -69,6 +70,7 @@ export interface RegisterWebSocketOptions {
   liveSyncSocket: LiveSyncSocket;
   saivageConfig: SaivageConfig;
   runtimeApplication: RuntimeApplication;
+  restartPort?: RestartPort;
 }
 
 export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, options: RegisterWebSocketOptions): void {
@@ -78,6 +80,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
     saivageConfig: options.saivageConfig,
     liveSyncSocket,
     runtimeApplication: options.runtimeApplication,
+    restartPort: options.restartPort,
     sendToClient,
     broadcast: (event) => broadcast(liveSyncSocket, event),
   });

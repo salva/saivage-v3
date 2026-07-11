@@ -4,6 +4,7 @@ import type { RuntimeApplication } from '../../application/runtime-composition.j
 import type { CardStore } from '../../cards/store-api.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import type { LiveSyncSocket } from '../live-sync-socket.js';
+import type { RestartPort } from '../../boot/restart-port.js';
 import { buildServerAvailability } from '../availability.js';
 import { registerOperatorContractRoutes } from '../routes/operator-contracts.js';
 import { registerInternalDebugRoutes } from '../routes/chats-files-debug.js';
@@ -18,6 +19,7 @@ export function registerServerRoutes(options: {
   saivageConfig: SaivageConfig;
   configWarnings: readonly string[];
   liveSyncSocket: LiveSyncSocket;
+  restartPort?: RestartPort;
 }): void {
   const serverAvailabilityProvider = () => buildServerAvailability({ projectRoot: options.projectRoot, runtimeApplication: options.runtimeApplication, mcpManager: options.mcpManager });
 
@@ -30,11 +32,13 @@ export function registerServerRoutes(options: {
     serverAvailabilityProvider,
     saivageConfig: options.saivageConfig,
     configWarnings: options.configWarnings,
+    restartPort: options.restartPort,
   });
   registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore, options.runtimeApplication);
   registerWebSocket(options.fastify, options.projectRoot, {
     liveSyncSocket: options.liveSyncSocket,
     saivageConfig: options.saivageConfig,
     runtimeApplication: options.runtimeApplication,
+    restartPort: options.restartPort,
   });
 }

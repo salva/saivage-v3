@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RestartChatAcknowledgementSchema } from './operator-api-chats.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
 export const WsEnvelopeSchema = z.object({
@@ -41,6 +42,17 @@ export const ConnectedStatusContentSchema = z.object({
 export const ConnectedStatusEnvelopeSchema = z.object({
   type: z.literal('status'),
   content: ConnectedStatusContentSchema,
+});
+
+export const AnalystTurnAcknowledgedStatusContentSchema = z.object({
+  event: z.literal('analyst_turn_acknowledged'),
+  sessionId: z.string().min(1),
+  restart: RestartChatAcknowledgementSchema.nullable(),
+}).strict();
+
+export const AnalystTurnAcknowledgedStatusEnvelopeSchema = z.object({
+  type: z.literal('status'),
+  content: AnalystTurnAcknowledgedStatusContentSchema,
 });
 
 export const AnalystActivityEventNames = [
@@ -124,10 +136,11 @@ export const ErrorEnvelopeSchema = z.object({
   content: z.record(z.string(), z.unknown()),
 });
 
-export const KnownStatusWsEnvelopeSchema = ConnectedStatusEnvelopeSchema;
+export const KnownStatusWsEnvelopeSchema = z.union([ConnectedStatusEnvelopeSchema, AnalystTurnAcknowledgedStatusEnvelopeSchema]);
 
 export const KnownWsContentSchema = z.union([
   ConnectedStatusContentSchema,
+  AnalystTurnAcknowledgedStatusContentSchema,
   AnalystActivityContentSchema,
 ]);
 
@@ -140,6 +153,7 @@ export const KnownWsEnvelopeSchema = z.union([
 
 export const knownWsContentEventNames = [
   'connected',
+  'analyst_turn_acknowledged',
   ...AnalystActivityEventNames,
 ] as const;
 
@@ -152,6 +166,7 @@ export type WsEnvelope = WsEnvelopeContract;
 export type KnownWsEnvelope = z.infer<typeof KnownWsEnvelopeSchema>;
 export type KnownWsContent = z.infer<typeof KnownWsContentSchema>;
 export type KnownStatusWsEnvelope = z.infer<typeof KnownStatusWsEnvelopeSchema>;
+export type AnalystTurnAcknowledgedStatusEnvelope = z.infer<typeof AnalystTurnAcknowledgedStatusEnvelopeSchema>;
 export type KnownActivityWsEnvelope = z.infer<typeof AnalystActivityEnvelopeSchema>;
 export type InboundAnalystMessageEnvelope = z.infer<typeof InboundAnalystMessageEnvelopeSchema>;
 export type AnalystActivityContent = z.infer<typeof AnalystActivityContentSchema>;

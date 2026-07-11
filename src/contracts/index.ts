@@ -26,6 +26,7 @@ export {
   ChatListResponseSchema,
   ChatEntriesResponseSchema,
   ChatSendResponseSchema,
+  RestartChatAcknowledgementSchema,
   ConfigGetResponseSchema,
   ConfigUnavailableErrorSchema,
   ControlActionsListFailureSchema,
@@ -132,6 +133,7 @@ export type {
   ChatListResponse,
   ChatEntriesResponse,
   ChatSendResponse,
+  RestartChatAcknowledgement,
   ConfigGetResponse,
   ConfigUnavailableError,
   ContractAuthClass,
@@ -173,6 +175,8 @@ export type {
 
 export {
   AnalystActivityContentSchema,
+  AnalystTurnAcknowledgedStatusContentSchema,
+  AnalystTurnAcknowledgedStatusEnvelopeSchema,
   AnalystActivityEnvelopeSchema,
   AnalystActivityEventNames,
   AnalystToolInvokedContentSchema,
@@ -209,6 +213,7 @@ export {
 
 export type {
   AnalystActivityContent,
+  AnalystTurnAcknowledgedStatusEnvelope,
   InboundAnalystMessageEnvelope,
   KnownActivityWsEnvelope,
   KnownStatusWsEnvelope,

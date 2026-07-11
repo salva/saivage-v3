@@ -137,6 +137,35 @@ describe('websocket analyst safety and live-sync control', () => {
     expect(payloads.some((payload) => payload.type === 'message')).toBe(false);
   });
 
+  it('sends the scheduled restart acknowledgement before acknowledging the restart port', async () => {
+    const acknowledge = jest.fn(async () => undefined);
+    const { route, fastify } = createRoute();
+    const { runtimeApplication } = createRuntimeApplicationWithAnalystRuntime({
+      submit: jest.fn(async () => ({ sessionId: 'analyst:global', toolInvocations: [], restart: { status: 'scheduled' } })),
+    });
+    registerWebSocket(fastify, '/tmp/project', {
+      liveSyncSocket: new LiveSyncSocket(),
+      saivageConfig: createTestSaivageConfig(),
+      runtimeApplication,
+      restartPort: { schedule: jest.fn(), acknowledge },
+    });
+    const { ws, handlers } = createSocket();
+    route.handler(ws, { headers: {}, query: {} });
+
+    handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: { text: 'RESTART SERVER' } })));
+    await flushQueuedTurn();
+
+    const scheduledFrame = (ws.send as jest.Mock).mock.calls.find((call) => String(call[0]).includes('analyst_turn_acknowledged'));
+    expect(scheduledFrame).toBeDefined();
+    expect(JSON.parse(String(scheduledFrame?.[0]))).toEqual({
+      type: 'status',
+      content: { event: 'analyst_turn_acknowledged', sessionId: 'analyst:global', restart: { status: 'scheduled' } },
+    });
+    expect(acknowledge).not.toHaveBeenCalled();
+    (scheduledFrame?.[1] as (error?: Error) => void)();
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['close', 'error'] as const)('shuts down Analyst session processes on websocket %s', (event) => {
     const { runtimeApplication, analystRuntime } = createRuntimeApplicationWithAnalystRuntime();
     const { route, fastify } = createRoute();

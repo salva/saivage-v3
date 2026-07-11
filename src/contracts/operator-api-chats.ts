@@ -31,9 +31,14 @@ export const ChatEntriesResponseSchema = z.object({
   sessionId: z.string(),
   entries: z.array(AgentConversationEntrySchema),
 });
+export const RestartChatAcknowledgementSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('confirmation_required'), confirmationMessage: z.literal('RESTART SERVER') }).strict(),
+  z.object({ status: z.literal('scheduled') }).strict(),
+]);
 export const ChatSendResponseSchema = z.object({
   sessionId: z.string(),
   toolInvocations: z.array(z.unknown()),
+  restart: RestartChatAcknowledgementSchema.nullable(),
 }).strict();
 
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
@@ -41,6 +46,7 @@ export type ChatSession = z.infer<typeof ChatListResponseSchema>['sessions'][num
 export type ChatWorkspaceContext = z.infer<typeof ChatWorkspaceContextSchema>;
 export type ChatSendRequest = z.infer<typeof ChatSendRequestSchema>;
 export type ChatEntriesResponse = z.infer<typeof ChatEntriesResponseSchema>;
+export type RestartChatAcknowledgement = z.infer<typeof RestartChatAcknowledgementSchema>;
 export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
 
 export const chatOperatorApiContracts = {

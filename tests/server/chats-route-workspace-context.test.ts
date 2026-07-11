@@ -38,6 +38,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     submit.mockResolvedValue({
       sessionId: analystSessionId,
       toolInvocations: [],
+      restart: null,
     });
   });
 
@@ -62,8 +63,9 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
       expect(ChatSendResponseSchema.parse(response.json())).toEqual({
         sessionId: analystSessionId,
         toolInvocations: [],
+        restart: null,
       });
-      expect(submit).toHaveBeenCalledWith(analystSessionId, { userContent: 'hi', workspaceContext: undefined });
+      expect(submit).toHaveBeenCalledWith(analystSessionId, { userContent: 'hi', workspaceContext: undefined, actor: 'analyst', surface: 'web-chat' });
     } finally { await fastify.close(); }
   });
 
@@ -73,7 +75,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     try {
       const response = await fastify.inject({ method: 'POST', url: `/api/chats/${analystSessionPath}`, payload: { content: 'hi', workspaceContext } });
       expect(response.statusCode).toBe(200);
-      expect(submit).toHaveBeenCalledWith(analystSessionId, { userContent: 'hi', workspaceContext });
+      expect(submit).toHaveBeenCalledWith(analystSessionId, { userContent: 'hi', workspaceContext, actor: 'analyst', surface: 'web-chat' });
     } finally { await fastify.close(); }
   });
 
@@ -81,6 +83,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
   it('returns only non-transcript send metadata before contract response parsing', async () => {
     submit.mockResolvedValueOnce({
       sessionId: analystSessionId,
+      restart: null,
     });
     const fastify = await app();
     try {
@@ -89,6 +92,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
       expect(ChatSendResponseSchema.parse(response.json())).toEqual({
         sessionId: analystSessionId,
         toolInvocations: [],
+        restart: null,
       });
     } finally { await fastify.close(); }
   });
@@ -98,7 +102,31 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
       sessionId: analystSessionId,
       message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' },
       toolInvocations: [],
+      restart: null,
     })).toThrow();
+  });
+
+  it('acknowledges a scheduled restart only after the REST response completes', async () => {
+    const acknowledge = jest.fn(async () => undefined);
+    submit.mockResolvedValueOnce({ sessionId: analystSessionId, toolInvocations: [], restart: { status: 'scheduled' } });
+    const fastify = Fastify();
+    const runtimeApplication = createTestRuntimeApplication();
+    Object.defineProperty(runtimeApplication, 'analystRuntime', { value: { submit } });
+    registerOperatorContractRoutes({
+      fastify,
+      projectRoot: root,
+      runtimeApplication,
+      restartPort: { schedule: jest.fn(), acknowledge },
+      saivageConfig: loadTestConfig(root),
+    });
+    await fastify.ready();
+    try {
+      expect(acknowledge).not.toHaveBeenCalled();
+      const response = await fastify.inject({ method: 'POST', url: `/api/chats/${analystSessionPath}`, payload: { content: 'RESTART SERVER' } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ sessionId: analystSessionId, toolInvocations: [], restart: { status: 'scheduled' } });
+      expect(acknowledge).toHaveBeenCalledTimes(1);
+    } finally { await fastify.close(); }
   });
 
   it('rejects malformed workspaceContext with 400', async () => {

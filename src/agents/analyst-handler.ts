@@ -35,6 +35,7 @@ import { BaseActor, type ActorDefinition } from '../runtime/micro-actor/index.js
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
+import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
 import { recordControlAction } from '../persistence/index.js';
 
 
@@ -70,6 +71,7 @@ export interface ActivityCallback {
 
 export interface AnalystResponse {
   sessionId: string;
+  restart: RestartChatAcknowledgement | null;
   cancelled?: boolean;
   toolInvocations?: Array<{
     tool: string;
@@ -208,7 +210,7 @@ export class AnalystSessionActor extends BaseActor {
     this.result = null;
     this.lastOutcome = 'cancelled';
     this.persistAssistantNotice(`Cancelled: ${reason}`);
-    result.resolve({ sessionId: this.sessionId, cancelled: true });
+    result.resolve({ sessionId: this.sessionId, restart: null, cancelled: true });
     this.sendEvent('cancel');
     return true;
   }
@@ -362,7 +364,7 @@ export class AnalystSessionActor extends BaseActor {
       if (toolCall.toolName === 'restart_server' && result.success) {
         this.llm.settleToolResultWithoutContinuation(toolCall.toolCallId, result);
         this.pendingRestartConfirmation = true;
-        return this.response(toolInvocations);
+        return this.response(toolInvocations, { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
       }
       outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
     }
@@ -377,7 +379,7 @@ export class AnalystSessionActor extends BaseActor {
       params_summary: JSON.stringify({ session_id: this.sessionId, operator_authority: 'global' }), safety_class: 'destructive', outcome: 'ok', outcome_summary: 'restart accepted and scheduled',
     }, this.args.runtimeDeps.eventBus);
     this.args.restartPort.schedule();
-    return this.response();
+    return this.response(undefined, { status: 'scheduled' });
   }
 
   private async rejectToolCall(toolCall: Extract<LLMActorOutcome, { type: 'tool_call' }>, error: string, errorKind: string, params: Record<string, unknown>, toolInvocations: AnalystToolInvocations, signal: AbortSignal): Promise<LLMActorOutcome> {
@@ -462,8 +464,8 @@ export class AnalystSessionActor extends BaseActor {
     return this.response(toolInvocations);
   }
 
-  private response(toolInvocations?: AnalystToolInvocations): AnalystResponse {
-    return { sessionId: this.sessionId, toolInvocations: toolInvocations && toolInvocations.length > 0 ? toolInvocations : undefined };
+  private response(toolInvocations?: AnalystToolInvocations, restart: RestartChatAcknowledgement | null = null): AnalystResponse {
+    return { sessionId: this.sessionId, restart, toolInvocations: toolInvocations && toolInvocations.length > 0 ? toolInvocations : undefined };
   }
 
   private persistAssistantNotice(content: string): void {
@@ -503,7 +505,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private cancelledLoopResponse(): AnalystResponse {
     this.persistAssistantNotice(`Cancelled: ${this.cancellationReason ?? 'cancelled'}`);
-    return { sessionId: this.sessionId, cancelled: true };
+    return { sessionId: this.sessionId, restart: null, cancelled: true };
   }
 
   private cancelledLoopOutcome(): LLMActorOutcome {

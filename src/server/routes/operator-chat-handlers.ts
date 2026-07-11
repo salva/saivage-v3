@@ -49,7 +49,7 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
       if (!('entries' in response.body)) return response;
       return { body: { sessionId: GLOBAL_ANALYST_SESSION_ID, entries: response.body.entries } };
     },
-    'chats.send': async ({ params, body }) => {
+    'chats.send': async ({ params, body, reply }) => {
       const sessionId = (params as unknown as { sessionId: string }).sessionId;
       const requestBody = body as { content?: string; workspaceContext?: unknown };
       if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid session ID format.', sessionId } };
@@ -65,12 +65,19 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
         if (!options.runtimeApplication) return { statusCode: 503, body: { error: 'Runtime application unavailable.' } };
         if (!options.saivageConfig) return { statusCode: 503, body: { error: 'Runtime configuration unavailable.' } };
         const response = await options.runtimeApplication.analystRuntime.submit(GLOBAL_ANALYST_SESSION_ID, { userContent: requestBody.content, workspaceContext, actor: 'analyst', surface: 'web-chat' });
-        return {
+        const result = {
           body: {
             sessionId: response.sessionId,
             toolInvocations: response.toolInvocations ?? [],
+            restart: response.restart,
           },
         };
+        if (response.restart?.status === 'scheduled') {
+          const restartPort = options.restartPort;
+          if (!restartPort) throw new Error('Scheduled restart response requires an application-owned restart port.');
+          reply.raw.once('finish', () => { void restartPort.acknowledge(); });
+        }
+        return result;
       } catch (err) {
         return { statusCode: 500, body: { error: 'Failed to process chat message', message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot) } };
       }

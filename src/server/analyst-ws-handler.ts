@@ -4,6 +4,7 @@ import { resolveAnalystSessionId, sanitizeAnalystPayload, sanitizeAnalystText } 
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
 import type { WsEnvelope } from '../contracts/index.js';
+import type { RestartPort } from '../boot/restart-port.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { projectAnalystToolInvocationActivity } from './tool-activity-projection.js';
@@ -13,7 +14,8 @@ export interface AnalystWsHandlerOptions {
   saivageConfig: SaivageConfig;
   liveSyncSocket: LiveSyncSocket;
   runtimeApplication: RuntimeApplication;
-  sendToClient: (ws: WebSocket, event: WsEnvelope) => void;
+  restartPort?: RestartPort;
+  sendToClient: (ws: WebSocket, event: WsEnvelope, callback?: (error?: Error) => void) => void;
   broadcast: (event: WsEnvelope) => void;
 }
 
@@ -51,6 +53,15 @@ export class AnalystWsHandler {
             content: projectAnalystToolInvocationActivity(invocation),
           });
         }
+        const restartPort = response.restart?.status === 'scheduled' ? this.options.restartPort : undefined;
+        if (response.restart?.status === 'scheduled' && !restartPort) throw new Error('Scheduled restart acknowledgement requires an application-owned restart port.');
+        this.options.sendToClient(ws, {
+          type: 'status',
+          content: { event: 'analyst_turn_acknowledged', sessionId: response.sessionId, restart: response.restart },
+        }, (error) => {
+          if (error || response.restart?.status !== 'scheduled') return;
+          void restartPort!.acknowledge();
+        });
       } catch (err) {
         this.options.sendToClient(ws, {
           type: 'error',
