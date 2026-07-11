@@ -1,12 +1,15 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, ConversationLLMActor, createConversationChangePublisher, LLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { appendActivationMarker, appendConversationMessage, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, ConversationLLMActor, createConversationChangePublisher, LLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { EventBus } from '../../../src/events/index.js';
-import { activeVersionPath, writeConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
+import { activeVersionPath, readConversationIndex, writeConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
 import { conversationDir } from '../../../src/runtime/actors/conversation-store.js';
+import { compact } from '../../../src/runtime/actors/compaction/compactor.js';
+import type { ConversationChangePublisher } from '../../../src/runtime/actors/conversation-publisher.js';
+import type { LlmActiveReconstructionRecord } from '../../../src/runtime/actors/active-reconstruction.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
@@ -45,6 +48,32 @@ function jsonl(path: string): Array<Record<string, unknown>> {
 
 function completion(result: LlmCompleteResult): ProviderTurnCompletion {
   return { result, provider_exchanges: [] };
+}
+
+function sessionSnapshot(projectRoot: string, sessionId: string): Array<[string, string]> {
+  const dir = conversationDir(projectRoot, sessionId);
+  return readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
+}
+
+function recordingPublisher(): ConversationChangePublisher & { entryAppended: jest.Mock; versionReplaced: jest.Mock } {
+  return { entryAppended: jest.fn(), versionReplaced: jest.fn() };
+}
+
+function recoveredTurn(inputRecord: LlmInvocationInput): LlmActiveReconstructionRecord {
+  return {
+    schema_version: 1,
+    kind: 'llm_turn',
+    agent_id: inputRecord.agentId,
+    role: inputRecord.role,
+    card_id: 'project',
+    input_id: inputRecord.inputId,
+    input: inputRecord,
+    provider_call_id: `${inputRecord.agentId}:${inputRecord.inputId}`,
+    waiting_tool_call: null,
+    delivered_tool_call_ids: [],
+    tool_delivery_counter: 0,
+    started_at: new Date().toISOString(),
+  };
 }
 
 function corruptActorMessages(projectRoot: string): void {
@@ -119,31 +148,148 @@ describe('LLMActor', () => {
     writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
     writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
-    const actor = new ConversationLLMActor({ projectRoot, agentId: sessionId, provider });
+    const publisher = recordingPublisher();
+    const actor = new ConversationLLMActor({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher });
     actor.start();
 
     await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result' });
 
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
     expect(jsonl(activeVersionPath(projectRoot, sessionId, 2)).map((row) => row.kind)).toEqual(['activity', 'text']);
+    expect(publisher.entryAppended).toHaveBeenCalledTimes(2);
   }));
 
-  it('fails a fresh turn before provider I/O when indexed prompt identity has the wrong kind', async () => withTempProject(async (projectRoot) => {
+  it('reissues a recovered provider turn without retrying a non-tail matching prompt', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const sessionId = 'planner:project';
     const dir = conversationDir(projectRoot, sessionId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'text', content: 'bad', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
-    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
+    const prompt = { id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
+    const tail = { ...prompt, id: 'existing-tail', kind: 'text', role: 'user', content: 'tail', message_index: 1 };
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), `${JSON.stringify(prompt)}\n${JSON.stringify(tail)}\n`);
+    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 1, versions: { '1': { status: 'active', opened_at: '2026-07-01T00:00:00.000Z' } } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
-    const actor = new LLMActor({ projectRoot, agentId: sessionId, provider });
+    const publisher = recordingPublisher();
+    const actor = LLMActor.fromActiveReconstruction({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
+    const harness = new InitialOutcomeHarness(projectRoot, provider);
+    const factory = jest.fn(() => input('must-not-run'));
+
+    await expect(harness.resolveForTest(actor, factory)).resolves.toMatchObject({ type: 'result', result: { content: 'done' } });
+
+    expect(factory).not.toHaveBeenCalled();
+    expect(provider.completeTurn).toHaveBeenCalledTimes(1);
+    expect(jsonl(activeVersionPath(projectRoot, sessionId, 1)).filter((row) => row.kind === 'system_prompt')).toEqual([prompt]);
+    expect(jsonl(activeVersionPath(projectRoot, sessionId, 1)).map((row) => row.id)).toEqual(expect.arrayContaining(['recovered-turn:started', 'recovered-turn:message']));
+    expect(publisher.entryAppended.mock.calls.map(([result]) => (result as { message: { id: string } }).message.id)).toEqual(['recovered-turn:started', 'recovered-turn:message']);
+  }));
+
+  it('does not let another actor prompt suppress this actor prompt', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const sessionId = 'planner:project';
+    const dir = conversationDir(projectRoot, sessionId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify({ id: 'executor:other:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'other system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
+    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 1, versions: { '1': { status: 'active', opened_at: '2026-07-01T00:00:00.000Z' } } });
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
+    const publisher = recordingPublisher();
+    const actor = new LLMActor({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher });
+    actor.start();
+
+    await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result' });
+
+    expect(jsonl(activeVersionPath(projectRoot, sessionId, 1)).filter((row) => row.id === 'planner:project:system-prompt')).toHaveLength(1);
+    expect(publisher.entryAppended.mock.calls.map(([result]) => (result as { message: { id: string } }).message.id)).toEqual(expect.arrayContaining(['planner:project:system-prompt', 'turn-1:started', 'turn-1:message']));
+  }));
+
+  it('uses frozen prompt identity after real compaction for a new ordinary actor activation', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const sessionId = 'planner:project';
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
+    appendActivationMarker(projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'initial-turn' });
+    appendConversationMessage(projectRoot, { id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: new Date().toISOString() });
+    for (let ordinal = 1; ordinal <= 3; ordinal++) {
+      appendActivationMarker(projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: 'project', input_id: `history-${ordinal}` });
+      appendUserContextMessage(projectRoot, sessionId, `history-${ordinal}`, 'notification', 0, { role: 'user', content: `history ${ordinal} ${'x'.repeat(120)}` });
+    }
+    const compactionConfig: CompactionConfig = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0, merge_line_fraction: 0.3, summary_line_fraction: 0.6, escalate_merge_line_fraction: 0.5, escalate_summary_line_fraction: 0.7, snap: 'compact_straddler', summarizer_model: 'test/_/summary' };
+    await compact({
+      projectRoot,
+      sessionId,
+      input: { ...input('compaction'), contextMessages: readConversationMessages(projectRoot, sessionId) },
+      config: compactionConfig,
+      summarizerProvider: provider,
+      bufferSizeEstimator: { estimate: (candidate) => ({ estimatedTokens: candidate.contextMessages.some((message) => typeof message === 'object' && message !== null && 'kind' in message && message.kind === 'context_compaction') ? 1 : 100, bufferTokens: 100 }) },
+    });
+    const index = readConversationIndex(projectRoot, sessionId);
+    expect(index?.versions['1']?.status).toBe('frozen');
+    expect(readFileSync(activeVersionPath(projectRoot, sessionId, 1), 'utf-8')).toContain('planner:project:system-prompt');
+    expect(readConversationMessages(projectRoot, sessionId).some((row) => row.kind === 'system_prompt')).toBe(false);
+    const publisher = recordingPublisher();
+    const fresh = new LLMActor({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher });
+    fresh.start();
+
+    await expect(fresh.turn(input('fresh-turn'))).resolves.toMatchObject({ type: 'result' });
+
+    const active = readConversationMessages(projectRoot, sessionId);
+    expect(active.filter((row) => row.kind === 'system_prompt')).toHaveLength(0);
+    expect(active.map((row) => row.id)).toEqual(expect.arrayContaining(['fresh-turn:started', 'fresh-turn:message']));
+    expect(publisher.entryAppended.mock.calls.map(([result]) => (result as { message: { id: string } }).message.id)).toEqual(['fresh-turn:started', 'fresh-turn:message']);
+  }));
+
+  it.each([
+    ['valid frozen prompt before active wrong-kind', 'system_prompt', 'text'],
+    ['frozen wrong-kind before valid active prompt', 'text', 'system_prompt'],
+  ])('fails recovered calling_provider turns for %s without changing the session', async (_name, frozenKind, activeKind) => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const sessionId = 'planner:project';
+    const dir = conversationDir(projectRoot, sessionId);
+    mkdirSync(dir, { recursive: true });
+    const row = (kind: string, version: number) => ({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind, content: `version ${version}`, round_id: `r-pre-${String(version).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp: new Date().toISOString() });
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify(row(frozenKind, 1)) + '\n');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), JSON.stringify(row(activeKind, 2)) + '\n');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 3), JSON.stringify({ ...row('text', 3), id: 'orphan' }) + '\n');
+    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
+    const before = sessionSnapshot(projectRoot, sessionId);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
+    const publisher = recordingPublisher();
+    const actor = LLMActor.fromActiveReconstruction({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
+    const factory = jest.fn(() => input('must-not-run'));
+    const harness = new InitialOutcomeHarness(projectRoot, provider);
+    const pendingFailure = expect(actor.awaitPendingTurn()).rejects.toThrow(/expected 'system_prompt'/);
+    const recoveredFailure = expect(harness.resolveForTest(actor, factory)).rejects.toThrow(/expected 'system_prompt'/);
+
+    await pendingFailure;
+    await recoveredFailure;
+
+    expect(factory).not.toHaveBeenCalled();
+    expect(provider.completeTurn).not.toHaveBeenCalled();
+    expect(publisher.entryAppended).not.toHaveBeenCalled();
+    expect(publisher.versionReplaced).not.toHaveBeenCalled();
+    expect(sessionSnapshot(projectRoot, sessionId)).toEqual(before);
+  }));
+
+  it('fails a fresh wrong-kind turn before provider, publisher, or session writes', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const sessionId = 'planner:project';
+    const dir = conversationDir(projectRoot, sessionId);
+    mkdirSync(dir, { recursive: true });
+    const wrong = { id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'text', content: 'bad', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify(wrong) + '\n');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 3), JSON.stringify({ ...wrong, id: 'orphan' }) + '\n');
+    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
+    const before = sessionSnapshot(projectRoot, sessionId);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
+    const publisher = recordingPublisher();
+    const actor = new LLMActor({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher });
     actor.start();
 
     await expect(actor.turn(input())).rejects.toThrow(/expected 'system_prompt'/);
 
     expect(provider.completeTurn).not.toHaveBeenCalled();
-    expect(readFileSync(activeVersionPath(projectRoot, sessionId, 2), 'utf-8')).toBe('');
+    expect(publisher.entryAppended).not.toHaveBeenCalled();
+    expect(publisher.versionReplaced).not.toHaveBeenCalled();
+    expect(sessionSnapshot(projectRoot, sessionId)).toEqual(before);
   }));
 
   it('runs compaction only from the base pre-provider hook and swaps context wholesale', async () => withTempProject(async (projectRoot) => {
