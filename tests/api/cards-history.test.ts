@@ -7,7 +7,7 @@ import { CardStore } from '../../src/cards/card-store.js';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { configureAuthPolicy } from '../../src/server/auth-policy.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-cards-history-${Date.now()}`);
@@ -36,8 +36,7 @@ beforeAll(async () => {
   await app.register(cors);
   await app.register(websocket);
   const store = new CardStore(TEST_ROOT);
-  configureAuthPolicy({ apiToken: authToken });
-  registerOperatorContractRoutes({ fastify: app, projectRoot: TEST_ROOT, cardStore: store });
+  registerOperatorContractRoutes({ fastify: app, projectRoot: TEST_ROOT, cardStore: store, authPolicy: new AuthPolicy({ apiToken: authToken }) });
   await app.listen({ port: 0, host: '127.0.0.1' });
   port = (app.server.address() as { port: number }).port;
   const created = store.create({

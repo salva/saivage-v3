@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { ProcessRecord } from '../../src/schemas/index.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 
@@ -46,7 +47,7 @@ describe('contract-backed process routes', () => {
     try {
       const processRunner = new ProcessRunner(projectRoot);
       processRunner.setTransientRegistry(new Map([['proc-1', processRecord(projectRoot)]]));
-      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication });
+      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
 
       const list = await fastify.inject({ method: 'GET', url: '/api/processes' });
       expect(list.statusCode).toBe(200);
@@ -81,7 +82,7 @@ describe('contract-backed process routes', () => {
     try {
       const processRunner = new ProcessRunner(projectRoot);
       processRunner.setTransientRegistry(new Map());
-      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication });
+      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });
       expect(response.statusCode).toBe(404);

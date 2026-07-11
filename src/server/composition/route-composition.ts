@@ -9,6 +9,7 @@ import { buildServerAvailability } from '../availability.js';
 import { registerOperatorContractRoutes } from '../routes/operator-contracts.js';
 import { registerInternalDebugRoutes } from '../routes/chats-files-debug.js';
 import { registerWebSocket } from '../websocket.js';
+import type { AuthPolicy } from '../auth-policy.js';
 
 export function registerServerRoutes(options: {
   fastify: FastifyInstance;
@@ -20,6 +21,7 @@ export function registerServerRoutes(options: {
   configWarnings: readonly string[];
   liveSyncSocket: LiveSyncSocket;
   restartPort?: RestartPort;
+  authPolicy: AuthPolicy;
 }): void {
   const serverAvailabilityProvider = () => buildServerAvailability({ projectRoot: options.projectRoot, runtimeApplication: options.runtimeApplication, mcpManager: options.mcpManager });
 
@@ -33,9 +35,11 @@ export function registerServerRoutes(options: {
     saivageConfig: options.saivageConfig,
     configWarnings: options.configWarnings,
     restartPort: options.restartPort,
+    authPolicy: options.authPolicy,
   });
-  registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore, options.runtimeApplication);
+  registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore, options.authPolicy, options.runtimeApplication);
   registerWebSocket(options.fastify, options.projectRoot, {
+    authPolicy: options.authPolicy,
     liveSyncSocket: options.liveSyncSocket,
     saivageConfig: options.saivageConfig,
     runtimeApplication: options.runtimeApplication,

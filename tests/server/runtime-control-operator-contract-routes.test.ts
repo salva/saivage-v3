@@ -8,6 +8,7 @@ import type { RuntimeApplication } from '../../src/application/runtime-compositi
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 
 function createRuntimeApplication(projectRoot: string, calls: { pause: number; resume: number }): RuntimeApplication {
   let status: ReturnType<RuntimeApi['getStatus']>['status'] = 'running';
@@ -48,7 +49,7 @@ describe('contract-backed runtime control routes', () => {
     const fastify = Fastify({ logger: false });
     const calls = { pause: 0, resume: 0 };
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: createRuntimeApplication(projectRoot, calls), cardStore: new CardStore(projectRoot) });
+      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: createRuntimeApplication(projectRoot, calls), cardStore: new CardStore(projectRoot), authPolicy: new AuthPolicy() });
 
       const pause = await fastify.inject({ method: 'POST', url: '/api/runtime/pause' });
       expect(pause.statusCode).toBe(200);

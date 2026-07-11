@@ -47,6 +47,15 @@ describe('AuthPolicy', () => {
     expect(policy.validateWebSocketRequest(request({}, { ticket: issued.ticket }))).toMatchObject({ ok: false, reason: 'used' });
   });
 
+  it('keeps tickets isolated between server-local policy instances', () => {
+    const first = new AuthPolicy({ apiToken: TOKEN });
+    const second = new AuthPolicy({ apiToken: TOKEN });
+    const ticket = first.issueWebSocketTicket().ticket;
+
+    expect(second.validateWebSocketRequest(request({}, { ticket }))).toMatchObject({ ok: false, reason: 'invalid' });
+    expect(first.validateWebSocketRequest(request({}, { ticket }))).toEqual({ ok: true, mode: 'ticket' });
+  });
+
   it('rejects missing, invalid, expired, and API-token query WebSocket credentials', () => {
     let now = 10_000;
     const policy = new AuthPolicy({

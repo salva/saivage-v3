@@ -10,8 +10,7 @@ import { McpManager } from '../../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../../observability/index.js';
 import { TelegramBot } from '../../telegram/index.js';
 import { clearProjectNotificationDeliveryAdapters, clearProjectNotificationEventBus, setProjectNotificationEventBus } from '../../notifications/index.js';
-import { configureAuthPolicy } from '../auth-policy.js';
-import { getAuthPolicy } from '../auth-policy.js';
+import { AuthPolicy } from '../auth-policy.js';
 import type { RestartPort } from '../../boot/restart-port.js';
 import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
@@ -31,6 +30,7 @@ export interface ServerServices {
   mcpManager: McpManager;
   liveSyncSocket: LiveSyncSocket;
   syncHub: SyncHub;
+  authPolicy: AuthPolicy;
   telegramBot?: TelegramBot;
   stop(): Promise<void>;
 }
@@ -79,8 +79,8 @@ export async function createServerServices(input: {
   const config = environment.config;
   const scope = input.scope ?? createResourceScope('server');
 
-  configureAuthPolicy({ apiToken: environment.auth.apiToken });
-  const restartServerAvailable = getAuthPolicy().authEnabled;
+  const authPolicy = new AuthPolicy({ apiToken: environment.auth.apiToken });
+  const restartServerAvailable = authPolicy.authEnabled;
   if (restartServerAvailable && !input.restartPort) throw new Error('Authenticated server requires an application-owned restart port.');
 
   const fastify = await createFastifyApp(environment);
@@ -118,6 +118,7 @@ export async function createServerServices(input: {
     mcpManager,
     liveSyncSocket,
     syncHub,
+    authPolicy,
     telegramBot,
   };
 

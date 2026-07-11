@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import { operatorApiContracts } from '../../contracts/index.js';
-import { getAuthPolicy } from '../auth-policy.js';
+import type { AuthPolicy } from '../auth-policy.js';
 import { buildAgentOperatorContractHandlers } from './operator-agent-handlers.js';
 import { buildChatOperatorContractHandlers } from './operator-chat-handlers.js';
 import { buildConfigOperatorContractHandlers } from './operator-config-handlers.js';
@@ -28,14 +28,15 @@ interface OperatorContractRouteRegistrationOptions extends
   OperatorCardStoreContext,
   OperatorRuntimeProviderContext {
   fastify: FastifyInstance;
+  authPolicy: AuthPolicy;
   mcpManager?: McpManager;
 }
 
 export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {
   const { fastify, projectRoot } = options;
-  const runtime = new ContractRuntime();
+  const runtime = new ContractRuntime({ authPolicy: options.authPolicy });
   const handlers: OperatorContractHandlerMap = {
-    'auth.wsTicket': () => ({ body: getAuthPolicy().issueWebSocketTicket() }),
+    'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),
     ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildAgentOperatorContractHandlers({ projectRoot }),

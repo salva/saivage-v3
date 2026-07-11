@@ -7,9 +7,14 @@ import { listRecentReviews } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
 import { cardRecordVersionPath, cardRecordsRoot } from '../../persistence/card-loader.js';
 import { readRecordSlotIndex } from '../../runtime/records/record-slots.js';
+import type { AuthPolicy } from '../auth-policy.js';
 
-export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardStore, runtimeApplication?: RuntimeApplication): void {
-  fastify.post('/api/debug/runtime/start', async (_request: FastifyRequest, reply: FastifyReply) => {
+export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardStore, authPolicy: AuthPolicy, runtimeApplication?: RuntimeApplication): void {
+  const requireOperator = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (authPolicy.validateHttpRequest(request).ok) return;
+    await reply.status(401).send({ error: 'Unauthorized', statusCode: 401 });
+  };
+  fastify.post('/api/debug/runtime/start', { preHandler: requireOperator }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       if (!runtimeApplication) return reply.status(503).send({ error: 'Runtime application unavailable.' });
       return reply.send(await runtimeApplication.runtimeApi.startProject('operator'));
@@ -18,7 +23,7 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
     }
   });
 
-  fastify.get('/api/debug/doctor', async (_request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/api/debug/doctor', { preHandler: requireOperator }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const cardRecordsDir = cardRecordsRoot(projectRoot);
       const checks: DoctorCheck[] = [];
@@ -76,7 +81,7 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
     }
   });
 
-  fastify.get('/api/debug/supervision', async (_request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/api/debug/supervision', { preHandler: requireOperator }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const reviews = listRecentReviews(projectRoot, 50);
       const byRisk: Record<string, number> = {};

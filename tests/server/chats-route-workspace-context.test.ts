@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ChatSendResponseSchema } from '../../src/contracts/operator-api-chats.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { createTestRuntimeApplication, ensureTestSaivageConfig, loadTestConfig } from '../helpers/test-runtime-application.js';
 
 const submit = jest.fn<(sessionId: string, input: { userContent: string; workspaceContext?: unknown }) => Promise<unknown>>();
@@ -50,7 +51,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     const fastify = Fastify();
     const runtimeApplication = createTestRuntimeApplication();
     Object.defineProperty(runtimeApplication, 'analystRuntime', { value: { submit, setRequestServerRestart: jest.fn() } });
-    registerOperatorContractRoutes({ fastify, projectRoot: root, runtimeApplication, saivageConfig: loadTestConfig(root) });
+    registerOperatorContractRoutes({ fastify, projectRoot: root, runtimeApplication, saivageConfig: loadTestConfig(root), authPolicy: new AuthPolicy() });
     await fastify.ready();
     return fastify;
   }
@@ -118,6 +119,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
       runtimeApplication,
       restartPort: { schedule: jest.fn(), acknowledge },
       saivageConfig: loadTestConfig(root),
+      authPolicy: new AuthPolicy(),
     });
     await fastify.ready();
     try {

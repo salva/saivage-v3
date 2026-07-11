@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest, RouteOptions } from 'fastify';
 import type { z } from 'zod';
-import { getAuthPolicy } from './auth-policy.js';
+import type { AuthPolicy } from './auth-policy.js';
 import type { EventBus, EventKind } from '../events/index.js';
 import type { OperatorRouteContract } from '../contracts/index.js';
 
@@ -32,6 +32,7 @@ export interface ContractHandlerResult {
 
 export interface ContractRuntimeOptions {
   eventBus?: EventBus;
+  authPolicy: AuthPolicy;
 }
 
 function zodIssues(error: z.ZodError): Array<{ path: string; message: string }> {
@@ -77,9 +78,11 @@ export function defineContract<TContract extends OperatorRouteContract>(contract
 
 export class ContractRuntime {
   private readonly eventBus?: EventBus;
+  private readonly authPolicy: AuthPolicy;
 
-  constructor(options: ContractRuntimeOptions = {}) {
+  constructor(options: ContractRuntimeOptions) {
     this.eventBus = options.eventBus;
+    this.authPolicy = options.authPolicy;
   }
 
   mount<TContracts extends Record<string, OperatorRouteContract>>(
@@ -130,7 +133,7 @@ export class ContractRuntime {
     const auth = contract.auth;
     if (auth === 'public') return null;
     if (auth !== 'operator-session') return { error: 'Unauthorized', statusCode: 401, message: `${auth} is not available for operator routes` };
-    const result = getAuthPolicy().validateHttpRequest(request);
+    const result = this.authPolicy.validateHttpRequest(request);
     return result.ok ? null : unauthorizedBody();
   }
 

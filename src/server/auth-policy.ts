@@ -143,21 +143,3 @@ export class AuthPolicy {
     }
   }
 }
-
-let defaultPolicy: AuthPolicy | undefined;
-
-export function configureAuthPolicy(options: AuthPolicyOptions): AuthPolicy {
-  defaultPolicy = new AuthPolicy(options);
-  return defaultPolicy;
-}
-
-export function getAuthPolicy(): AuthPolicy {
-  if (!defaultPolicy) {
-    defaultPolicy = new AuthPolicy();
-  }
-  return defaultPolicy;
-}
-
-export function resetAuthPolicyForTests(): void {
-  defaultPolicy = undefined;
-}

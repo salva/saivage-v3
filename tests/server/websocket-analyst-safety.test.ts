@@ -18,7 +18,7 @@ jest.unstable_mockModule('../../src/agents/session-ids.js', () => ({
 }));
 
 const authPolicyModule = await import('../../src/server/auth-policy.js');
-const { configureAuthPolicy, getAuthPolicy, resetAuthPolicyForTests } = authPolicyModule;
+const { AuthPolicy } = authPolicyModule;
 const { registerWebSocket } = await import('../../src/server/websocket.js');
 
 function createSocket() {
@@ -72,18 +72,18 @@ describe('websocket analyst safety and live-sync control', () => {
     jest.resetAllMocks();
     mockResolveAnalystSessionId.mockReturnValue('session-1');
     delete process.env.SAIVAGE_API_TOKEN;
-    resetAuthPolicyForTests();
   });
 
   it('accepts a valid one-use websocket ticket and sends only connected status on connect', () => {
-    configureAuthPolicy({ apiToken: 'arch004-test-token' });
+    const authPolicy = new AuthPolicy({ apiToken: 'arch004-test-token' });
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project', {
+      authPolicy,
       liveSyncSocket: new LiveSyncSocket(),
       saivageConfig: createTestSaivageConfig(),
       runtimeApplication: createTestRuntimeApplication(),
     });
-    const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+    const ticket = authPolicy.issueWebSocketTicket().ticket;
     const { ws } = createSocket();
 
     route.handler(ws, { headers: {}, query: { ticket } });
@@ -98,6 +98,7 @@ describe('websocket analyst safety and live-sync control', () => {
     const liveSyncSocket = new LiveSyncSocket();
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project', {
+      authPolicy: new AuthPolicy(),
       liveSyncSocket,
       saivageConfig: createTestSaivageConfig(),
       runtimeApplication: createTestRuntimeApplication(),
@@ -122,6 +123,7 @@ describe('websocket analyst safety and live-sync control', () => {
     const { route, fastify } = createRoute();
     const { runtimeApplication, analystRuntime } = createRuntimeApplicationWithAnalystRuntime();
     registerWebSocket(fastify, '/tmp/project', {
+      authPolicy: new AuthPolicy(),
       liveSyncSocket: new LiveSyncSocket(),
       saivageConfig: createTestSaivageConfig(),
       runtimeApplication,
@@ -144,6 +146,7 @@ describe('websocket analyst safety and live-sync control', () => {
       submit: jest.fn(async () => ({ sessionId: 'analyst:global', toolInvocations: [], restart: { status: 'scheduled' } })),
     });
     registerWebSocket(fastify, '/tmp/project', {
+      authPolicy: new AuthPolicy(),
       liveSyncSocket: new LiveSyncSocket(),
       saivageConfig: createTestSaivageConfig(),
       runtimeApplication,
@@ -170,6 +173,7 @@ describe('websocket analyst safety and live-sync control', () => {
     const { runtimeApplication, analystRuntime } = createRuntimeApplicationWithAnalystRuntime();
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project', {
+      authPolicy: new AuthPolicy(),
       liveSyncSocket: new LiveSyncSocket(),
       saivageConfig: createTestSaivageConfig(),
       runtimeApplication,

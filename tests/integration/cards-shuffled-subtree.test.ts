@@ -8,7 +8,7 @@ import { writeFileAtomic } from '../../src/persistence/index.js';
 import { cardByIdPath } from '../../src/persistence/card-loader.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { get_card, get_tree } from '../../src/tools/analyst-card-tools.js';
-import { configureAuthPolicy } from '../../src/server/auth-policy.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';
@@ -78,8 +78,7 @@ beforeEach(async () => {
   authToken = 'shuffled-subtree-token';
   process.env['SAIVAGE_API_TOKEN'] = authToken;
   app = Fastify({ logger: false });
-  configureAuthPolicy({ apiToken: authToken });
-  registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, cardStore: routeStore });
+  registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, cardStore: routeStore, authPolicy: new AuthPolicy({ apiToken: authToken }) });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const port = (app.server.address() as { port: number }).port;
   baseUrl = `http://127.0.0.1:${port}`;

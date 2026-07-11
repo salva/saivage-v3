@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import type { ServerInstance } from '../../src/server/server.js';
 import { createServer } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
-import { resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 import { parseOperatorResponse } from '../../src/contracts/operator-api.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
@@ -33,7 +32,6 @@ describe('operator runtime.getState identity', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-identity-'));
     originalToken = process.env['SAIVAGE_API_TOKEN'];
     process.env['SAIVAGE_API_TOKEN'] = AUTH_TOKEN;
-    resetAuthPolicyForTests();
     setupProject(tmpDir);
   });
 

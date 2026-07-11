@@ -32,6 +32,7 @@ export async function createServer(options: CreateServerOptions): Promise<Server
     configWarnings: environment.configWarnings,
     liveSyncSocket: services.liveSyncSocket,
     restartPort: options.restartPort,
+    authPolicy: services.authPolicy,
   });
 
   return { fastify: services.fastify, config: serverConfig, saivageConfig: services.config, scope: services.scope, mcpManager: services.mcpManager, telegramBot: services.telegramBot, runtimeApplication: services.runtimeApplication, stop: services.stop };

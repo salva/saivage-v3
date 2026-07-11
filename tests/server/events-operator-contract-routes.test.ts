@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { operatorRouteInventory } from '../../src/contracts/operator-api.js';
 import { EventLogger } from '../../src/observability/index.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 
 const timestamp = '2026-01-01T00:00:00.000Z';
 
@@ -17,7 +18,7 @@ describe('contract-backed events route', () => {
       const logger = new EventLogger(join(projectRoot, '.saivage'));
       logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-started', timestamp, error_message: 'runtime' });
       logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-session', timestamp, session_id: 'planner:goal-1', goal_id: 'goal-1', card_id: 'goal-1', error_message: 'planner' });
-      registerOperatorContractRoutes({ fastify, projectRoot });
+      registerOperatorContractRoutes({ fastify, projectRoot, authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/events?kind=runtime_diagnostic&session_id=planner:goal-1&limit=1&offset=0' });
 
@@ -36,7 +37,7 @@ describe('contract-backed events route', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-events-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot });
+      registerOperatorContractRoutes({ fastify, projectRoot, authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: `/api/events?limit=${encodeURIComponent(limit)}` });
 
@@ -52,7 +53,7 @@ describe('contract-backed events route', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-events-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot });
+      registerOperatorContractRoutes({ fastify, projectRoot, authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: `/api/events?offset=${encodeURIComponent(offset)}` });
 

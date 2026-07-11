@@ -3,7 +3,6 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
-import { getAuthPolicy, resetAuthPolicyForTests } from '../src/server/auth-policy.js';
 import { createServer, type ServerInstance } from '../src/server/server.js';
 import { loadEnvironment } from '../src/config/environment.js';
 import { existsSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
@@ -503,17 +502,18 @@ describe('API Chat and WebSocket Integration', () => {
   let server: ServerInstance;
   let port: number;
   let authToken: string;
+  let wsTicket: string;
 
   beforeAll(async () => {
     projectRoot = uniqueDir();
     setupTestProject(projectRoot);
     authToken = process.env['SAIVAGE_API_TOKEN'] || 'test-token';
     process.env['SAIVAGE_API_TOKEN'] = authToken;
-    resetAuthPolicyForTests();
-
     server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env), restartPort: createTestRestartPort() });
     await server.fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (server.fastify.server.address() as { port: number }).port;
+    const ticketResponse = await fetch(`http://127.0.0.1:${port}/api/auth/ws-ticket`, { method: 'POST', headers: { authorization: `Bearer ${authToken}` } });
+    wsTicket = (await ticketResponse.json() as { ticket: string }).ticket;
   }, 30000);
 
   afterAll(async () => {
@@ -527,8 +527,7 @@ describe('API Chat and WebSocket Integration', () => {
     return `http://127.0.0.1:${port}${path}`;
   }
   function wsUrl(): string {
-    const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
-    return `ws://127.0.0.1:${port}/ws?ticket=${ticket}`;
+    return `ws://127.0.0.1:${port}/ws?ticket=${wsTicket}`;
   }
   function authHdr(): Record<string, string> {
     return { authorization: `Bearer ${authToken}` };

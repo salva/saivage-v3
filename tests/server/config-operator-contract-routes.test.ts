@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { operatorRouteInventory } from '../../src/contracts/operator-api.js';
 import { recordControlAction } from '../../src/persistence/index.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
 
 function testConfig(): SaivageConfig {
@@ -34,7 +35,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-config-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot, saivageConfig: testConfig(), configWarnings: ['warning-one'] });
+      registerOperatorContractRoutes({ fastify, projectRoot, saivageConfig: testConfig(), configWarnings: ['warning-one'], authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/config' });
 
@@ -54,7 +55,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-providers-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot, saivageConfig: testConfig() });
+      registerOperatorContractRoutes({ fastify, projectRoot, saivageConfig: testConfig(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/providers' });
 
@@ -114,7 +115,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         outcome: 'ok',
         outcome_summary: 'updated',
       });
-      registerOperatorContractRoutes({ fastify, projectRoot });
+      registerOperatorContractRoutes({ fastify, projectRoot, authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/control-actions?card_id=card-1&since=2026-01-01T12:00:00.000Z' });
 
@@ -133,7 +134,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-config-error-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot });
+      registerOperatorContractRoutes({ fastify, projectRoot, authPolicy: new AuthPolicy() });
 
       const configResponse = await fastify.inject({ method: 'GET', url: '/api/config' });
       const providersResponse = await fastify.inject({ method: 'GET', url: '/api/providers' });

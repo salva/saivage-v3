@@ -14,7 +14,7 @@ import type { SaivageConfig } from '../agents/config-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/index.js';
 import type { WsEnvelope, WsEventType } from '../contracts/index.js';
-import { getAuthPolicy } from './auth-policy.js';
+import type { AuthPolicy } from './auth-policy.js';
 import { redactForOutbound, type Redacted } from '../redaction/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { AnalystWsHandler } from './analyst-ws-handler.js';
@@ -48,8 +48,8 @@ export function sendToClient(ws: WebSocket, event: WsEnvelope, callback?: (error
   }
 }
 
-function checkAuth(request: FastifyRequest): boolean {
-  return getAuthPolicy().validateWebSocketRequest(request).ok;
+function checkAuth(policy: AuthPolicy, request: FastifyRequest): boolean {
+  return policy.validateWebSocketRequest(request).ok;
 }
 
 function rejectUnauthorizedWebSocket(ws: WebSocket): void {
@@ -67,6 +67,7 @@ function rejectUnauthorizedWebSocket(ws: WebSocket): void {
 }
 
 export interface RegisterWebSocketOptions {
+  authPolicy: AuthPolicy;
   liveSyncSocket: LiveSyncSocket;
   saivageConfig: SaivageConfig;
   runtimeApplication: RuntimeApplication;
@@ -92,7 +93,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
     '/ws',
     { websocket: true },
     (ws: WebSocket, request: FastifyRequest) => {
-      if (!checkAuth(request)) {
+      if (!checkAuth(options.authPolicy, request)) {
         rejectUnauthorizedWebSocket(ws);
         return;
       }

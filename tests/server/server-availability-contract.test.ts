@@ -6,7 +6,6 @@ import type { ServerInstance } from '../../src/server/server.js';
 import { createServer } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { buildServerAvailability } from '../../src/server/availability.js';
-import { resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
@@ -34,7 +33,6 @@ describe('server availability contract', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-availability-'));
     originalToken = process.env['SAIVAGE_API_TOKEN'];
     process.env['SAIVAGE_API_TOKEN'] = AUTH_TOKEN;
-    resetAuthPolicyForTests();
   });
 
   afterEach(async () => {

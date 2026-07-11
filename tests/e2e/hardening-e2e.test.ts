@@ -11,8 +11,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
-import { getAuthPolicy } from '../../src/server/auth-policy.js';
-import { configureAuthPolicy } from '../../src/server/auth-policy.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import {
   existsSync,
@@ -36,6 +35,7 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
   let app: FastifyInstance;
   let port: number;
   let authToken: string;
+  let authPolicy: AuthPolicy;
 
   beforeAll(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-e2e-security-'));
@@ -72,10 +72,10 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     const { LiveSyncSocket } = await import('../../src/server/live-sync-socket.js');
     const { createTestRuntimeApplication, createTestSaivageConfig } = await import('../helpers/test-runtime-application.js');
 
-    configureAuthPolicy({ apiToken: authToken });
-    registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, cardStore });
-    registerInternalDebugRoutes(app, tmpDir, cardStore);
-    registerWebSocket(app, tmpDir, { liveSyncSocket: new LiveSyncSocket(), saivageConfig: createTestSaivageConfig(), runtimeApplication: createTestRuntimeApplication({ cardStore }) });
+    authPolicy = new AuthPolicy({ apiToken: authToken });
+    registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, cardStore, authPolicy });
+    registerInternalDebugRoutes(app, tmpDir, cardStore, authPolicy);
+    registerWebSocket(app, tmpDir, { authPolicy, liveSyncSocket: new LiveSyncSocket(), saivageConfig: createTestSaivageConfig(), runtimeApplication: createTestRuntimeApplication({ cardStore }) });
 
     await app.listen({ port: 0, host: '127.0.0.1' });
     port = (app.server.address() as { port: number }).port;
@@ -216,7 +216,7 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     }, 10000);
 
     it('accepts WebSocket with valid auth ticket and sends connected status', (done) => {
-      const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+      const ticket = authPolicy.issueWebSocketTicket().ticket;
       const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?ticket=${ticket}`);
       ws.on('message', (raw) => {
         const data = JSON.parse(raw.toString()) as { type: string; content: Record<string, unknown> };

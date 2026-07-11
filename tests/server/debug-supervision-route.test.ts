@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { registerInternalDebugRoutes } from '../../src/server/routes/chats-files-debug.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { quarantineContent, recordContentPass } from '../../src/workspace/quarantine.js';
 
 let root: string;
@@ -16,7 +17,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'saivage-debug-supervision-route-'));
   initProjectTree(root);
   app = Fastify();
-  registerInternalDebugRoutes(app, root, new CardStore(root));
+  registerInternalDebugRoutes(app, root, new CardStore(root), new AuthPolicy());
 });
 
 afterEach(async () => {
@@ -25,6 +26,28 @@ afterEach(async () => {
 });
 
 describe('GET /api/debug/supervision', () => {
+  it('requires the injected policy before starting the runtime or reading diagnostics', async () => {
+    const protectedApp = Fastify();
+    const startProject = jest.fn(async () => ({ started: true }));
+    registerInternalDebugRoutes(
+      protectedApp,
+      root,
+      new CardStore(root),
+      new AuthPolicy({ apiToken: 'debug-test-token' }),
+      { runtimeApi: { startProject } } as any,
+    );
+    try {
+      const start = await protectedApp.inject({ method: 'POST', url: '/api/debug/runtime/start' });
+      const doctor = await protectedApp.inject({ method: 'GET', url: '/api/debug/doctor?token=debug-test-token', headers: { authorization: 'Bearer debug-test-token' } });
+
+      expect(start.statusCode).toBe(401);
+      expect(doctor.statusCode).toBe(401);
+      expect(startProject).not.toHaveBeenCalled();
+    } finally {
+      await protectedApp.close();
+    }
+  });
+
   it('derives reviews and stats from content_review app-log entries without quarantine metadata', async () => {
     recordContentPass(root, 'file', 'safe.txt', 'Clean');
     quarantineContent({

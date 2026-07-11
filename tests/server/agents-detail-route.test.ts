@@ -9,7 +9,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { initRuntimeState, readRuntimeState, saveRuntimeState } from '../../src/runtime/state.js';
 import { appendConversationMessage } from '../../src/runtime/actors/conversation-store.js';
 import { saveActorSnapshot } from '../../src/runtime/actors/snapshots.js';
-import { resetAuthPolicyForTests, configureAuthPolicy } from '../../src/server/auth-policy.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 
 const AUTH_TOKEN = 'test-agent-detail-token';
@@ -45,13 +45,11 @@ describe('GET /api/agents/:id', () => {
     initProjectTree(projectRoot);
     initRuntimeState(projectRoot);
     process.env['SAIVAGE_API_TOKEN'] = AUTH_TOKEN;
-    resetAuthPolicyForTests();
-    configureAuthPolicy({ apiToken: AUTH_TOKEN });
 
     app = Fastify({ logger: false });
     await app.register(cors);
     const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
-    registerOperatorContractRoutes({ fastify: app, projectRoot });
+    registerOperatorContractRoutes({ fastify: app, projectRoot, authPolicy: new AuthPolicy({ apiToken: AUTH_TOKEN }) });
     await app.ready();
   });
 
@@ -59,7 +57,6 @@ describe('GET /api/agents/:id', () => {
     await app.close();
     rmSync(projectRoot, { recursive: true, force: true });
     delete process.env['SAIVAGE_API_TOKEN'];
-    resetAuthPolicyForTests();
   });
 
   const authHdr = (): Record<string, string> => ({ authorization: `Bearer ${AUTH_TOKEN}` });
