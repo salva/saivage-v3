@@ -188,7 +188,6 @@ function createComposedRuntimeApi(input: {
       resume: () => input.runtimeApi.resume(),
       notifyCard: (cardId, notification) => input.runtimeApi.notifyCard(cardId, notification),
       startProject: (source) => input.runtimeApi.startProject(source),
-      stopProject: (source) => input.runtimeApi.stopProject(source),
       subscribe: (options) => input.runtimeApi.subscribe(options),
       getStatus: () => input.runtimeApi.getStatus(),
       getActorRuntimeReadModel: () => input.runtimeApi.getActorRuntimeReadModel(),

@@ -466,7 +466,7 @@ The R1-R4 remediation landed the core micro-actor path. A holistic review then f
 
 ### P1 — ProcessRunner owns truthful process state and scoped termination
 
-**Problem.** `ProcessRunner` still has three real defects: (a) unattached running records can be marked `killed` without signalling a real PID/process group (`stopProcess` at `src/runtime/process-runner.ts:596-623` flips status without an OS signal); (b) `reconcile()` writes `reattach_state: 'reattached'` with no recreated `ChildProcess` handle, claiming control that does not exist (`:654-683`); (c) `loadRegistryForRunner` re-reads durable JSON on every `get`/`list`/`stop` call (`:234-239`). Scoped termination itself already has the right shape (`stopByOwner` for activation/session cleanup and `stopRuntimeOwned` for shutdown/stopProject); do not add a second process-scope taxonomy unless a future multi-project runtime deliberately changes the one-active-project invariant.
+**Problem.** `ProcessRunner` still has three real defects: (a) unattached running records can be marked `killed` without signalling a real PID/process group (`stopProcess` at `src/runtime/process-runner.ts:596-623` flips status without an OS signal); (b) `reconcile()` writes `reattach_state: 'reattached'` with no recreated `ChildProcess` handle, claiming control that does not exist (`:654-683`); (c) `loadRegistryForRunner` re-reads durable JSON on every `get`/`list`/`stop` call (`:234-239`). Scoped termination itself already has the right shape (`stopByOwner` for activation/session cleanup and `stopRuntimeOwned` for internal shutdown); do not add a second process-scope taxonomy unless a future multi-project runtime deliberately changes the one-active-project invariant.
 
 **Fix.** Keep all process truth in `ProcessRunner`. Do not introduce a new owner.
 
@@ -475,7 +475,7 @@ The R1-R4 remediation landed the core micro-actor path. A holistic review then f
 - `wait()` on unattached running records throws (no legitimate caller needs it after restart; executor cards are blocked by recovery and analyst sessions are new).
 - `loadRegistryForRunner` returns the transient registry directly; `upsertRegistryRecord` is already the durable write-through path, so transient is authoritative in-memory.
 - Make `stopMatching` signal the whole scoped set first, wait the grace window once, then kill stragglers — not `N * graceMs` serial awaits.
-- Keep the existing ownership fields as the only process ownership vocabulary: `ownerKind` distinguishes runtime/agent work from operator work, `ownerId` identifies the activation/session owner, and `cardId` supports read-model filtering. `stopRuntimeOwned(...)` remains the correct stopProject/shutdown scope while the runtime has one active project; `stopByOwner(...)` remains the activation/session cleanup scope.
+- Keep the existing ownership fields as the only process ownership vocabulary: `ownerKind` distinguishes runtime/agent work from operator work, `ownerId` identifies the activation/session owner, and `cardId` supports read-model filtering. `stopRuntimeOwned(...)` remains the internal-shutdown scope while the runtime has one active project; `stopByOwner(...)` remains the activation/session cleanup scope.
 
 Acceptance: unattached kills actually signal the OS; no `reattach_state` fiction; `wait()` on unattached records fails fast; registry reads do not reload durable JSON per call; no redundant process-scope field or ownership taxonomy is introduced.
 

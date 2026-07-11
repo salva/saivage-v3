@@ -9,7 +9,7 @@ import { toPublicAgentPhase, toPublicCardActorState } from '../../schemas/actor-
 import { appendNotificationToActorSnapshot } from './snapshots.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
-import type { NotifyCardResult, RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
+import type { NotifyCardResult, RuntimeApi, RuntimeCommandSource, StartProjectResult } from '../runtime-api.js';
 import type { RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
 import type { ActorActiveWork, ActorPauseMode, ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
@@ -144,17 +144,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const runtime = this.runtimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...(readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt)), status: 'running', active_card_run: this.activeCardRun(startedAt), updated_at: startedAt } });
     void this.runRootProject(startedAt);
     return { runtime, status: runtime.status, started: true, stopped: false };
-  }
-
-  async stopProject(_source: RuntimeCommandSource = 'operator'): Promise<StopProjectResult> {
-    await this.start();
-    const stoppedAt = this.now();
-    this.cardActors.get(PROJECT_CARD_ID)?.cancel({ reason: 'runtime_project_cancelled', cancelled_at: stoppedAt });
-    await this.options.processRunner.stopRuntimeOwned('runtime_project_cancelled', { graceMs: 5000 });
-    this.currentCardId = null;
-    const current = readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(stoppedAt);
-    const runtime = this.runtimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...current, status: 'stopped', active_card_run: null, updated_at: stoppedAt } });
-    return { runtime, status: runtime.status, started: false, stopped: true };
   }
 
   subscribe(options: SubscriptionOptions): Subscription {

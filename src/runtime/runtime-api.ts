@@ -12,7 +12,6 @@ export interface RuntimeControlStateResult {
   error?: string;
 }
 export type StartProjectResult = RuntimeControlStateResult;
-export type StopProjectResult = RuntimeControlStateResult;
 
 export type NotifyCardResult =
   | { ok: true }
@@ -25,7 +24,6 @@ export interface RuntimeApi {
   resume(): void;
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult;
   startProject(source?: RuntimeCommandSource): Promise<StartProjectResult>;
-  stopProject(source?: RuntimeCommandSource): Promise<StopProjectResult>;
   subscribe(options: SubscriptionOptions): Subscription;
   getStatus(): {
     status: RuntimeStatus;

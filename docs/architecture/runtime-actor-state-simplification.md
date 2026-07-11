@@ -129,9 +129,6 @@ Transitions should be explicit and invalid transitions should fail loudly. Silen
 stopped  --start_project-->  running
 running  --pause_runtime-->  paused
 paused   --resume_runtime--> running
-running  --stop_project-->   stopped
-paused   --stop_project-->   stopped
-error    --stop_project-->   stopped
 running  --fatal_error-->     error
 paused   --fatal_error-->     error
 ```
@@ -147,9 +144,9 @@ running --start_project--> invalid; already running
 
 The operator UI may offer friendly labels, but the runtime API should return explicit conflict errors for invalid transitions.
 
-## 7. Stop, Pause, And Shutdown Semantics
+## 7. Pause And Internal Shutdown Semantics
 
-The existing language mixes stop, pause, and shutdown. The simplified model should make them distinct.
+The runtime has a user-facing Pause control and separate internal shutdown cleanup.
 
 ### 7.1 Pause
 
@@ -160,15 +157,9 @@ Pause is a reversible admission gate.
 - It does not imply process termination.
 - Analyst card mutation is allowed while `stopped`, and while `paused` after the safe point.
 
-### 7.2 Stop
+### 7.2 Internal Shutdown
 
-Stop leaves autonomous project execution. It is synchronous: on `stop_project` the runtime closes admission, cancels the active card run, and terminates runtime-owned processes, then transitions directly to `stopped`. From `paused` and `error` the transition to `stopped` is immediate since no active work is admitted.
-
-Stop does not distinguish "graceful" and "forced". If an active LLM turn is in flight, it is aborted; if a managed process is running, it is terminated. The runtime records what was cancelled/terminated so the operator can see the outcome, but no intermediate lifecycle state exists.
-
-### 7.3 Shutdown
-
-Shutdown remains the hard operation for service/process termination. It may terminate runtime-owned processes and possibly restart or stop the server service. It is not the same as `stop_project`.
+Internal shutdown is server/application-disposal cleanup. It terminates runtime-owned processes before clearing in-memory runtime markers. It is not an Analyst tool, operator HTTP endpoint, UI mutation, or a runtime-state transition available to users.
 
 ## 8. Initialization And Root Project Card
 
@@ -268,10 +259,7 @@ This avoids misleading messages that tell the user to pause a stopped project.
 3. Update `resume_runtime`:
    - Accept only `paused`.
    - Transition to `running`.
-4. Update `stop_project`:
-   - Close admission, cancel the active card run, terminate runtime-owned processes, and transition directly to `stopped`.
-   - Treat `paused` and `error` as immediate transitions to `stopped`.
-5. Ensure shutdown remains distinct from project stop.
+4. Keep internal shutdown as server/application-disposal cleanup, distinct from Analyst controls.
 
 ### Phase 4: Analyst Tool Gate Refactor
 

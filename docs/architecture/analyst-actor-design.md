@@ -160,7 +160,7 @@ The analyst's own concurrency (one turn per session) is enforced by the actor st
 
 The analyst's tool surface is unchanged in shape. It is composed into an `InvocationSurface` owned by the session actor and invoked from the conversation loop:
 
-- Control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `queue_notification`, `reconfigure`, `restart_server`, navigation, etc.) call the autonomous `RuntimeApi` and canonical services. The actor does not mutate cards directly.
+- Control tools (`start_project`, `pause_runtime`, `resume_runtime`, `queue_notification`, `reconfigure`, `restart_server`, navigation, etc.) call the autonomous `RuntimeApi` and canonical services. The actor does not mutate cards directly.
 - Inspection, workspace, patch, process, web, skill, and MCP tools are unchanged.
 - Partial-success reporting (multi-step actions report which steps succeeded/failed) stays in the tool layer.
 

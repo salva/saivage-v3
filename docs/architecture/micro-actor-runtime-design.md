@@ -343,7 +343,7 @@ Public methods:
 - `wait(id, timeout)`: bounded wait; timeout returns a result but does not kill the process.
 - `kill(id, reason)`: terminate one process — SIGTERM, bounded wait, SIGKILL, reap. This is the single implementation of "actually stop a process," used by the `kill_process` tool and the scoped-set termination helpers. Unattached running records are signalled by process group (not silently flipped to `killed`).
 - `stopByOwner(ownerId, reason, { graceMs })`: terminate all running processes owned by a specific owner (e.g., a terminal activation or analyst session).
-- `stopRuntimeOwned(reason, { graceMs })`: terminate all running processes whose `owner_kind !== 'operator'`. Used by shutdown and stopProject. There is deliberately no blanket `stopAll`.
+- `stopRuntimeOwned(reason, { graceMs })`: terminate all running processes whose `owner_kind !== 'operator'`. Used by internal shutdown during server/application disposal. There is deliberately no blanket `stopAll`.
 - Registry reads (`list`, `get`) over durable process records, plus start-time reconcile of records left behind by a crashed run. Reconcile is owner-scoped: runtime/agent-owned records are killed by PID or marked lost; operator-owned records are observed best-effort or marked lost. There is no `reattach_state` fiction (see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination)).
 
 Responsibilities:

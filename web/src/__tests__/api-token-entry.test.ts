@@ -17,6 +17,6 @@ describe('bounded API token bootstrap UI', () => {
     expect(tokenEntrySource).toContain('placeholder="64-char hex token"');
     expect(tokenEntrySource).toContain('@submit.prevent="saveToken"');
 
-    expect(tokenEntrySource).not.toMatch(/createCard|updateCard|deleteCard|startProject|stopProject|provider secret|role routing/i);
+    expect(tokenEntrySource).not.toMatch(/createCard|updateCard|deleteCard|startProject|provider secret|role routing/i);
   });
 });

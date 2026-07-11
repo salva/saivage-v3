@@ -8,7 +8,6 @@ const removedMutationExports = [
   'updateCard',
   'deleteCard',
   'startProject',
-  'stopProject',
   'pauseRuntime',
   'resumeRuntime',
   'freezeRuntime',

@@ -12,7 +12,6 @@ const analystToolOrder = [
   'queue_notification',
   'get_status',
   'start_project',
-  'stop_project',
   'pause_runtime',
   'resume_runtime',
   'restart_server',

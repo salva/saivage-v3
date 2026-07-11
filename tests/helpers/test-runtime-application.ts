@@ -50,9 +50,9 @@ interface TestAnalystRuntime {
   setMcpManager(mcpManager: NonNullable<AnalystRuntimeDeps['mcpManager']>): void;
 }
 
-function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: CardStore; projectRoot?: string } = {}): TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> {
+function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: CardStore; projectRoot?: string } = {}): TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> {
   const eventBus = opts.eventBus ?? new EventBus();
-  const runtime: TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> = {
+  const runtime: TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> = {
     eventLogger: undefined,
     candidateAvailability: undefined,
     mcpManager: undefined,
@@ -80,15 +80,6 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: C
         status: 'running',
         started: true,
         stopped: false,
-      };
-    },
-    async stopProject(): ReturnType<RuntimeApi['stopProject']> {
-      const timestamp = testRuntimeTimestamp();
-      return {
-        runtime: { status: 'stopped', project_id: 'project', pid: process.pid, started_at: timestamp, active_card_run: null, updated_at: timestamp, last_tick_at: null },
-        status: 'stopped',
-        started: false,
-        stopped: true,
       };
     },
     subscribe: eventBus.subscribe.bind(eventBus),
@@ -152,7 +143,6 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       resume: () => analystRuntime.resume(),
       notifyCard: (cardId, notification) => analystRuntime.notifyCard(cardId, notification),
       startProject: (source) => analystRuntime.startProject(source),
-      stopProject: (source) => analystRuntime.stopProject(source),
       subscribe: (options) => analystRuntime.subscribe(options),
       getStatus: () => analystRuntime.getStatus(),
       getActorRuntimeReadModel: () => analystRuntime.getActorRuntimeReadModel(),

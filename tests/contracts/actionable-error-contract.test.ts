@@ -9,9 +9,9 @@ describe('actionable error envelope target contract (Wave 1)', () => {
   });
 
   it('runtime command precondition errors can carry current intent/run context', () => {
-    const error = createActionableErrorEnvelope({ code: 'runtime_start_precondition_failed', message: 'already running', currentState: { intent: 'running', runId: 'run-1' }, nextAction: 'Use stop_project before starting another root run.', runId: 'run-1' });
+    const error = createActionableErrorEnvelope({ code: 'runtime_start_precondition_failed', message: 'already running', currentState: { intent: 'running', runId: 'run-1' }, nextAction: 'Pause the runtime before intervening in its work.', runId: 'run-1' });
     expect(error.currentState).toEqual(expect.objectContaining({ intent: 'running' }));
-    expect(error.nextAction).toContain('stop_project');
+    expect(error.nextAction).toContain('Pause the runtime');
   });
 
   it('activation precondition errors carry parent/child context', () => {

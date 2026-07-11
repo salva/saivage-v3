@@ -146,7 +146,7 @@ describe('operator dashboard S06 smoke contract', () => {
     expect(dashboardSource).toContain('Runtime Console');
     expect(dashboardSource).toContain('@click="refreshRuntime"');
 
-    expect(dashboardSource).not.toMatch(/Start Project|Stop Project|startProject|stopProject/);
+    expect(dashboardSource).not.toMatch(/Start Project|startProject/);
     expect(dashboardSource).not.toMatch(/NotificationsPanel|acknowledgeNotification/);
   });
 

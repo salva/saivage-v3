@@ -26,9 +26,6 @@ function createRuntimeApplication(projectRoot: string, calls: { pause: number; r
     async startProject() {
       throw new Error('startProject is not used by this test.');
     },
-    async stopProject() {
-      throw new Error('stopProject is not used by this test.');
-    },
     subscribe: () => ({ id: 'test-subscription', pause() {}, resume() {}, unsubscribe() {} }),
     getStatus: () => ({ status, currentCardId: null, goalCount: 0, lastTickAt: null }),
     getActorRuntimeReadModel: () => ({ pauseMode: status === 'paused' ? 'paused' : 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [], recovery: null }),

@@ -14,7 +14,7 @@ The major subsystems are:
 
 - Operator web UI: read-only workspace plus always-visible Analyst panel.
 - Analyst agent: user-facing inspection and mutation orchestrator.
-- Runtime control surface: `SupervisorRuntimeApi` coordinates root intent, run/resume, pause state, active-work ownership, and recovery against durable `RuntimeState`. Shutdown process termination is performed at the runtime/composition root (`SupervisorRuntimeApi.shutdown()` → `ProcessRunner.stopRuntimeOwned`).
+- Runtime control surface: `SupervisorRuntimeApi` coordinates root intent, run/resume, pause state, active-work ownership, and recovery against durable `RuntimeState`. Internal shutdown process termination is performed during server/application teardown at the runtime/composition root (`SupervisorRuntimeApi.shutdown()` → `ProcessRunner.stopRuntimeOwned`); it is not an Analyst control. The separate Analyst `restart_server` tool requests its server callback, whose disposal reaches that internal shutdown path.
 - Canonical card service: Analyst-owned card mutation validation, durable tree updates, audit/projection events, and active-runtime change notification.
 - Card store: durable project hierarchy and card history.
 - Agent sessions: planner, executor, reviewer, and analyst transcripts.
@@ -300,7 +300,7 @@ This appendix is maintained as source-derived reference data for documentation d
 | `planner` | `cancel_card,create_card,queue_notification,reorder_child` | `src/tools/analyst-card-tools.ts:265` |
 | `executor` | `` | `src/tools/analyst-tool-registry.ts:55` |
 | `reviewer` | `` | `src/tools/analyst-tool-registry.ts:55` |
-| `analyst` | `cancel_card,create_card,delete_card,get_status,list_agent_sessions,list_processes_tool,navigate_back,navigate_workspace,pause_runtime,queue_notification,read_agent_session,read_control_actions,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_server,resume_runtime,show_config,start_project,stop_project` | `src/tools/analyst-tool-registry.ts:64` |
+| `analyst` | `cancel_card,create_card,delete_card,get_status,list_agent_sessions,list_processes_tool,navigate_back,navigate_workspace,pause_runtime,queue_notification,read_agent_session,read_control_actions,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_server,resume_runtime,show_config,start_project` | `src/tools/analyst-tool-registry.ts:63` |
 <!-- saivage:agent-tools:end -->
 
 ### Config schema

@@ -18,7 +18,6 @@ const removedMutationTokens = new RegExp([
   'updateCard',
   'deleteCard',
   'startProject',
-  'stopProject',
   'pauseRuntime',
   'resumeRuntime',
   'acknowledgeNotification',

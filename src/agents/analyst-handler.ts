@@ -78,7 +78,7 @@ export interface AnalystResponse {
 
 export interface AnalystRuntimeDeps {
   cardStore: CardStore;
-  runtime: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
+  runtime: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
   candidateAvailability?: CandidateAvailability;
   eventLogger?: EventLogger;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;

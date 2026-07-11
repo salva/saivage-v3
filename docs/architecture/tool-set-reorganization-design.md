@@ -118,7 +118,7 @@ This replaces the separate Analyst host-inspection names:
 | `list_directory` | `glob system://...` |
 | `run_shell_command` | `run_command` with `cwd: 'system://...'` |
 
-The remaining Analyst control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `navigate_workspace`, `navigate_back`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `show_config`, `reconfigure`, `restart_server`, `queue_notification`, `mark_goal_rework`) keep their current names unless simplified later. They are operator control surface tools, not workspace primitives. `terminate_process` is removed — `kill_process` from `ProcessProvider` is the single process-termination tool (see §4.2 and the removals table in §5).
+The remaining Analyst control tools (`start_project`, `pause_runtime`, `resume_runtime`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `navigate_workspace`, `navigate_back`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `show_config`, `reconfigure`, `restart_server`, `queue_notification`, `mark_goal_rework`) keep their current names unless simplified later. They are operator control surface tools, not workspace primitives. `terminate_process` is removed — `kill_process` from `ProcessProvider` is the single process-termination tool (see §4.2 and the removals table in §5).
 
 ### 4.6 External MCP Wrapper
 
@@ -306,7 +306,7 @@ The Analyst gets the same workspace tools as the autonomous agents, plus its con
 | MCP | `mcp_tool_call` |
 | Terminal | (none — analyst is not a card processor) |
 
-The Analyst additionally keeps operator-control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `navigate_back`, `show_config`, `reconfigure`, `restart_server`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `mark_goal_rework`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`).
+The Analyst additionally keeps operator-control tools (`start_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `navigate_back`, `show_config`, `reconfigure`, `restart_server`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `mark_goal_rework`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`).
 
 The Analyst does not get `activate_card` — that is a planner-internal sequencing boundary, not an operator action.
 

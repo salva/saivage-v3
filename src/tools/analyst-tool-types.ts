@@ -20,7 +20,7 @@ export interface ToolContext {
   processRunner: ProcessRunner;
   store: CardStore;
   sessionId?: string;
-  runtime?: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
+  runtime?: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
   mcpManager?: McpManager;
   requestServerRestart?: () => Promise<void>;
   actor: ActorRole;

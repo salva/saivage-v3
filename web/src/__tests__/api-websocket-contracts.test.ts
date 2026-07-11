@@ -13,6 +13,6 @@ describe('websocket bootstrap boundary after S06', () => {
   it('keeps analyst chat as the only websocket send payload path', () => {
     expect(websocketSource).toContain('buildInboundAnalystMessageEnvelope(text)');
     expect(websocketSource).toContain('sendMessage(text: string)');
-    expect(websocketSource).not.toMatch(/createCard|updateCard|deleteCard|startProject|stopProject|terminateProcess/);
+    expect(websocketSource).not.toMatch(/createCard|updateCard|deleteCard|startProject|terminateProcess/);
   });
 });

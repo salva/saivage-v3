@@ -147,7 +147,8 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
   it('exposes registry, schema, policy, and prompt names without retired note-inbox tools', () => {
     const names = ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort();
     for (const retired of RETIRED_NOTE_TOOLS) expect(names).not.toContain(retired);
-    for (const required of ['start_project','stop_project','queue_notification','create_card','reorder_child','cancel_card','delete_card','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
+    for (const required of ['start_project','pause_runtime','resume_runtime','restart_server','queue_notification','create_card','reorder_child','cancel_card','delete_card','navigate_workspace','navigate_back','show_config','reconfigure']) expect(names).toContain(required);
+    expect(names).not.toContain('stop_project');
     expect(names).not.toContain('write_file');
     expect(names).not.toContain('terminate_process');
     for (const removed of ['edit_card','get_card_output','abort_goal_subtree','restart_card_or_subtree','restart_goal','mark_goal_needs_corrections']) expect(names).not.toContain(removed);
@@ -410,5 +411,25 @@ describe('Reconfigure MCP live manager refresh', () => {
       await mcpManager.stopAll();
       await runtimeApplication.runtimeApi.shutdown().catch(() => undefined);
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
+describe('internal runtime shutdown', () => {
+  it('cleans runtime-owned processes during application disposal without an Analyst tool', async () => {
+    const root = setupRoot();
+    const eventBus = new EventBus();
+    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus) });
+    try {
+      await runtimeApplication.runtimeApi.start();
+      const process = runtimeApplication.processRunner.spawn({ command: 'sleep 30', cardId: null, ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: false });
+
+      await runtimeApplication.runtimeApi.shutdown();
+
+      expect(runtimeApplication.processRunner.get(process.id)?.status).toBe('killed');
+      expect(runtimeApplication.runtimeApi.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
+    } finally {
+      await runtimeApplication.runtimeApi.shutdown().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

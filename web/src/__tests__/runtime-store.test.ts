@@ -33,7 +33,6 @@ describe('runtime store S06 read-only projection', () => {
     const store = useRuntimeStore();
 
     expect(store).not.toHaveProperty('startProject');
-    expect(store).not.toHaveProperty('stopProject');
     expect(store).not.toHaveProperty('pauseRuntime');
     expect(store).not.toHaveProperty('resumeRuntime');
     expect(store).not.toHaveProperty('freezeRuntime');

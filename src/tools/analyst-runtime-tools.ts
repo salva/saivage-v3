@@ -43,13 +43,6 @@ export async function start_project(ctx: ToolContext, params: Record<string, nev
   } });
 }
 
-export async function stop_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'runtime.stop_project', safety_class: 'destructive', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
-    if (!ctx.runtime) return toolFailure('Active runtime is not available.');
-    const data = await ctx.runtime.stopProject('analyst'); return { success: true, data };
-  } });
-}
-
 export async function pause_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.pause', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
     if (!ctx.runtime) return toolFailure('Active runtime is not available.');
@@ -99,7 +92,6 @@ export async function list_processes_tool(ctx: ToolContext, params: { status?: s
 
 export const analystRuntimeTools: readonly UnifiedToolDefinition<string, any>[] = [
   { name: 'start_project', description: 'Start root project execution.', input: emptyInput, roles: ['analyst'], executor: start_project },
-  { name: 'stop_project', description: 'Stop autonomous project execution.', input: emptyInput, roles: ['analyst'], executor: stop_project },
   { name: 'pause_runtime', description: 'Globally pause the runtime.', input: emptyInput, roles: ['analyst'], executor: pause_runtime },
   { name: 'resume_runtime', description: 'Resume the runtime after a pause.', input: emptyInput, roles: ['analyst'], executor: resume_runtime },
   { name: 'restart_server', description: 'Request a supervised server restart.', input: emptyInput, roles: ['analyst'], executor: restart_server },

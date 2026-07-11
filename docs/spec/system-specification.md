@@ -130,11 +130,10 @@ Displayed child order is for presentation and comprehension. It is not a hard sc
 
 ## 7. Lifecycle Controls
 
-From the user and Analyst point of view, there are three lifecycle controls:
+From the user and Analyst point of view, there are two runtime lifecycle controls:
 
 - **Run**: start or resume autonomous progress.
 - **Pause**: stop scheduling new autonomous work without killing state or processes.
-- **Shutdown**: pause and then terminate running processes.
 
 ### Run
 
@@ -158,13 +157,11 @@ LLM candidate unavailability is handled after provider-call admission and is sep
 
 `Stopped` and `paused` are the normal intervention states. While stopped or paused, the Analyst can manage cards within its supported authority, update `record:///brief.md?card=<id>&v=next` through `write` or `edit`, queue notifications, change configuration, and inspect state.
 
-### Shutdown
+### Internal Shutdown
 
-Shutdown is the hard lifecycle operation. It first pauses scheduling, then terminates running processes owned by the runtime. Shutdown is for stopping autonomous activity and cleaning up live process work, not for rewriting card outcomes by itself.
+Internal shutdown is server/application-disposal cleanup, not an Analyst control. During teardown it terminates runtime-owned processes and clears in-memory runtime markers. It is not a conversational tool, operator HTTP endpoint, or UI mutation, and it does not rewrite card outcomes.
 
-Shutdown should report what was paused, which processes were terminated, which could not be terminated, and what the user can do next.
-
-The old user-facing concept "stop" is too ambiguous. The functional contract should use Pause for non-destructive interruption and Shutdown for pause-plus-process-termination.
+`restart_server` remains a distinct Analyst capability with its existing server-callback boundary; server disposal eventually uses internal shutdown. The general requirement that destructive actions receive conversational confirmation remains in force. Server-enforced confirmation for the retained restart operation is a pre-existing deferred implementation gap; this lifecycle change neither implements it nor relaxes that requirement.
 
 ## 8. Active Work And `activate_card`
 
@@ -273,7 +270,7 @@ The Analyst must let the user complete these tasks in natural language:
 - manage cards while runtime status is `stopped` or `paused` through supported semantic operations, including card creation, child reordering, dormant cancellation, and delete/archive removal where allowed;
 - update card goal/instructions/acceptance content while runtime status is `stopped` or `paused` by using `write`, `edit`, or `webfetch.save_as` for `record:///brief.md?card=<id>&v=next` when the card is `backlog`, `done`, `failed`, or `running`;
 - queue card-addressed notifications;
-- run/continue, pause, and shutdown the runtime;
+- run/continue and pause the runtime, and request a server restart where needed;
 - steer active or future card work by queueing notifications and objective/instruction edits;
 - terminate live runtime processes through canonical process controls;
 - change model/provider routing, failover, MCP entries, runtime settings, and server settings;
@@ -317,7 +314,7 @@ API bearer tokens must not be placed in URLs.
 
 Agents may start project commands through runtime-owned process facilities. In-memory process records expose safe read models during the current runtime: status, timestamps, command text, contained working directory, logs, and termination availability.
 
-The Analyst may inspect process state and terminate processes owned by its current session when canonical process control supports it. Analyst-started commands are session-owned operator work; websocket session cleanup terminates running processes owned by that session. Shutdown also terminates runtime-owned running processes after pausing scheduling.
+The Analyst may inspect process state and terminate processes owned by its current session when canonical process control supports it. Analyst-started commands are session-owned operator work; websocket session cleanup terminates running processes owned by that session. Internal server/application disposal also terminates runtime-owned running processes.
 
 Process handling uses a launch-and-monitor model rather than unbounded synchronous shell tools. An agent may launch a project command, inspect its evolving status and logs over time, wait for completion with a bounded `wait_process` operation, and then decide whether to wait again, terminate the process, or continue other work. A wait timeout must not by itself kill the process. After a runtime restart, process ids from the previous runtime are unknown.
 
@@ -420,7 +417,7 @@ The system satisfies this specification when:
 - all user-visible mutations are reachable through the Analyst and not through separate workspace controls;
 - Run starts stopped work, resumes paused work, and refuses duplicate root starts while already running;
 - Pause behaves as a global scheduling gate and does not mutate card/session lifecycle state;
-- Shutdown pauses scheduling and terminates runtime-owned running processes;
+- internal server/application disposal terminates runtime-owned running processes and is not an Analyst, UI, or HTTP control;
 - exactly one active leaf does real work at a time;
 - `activate_card` behaves as a synchronous logical barrier from the parent planner perspective;
 - `activate_card` is valid for child cards in `backlog`, `changed`, or `blocked`, and activation transitions the child to `running`;
