@@ -22,7 +22,7 @@ export interface ToolContext {
   sessionId?: string;
   runtime?: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
   mcpManager?: McpManager;
-  requestServerRestart?: () => Promise<void>;
+  restartServerAvailable: boolean;
   actor: ActorRole;
   surface: ControlActionSurface;
   eventBus?: EventBus;

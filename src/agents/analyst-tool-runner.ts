@@ -3,14 +3,14 @@ import type { SafetyClass } from './authz.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
-import type { Decision } from '../permissions/index.js';
 
 export interface MutatingSpec<P> {
   action: string;
   safety_class: SafetyClass;
   target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
   getTargetId: (params: P) => string | null;
-  permissionCheck?: (ctx: ToolContext, params: P) => Decision;
+  permissionCheck?: (ctx: ToolContext, params: P) => { allowed: true } | { allowed: false; reason: string };
+  successSummary?: string;
   run: (ctx: ToolContext, params: P) => Promise<ToolResult>;
 }
 
@@ -32,7 +32,7 @@ export async function runAuditedAnalystTool<P extends Record<string, unknown>>(c
   recordControlAction(ctx.projectRoot, {
     ...auditBase,
     outcome: result.success ? 'ok' : 'error',
-    outcome_summary: result.success ? 'mutation applied' : result.error,
+    outcome_summary: result.success ? spec.successSummary ?? 'mutation applied' : result.error,
     ...(result.success ? {} : { error: result.error }),
   }, ctx.eventBus);
   return result;

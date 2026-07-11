@@ -174,9 +174,6 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       analystRuntimeService ??= new AnalystRuntime({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(projectRoot), runtimeDeps: this.analystDeps });
       return analystRuntimeService;
     },
-    setAnalystRequestServerRestart(requestServerRestart) {
-      this.analystRuntime.setRequestServerRestart(requestServerRestart);
-    },
     getProviderRoutingReadModel: () => ({ providers: {} }),
     setMcpManager: (mcpManager) => analystRuntime.setMcpManager(mcpManager),
   };

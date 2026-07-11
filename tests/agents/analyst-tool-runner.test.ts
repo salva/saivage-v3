@@ -23,7 +23,7 @@ function readAudit(root: string): Array<Record<string, unknown>> {
 
 describe('Audited analyst tool runner', () => {
   function ctx(root: string): ToolContext {
-    return { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor: 'analyst', surface: 'web-chat' };
+    return { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
   }
 
   it('records schema-safe audit entries for allowed mutations', async () => {

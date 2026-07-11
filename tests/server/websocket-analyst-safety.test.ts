@@ -82,7 +82,6 @@ describe('websocket analyst safety and live-sync control', () => {
       liveSyncSocket: new LiveSyncSocket(),
       saivageConfig: createTestSaivageConfig(),
       runtimeApplication: createTestRuntimeApplication(),
-      requestServerRestart: async () => undefined,
     });
     const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
     const { ws } = createSocket();
@@ -102,7 +101,6 @@ describe('websocket analyst safety and live-sync control', () => {
       liveSyncSocket,
       saivageConfig: createTestSaivageConfig(),
       runtimeApplication: createTestRuntimeApplication(),
-      requestServerRestart: async () => undefined,
     });
     const { ws, handlers } = createSocket();
     route.handler(ws, { headers: {}, query: {} });
@@ -127,7 +125,6 @@ describe('websocket analyst safety and live-sync control', () => {
       liveSyncSocket: new LiveSyncSocket(),
       saivageConfig: createTestSaivageConfig(),
       runtimeApplication,
-      requestServerRestart: async () => undefined,
     });
     const { ws, handlers } = createSocket();
     route.handler(ws, { headers: {}, query: {} });
@@ -135,7 +132,7 @@ describe('websocket analyst safety and live-sync control', () => {
     handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: { text: 'hello' } })));
     await flushQueuedTurn();
 
-    expect(analystRuntime.submit).toHaveBeenCalledWith('analyst:global', { userContent: 'hello' }, expect.any(Function));
+    expect(analystRuntime.submit).toHaveBeenCalledWith('analyst:global', { userContent: 'hello', actor: 'analyst', surface: 'web-chat' }, expect.any(Function));
     const payloads = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(String(call[0])));
     expect(payloads.some((payload) => payload.type === 'message')).toBe(false);
   });
@@ -147,7 +144,6 @@ describe('websocket analyst safety and live-sync control', () => {
       liveSyncSocket: new LiveSyncSocket(),
       saivageConfig: createTestSaivageConfig(),
       runtimeApplication,
-      requestServerRestart: async () => undefined,
     });
     const { ws, handlers } = createSocket();
     route.handler(ws, { headers: {}, query: {} });

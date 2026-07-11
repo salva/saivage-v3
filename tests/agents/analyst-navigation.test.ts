@@ -22,7 +22,7 @@ function readAudit(root: string): Array<Record<string, unknown>> {
 
 describe('analyst navigation tools', () => {
   function ctx(root: string, actor: ToolContext['actor'] = 'analyst'): ToolContext {
-    return { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor, surface: 'web-chat' };
+    return { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor, surface: 'web-chat', restartServerAvailable: false };
   }
 
   it('returns a structured navigate_workspace intent for analyst callers', async () => {

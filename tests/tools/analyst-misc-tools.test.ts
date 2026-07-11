@@ -15,7 +15,7 @@ let ctx: ToolContext;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'saivage-analyst-tools-'));
   initProjectTree(root);
-  ctx = { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor: 'analyst', surface: 'web-chat' };
+  ctx = { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
 });
 
 afterEach(() => {

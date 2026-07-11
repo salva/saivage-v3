@@ -115,7 +115,7 @@ function setupTestProject(projectRoot: string): CardStore {
 }
 
 function ctx(projectRoot: string, store: CardStore): ToolContext {
-  return { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'analyst', surface: 'web-chat' };
+  return { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
 }
 
 describe('Analyst Tool Definitions', () => {
@@ -282,7 +282,7 @@ describe('Analyst Tools', () => {
     store.setStatus('card-1', 'running');
 
     const result = await delete_card(
-      { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'runtime', surface: 'runtime' },
+      { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false },
       { ids: ['card-1'] },
     );
 
@@ -297,7 +297,7 @@ describe('Analyst Tools', () => {
     store.setStatus('card-2', 'running');
 
     const result = await delete_card(
-      { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'runtime', surface: 'runtime' },
+      { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false },
       { ids: ['card-1'] },
     );
 
@@ -311,7 +311,7 @@ describe('Analyst Tools', () => {
     store.update('card-2', { status: 'backlog' });
 
     const result = await delete_card(
-      { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'runtime', surface: 'runtime' },
+      { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false },
       { ids: ['card-2'] },
     );
 

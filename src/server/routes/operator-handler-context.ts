@@ -11,7 +11,6 @@ import type { ProcessRunner } from '../../runtime/process-runner.js';
 
 export type OperatorContractHandlerMap = Partial<Record<keyof typeof operatorApiContracts, ContractHandler>>;
 export type OperatorServerAvailabilityProvider = () => ReturnType<typeof buildServerAvailability>;
-export type OperatorRestartRequester = () => Promise<void>;
 
 export interface OperatorProjectContext {
   projectRoot: string;
@@ -33,10 +32,6 @@ export interface OperatorAvailabilityContext {
 export interface OperatorMcpProviderContext {
   mcpStatusProvider?: McpStatusProvider;
   mcpToolsProvider?: McpToolsReadModelProvider;
-}
-
-export interface OperatorRestartContext {
-  requestServerRestart?: OperatorRestartRequester;
 }
 
 export interface OperatorConfigContext {

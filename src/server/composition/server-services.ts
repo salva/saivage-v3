@@ -11,6 +11,8 @@ import { EventLogger, ErrorLogger } from '../../observability/index.js';
 import { TelegramBot } from '../../telegram/index.js';
 import { clearProjectNotificationDeliveryAdapters, clearProjectNotificationEventBus, setProjectNotificationEventBus } from '../../notifications/index.js';
 import { configureAuthPolicy } from '../auth-policy.js';
+import { getAuthPolicy } from '../auth-policy.js';
+import type { RestartPort } from '../../boot/restart-port.js';
 import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
@@ -30,11 +32,10 @@ export interface ServerServices {
   liveSyncSocket: LiveSyncSocket;
   syncHub: SyncHub;
   telegramBot?: TelegramBot;
-  requestRestart(): Promise<void>;
   stop(): Promise<void>;
 }
 
-async function stopServerResources(services: Omit<ServerServices, 'stop' | 'requestRestart'>): Promise<void> {
+async function stopServerResources(services: Omit<ServerServices, 'stop'>): Promise<void> {
   const { projectRoot, fastify, runtimeApplication, mcpManager, telegramBot, liveSyncSocket, syncHub } = services;
   liveSyncSocket.dispose();
   syncHub.dispose(runtimeApplication.runtimeApi);
@@ -71,6 +72,7 @@ async function stopServerResources(services: Omit<ServerServices, 'stop' | 'requ
 export async function createServerServices(input: {
   environment: Environment;
   scope?: ResourceScope;
+  restartPort?: RestartPort;
 }): Promise<ServerServices> {
   const { environment } = input;
   const projectRoot = environment.projectRoot;
@@ -78,6 +80,8 @@ export async function createServerServices(input: {
   const scope = input.scope ?? createResourceScope('server');
 
   configureAuthPolicy({ apiToken: environment.auth.apiToken });
+  const restartServerAvailable = getAuthPolicy().authEnabled;
+  if (restartServerAvailable && !input.restartPort) throw new Error('Authenticated server requires an application-owned restart port.');
 
   const fastify = await createFastifyApp(environment);
   const eventBus = new EventBus();
@@ -89,7 +93,7 @@ export async function createServerServices(input: {
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, eventBus, eventLogger, errorLogger, cardStore });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, config, eventBus, eventLogger, errorLogger, cardStore, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   syncHub.wire(runtimeApplication.runtimeApi);
   fastify.log.info('Runtime application started');
@@ -98,13 +102,6 @@ export async function createServerServices(input: {
   await mcpManager.startAll();
   fastify.log.info('MCP manager started');
   runtimeApplication.setMcpManager(mcpManager);
-
-  const requestRestart = async (): Promise<void> => {
-    setImmediate(async () => {
-      try { await stop(); } finally { process.exit(75); }
-    });
-  };
-  runtimeApplication.setAnalystRequestServerRestart(requestRestart);
 
   const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig: config, fastify, runtimeApplication });
 
@@ -130,5 +127,5 @@ export async function createServerServices(input: {
     await scope.dispose();
   }
 
-  return { ...servicesBase, requestRestart, stop };
+  return { ...servicesBase, stop };
 }

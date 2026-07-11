@@ -75,7 +75,7 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     configureAuthPolicy({ apiToken: authToken });
     registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, cardStore });
     registerInternalDebugRoutes(app, tmpDir, cardStore);
-    registerWebSocket(app, tmpDir, { liveSyncSocket: new LiveSyncSocket(), saivageConfig: createTestSaivageConfig(), runtimeApplication: createTestRuntimeApplication({ cardStore }), requestServerRestart: async () => undefined });
+    registerWebSocket(app, tmpDir, { liveSyncSocket: new LiveSyncSocket(), saivageConfig: createTestSaivageConfig(), runtimeApplication: createTestRuntimeApplication({ cardStore }) });
 
     await app.listen({ port: 0, host: '127.0.0.1' });
     port = (app.server.address() as { port: number }).port;

@@ -135,6 +135,31 @@ export class ConversationLLMActor extends BaseActor {
     return this.continueAfterTool(undefined, signal);
   }
 
+  settleToolResultWithoutContinuation(toolCallId: string, result: ToolResult): void {
+    const waiting = this.requireWaitingTool(toolCallId);
+    this.recordToolSettled(toolCallId);
+    const input = this.requireInput();
+    const delivery = appendToolDelivery(this.projectRoot, {
+      agent_id: this.agentId,
+      session_id: input.sessionId,
+      source_input_id: waiting.sourceInputId,
+      delivery_input_id: this.nextDeliveryInputId(input.inputId),
+      tool_call_id: toolCallId,
+      tool_name: waiting.toolName,
+      result,
+    });
+    this.conversationPublisher?.entryAppended(delivery.appendResult);
+    this.input = null;
+    this.outcome = null;
+    this.waitingToolCall = null;
+    this.#activationSignal = null;
+    this.#currentInvocationSignal = null;
+    this.onTurnSettled();
+    this.deliveredToolCallIds.clear();
+    this.#toolDeliveryCounter = 0;
+    this.parkedSendEvent('abandon');
+  }
+
   continueAfterPlainText(repairDirective: string, signal?: AbortSignal, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
     if (this.state() !== 'idle') return Promise.reject(new Error(`LLMActor '${this.agentId}' cannot continue a plain-text result from '${this.state()}'.`));
     if (this.#result) return Promise.reject(new Error(`LLMActor '${this.agentId}' already has a pending turn.`));

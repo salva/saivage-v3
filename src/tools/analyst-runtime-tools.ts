@@ -64,10 +64,17 @@ export async function resume_runtime(ctx: ToolContext, params: Record<string, ne
 }
 
 export async function restart_server(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'runtime.restart_server', safety_class: 'destructive', target_kind: 'runtime', getTargetId: () => 'server', run: async () => {
-    if (!ctx.requestServerRestart) return toolFailure('Server restart primitive is not available.');
-    await ctx.requestServerRestart(); return { success: true, data: { restart_requested: true } };
-  } });
+  return runAuditedAnalystTool(ctx, params, {
+    action: 'runtime.restart_server',
+    safety_class: 'destructive',
+    target_kind: 'runtime',
+    getTargetId: () => 'server',
+    permissionCheck: () => ctx.restartServerAvailable
+      ? { allowed: true }
+      : { allowed: false, reason: 'restart unavailable: operator authentication disabled' },
+    successSummary: 'restart confirmation required',
+    run: async () => ({ success: true, data: { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } }),
+  });
 }
 
 export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<ToolResult> {
@@ -94,7 +101,7 @@ export const analystRuntimeTools: readonly UnifiedToolDefinition<string, any>[] 
   { name: 'start_project', description: 'Start root project execution.', input: emptyInput, roles: ['analyst'], executor: start_project },
   { name: 'pause_runtime', description: 'Globally pause the runtime.', input: emptyInput, roles: ['analyst'], executor: pause_runtime },
   { name: 'resume_runtime', description: 'Resume the runtime after a pause.', input: emptyInput, roles: ['analyst'], executor: resume_runtime },
-  { name: 'restart_server', description: 'Request a supervised server restart.', input: emptyInput, roles: ['analyst'], executor: restart_server },
+  { name: 'restart_server', description: 'Request confirmed supervised server shutdown.', input: emptyInput, roles: ['analyst'], executor: restart_server },
   { name: 'read_runtime_events', description: 'Tail app-log-backed runtime event entries (.saivage/logs/app.jsonl, type=event). Optionally filter by event kind.', input: z.object({ limit: z.number().int().optional(), kind: z.string().optional() }).strict(), roles: ['analyst'], executor: read_runtime_events },
   { name: 'read_runtime_errors', description: 'Tail app-log-backed runtime error entries (.saivage/logs/app.jsonl, type=error).', input: z.object({ limit: z.number().int().optional() }).strict(), roles: ['analyst'], executor: read_runtime_errors },
   { name: 'read_control_actions', description: 'Tail app-log-backed control-action entries (.saivage/logs/app.jsonl, type=control_action). Shows mutating actions performed by analyst/planner/operator.', input: z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict(), roles: ['analyst'], executor: read_control_actions },

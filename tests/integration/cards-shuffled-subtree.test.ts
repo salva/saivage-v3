@@ -114,11 +114,11 @@ describe('shuffled persisted subtree ordering', () => {
     expect(body.children.map((child) => child.id)).toEqual(expectedChildOrder);
 
     const processRunner = new ProcessRunner(tmpDir);
-    const cardResult = await get_card({ projectRoot: tmpDir, processRunner, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { id: parentId });
+    const cardResult = await get_card({ projectRoot: tmpDir, processRunner, store: reloaded, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false }, { id: parentId });
     expect(cardResult.success).toBe(true);
     expect(((cardResult.data as { children: Array<{ id: string }> }).children).map((child) => child.id)).toEqual(expectedChildOrder);
 
-    const treeResult = await get_tree({ projectRoot: tmpDir, processRunner, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { rootId: parentId });
+    const treeResult = await get_tree({ projectRoot: tmpDir, processRunner, store: reloaded, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false }, { rootId: parentId });
     expect(treeResult.success).toBe(true);
     expect(((treeResult.data as { children: Array<{ id: string }> }).children).map((child) => child.id)).toEqual(expectedChildOrder);
   });

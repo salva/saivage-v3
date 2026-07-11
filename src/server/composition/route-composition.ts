@@ -17,7 +17,6 @@ export function registerServerRoutes(options: {
   mcpManager: McpManager;
   saivageConfig: SaivageConfig;
   configWarnings: readonly string[];
-  requestServerRestart: () => Promise<void>;
   liveSyncSocket: LiveSyncSocket;
 }): void {
   const serverAvailabilityProvider = () => buildServerAvailability({ projectRoot: options.projectRoot, runtimeApplication: options.runtimeApplication, mcpManager: options.mcpManager });
@@ -29,7 +28,6 @@ export function registerServerRoutes(options: {
     runtimeApplication: options.runtimeApplication,
     mcpManager: options.mcpManager,
     serverAvailabilityProvider,
-    requestServerRestart: options.requestServerRestart,
     saivageConfig: options.saivageConfig,
     configWarnings: options.configWarnings,
   });
@@ -38,6 +36,5 @@ export function registerServerRoutes(options: {
     liveSyncSocket: options.liveSyncSocket,
     saivageConfig: options.saivageConfig,
     runtimeApplication: options.runtimeApplication,
-    requestServerRestart: options.requestServerRestart,
   });
 }

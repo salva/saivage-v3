@@ -207,7 +207,7 @@ describe('queueNotification recipient resolution', () => {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
     const deps = createTestAnalystRuntime({ projectRoot, cardStore: store });
-    const ctx: ToolContext = { projectRoot, processRunner: deps.processRunner, store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime };
+    const ctx: ToolContext = { projectRoot, processRunner: deps.processRunner, store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false };
 
     const result = await queue_notification(ctx, { recipient: goal.id, kind: 'review_update', body: 'reviewer left actionable feedback' });
 

@@ -3,6 +3,7 @@ import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 import { initProjectTree } from '../persistence/index.js';
 import { acquireLock, releaseLock } from '../runtime/lock.js';
 import { startServer, type ServerInstance } from '../server/server.js';
+import { createRestartPort } from './restart-port.js';
 import { resolve } from 'node:path';
 
 export interface App {
@@ -46,10 +47,11 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   scope.add({ dispose: () => releaseLock(prelock.projectRoot) }, { name: 'runtime-process-lock' });
   let environment: Environment;
   let server: ServerInstance;
+  const restartPort = createRestartPort({ dispose: async () => { await scope.dispose(); }, exit: (code) => process.exit(code) });
   try {
     if (prelock.createRuntime) initProjectTree(prelock.projectRoot);
     environment = loadEnvironment(options.argv, env);
-    server = await startServer({ environment, scope: scope.child('server') });
+    server = await startServer({ environment, scope: scope.child('server'), restartPort });
   } catch (error) {
     await scope.dispose();
     throw error;

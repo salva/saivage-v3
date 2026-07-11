@@ -20,6 +20,7 @@ import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './m
 import { ProcessRunner } from '../runtime/process-runner.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
+import type { RestartPort } from '../boot/restart-port.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -40,7 +41,6 @@ export interface RuntimeApplication {
   readonly processRunner: ProcessRunner;
   readonly analystDeps: AnalystRuntimeDeps;
   readonly analystRuntime: AnalystRuntime;
-  setAnalystRequestServerRestart(requestServerRestart: (() => Promise<void>) | undefined): void;
   getProviderRoutingReadModel(): ProviderRoutingReadModel;
   setMcpManager(mcpManager: McpManager): void;
 }
@@ -53,6 +53,8 @@ export interface RuntimeApplicationServices {
   errorLogger: ErrorLogger;
   cardStore: CardStore;
   runtimeApiFactory?: (deps: RuntimeApiFactoryDeps) => RuntimeApi;
+  restartServerAvailable?: boolean;
+  restartPort?: RestartPort;
 }
 
 function buildAnalystDeps(input: {
@@ -87,7 +89,7 @@ function bundledPromptDefaultsRoot(): string {
 }
 
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
-  const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore } = services;
+  const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore, restartServerAvailable = false, restartPort } = services;
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,
   });
@@ -146,11 +148,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     cardStore,
     processRunner,
     get analystRuntime() {
-      analystRuntimeCache ??= new AnalystRuntime({ projectRoot, config, runtimeDeps: getAnalystDeps(), promptTemplates });
+      analystRuntimeCache ??= new AnalystRuntime({ projectRoot, config, runtimeDeps: getAnalystDeps(), promptTemplates, restartServerAvailable, restartPort });
       return analystRuntimeCache;
-    },
-    setAnalystRequestServerRestart(requestServerRestart) {
-      this.analystRuntime.setRequestServerRestart(requestServerRestart);
     },
     get analystDeps() {
       return getAnalystDeps();

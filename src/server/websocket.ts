@@ -69,7 +69,6 @@ export interface RegisterWebSocketOptions {
   liveSyncSocket: LiveSyncSocket;
   saivageConfig: SaivageConfig;
   runtimeApplication: RuntimeApplication;
-  requestServerRestart: () => Promise<void>;
 }
 
 export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, options: RegisterWebSocketOptions): void {
@@ -79,7 +78,6 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
     saivageConfig: options.saivageConfig,
     liveSyncSocket,
     runtimeApplication: options.runtimeApplication,
-    requestServerRestart: options.requestServerRestart,
     sendToClient,
     broadcast: (event) => broadcast(liveSyncSocket, event),
   });

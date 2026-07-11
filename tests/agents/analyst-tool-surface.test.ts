@@ -119,7 +119,7 @@ function setCardStatusForTest(store: CardStore, cardId: string, status: CardStat
 }
 
 function toolCtx(root: string, store: CardStore, overrides: Partial<ToolContext> = {}): ToolContext {
-  return { projectRoot: root, processRunner: new ProcessRunner(root), store, actor: 'analyst', surface: 'web-chat', ...overrides };
+  return { projectRoot: root, processRunner: new ProcessRunner(root), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, ...overrides };
 }
 
 function toolResponse(tool: string, args: Record<string, unknown>): Response {

@@ -11,6 +11,7 @@ import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { actorSnapshotPath } from '../../src/runtime/actors/snapshots.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { listControlActions } from '../../src/persistence/index.js';
 
 const { AnalystRuntime } = await import('../../src/agents/analyst-handler.js');
 
@@ -155,6 +156,34 @@ describe('AnalystHandler F05 contract', () => {
       expect(messages.filter((message) => message.content === '[workspace-context]\nview: cards\nentity: project')).toHaveLength(1);
       expect(messages.filter((message) => message.content === 'start the project')).toHaveLength(1);
       expect(new Set(messages.map((message) => message.id)).size).toBe(messages.length);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('schedules only the exact next global Analyst confirmation without another model turn', async () => {
+    const root = setupRoot();
+    try {
+      const schedule = jest.fn();
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolCallsResponse([{ id: 'restart-1', name: 'restart_server', args: {} }]));
+      const runtime = new AnalystRuntime({
+        projectRoot: root,
+        promptTemplates: createTestPromptTemplateRegistry(),
+        config: loadTestConfig(root),
+        runtimeDeps: createTestAnalystRuntime({ projectRoot: root }),
+        restartServerAvailable: true,
+        restartPort: { schedule, acknowledge: async () => undefined },
+      });
+
+      const request = await runtime.submit('analyst:global', { userContent: 'restart', actor: 'analyst', surface: 'web-chat' });
+      expect(request.toolInvocations).toEqual([expect.objectContaining({ tool: 'restart_server', result: { success: true, data: { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } } })]);
+      expect(schedule).not.toHaveBeenCalled();
+
+      const confirmation = await runtime.submit('analyst:global', { userContent: 'RESTART SERVER', actor: 'analyst', surface: 'web-chat' });
+      expect(confirmation.toolInvocations).toBeUndefined();
+      expect(schedule).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      const rows = readPersistedRows(root, 'analyst:global');
+      expect(rows.filter((row) => row.role === 'user' && row.content === 'RESTART SERVER')).toHaveLength(1);
+      expect(listControlActions(root)).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'runtime.restart_server', outcome_summary: 'restart accepted and scheduled', params_summary: JSON.stringify({ session_id: 'analyst:global', operator_authority: 'global' }) })]));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

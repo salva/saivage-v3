@@ -16,7 +16,7 @@ function setup(root: string): CardStore {
   return new CardStore(root);
 }
 
-function ctx(root: string, store: CardStore): ToolContext { return { projectRoot: root, processRunner: new ProcessRunner(root), store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1' }; }
+function ctx(root: string, store: CardStore): ToolContext { return { projectRoot: root, processRunner: new ProcessRunner(root), store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1', restartServerAvailable: false }; }
 
 describe('card history and notes tools', () => {
   it('lists history, gets an entry, diffs versions, without audit writes', async () => {

@@ -120,6 +120,10 @@ export function buildContextTextMessage(sessionId: string, role: Extract<Message
   });
 }
 
+export function appendCanonicalUserText(projectRoot: string, sessionId: string, content: string): ConversationAppendResult {
+  return appendConversationMessage(projectRoot, buildContextTextMessage(sessionId, 'user', content));
+}
+
 export function conversationMessagesForModel(messages: AgentMessage[]): AgentMessage[] {
   return messages.filter(isModelVisibleConversationMessage);
 }

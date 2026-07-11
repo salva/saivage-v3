@@ -77,7 +77,7 @@ describe('role invocation surfaces', () => {
   it('pins the analyst provider-derived tool set', () => {
     const projectRoot = setupRoot();
     const store = new CardStore(projectRoot);
-    const ctx: ToolContext = { projectRoot, processRunner: new ProcessRunner(projectRoot), store, sessionId: 'analyst:test', actor: 'analyst', surface: 'web-chat' };
+    const ctx: ToolContext = { projectRoot, processRunner: new ProcessRunner(projectRoot), store, sessionId: 'analyst:test', actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
     const surface = buildRoleSurface('analyst', {
       projectRoot,
       toolContext: ctx,

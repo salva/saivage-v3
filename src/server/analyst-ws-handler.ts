@@ -13,7 +13,6 @@ export interface AnalystWsHandlerOptions {
   saivageConfig: SaivageConfig;
   liveSyncSocket: LiveSyncSocket;
   runtimeApplication: RuntimeApplication;
-  requestServerRestart: () => Promise<void>;
   sendToClient: (ws: WebSocket, event: WsEnvelope) => void;
   broadcast: (event: WsEnvelope) => void;
 }
@@ -39,8 +38,7 @@ export class AnalystWsHandler {
         if (!parsed.success) throw new Error('Invalid analyst websocket message');
 
         const currentSessionId = resolveAnalystSessionId();
-        this.options.runtimeApplication.setAnalystRequestServerRestart(this.options.requestServerRestart);
-        const response = await this.options.runtimeApplication.analystRuntime.submit(currentSessionId, { userContent: parsed.data.content.text }, (activity) => {
+        const response = await this.options.runtimeApplication.analystRuntime.submit(currentSessionId, { userContent: parsed.data.content.text, actor: 'analyst', surface: 'web-chat' }, (activity) => {
             this.options.broadcast({
               type: 'activity',
               content: sanitizeAnalystPayload(activity) as Record<string, unknown>,
