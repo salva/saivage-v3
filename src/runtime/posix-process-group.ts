@@ -34,7 +34,8 @@ export async function terminateProcessGroup(pgid: number, graceMs: number): Prom
   signalProcessGroup(pgid, 'SIGTERM');
   if (await waitForProcessGroupAbsence(pgid, graceMs)) return;
   signalProcessGroup(pgid, 'SIGKILL');
-  await waitForProcessGroupAbsence(pgid, graceMs);
+  if (await waitForProcessGroupAbsence(pgid, graceMs)) return;
+  throw new Error(`Process group ${pgid} remained alive after SIGTERM and SIGKILL.`);
 }
 
 export function processGroupId(child: ChildProcess): number {
