@@ -89,7 +89,7 @@ describe('role invocation surfaces', () => {
     });
 
     expect(names(surface)).toEqual([
-      ...ANALYST_CONTROL_TOOLS.map((tool) => tool.name),
+      ...ANALYST_CONTROL_TOOLS.filter((tool) => tool.name !== 'restart_server').map((tool) => tool.name),
       'apply_patch', 'diff_card', 'edit', 'get_card', 'get_card_history_entry', 'get_tree', 'glob', 'grep', 'kill_process', 'list_card_history', 'list_cards', 'mcp_tool_call', 'read', 'run_command', 'skill', 'wait_process', 'webfetch', 'websearch', 'write',
     ].sort());
   });

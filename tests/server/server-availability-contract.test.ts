@@ -10,6 +10,7 @@ import { resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { createTestRestartPort } from '../helpers/restart-port.js';
 
 const AUTH_TOKEN = 'availability-test-token';
 
@@ -26,7 +27,7 @@ describe('server availability contract', () => {
   let originalToken: string | undefined;
 
   function createTestServer(root: string) {
-    return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
+    return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), restartPort: createTestRestartPort() });
   }
 
   beforeEach(() => {

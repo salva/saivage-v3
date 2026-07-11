@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { CardStore } from '../src/cards/card-store.js';
 import { initProjectTree } from '../src/persistence/file-tree.js';
 import { materializeProjectCard } from './helpers/materialize-project-card.js';
+import { createTestRestartPort } from './helpers/restart-port.js';
 import { listControlActions } from '../src/persistence/index.js';
 import {
   initRuntimeState,
@@ -510,7 +511,7 @@ describe('API Chat and WebSocket Integration', () => {
     process.env['SAIVAGE_API_TOKEN'] = authToken;
     resetAuthPolicyForTests();
 
-    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env) });
+    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env), restartPort: createTestRestartPort() });
     await server.fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (server.fastify.server.address() as { port: number }).port;
   }, 30000);
