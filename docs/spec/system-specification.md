@@ -161,7 +161,15 @@ LLM candidate unavailability is handled after provider-call admission and is sep
 
 Internal shutdown is server/application-disposal cleanup, not an Analyst control. During teardown it terminates runtime-owned processes and clears in-memory runtime markers. It is not a conversational tool, operator HTTP endpoint, or UI mutation, and it does not rewrite card outcomes.
 
-`restart_server` remains a distinct Analyst capability with its existing server-callback boundary; server disposal eventually uses internal shutdown. The general requirement that destructive actions receive conversational confirmation remains in force. Server-enforced confirmation for the retained restart operation is a pre-existing deferred implementation gap; this lifecycle change neither implements it nor relaxes that requirement.
+### Server Restart
+
+`restart_server` is a distinct destructive Analyst capability. It is available only when HTTP/WebSocket operator authentication is enabled by the deployment API token. When authentication is disabled, ordinary development chat remains available, but the restart tool is omitted from its catalog and prompt; a direct or stale invocation fails with `restart unavailable: operator authentication disabled` and records the denied audit action.
+
+All authenticated normal web access to `analyst:global` represents one singular operator authority. Authentication admits access to that authority; it does not establish an individual identity. The actor owns one pending confirmation for that global session, not for a bearer token, browser, connection, device, or transport. Consequently, either authenticated normal web transport may supply the exact next confirmation.
+
+The initial successful `restart_server` call is non-mutating: it returns `confirmation_required` with the literal `RESTART SERVER`, records the normal allowed audit action with outcome `restart confirmation required`, settles without a model continuation, and schedules nothing. The actor consumes pending state on the next turn. Only an exact `RESTART SERVER` next turn appends the canonical raw message, records the accepted `runtime.restart_server` audit action naming `analyst:global` as the operator authority, and schedules shutdown. Any other next turn cancels the pending confirmation and follows ordinary Analyst processing.
+
+Scheduling alone does not tear down the application. The REST handler acknowledges only after the scheduled response finishes writing, and the WebSocket handler acknowledges only after its terminal acknowledgement frame send callback succeeds. That acknowledgement disposes the application and exits with status 75 exactly once. It records that shutdown was accepted and scheduled; it does not establish replacement-process availability or readiness.
 
 ## 8. Active Work And `activate_card`
 

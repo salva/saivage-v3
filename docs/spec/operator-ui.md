@@ -71,6 +71,12 @@ The Analyst panel is the user's mutation path. The user asks for changes in natu
 
 The workspace remains read-only. Runtime lifecycle requests use the retained Analyst Run and Pause/Resume controls, and server restart remains an Analyst request. Internal server/application disposal cleanup is not an Analyst, UI, or HTTP control.
 
+The shared Analyst session is the singular authenticated operator authority at `analyst:global`, not a private per-browser chat. HTTP bearer and WebSocket ticket validation admit normal web access to that same authority without creating an individual identity. Server restart is exposed only when API-token authentication is enabled; disabled-auth deployments retain ordinary chat but do not expose restart.
+
+After the Analyst returns restart confirmation-required, the composer shows the inline warning: `Restart confirmation required. Send exactly RESTART SERVER to schedule server shutdown.` It is presentation of actor-owned pending state, not a transcript entry. The warning remains after a failed or aborted next submission and changes only after a successful response proves that actor ingress consumed that message: a new confirmation-required acknowledgement replaces it, while `null` or `scheduled` clears it.
+
+When shutdown is scheduled, the global toaster shows warning title `Server restart scheduled` and message `The server is shutting down. This does not confirm that a replacement is running.` The UI queues that warning before transcript refetch. If the expected shutdown disconnect makes that refetch fail, it retains the cleared draft and optimistic sent message without a send error or rollback. A scheduled acknowledgement is not a readiness claim and adds no acknowledgement/status transcript entry.
+
 Planner, executor, reviewer, and analyst prompts are configurable by editing Markdown overrides under `.saivage/config/prompts/<cardType>/<role>.md`; rendered prompts still appear through the normal agent transcript and Debug conversation surfaces.
 
 The chat composer must be reachable without opening a drawer or switching page modes. The user should be able to inspect the workspace and talk to the Analyst at the same time.

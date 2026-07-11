@@ -2,6 +2,12 @@
 
 Status: current operator procedures for runtime maintenance.
 
+## Server Restart
+
+Server restart is available only on deployments with API-token HTTP/WebSocket operator authentication enabled. Request it through the shared Analyst and, after the confirmation-required response, send the exact next message `RESTART SERVER`. The initial request only records confirmation-required state; the exact confirmation schedules shutdown.
+
+The application waits until the REST response has finished writing or the WebSocket terminal acknowledgement frame has been sent before it disposes and exits with status 75. The deployment supervisor must handle status 75 using its existing supervision policy; this procedure adds no deployment configuration. Status 75 and the scheduled acknowledgement establish only that this process is shutting down, not that any replacement is available or ready.
+
 ## Conversation Compaction
 
 `compacting` in an agent activity row means the runtime is inside the pre-provider-call summarizer window for that session. It is transient: the actor has crossed the configured context threshold, is writing a new active conversation version, and will clear the status before the provider call proceeds.
