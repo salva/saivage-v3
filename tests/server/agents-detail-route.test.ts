@@ -1,3 +1,4 @@
+import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,7 +9,6 @@ import cors from '@fastify/cors';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { initRuntimeState, readRuntimeState, saveRuntimeState } from '../../src/runtime/state.js';
 import { appendConversationMessage } from '../../src/runtime/actors/conversation-store.js';
-import { saveActorSnapshot } from '../../src/runtime/actors/snapshots.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 
@@ -101,8 +101,8 @@ describe('GET /api/agents/:id', () => {
     writeConversation(projectRoot, 'planner:project', [{ role: 'system', content: 'active', timestamp: '2026-02-03T00:00:00.000Z' }]);
     writeConversation(projectRoot, 'executor:project', [{ role: 'system', content: 'waiting', timestamp: '2026-02-02T00:00:00.000Z' }]);
     writeConversation(projectRoot, 'reviewer:project:assessment-1', [{ role: 'system', content: 'inactive', timestamp: '2026-02-01T00:00:00.000Z' }]);
-    saveActorSnapshot(projectRoot, { actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-02-03T00:00:01.000Z' });
-    saveActorSnapshot(projectRoot, { actor_id: 'executor:project', actor_kind: 'llm', state_value: 'waiting_tool', context: {}, updated_at: '2026-02-03T00:00:02.000Z' });
+    testActorSnapshots(projectRoot).save({ actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-02-03T00:00:01.000Z' });
+    testActorSnapshots(projectRoot).save({ actor_id: 'executor:project', actor_kind: 'llm', state_value: 'waiting_tool', context: {}, updated_at: '2026-02-03T00:00:02.000Z' });
 
     const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
     expect(res.statusCode).toBe(200);
@@ -134,7 +134,7 @@ describe('GET /api/agents/:id', () => {
   it('returns thinking activity status from actor snapshots', async () => {
     const sessionId = 'planner:thinking';
     writeConversation(projectRoot, sessionId, [{ role: 'system', content: 'thinking' }]);
-    saveActorSnapshot(projectRoot, { actor_id: sessionId, actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-06-01T00:00:00.000Z' });
+    testActorSnapshots(projectRoot).save({ actor_id: sessionId, actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-06-01T00:00:00.000Z' });
 
     const res = await app.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}/conversation`, headers: authHdr() });
     expect(res.statusCode).toBe(200);

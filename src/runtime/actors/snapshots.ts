@@ -7,6 +7,7 @@ import { actorKindFromId, parseCardActorId, parseLlmActorId, parseProcessorActor
 import { actorKindSchema } from '../../schemas/actor-vocabulary.js';
 import type { ActorKind } from './ids.js';
 import type { CardNotification } from './card-actor.js';
+import type { ReadModelChanges } from '../../application/read-model-changes.js';
 
 export const ACTOR_SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -67,50 +68,65 @@ export function readActorSnapshot(projectRoot: string, actorId: string): ActorSn
   return snapshot;
 }
 
-export function saveActorSnapshot(projectRoot: string, snapshot: ActorSnapshotRecord): ActorSnapshotRecord {
-  assertSnapshotKind(snapshot);
-  const lock = actorSnapshotsLock(projectRoot);
-  const file = actorSnapshotFile(projectRoot, snapshot.actor_id, lock);
-  return lock.withLockSync((handle) => {
-    file.writeSync(handle, snapshot);
-    return snapshot;
-  });
-}
+export class ActorSnapshotStore {
+  constructor(private readonly projectRoot: string, private readonly changes: ReadModelChanges) {}
 
-export function appendNotificationToActorSnapshot(projectRoot: string, actorId: string, notification: CardNotification): ActorSnapshotRecord {
-  if (actorKindFromId(actorId) !== 'card') throw new Error(`Cannot append card notification to non-card actor '${actorId}'.`);
-  const lock = actorSnapshotsLock(projectRoot);
-  const file = actorSnapshotFile(projectRoot, actorId, lock);
-  return lock.withLockSync((handle) => {
-    lock.assertOwns(handle);
-    const existing = existsSync(file.path) ? file.read() : null;
-    if (existing) assertSnapshotKind(existing);
-    const context = existing?.context ?? { projectRoot, cardId: parseCardActorId(actorId) };
-    const notifications = Array.isArray(context.notifications) ? context.notifications : [];
-    const snapshot: ActorSnapshotRecord = {
-      actor_id: actorId,
-      actor_kind: 'card',
-      state_value: existing?.state_value ?? null,
-      context: {
-        ...context,
-        notifications: [...notifications, notification],
-      },
-      updated_at: new Date().toISOString(),
-    };
-    file.writeSync(handle, snapshot);
-    return snapshot;
-  });
-}
+  save(snapshot: ActorSnapshotRecord): ActorSnapshotRecord {
+    assertSnapshotKind(snapshot);
+    const lock = actorSnapshotsLock(this.projectRoot);
+    const file = actorSnapshotFile(this.projectRoot, snapshot.actor_id, lock);
+    const saved = lock.withLockSync((handle) => {
+      file.writeSync(handle, snapshot);
+      return snapshot;
+    });
+    this.publish(snapshot.actor_kind, snapshot.actor_id);
+    return saved;
+  }
 
-export function removeActorSnapshot(projectRoot: string, actorId: string): boolean {
-  const lock = actorSnapshotsLock(projectRoot);
-  return lock.withLockSync((handle) => {
-    lock.assertOwns(handle);
-    const path = actorSnapshotPath(projectRoot, actorId);
-    if (!existsSync(path)) return false;
-    unlinkSync(path);
-    return true;
-  });
+  appendNotification(actorId: string, notification: CardNotification): ActorSnapshotRecord {
+    if (actorKindFromId(actorId) !== 'card') throw new Error(`Cannot append card notification to non-card actor '${actorId}'.`);
+    const lock = actorSnapshotsLock(this.projectRoot);
+    const file = actorSnapshotFile(this.projectRoot, actorId, lock);
+    const saved = lock.withLockSync((handle) => {
+      lock.assertOwns(handle);
+      const existing = existsSync(file.path) ? file.read() : null;
+      if (existing) assertSnapshotKind(existing);
+      const context = existing?.context ?? { projectRoot: this.projectRoot, cardId: parseCardActorId(actorId) };
+      const notifications = Array.isArray(context.notifications) ? context.notifications : [];
+      const snapshot: ActorSnapshotRecord = {
+        actor_id: actorId,
+        actor_kind: 'card',
+        state_value: existing?.state_value ?? null,
+        context: { ...context, notifications: [...notifications, notification] },
+        updated_at: new Date().toISOString(),
+      };
+      file.writeSync(handle, snapshot);
+      return snapshot;
+    });
+    this.changes.runtimeChanged();
+    return saved;
+  }
+
+  remove(actorId: string): boolean {
+    const kind = actorKindFromId(actorId);
+    const lock = actorSnapshotsLock(this.projectRoot);
+    const removed = lock.withLockSync((handle) => {
+      lock.assertOwns(handle);
+      const path = actorSnapshotPath(this.projectRoot, actorId);
+      if (!existsSync(path)) return false;
+      unlinkSync(path);
+      return true;
+    });
+    if (removed) this.publish(kind, actorId);
+    return removed;
+  }
+
+  private publish(kind: ActorKind, actorId: string): void {
+    this.changes.runtimeChanged();
+    if (kind !== 'llm') return;
+    this.changes.agentsChanged();
+    this.changes.conversationChanged(actorId);
+  }
 }
 
 function actorSnapshotFilePaths(projectRoot: string): string[] {

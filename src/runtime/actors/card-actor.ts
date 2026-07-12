@@ -4,7 +4,7 @@ import type { BlockedResult, CardRecord, CardStatus, DoneResult, FailedResult, R
 import type { NewCardInput } from '../../cards/store-api.js';
 import type { CardMutationContext } from '../../cards/lifecycle.js';
 import { cardActorId, processorActorId } from './ids.js';
-import { readActorSnapshot, saveActorSnapshot } from './snapshots.js';
+import { readActorSnapshot, type ActorSnapshotStore } from './snapshots.js';
 import type { CardActiveReconstructionRecord } from './active-reconstruction.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
@@ -93,6 +93,7 @@ export interface CardActorDeps {
   lookup: Map<string, CardActor>;
   conversationPublisher?: ConversationChangePublisher;
   conversations: ConversationMutationPort;
+  snapshots: ActorSnapshotStore;
 }
 
 export class CardActor extends BaseActor {
@@ -403,7 +404,7 @@ export class CardActor extends BaseActor {
   }
 
   private persist(): void {
-    saveActorSnapshot(this.projectRoot, this.snapshot());
+    this.deps.snapshots.save(this.snapshot());
   }
 }
 
@@ -423,6 +424,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       children: { get: (childId) => owner.childCardActor(childId) },
       provider: owner.deps.provider,
       conversations: owner.deps.conversations,
+      snapshots: owner.deps.snapshots,
       gate: owner.deps.gate,
       notifyCard: owner.deps.notifyCard,
       mcpManagerProvider: owner.deps.mcpManagerProvider,
@@ -439,6 +441,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
     cardId: card.id,
     provider: owner.deps.provider,
     conversations: owner.deps.conversations,
+    snapshots: owner.deps.snapshots,
     processRunner: owner.deps.processRunner,
     gate: owner.deps.gate,
     store: owner.deps.store,

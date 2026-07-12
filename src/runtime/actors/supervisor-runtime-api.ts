@@ -6,7 +6,7 @@ import { cardActorId, plannerActorId, parseLlmActorId } from './ids.js';
 import { CardActor, type CardActorDeps, type CardActorStorePort } from './card-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { toPublicAgentPhase, toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
-import { appendNotificationToActorSnapshot } from './snapshots.js';
+import { ActorSnapshotStore } from './snapshots.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import type { NotifyCardResult, RuntimeApi, RuntimeCommandSource, StartProjectResult } from '../runtime-api.js';
@@ -54,6 +54,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private readonly runtimeState: RuntimeStateMutationPort;
   private readonly servingRuntimeState: RuntimeStateMutationPort;
   private readonly runtimeGate: RuntimeGate;
+  private readonly snapshots: ActorSnapshotStore;
   private started = false;
   private lifecycle: 'ready' | 'running' | 'shutting_down' | 'shutdown' = 'ready';
   private shutdownPromise: Promise<void> | null = null;
@@ -68,6 +69,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.runtimeState = createRuntimeStateMutationPort(options.projectRoot);
     this.servingRuntimeState = createServingRuntimeStateMutationPort(options.projectRoot, options.readModelChanges);
     this.runtimeGate = options.runtimeGate ?? new RuntimeGate();
+    this.snapshots = new ActorSnapshotStore(options.projectRoot, options.readModelChanges);
   }
 
   async start(): Promise<void> {
@@ -86,6 +88,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       store: this.options.actorStore,
       generatedAt: this.now(),
       conversations: this.options.conversations,
+      snapshots: this.snapshots,
     });
     if (this.hasRunningRecoveryWork(recoveryPlan)) {
       this.constructRunningCardActors(recoveryPlan);
@@ -158,7 +161,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     }
     const card = this.options.actorStore.read(cardId);
     if (!card) return { ok: false, reason: 'missing_card', cardId };
-    appendNotificationToActorSnapshot(this.options.projectRoot, cardActorId(cardId), notification);
+    this.snapshots.appendNotification(cardActorId(cardId), notification);
     if (card.status === 'done' || card.status === 'failed') {
       this.options.actorStore.commitTerminalLifecyclePatch(cardId, {
         status: 'changed',
@@ -340,6 +343,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       lookup: this.cardActors,
       conversationPublisher: createConversationChangePublisher(this.eventBus),
       conversations: this.options.conversations,
+      snapshots: this.snapshots,
     };
   }
 

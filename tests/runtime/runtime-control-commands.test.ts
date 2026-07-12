@@ -1,3 +1,4 @@
+import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 
 import {
@@ -8,7 +9,6 @@ import {
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../src/runtime/control.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { saveRuntimeState } from '../../src/runtime/state.js';
-import { saveActorSnapshot } from '../../src/runtime/actors/snapshots.js';
 import type { RuntimeState } from '../../src/schemas/index.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -78,7 +78,7 @@ describe('runtime-control-commands', () => {
     try {
       initProjectTree(projectRoot);
       saveRuntimeState(projectRoot, runtimeState({ status: 'running' }));
-      saveActorSnapshot(projectRoot, { actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
+      testActorSnapshots(projectRoot).save({ actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
 
       const paused = pauseRuntimeControl({ projectRoot });
       const resumed = resumeRuntimeControl({ projectRoot });
@@ -97,7 +97,7 @@ describe('runtime-control-commands', () => {
     try {
       initProjectTree(projectRoot);
       saveRuntimeState(projectRoot, runtimeState({ status: 'running' }));
-      saveActorSnapshot(projectRoot, { actor_id: 'planner:missing-project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
+      testActorSnapshots(projectRoot).save({ actor_id: 'planner:missing-project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
 
       const result = pauseRuntimeControl({ projectRoot });
 

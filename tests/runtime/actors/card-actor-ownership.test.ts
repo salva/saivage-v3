@@ -1,3 +1,4 @@
+import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { tmpdir } from 'node:os';
@@ -20,7 +21,7 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 function deps(projectRoot: string, store: CardStore, lookup = new Map<string, CardActor>()): CardActorDeps {
   const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })) };
   return {
-    projectRoot, conversations: testConversationMutations(projectRoot),
+    projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot),
     store,
     provider,
     promptTemplates: createTestPromptTemplateRegistry(),

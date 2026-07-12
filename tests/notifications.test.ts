@@ -1,3 +1,4 @@
+import { testActorSnapshots } from './helpers/actor-snapshots.js';
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { testConversationMutations } from './helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,7 +10,6 @@ import { initProjectTree } from '../src/persistence/file-tree.js';
 import { clearProjectNotificationDeliveryAdapters, clearProjectNotificationEventBus, NotificationDeliveryService, setProjectNotificationDeliveryAdapters, setProjectNotificationEventBus, type NotificationDeliveryContext, type NotificationQueueEntry } from '../src/notifications/index.js';
 import { queueNotification, resolveRecipient } from '../src/notifications/notification-triggers.js';
 import { EventBus } from '../src/events/index.js';
-import { saveActorSnapshot } from '../src/runtime/actors/snapshots.js';
 import { CardActor, PlanningCardProcessorActor, type CardActorDeps } from '../src/runtime/actors/index.js';
 import { ProcessRunner } from '../src/runtime/process-runner.js';
 import { queue_notification } from '../src/tools/analyst-misc-tools.js';
@@ -33,7 +33,7 @@ function notificationIdFromCall(call: unknown): string {
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort): CardActorDeps {
-  return { projectRoot, conversations: testConversationMutations(projectRoot), store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeCard(overrides: Partial<NewCardInput> & { id?: string; type: NewCardInput['type']; title: string }): NewCardInput & { id?: string } {
@@ -45,7 +45,7 @@ function entry(kind: string, body = kind) {
 }
 
 function activeLlm(projectRoot: string, sessionId: string, stateValue: 'calling_provider' | 'waiting_tool' | 'idle' = 'calling_provider'): void {
-  saveActorSnapshot(projectRoot, { actor_id: sessionId, actor_kind: 'llm', state_value: stateValue, context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
+  testActorSnapshots(projectRoot).save({ actor_id: sessionId, actor_kind: 'llm', state_value: stateValue, context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
 }
 
 describe('NotificationDeliveryService', () => {
@@ -228,7 +228,7 @@ describe('queueNotification recipient resolution', () => {
       }),
     };
     const processor = new PlanningCardProcessorActor({
-      projectRoot, conversations: testConversationMutations(projectRoot),
+      projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       cardId: goal.id,
       store,

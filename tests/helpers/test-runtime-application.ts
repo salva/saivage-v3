@@ -1,3 +1,4 @@
+import { testActorSnapshots } from './actor-snapshots.js';
 import { EventBus } from '../../src/events/bus.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,7 +15,7 @@ import { ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { loadEnvironment } from '../../src/config/environment.js';
-import { appendNotificationToActorSnapshot, cardActorId } from '../../src/runtime/actors/index.js';
+import { cardActorId } from '../../src/runtime/actors/index.js';
 import type { CardNotification } from '../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestPromptTemplateRegistry } from './prompt-template-registry.js';
@@ -67,7 +68,7 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: C
       if (!opts.cardStore || !opts.projectRoot) throw new Error('Test runtime notifyCard requires cardStore and projectRoot.');
       const card = opts.cardStore.read(cardId);
       if (!card) return { ok: false, reason: 'missing_card', cardId };
-      appendNotificationToActorSnapshot(opts.projectRoot, cardActorId(cardId), notification);
+      testActorSnapshots(opts.projectRoot).appendNotification(cardActorId(cardId), notification);
       if (card.status === 'done' || card.status === 'failed') {
         opts.cardStore.commitTerminalLifecyclePatch(cardId, {
           status: 'changed',

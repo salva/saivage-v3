@@ -1,3 +1,4 @@
+import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,7 +8,7 @@ import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appendProviderExchangeLogEntry } from '../../src/persistence/provider-exchange-log.js';
 import { initRuntimeState, runtimeStatePath, updateRuntimeState } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/store-api.js';
-import { appendConversationMessage, buildContextTextMessage, saveActorSnapshot } from '../../src/runtime/actors/index.js';
+import { appendConversationMessage, buildContextTextMessage } from '../../src/runtime/actors/index.js';
 import {
   AgentOperatorReadModelService,
   buildCardRunsResponse,
@@ -59,7 +60,7 @@ describe('application read models', () => {
   });
 
   it('runtime status uses live actor read model instead of snapshot files', () => {
-    saveActorSnapshot(root, { actor_id: 'card:disk-card', actor_kind: 'card', state_value: 'failed', context: {}, updated_at: new Date().toISOString() });
+    testActorSnapshots(root).save({ actor_id: 'card:disk-card', actor_kind: 'card', state_value: 'failed', context: {}, updated_at: new Date().toISOString() });
     const liveActorRuntime = { pauseMode: 'running' as const, activeWork: 'none' as const, cards: [{ cardId: 'live-card', actorState: 'running' as const }], agents: [], diagnostics: [], recovery: null };
 
     const model = buildRuntimeStatusReadModel({
@@ -180,7 +181,7 @@ describe('application read models', () => {
 
   it('reports compacting before generic thinking status', () => {
     appendConversationMessage(root, buildContextTextMessage('planner:project', 'user', 'hello'));
-    saveActorSnapshot(root, { actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: { compacting: true }, updated_at: '2026-01-01T00:00:00.000Z' });
+    testActorSnapshots(root).save({ actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: { compacting: true }, updated_at: '2026-01-01T00:00:00.000Z' });
 
     const chat = new AgentOperatorReadModelService(root).getConversation('planner:project').body as { activity_status: { status: string } };
 

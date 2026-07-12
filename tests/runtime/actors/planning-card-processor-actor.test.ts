@@ -1,3 +1,4 @@
+import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -59,7 +60,7 @@ function terminalProcessor(outcome: Exclude<CardActivationOutcome, { status: 'ca
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeChildActor(projectRoot: string, store: CardStore, card: CardRecord, processor: CardProcessorActor): CardActor {
@@ -180,7 +181,7 @@ describe('PlanningCardProcessorActor', () => {
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult() : plannerResult('done', 'done'));
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const delivery = { deliverNotificationsForInput: jest.fn(() => [{ id: 'n1', message: 'Cancellation requested: stop', created_at: '2026-06-12T00:00:00.000Z' }]) };
@@ -300,7 +301,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const provider = withMandatoryRecords(() => plannerResult('blocked', 'blocked'));
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: { deliverNotificationsForInput: () => [{ id: 'n1', message: 'first-turn-note', created_at: '2026-06-12T00:00:00.000Z' }] } }, new AbortController().signal);
@@ -335,7 +336,7 @@ describe('PlanningCardProcessorActor', () => {
       expect(input.systemPrompt).not.toContain('\n\nAcceptance:\n');
       return plannerResult('done', 'done');
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -352,7 +353,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer'
       ? reviewerResult()
       : new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve(plannerResult('done', 'done')); }));
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const pending = actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -383,7 +384,7 @@ describe('PlanningCardProcessorActor', () => {
         : input.episodeContext.lastToolResult
         ? plannerResult('done', 'project done')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: goal.id }) } }] });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === goal.id ? childActor : null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === goal.id ? childActor : null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -449,7 +450,7 @@ describe('PlanningCardProcessorActor', () => {
         return card ? makeChildActor(projectRoot, store, card, terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } })) : null;
       }),
     };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -478,7 +479,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'project create rejected')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'create-project-1', type: 'function' as const, function: { name: 'create_card', arguments: JSON.stringify({ type: 'project', title: 'bad', brief: 'bad' }) } }] });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -508,7 +509,7 @@ describe('PlanningCardProcessorActor', () => {
         if (lastToolResult.outcome === 'done') return plannerResult('done', 'project done');
         throw new Error(`Unexpected last tool result ${JSON.stringify(lastToolResult)}`);
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === failedGoal.id ? childActor : null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === failedGoal.id ? childActor : null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -538,7 +539,7 @@ describe('PlanningCardProcessorActor', () => {
         const call = calls[index];
         return { kind: 'tool_calls' as const, tool_calls: [{ id: call.id, type: 'function' as const, function: { name: 'edit_card', arguments: JSON.stringify(call.args) } }] };
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -559,7 +560,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'cancelled obsolete child')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'cancel-1', type: 'function' as const, function: { name: 'cancel_card', arguments: JSON.stringify({ card_id: child.id, reason: 'obsolete' }) } }] });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === child.id ? childActor : null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === child.id ? childActor : null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -581,7 +582,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'running cancel requested')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'cancel-1', type: 'function' as const, function: { name: 'cancel_card', arguments: JSON.stringify({ card_id: child.id }) } }] });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === child.id ? childActor : null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === child.id ? childActor : null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -603,7 +604,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'unsupported rejected')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'unsupported-1', type: 'function' as const, function: { name: 'restart_card', arguments: JSON.stringify({ card_id: project.id }) } }] });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -621,7 +622,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'tool args rejected')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '' }) } }] });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -642,7 +643,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'child activation failed')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: failedGoal.id }) } }] });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === failedGoal.id ? childActor : null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === failedGoal.id ? childActor : null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -666,7 +667,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'alias rejected')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'old-alias' }) } }] });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -689,7 +690,7 @@ describe('PlanningCardProcessorActor', () => {
         ? plannerResult('done', 'project done')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: goal.id }) } }] });
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-mid', message: 'mid-turn notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === goal.id ? childActor : null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: (id) => id === goal.id ? childActor : null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -711,7 +712,7 @@ describe('PlanningCardProcessorActor', () => {
     const child = markDone(store, createGoal(store, project.id));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult() : plannerResult('done', 'done'));
     const delivery = { deliverNotificationsForInput: jest.fn(() => []) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -743,7 +744,7 @@ describe('PlanningCardProcessorActor', () => {
       }
       return plannerResult('done', 'done');
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -772,7 +773,7 @@ describe('PlanningCardProcessorActor', () => {
         }
         return plannerResult('done', 'done');
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -793,7 +794,7 @@ describe('PlanningCardProcessorActor', () => {
       plannerAttempts++;
       return plannerResultWithCallId('done', 'done', `planner-done-${plannerAttempts}`);
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -821,7 +822,7 @@ describe('PlanningCardProcessorActor', () => {
       return plannerResult('done', 'initial done');
     });
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.startsWith('planner:') && inputId.endsWith(':tool:2') ? [{ id: 'n-rework', message: 'review rework notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -849,7 +850,7 @@ describe('PlanningCardProcessorActor', () => {
     const goal = createGoal(store);
     const child = markDone(store, createGoal(store, goal.id));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult() : plannerResult('done', 'goal done'));
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: goal.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: goal.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: goal, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -869,7 +870,7 @@ describe('PlanningCardProcessorActor', () => {
       plannerAttempts++;
       return plannerResultWithCallId('done', 'done', `planner-done-${plannerAttempts}`);
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -889,7 +890,7 @@ describe('PlanningCardProcessorActor', () => {
       plannerAttempts++;
       return plannerResultWithCallId('done', 'done', `planner-done-${plannerAttempts}`);
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -915,7 +916,7 @@ describe('PlanningCardProcessorActor', () => {
       return plannerResult('done', 'project done');
     });
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:2') ? [{ id: 'n-gate', message: 'completion gate notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -940,7 +941,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const provider = withMandatoryRecords(() => plannerResult('blocked', 'blocked'));
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const blocked = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -963,7 +964,7 @@ describe('PlanningCardProcessorActor', () => {
         if (plannerTurns <= 25) return { kind: 'tool_calls' as const, tool_calls: [{ id: `activate-${plannerTurns}`, type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '' }) } }] };
         return plannerResult('blocked', 'blocked after extended planning');
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -986,7 +987,7 @@ describe('PlanningCardProcessorActor', () => {
       if (reviewerTurns <= 2) return { kind: 'message' as const, content: plainReviewerMessage };
       throw providerTurnFailure('model stopped after repeated plain reviewer messages');
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -1013,7 +1014,7 @@ describe('PlanningCardProcessorActor', () => {
       if (reviewerTurns === 1) return { kind: 'message' as const, content: 'Review passes.' };
       return reviewerResult();
     });
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -1055,7 +1056,7 @@ describe('PlanningCardProcessorActor', () => {
         return providerCompletion(reviewerResult({ status: 'done', summary: 'review ok after missing-record repair' }));
       }),
     };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -1100,7 +1101,7 @@ describe('PlanningCardProcessorActor', () => {
         throw providerTurnFailure('model stopped after repeated plain planner messages');
       }),
     };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -1126,7 +1127,7 @@ describe('PlanningCardProcessorActor', () => {
       return plannerResult('done', 'done after repair');
     });
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-plain', message: 'planner plain-text repair notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -1154,7 +1155,7 @@ describe('PlanningCardProcessorActor', () => {
       return plannerResult('blocked', 'valid after repair');
     });
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:2') ? [{ id: 'n-invalid', message: 'planner invalid terminal notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -1195,7 +1196,7 @@ describe('PlanningCardProcessorActor', () => {
       }),
     };
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-missing-status', message: 'planner missing status notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -1230,7 +1231,7 @@ describe('PlanningCardProcessorActor', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider: withMandatoryRecords(() => plannerResult('blocked', 'unused')) });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider: withMandatoryRecords(() => plannerResult('blocked', 'unused')) });
 
     expect(() => actor.recover('planning')).toThrow(/entered planning without activation input/);
   }));

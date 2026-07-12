@@ -1,3 +1,4 @@
+import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { tmpdir } from 'node:os';
@@ -15,9 +16,7 @@ import {
   readRecoveryDiagnostics,
   readActorSnapshots,
   recoveryDiagnosticsPath,
-  removeActorSnapshot,
-  saveActorSnapshot,
-  writeRecoveryDiagnostics,
+      writeRecoveryDiagnostics,
 } from '../../../src/runtime/actors/index.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { CardStore } from '../../../src/cards/card-store.js';
@@ -32,7 +31,7 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function saveSnapshot(projectRoot: string, actorId: string, actorKind: 'card' | 'llm' | 'processor', stateValue: unknown, context: Record<string, unknown> = {}): void {
-  saveActorSnapshot(projectRoot, {
+  testActorSnapshots(projectRoot).save({
     actor_id: actorId,
     actor_kind: actorKind,
     state_value: stateValue,
@@ -92,7 +91,7 @@ function reviewerCorrections(_evidenceId: string, summary = 'needs correction'):
 
 function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
   return {
-    projectRoot, conversations: testConversationMutations(projectRoot),
+    projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot),
     store,
     generatedAt: '2026-06-12T00:00:00.000Z',
   };
@@ -266,7 +265,7 @@ describe('actor recovery plan', () => {
     saveSnapshot(projectRoot, 'card:G-corrupt', 'card', 'running', { cardId: 'G-corrupt', active_reconstruction: { schema_version: 1, kind: 'llm_turn' } });
     expect(() => buildActorRecoveryPlan(projectRoot)).toThrow("active_reconstruction kind mismatch: expected 'card_activation', received 'llm_turn'");
 
-    removeActorSnapshot(projectRoot, 'card:G-corrupt');
+    testActorSnapshots(projectRoot).remove('card:G-corrupt');
     saveSnapshot(projectRoot, 'planner:G-role', 'llm', 'calling_provider', { cardId: 'G-role', active_reconstruction: { ...llmActive('G-role'), role: 'reviewer' } });
     expect(() => buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => ({ id: 'G-role', type: 'goal' })) })).toThrow("role 'reviewer' does not match actor role 'planner'");
   }));
@@ -307,7 +306,7 @@ describe('actor recovery plan', () => {
     expect(writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z')).not.toBeNull();
     expect(existsSync(recoveryDiagnosticsPath(projectRoot))).toBe(true);
 
-    removeActorSnapshot(projectRoot, 'card:G-1');
+    testActorSnapshots(projectRoot).remove('card:G-1');
     expect(writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:01.000Z')).toBeNull();
     expect(existsSync(recoveryDiagnosticsPath(projectRoot))).toBe(false);
   }));

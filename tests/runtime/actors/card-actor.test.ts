@@ -1,3 +1,4 @@
+import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -5,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, LLMActor, MAX_NOTIFICATION_DELIVERY_MARKERS, appendNotificationToActorSnapshot, cardActorId, createSupervisorRuntimeApi, isActivatable, processorActorId, readActorSnapshot, readActorSnapshots, saveActorSnapshot, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
+import { CardActor, LLMActor, MAX_NOTIFICATION_DELIVERY_MARKERS, cardActorId, createSupervisorRuntimeApi, isActivatable, processorActorId, readActorSnapshot, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
@@ -35,7 +36,7 @@ function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled'
 }
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function cardActive(cardId: string): Record<string, unknown> {
@@ -135,7 +136,7 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     store.commitTerminalLifecyclePatch(project.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
-    saveActorSnapshot(projectRoot, {
+    testActorSnapshots(projectRoot).save({
       actor_id: cardActorId(project.id),
       actor_kind: 'card',
       state_value: 'running',
@@ -156,7 +157,7 @@ describe('CardActor', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
-    saveActorSnapshot(projectRoot, {
+    testActorSnapshots(projectRoot).save({
       actor_id: 'planner:project',
       actor_kind: 'llm',
       state_value: 'calling_provider',
@@ -180,21 +181,21 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     store.setStatus(project.id, 'running');
-    saveActorSnapshot(projectRoot, {
+    testActorSnapshots(projectRoot).save({
       actor_id: cardActorId(project.id),
       actor_kind: 'card',
       state_value: 'running',
       context: { cardId: project.id, active_reconstruction: cardActive(project.id) },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    saveActorSnapshot(projectRoot, {
+    testActorSnapshots(projectRoot).save({
       actor_id: 'planner:project',
       actor_kind: 'llm',
       state_value: 'calling_provider',
       context: { cardId: project.id, active_reconstruction: plannerLlmActive(project.id) },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    saveActorSnapshot(projectRoot, {
+    testActorSnapshots(projectRoot).save({
       actor_id: processorActorId(project.id),
       actor_kind: 'processor',
       state_value: 'planning',
@@ -221,7 +222,7 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     store.setStatus(project.id, 'running');
-    saveActorSnapshot(projectRoot, {
+    testActorSnapshots(projectRoot).save({
       actor_id: cardActorId(project.id),
       actor_kind: 'card',
       state_value: 'running',
@@ -235,7 +236,7 @@ describe('CardActor', () => {
       context: { cardId: project.id, active_reconstruction: processorActive(project.id) },
       updated_at: '2026-06-12T00:00:00.000Z',
     };
-    saveActorSnapshot(projectRoot, processorSnapshot);
+    testActorSnapshots(projectRoot).save(processorSnapshot);
     const gate = new RuntimeGate(false);
     const provider = { completeTurn: jest.fn() as never };
 
@@ -291,7 +292,7 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
 
-    const snapshot = appendNotificationToActorSnapshot(projectRoot, cardActorId(project.id), { id: 'restored', message: 'from snapshot', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
+    const snapshot = testActorSnapshots(projectRoot).appendNotification(cardActorId(project.id), { id: 'restored', message: 'from snapshot', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
 
     expect(snapshot.state_value).toBeNull();
 
@@ -304,8 +305,8 @@ describe('CardActor', () => {
       state_value: 'parked',
       context: { ...persisted!.context, custom: true },
     };
-    saveActorSnapshot(projectRoot, existing);
-    const updated = appendNotificationToActorSnapshot(projectRoot, cardActorId(project.id), { id: 'second', message: 'second', created_at: '2026-06-12T00:00:01.000Z', reason: 'test' });
+    testActorSnapshots(projectRoot).save(existing);
+    const updated = testActorSnapshots(projectRoot).appendNotification(cardActorId(project.id), { id: 'second', message: 'second', created_at: '2026-06-12T00:00:01.000Z', reason: 'test' });
 
     expect(updated.state_value).toBe('parked');
     expect(updated.context.custom).toBe(true);
@@ -320,7 +321,7 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
 
-    appendNotificationToActorSnapshot(projectRoot, cardActorId(project.id), { id: 'restored', message: 'from snapshot', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
+    testActorSnapshots(projectRoot).appendNotification(cardActorId(project.id), { id: 'restored', message: 'from snapshot', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
 
     const actor = actorFromCard(projectRoot, store, project, processor({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } }));
 
@@ -336,8 +337,11 @@ describe('CardActor', () => {
       status: 'done',
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
+    const readModelChanges = new ReadModelChangeBroadcaster();
+    const runtimeChanged = jest.fn();
+    readModelChanges.subscribe({ runtimeChanged, cardStateChanged: jest.fn(), agentsChanged: jest.fn(), conversationChanged: jest.fn() });
     const runtime = createSupervisorRuntimeApi({
-      readModelChanges: new ReadModelChangeBroadcaster(),
+      readModelChanges,
       projectRoot, conversations: testConversationMutations(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store,
@@ -352,6 +356,7 @@ describe('CardActor', () => {
     expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === cardActorId(goal.id))?.context.notifications).toEqual([
       expect.objectContaining({ id: 'inactive', message: 'wake up' }),
     ]);
+    expect(runtimeChanged).toHaveBeenCalledTimes(1);
   }));
 
   it('runtime notifyCard returns structured failure for missing cards', () => withTempProject((projectRoot) => {

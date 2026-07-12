@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
 import { recoveryDiagnosticsFile as layoutRecoveryDiagnosticsFile, recoveryDiagnosticsLockFile } from '../../persistence/layout.js';
-import { readActorSnapshots, removeActorSnapshot } from './snapshots.js';
-import type { ActorSnapshotRecord } from './snapshots.js';
+import { readActorSnapshots } from './snapshots.js';
+import type { ActorSnapshotRecord, ActorSnapshotStore } from './snapshots.js';
 import { agentMessageSchema, type AgentMessage, type CardRecord, type CardStatus } from '../../schemas/index.js';
 import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { readCardActiveReconstruction, readLlmActiveReconstruction, readProcessorActiveReconstruction } from './active-reconstruction.js';
@@ -53,6 +53,7 @@ export interface ActorStartupRecoveryDeps {
   store: ActorRecoveryOutcomeStore;
   generatedAt?: string;
   conversations: ConversationMutationPort;
+  snapshots: ActorSnapshotStore;
 }
 
 export type { LlmActorRole as LlmRecoveryRole } from '../../schemas/actor-vocabulary.js';
@@ -241,11 +242,11 @@ export function clearRecoveryDiagnostics(projectRoot: string): void {
 
 export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorStartupRecoveryDeps): ActorStartupRecoveryReport {
   const generatedAt = deps.generatedAt ?? new Date().toISOString();
-  const cancelledCleanup = cleanupCancelledCardSnapshots(deps.projectRoot, plan, deps.store);
+  const cancelledCleanup = cleanupCancelledCardSnapshots(deps.projectRoot, plan, deps.store, deps.snapshots);
   const effectivePlan = cancelledCleanup.length > 0 ? buildActorRecoveryPlan(deps.projectRoot, deps.store) : plan;
   const nestedIncidents = recoverNestedActorConsistency(effectivePlan, { ...deps, generatedAt });
   const recoveries = recoverActorStartupOutcomes(effectivePlan, { ...deps, generatedAt });
-  cleanupRecoveredActorSnapshots(deps.projectRoot, recoveries);
+  cleanupRecoveredActorSnapshots(recoveries, deps.snapshots);
   const toolErrorSettlements = appendToolErrorSettlementResults(deps.projectRoot, deps.conversations);
   const abandonedToolCalls = abandonStalePendingToolCalls(deps.projectRoot, deps.conversations, undefined, nestedIncidents.preservedToolCallKeys);
   const postCleanupPlan = buildActorRecoveryPlan(deps.projectRoot, deps.store);
@@ -270,7 +271,7 @@ function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorStart
   for (const processor of plan.processors) {
     const card = deps.store.read(processor.cardId);
     if (!processor.active || !card || card.status === 'running') continue;
-    removeActorSnapshot(deps.projectRoot, processor.actorId);
+    deps.snapshots.remove(processor.actorId);
     incidents.push({ actorId: processor.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_non_running_card_processor_snapshot', cardId: processor.cardId, message: `Startup recovery removed active processor snapshot '${processor.actorId}' because card '${processor.cardId}' is '${card.status}'.` });
   }
 
@@ -279,14 +280,14 @@ function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorStart
     const processor = entry.cardId ? plan.processors.find((candidate) => candidate.cardId === entry.cardId) ?? null : null;
     if (card && card.status !== 'running') {
       if (entry.llm?.active) {
-        removeActorSnapshot(deps.projectRoot, entry.actorId);
+        deps.snapshots.remove(entry.actorId);
         incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_non_running_card_llm_snapshot', cardId: entry.cardId ?? undefined, message: `Startup recovery removed active LLM snapshot '${entry.actorId}' because card '${card.id}' is '${card.status}'.` });
       }
       continue;
     }
-    applyLlmRecoveryMatrix(deps.projectRoot, deps.conversations, entry, processor, card, incidents, deps.store, preservedToolCallKeys);
+    applyLlmRecoveryMatrix(deps.projectRoot, deps.conversations, entry, processor, card, incidents, deps.store, preservedToolCallKeys, deps.snapshots);
     if (entry.llm?.active && card?.status === 'running' && !processor?.active && (entry.llm.snapshot.state_value === 'calling_provider' || entry.llm.snapshot.state_value === 'waiting_tool')) {
-      removeActorSnapshot(deps.projectRoot, entry.actorId);
+      deps.snapshots.remove(entry.actorId);
       incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_llm_without_active_processor', cardId: entry.cardId ?? undefined, message: `Startup recovery removed active LLM snapshot '${entry.actorId}' because its card has no active processor snapshot.` });
     }
   }
@@ -304,17 +305,17 @@ function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorStart
   return { incidents, preservedToolCallKeys };
 }
 
-function applyLlmRecoveryMatrix(projectRoot: string, conversations: ConversationMutationPort, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>): void {
+function applyLlmRecoveryMatrix(projectRoot: string, conversations: ConversationMutationPort, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>, snapshots: ActorSnapshotStore): void {
   const llmState = entryLlmState(entry);
   switch (llmState) {
     case 'idle_or_absent':
       applyIdleOrAbsentEntry(projectRoot, conversations, entry, processor, card, incidents, store);
       return;
     case 'calling_provider':
-      applyCallingProviderEntry(projectRoot, conversations, entry, incidents);
+      applyCallingProviderEntry(projectRoot, conversations, entry, incidents, snapshots);
       return;
     case 'waiting_tool':
-      applyWaitingToolEntry(projectRoot, conversations, entry, processor, card, incidents, store, preservedToolCallKeys);
+      applyWaitingToolEntry(projectRoot, conversations, entry, processor, card, incidents, store, preservedToolCallKeys, snapshots);
       return;
   }
 }
@@ -336,25 +337,25 @@ function applyIdleOrAbsentEntry(projectRoot: string, conversations: Conversation
   }
 }
 
-function applyCallingProviderEntry(projectRoot: string, conversations: ConversationMutationPort, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[]): void {
+function applyCallingProviderEntry(projectRoot: string, conversations: ConversationMutationPort, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], snapshots: ActorSnapshotStore): void {
   switch (entry.conversation) {
     case 'system_prompt_only':
     case 'pending_provider':
-      if (conversationNeedsProviderVisibleToolErrorSettlement(entry)) removeIncompatibleLlmSnapshot(projectRoot, entry, incidents, 'cleanup_provider_snapshot_for_tool_error_settlement', `Startup recovery removed provider snapshot '${entry.actorId}' so provider reissue reloads synthetic tool_error settlement rows from the active conversation.`);
+      if (conversationNeedsProviderVisibleToolErrorSettlement(entry)) removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'cleanup_provider_snapshot_for_tool_error_settlement', `Startup recovery removed provider snapshot '${entry.actorId}' so provider reissue reloads synthetic tool_error settlement rows from the active conversation.`);
       return;
     case 'empty':
     case 'awaiting_tool_result':
     case 'settled_terminal':
-      removeIncompatibleLlmSnapshot(projectRoot, entry, incidents, 'cleanup_incompatible_provider_snapshot', `Startup recovery removed provider snapshot '${entry.actorId}' for incompatible conversation state '${entry.conversation}'.`);
+      removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'cleanup_incompatible_provider_snapshot', `Startup recovery removed provider snapshot '${entry.actorId}' for incompatible conversation state '${entry.conversation}'.`);
       return;
     case 'assistant_text_pending':
       appendPlainTextRecoveryRepair(conversations, entry);
-      removeIncompatibleLlmSnapshot(projectRoot, entry, incidents, 'repair_assistant_text_pending_provider_snapshot', `Startup recovery appended a repair directive and removed stale provider snapshot '${entry.actorId}'.`);
+      removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'repair_assistant_text_pending_provider_snapshot', `Startup recovery appended a repair directive and removed stale provider snapshot '${entry.actorId}'.`);
       return;
   }
 }
 
-function applyWaitingToolEntry(projectRoot: string, conversations: ConversationMutationPort, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>): void {
+function applyWaitingToolEntry(projectRoot: string, conversations: ConversationMutationPort, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>, snapshots: ActorSnapshotStore): void {
   switch (entry.conversation) {
     case 'awaiting_tool_result':
       reportDanglingAwaitingTool(entry, processor, card, incidents, store, preservedToolCallKeys);
@@ -363,11 +364,11 @@ function applyWaitingToolEntry(projectRoot: string, conversations: ConversationM
     case 'system_prompt_only':
     case 'settled_terminal':
     case 'pending_provider':
-      removeIncompatibleLlmSnapshot(projectRoot, entry, incidents, 'cleanup_incompatible_waiting_tool_snapshot', `Startup recovery removed waiting_tool snapshot '${entry.actorId}' for conversation state '${entry.conversation}'.`);
+      removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'cleanup_incompatible_waiting_tool_snapshot', `Startup recovery removed waiting_tool snapshot '${entry.actorId}' for conversation state '${entry.conversation}'.`);
       return;
     case 'assistant_text_pending':
       appendPlainTextRecoveryRepair(conversations, entry);
-      removeIncompatibleLlmSnapshot(projectRoot, entry, incidents, 'repair_assistant_text_pending_wait_snapshot', `Startup recovery appended a repair directive and removed stale waiting_tool snapshot '${entry.actorId}'.`);
+      removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'repair_assistant_text_pending_wait_snapshot', `Startup recovery appended a repair directive and removed stale waiting_tool snapshot '${entry.actorId}'.`);
       return;
   }
 }
@@ -413,9 +414,9 @@ function danglingToolCallKey(entry: LlmConversationRecoveryEntry): string | null
   return identity ? loggedToolCallKey(identity) : null;
 }
 
-function removeIncompatibleLlmSnapshot(projectRoot: string, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], action: string, message: string): void {
+function removeIncompatibleLlmSnapshot(snapshots: ActorSnapshotStore, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], action: string, message: string): void {
   if (!entry.llm) return;
-  removeActorSnapshot(projectRoot, entry.actorId);
+  snapshots.remove(entry.actorId);
   incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action, cardId: entry.cardId ?? undefined, message });
 }
 
@@ -524,13 +525,13 @@ function appendPlainTextRecoveryRepair(conversations: ConversationMutationPort, 
   }));
 }
 
-function cleanupRecoveredActorSnapshots(projectRoot: string, recoveries: ActorRecoveryOutcomeConversion[]): void {
+function cleanupRecoveredActorSnapshots(recoveries: ActorRecoveryOutcomeConversion[], snapshots: ActorSnapshotStore): void {
   for (const recovery of recoveries) {
-    for (const actorId of recovery.actorIds) removeActorSnapshot(projectRoot, actorId);
+    for (const actorId of recovery.actorIds) snapshots.remove(actorId);
   }
 }
 
-export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRecoveryPlan, store: ActorRecoveryOutcomeStore): ActorStartupRecoveryIncident[] {
+export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRecoveryPlan, store: ActorRecoveryOutcomeStore, snapshots: ActorSnapshotStore): ActorStartupRecoveryIncident[] {
   const actorIds = new Map<string, Set<string>>();
   for (const card of plan.cards) addCardSnapshotActor(actorIds, card.cardId, card.snapshot.actor_id);
   for (const processor of plan.processors) addCardSnapshotActor(actorIds, processor.cardId, processor.actorId);
@@ -539,7 +540,7 @@ export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRe
   const incidents: ActorStartupRecoveryIncident[] = [];
   for (const [cardId, ids] of actorIds) {
     if (store.read(cardId)?.status !== 'cancelled') continue;
-    for (const actorId of ids) removeActorSnapshot(projectRoot, actorId);
+    for (const actorId of ids) snapshots.remove(actorId);
     incidents.push({
       actorId: [...ids].sort()[0] ?? cardId,
       kind: 'converted_actor_snapshots',

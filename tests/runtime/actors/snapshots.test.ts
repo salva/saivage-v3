@@ -1,8 +1,10 @@
-import { describe, expect, it } from '@jest/globals';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
+import { describe, expect, it, jest } from '@jest/globals';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { actorSnapshotPath, readActorSnapshot, readActorSnapshots, saveActorSnapshot } from '../../../src/runtime/actors/snapshots.js';
+import { ActorSnapshotStore, actorSnapshotPath, readActorSnapshot, readActorSnapshots } from '../../../src/runtime/actors/snapshots.js';
+import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 
 function snapshot(actorId: string, actorKind: 'card' | 'llm' | 'processor') {
   return {
@@ -29,10 +31,10 @@ describe('actor snapshots', () => {
   it('writes and reads snapshots from all current cursor roots', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-snapshots-'));
 
-    saveActorSnapshot(root, snapshot('card:card-7', 'card'));
-    saveActorSnapshot(root, snapshot('processor:card-7', 'processor'));
-    saveActorSnapshot(root, snapshot('planner:card-7', 'llm'));
-    saveActorSnapshot(root, snapshot('analyst:global', 'llm'));
+    testActorSnapshots(root).save(snapshot('card:card-7', 'card'));
+    testActorSnapshots(root).save(snapshot('processor:card-7', 'processor'));
+    testActorSnapshots(root).save(snapshot('planner:card-7', 'llm'));
+    testActorSnapshots(root).save(snapshot('analyst:global', 'llm'));
 
     expect(existsSync(actorSnapshotPath(root, 'card:card-7'))).toBe(true);
     expect(existsSync(actorSnapshotPath(root, 'processor:card-7'))).toBe(true);
@@ -41,4 +43,65 @@ describe('actor snapshots', () => {
     expect(readActorSnapshot(root, 'planner:card-7')?.actor_id).toBe('planner:card-7');
     expect(readActorSnapshots(root).map((item) => item.actor_id)).toEqual(['analyst:global', 'card:card-7', 'planner:card-7', 'processor:card-7']);
   });
+
+  it.each<[string, 'card' | 'processor' | 'llm', string[]]>([
+    ['card:card-7', 'card', ['runtime']],
+    ['processor:card-7', 'processor', ['runtime']],
+    ['planner:card-7', 'llm', ['runtime', 'agents', 'conversation:planner:card-7']],
+  ])('publishes the exact matrix for save and successful remove of %s', (actorId, kind, expected) => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-snapshots-'));
+    const { store, observed } = recordingStore(root);
+
+    store.save(snapshot(actorId, kind));
+    expect(observed).toEqual(expected);
+    observed.length = 0;
+    expect(store.remove(actorId)).toBe(true);
+    expect(observed).toEqual(expected);
+  });
+
+  it('publishes runtime only after a notification append and nothing for remove=false', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-snapshots-'));
+    const { store, observed } = recordingStore(root);
+
+    store.appendNotification('card:card-7', { id: 'n-1', message: 'changed', created_at: '2026-07-13T00:00:00.000Z' });
+    expect(observed).toEqual(['runtime']);
+    observed.length = 0;
+    expect(store.remove('processor:missing')).toBe(false);
+    expect(observed).toEqual([]);
+  });
+
+  it('publishes nothing when snapshot persistence fails', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-snapshots-'));
+    writeFileSync(join(root, '.saivage'), 'blocks persistence');
+    const { store, observed } = recordingStore(root);
+
+    expect(() => store.save(snapshot('planner:card-7', 'llm'))).toThrow();
+    expect(observed).toEqual([]);
+  });
+
+  it('publishes nothing when notification persistence or snapshot removal fails', () => {
+    const appendRoot = mkdtempSync(join(tmpdir(), 'saivage-snapshots-'));
+    writeFileSync(join(appendRoot, '.saivage'), 'blocks persistence');
+    const append = recordingStore(appendRoot);
+    expect(() => append.store.appendNotification('card:card-7', { id: 'n-1', message: 'changed', created_at: '2026-07-13T00:00:00.000Z' })).toThrow();
+    expect(append.observed).toEqual([]);
+
+    const removeRoot = mkdtempSync(join(tmpdir(), 'saivage-snapshots-'));
+    mkdirSync(actorSnapshotPath(removeRoot, 'processor:card-7'), { recursive: true });
+    const remove = recordingStore(removeRoot);
+    expect(() => remove.store.remove('processor:card-7')).toThrow();
+    expect(remove.observed).toEqual([]);
+  });
 });
+
+function recordingStore(projectRoot: string): { store: ActorSnapshotStore; observed: string[] } {
+  const changes = new ReadModelChangeBroadcaster();
+  const observed: string[] = [];
+  changes.subscribe({
+    runtimeChanged: jest.fn(() => observed.push('runtime')),
+    cardStateChanged: jest.fn(() => observed.push('cards')),
+    agentsChanged: jest.fn(() => observed.push('agents')),
+    conversationChanged: jest.fn((id: string) => observed.push(`conversation:${id}`)),
+  });
+  return { store: new ActorSnapshotStore(projectRoot, changes), observed };
+}

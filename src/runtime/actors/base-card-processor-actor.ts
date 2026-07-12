@@ -1,7 +1,7 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { CardActivationInput, CardActivationOutcome, CardProcessorActor } from './card-actor.js';
 import { processorActorId } from './ids.js';
-import { saveActorSnapshot } from './snapshots.js';
+import type { ActorSnapshotStore } from './snapshots.js';
 import type { ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { deferred, type Deferred } from './deferred.js';
 
@@ -10,6 +10,7 @@ export type CardProcessorOutcome = Exclude<CardActivationOutcome, { status: 'can
 export abstract class BaseCardProcessorActor extends BaseActor implements CardProcessorActor {
   readonly projectRoot: string;
   readonly cardId: string;
+  readonly snapshots: ActorSnapshotStore;
   outcome: CardProcessorOutcome | null = null;
   activeReconstruction: ProcessorActiveReconstructionRecord | null = null;
   #result: Deferred<CardProcessorOutcome> | null = null;
@@ -17,10 +18,11 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   #activationSignal: AbortSignal | null = null;
   #activationCounter = 0;
 
-  protected constructor(args: { projectRoot: string; cardId: string }) {
+  protected constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore }) {
     super();
     this.projectRoot = args.projectRoot;
     this.cardId = args.cardId;
+    this.snapshots = args.snapshots;
   }
 
   activate(input: CardActivationInput, signal: AbortSignal): Promise<CardProcessorOutcome> {
@@ -73,7 +75,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   }
 
   protected persist(): void {
-    saveActorSnapshot(this.projectRoot, this.snapshot());
+    this.snapshots.save(this.snapshot());
   }
 
   protected abstract get processorLabel(): string;

@@ -1,3 +1,4 @@
+import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -78,7 +79,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       }
       return providerCompletion(reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id));
     }) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate(activateInput(project), new AbortController().signal);
@@ -112,7 +113,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       notificationArrivedDuringReview = true;
       return providerCompletion(reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id));
     }) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate(activateInput(project, delivery), new AbortController().signal);
@@ -151,7 +152,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       if (lastToolResult.toolName === 'emit_result') return providerCompletion(toolCall('reviewer-write-repair', 'write', { path: 'record:///review.md?v=next', content: 'repaired review' }));
       return providerCompletion(reviewerPass('reviewer-pass-repaired', child.id));
     }) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate(activateInput(project), new AbortController().signal);
@@ -181,7 +182,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       store.mutateCard(project.id, { priority: project.priority + reviewerAttempt }, { actor: 'planner', surface: 'runtime', reason: 'test stale review budget' });
       return providerCompletion(reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id));
     }) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate(activateInput(project), new AbortController().signal);

@@ -4,7 +4,7 @@ import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletio
 import type { AgentMessage } from '../../schemas/index.js';
 import { genericContextMessagesForInvocation, type LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
-import { saveActorSnapshot } from './snapshots.js';
+import type { ActorSnapshotStore } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import { appendUserContextMessage, hasIndexedConversationMessageOfKind, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
@@ -429,6 +429,7 @@ export class ConversationLLMActor extends BaseActor {
 }
 
 export class LLMActor extends ConversationLLMActor {
+  readonly snapshots: ActorSnapshotStore;
   activeReconstruction: LlmActiveReconstructionRecord | null = null;
   #compacting = false;
   readonly compactor?: CompactorPort;
@@ -436,8 +437,8 @@ export class LLMActor extends ConversationLLMActor {
   readonly summarizerProvider?: LLMProviderPort;
   readonly bufferSizeEstimator?: BufferSizeEstimator;
 
-  static fromActiveReconstruction(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; gate?: RuntimeGate; state: string; activeReconstruction: LlmActiveReconstructionRecord; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }): LLMActor {
-    const actor = new LLMActor({ projectRoot: args.projectRoot, agentId: args.agentId, provider: args.provider, conversations: args.conversations, gate: args.gate, compactor: args.compactor, compactionConfig: args.compactionConfig, summarizerProvider: args.summarizerProvider, bufferSizeEstimator: args.bufferSizeEstimator, conversationPublisher: args.conversationPublisher });
+  static fromActiveReconstruction(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; snapshots: ActorSnapshotStore; gate?: RuntimeGate; state: string; activeReconstruction: LlmActiveReconstructionRecord; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }): LLMActor {
+    const actor = new LLMActor({ ...args });
     actor.activeReconstruction = args.activeReconstruction;
     actor.input = args.activeReconstruction.input;
     actor.deliveredToolCallIds = new Set(args.activeReconstruction.delivered_tool_call_ids);
@@ -459,7 +460,7 @@ export class LLMActor extends ConversationLLMActor {
   }
 
   protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
-    saveActorSnapshot(this.projectRoot, this.snapshot());
+    this.snapshots.save(this.snapshot());
   }
 
   snapshot() {
@@ -481,13 +482,14 @@ export class LLMActor extends ConversationLLMActor {
     this.activeReconstruction = this.createActiveReconstruction(input);
   }
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; snapshots: ActorSnapshotStore; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     if (parseLlmActorId(args.agentId).role === 'analyst') throw new Error(`LLMActor '${args.agentId}' only supports autonomous card roles.`);
     this.compactor = args.compactor;
     this.compactionConfig = args.compactionConfig;
     this.summarizerProvider = args.summarizerProvider;
     this.bufferSizeEstimator = args.bufferSizeEstimator;
+    this.snapshots = args.snapshots;
   }
 
   protected override async onBeforeProviderCall(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmInvocationInput | void> {
@@ -498,7 +500,7 @@ export class LLMActor extends ConversationLLMActor {
     if (!decision.shouldCompact) return;
     try {
       this.#compacting = true;
-      saveActorSnapshot(this.projectRoot, this.snapshot());
+      this.snapshots.save(this.snapshot());
       const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, conversations: this.conversations, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, signal });
       this.conversationPublisher?.versionReplaced(compacted.versionReplacement);
       const compactedRows = compacted.rows as AgentMessage[];
@@ -506,7 +508,7 @@ export class LLMActor extends ConversationLLMActor {
       this.#compacting = false;
       if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction to refresh after compaction.`);
       this.activeReconstruction = { ...this.activeReconstruction, input: compactedInput };
-      saveActorSnapshot(this.projectRoot, this.snapshot());
+      this.snapshots.save(this.snapshot());
       return compactedInput;
     } finally {
       this.#compacting = false;
