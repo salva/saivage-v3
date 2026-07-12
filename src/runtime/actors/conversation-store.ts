@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { appendSyncIdempotentByKey } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
+import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import { saivageCardsRoot } from '../../persistence/layout.js';
 import {
@@ -64,7 +65,7 @@ export type UserContextMessageCategory = 'notification' | 'reviewer_descendant' 
 export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
 
 export function appendUserContextMessage(
-  projectRoot: string,
+  conversations: ConversationMutationPort,
   sessionId: string,
   inputId: string,
   category: UserContextMessageCategory,
@@ -85,13 +86,13 @@ export function appendUserContextMessage(
     block_index: 0,
     timestamp,
   });
-  return appendConversationMessage(projectRoot, message);
+  return conversations.append(message);
 }
 
-export function appendActivationMarker(projectRoot: string, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): ConversationAppendResult {
+export function appendActivationMarker(conversations: ConversationMutationPort, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): ConversationAppendResult {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
-  return appendConversationMessage(projectRoot, agentMessageSchema.parse({
+  return conversations.append(agentMessageSchema.parse({
     id: `${sessionId}:activation:${createHash('sha256').update(seed).digest('hex').slice(0, 16)}`,
     session_id: sessionId,
     role: 'system',
@@ -120,8 +121,8 @@ export function buildContextTextMessage(sessionId: string, role: Extract<Message
   });
 }
 
-export function appendCanonicalUserText(projectRoot: string, sessionId: string, content: string): ConversationAppendResult {
-  return appendConversationMessage(projectRoot, buildContextTextMessage(sessionId, 'user', content));
+export function appendCanonicalUserText(conversations: ConversationMutationPort, sessionId: string, content: string): ConversationAppendResult {
+  return conversations.append(buildContextTextMessage(sessionId, 'user', content));
 }
 
 export function conversationMessagesForModel(messages: AgentMessage[]): AgentMessage[] {

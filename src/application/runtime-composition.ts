@@ -23,6 +23,7 @@ import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import type { ReadModelChanges } from './read-model-changes.js';
 import { createProviderExchangeMutationPort } from '../persistence/provider-exchange-mutation-port.js';
+import { createConversationMutationPort, type ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -33,6 +34,7 @@ export interface RuntimeApiFactoryDeps {
   processRunner: ProcessRunner;
   runtimeGate: RuntimeGate;
   mcpManagerProvider?: () => McpManager | undefined;
+  conversations: ConversationMutationPort;
 }
 
 type DisposableCandidateAvailability = CandidateAvailability & { dispose(): void };
@@ -70,6 +72,7 @@ function buildAnalystDeps(input: {
   invocationService: InvocationService;
   processRunner: ProcessRunner;
   mcpManager?: McpManager;
+  conversations: ConversationMutationPort;
 }): AnalystRuntimeDeps {
   return {
     runtime: input.runtimeApi,
@@ -81,6 +84,7 @@ function buildAnalystDeps(input: {
     provider: createInvocationServiceProvider(input.invocationService),
     processRunner: input.processRunner,
     mcpManager: input.mcpManager,
+    conversations: input.conversations,
   };
 }
 
@@ -96,6 +100,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,
   });
+  const conversations = createConversationMutationPort(projectRoot, services.readModelChanges);
   let mcpManager: McpManager | undefined;
 
   const registry = new ProviderRegistry(config);
@@ -121,7 +126,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations }),
     candidateAvailability,
     eventLogger,
     errorLogger,
@@ -143,6 +148,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       invocationService,
       processRunner,
       mcpManager,
+      conversations,
     });
     return analystDepsCache;
   };

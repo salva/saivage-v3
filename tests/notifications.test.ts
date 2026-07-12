@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { testConversationMutations } from './helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -32,7 +33,7 @@ function notificationIdFromCall(call: unknown): string {
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort): CardActorDeps {
-  return { projectRoot, store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, conversations: testConversationMutations(projectRoot), store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeCard(overrides: Partial<NewCardInput> & { id?: string; type: NewCardInput['type']; title: string }): NewCardInput & { id?: string } {
@@ -227,7 +228,7 @@ describe('queueNotification recipient resolution', () => {
       }),
     };
     const processor = new PlanningCardProcessorActor({
-      projectRoot,
+      projectRoot, conversations: testConversationMutations(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       cardId: goal.id,
       store,

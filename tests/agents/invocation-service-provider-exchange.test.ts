@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { testConversationMutations } from '../helpers/conversation-mutations.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -91,7 +92,7 @@ describe('InvocationService provider exchange accumulation', () => {
           throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [], originalFailure: new Error('missing envelope') });
         },
       });
-      const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider: createInvocationServiceProvider(service) });
+      const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider: createInvocationServiceProvider(service) });
       actor.start();
 
       await expect(actor.turn({

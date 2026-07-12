@@ -24,6 +24,7 @@ import { buildResponsesReplayProjection } from '../../agents/llm-openai-response
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
+import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -55,7 +56,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly promptTemplates: PromptTemplateRegistry;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; conversations: ConversationMutationPort; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
@@ -135,10 +136,10 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const sessionId = plannerActorId(this.cardId);
     const loadedRows = readActiveVersionMessages(this.projectRoot, sessionId);
     const loaded = conversationMessagesForModel(loadedRows);
-    const activationMarker = appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
+    const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
     const notifications = this.notificationContext(input, inputId).map((message, index) => {
-      const result = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'notification', index, message);
+      const result = appendUserContextMessage(this.conversations, sessionId, inputId, 'notification', index, message);
       this.conversationPublisher?.entryAppended(result);
       return result.message;
     });
@@ -191,7 +192,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, sessionId: string): void {
-    const result = appendTerminalProjectedToolResult(this.projectRoot, {
+    const result = appendTerminalProjectedToolResult(this.conversations, {
       sessionId,
       sourceInputId: outcome.inputId,
       toolCallId: outcome.toolCallId,
@@ -262,9 +263,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const inputId = this.nextInvocationInputId('reviewer');
     const loadedRows = readActiveVersionMessages(this.projectRoot, sessionId);
     const loaded = conversationMessagesForModel(loadedRows);
-    const activationMarker = appendActivationMarker(this.projectRoot, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
+    const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
-    const descendantContext = appendUserContextMessage(this.projectRoot, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness));
+    const descendantContext = appendUserContextMessage(this.conversations, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness));
     this.conversationPublisher?.entryAppended(descendantContext);
     return {
       inputId,

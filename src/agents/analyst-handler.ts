@@ -24,6 +24,7 @@ import { buildResponsesReplayProjection } from './llm-openai-responses-mapper.js
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { createConversationChangePublisher } from '../runtime/actors/conversation-publisher.js';
+import type { ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
@@ -90,6 +91,7 @@ export interface AnalystRuntimeDeps {
   mcpManager?: McpManager;
   provider: LLMProviderPort;
   processRunner: ProcessRunner;
+  conversations: ConversationMutationPort;
 }
 
 export interface AnalystTurnInput {
@@ -179,7 +181,7 @@ export class AnalystSessionActor extends BaseActor {
 
   constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
     super();
-    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
+    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
   }
 
   override start(): void {
@@ -372,7 +374,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private scheduleConfirmedRestart(input: AnalystTurnInput): AnalystResponse {
     if (!this.args.restartServerAvailable || !this.args.restartPort) throw new Error('Restart confirmation is unavailable without authenticated operator restart capability.');
-    const appended = appendCanonicalUserText(this.args.projectRoot, this.sessionId, input.userContent);
+    const appended = appendCanonicalUserText(this.args.runtimeDeps.conversations, this.sessionId, input.userContent);
     this.llm.conversationPublisher?.entryAppended(appended);
     recordControlAction(this.args.projectRoot, {
       actor: 'analyst', surface: this.args.surface ?? 'web-chat', action: 'runtime.restart_server', target_kind: 'runtime', target_id: 'server',
@@ -458,7 +460,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations, input?: LlmInvocationInput): AnalystResponse {
     if (input) {
-      const message = appendLlmTurnMessage(this.args.projectRoot, input, this.errorMessage(err));
+      const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, this.errorMessage(err));
       this.llm.conversationPublisher?.entryAppended(message.appendResult);
     }
     return this.response(toolInvocations);
@@ -471,7 +473,7 @@ export class AnalystSessionActor extends BaseActor {
   private persistAssistantNotice(content: string): void {
     const input = this.llm.input;
     if (!input) return;
-    const message = appendLlmTurnMessage(this.args.projectRoot, input, content);
+    const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, content);
     this.llm.conversationPublisher?.entryAppended(message.appendResult);
   }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
+import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -109,8 +110,8 @@ describe('conversation-store', () => {
   it('persists identical user context content with unique ids', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
 
-    const first = appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 0, { role: 'user', content: 'same content' });
-    const second = appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 1, { role: 'user', content: 'same content' });
+    const first = appendUserContextMessage(testConversationMutations(root), 'planner:project', 'input-1', 'notification', 0, { role: 'user', content: 'same content' });
+    const second = appendUserContextMessage(testConversationMutations(root), 'planner:project', 'input-1', 'notification', 1, { role: 'user', content: 'same content' });
     const messages = readConversationMessages(root, 'planner:project');
 
     expect(first.message.id).not.toBe(second.message.id);
@@ -130,8 +131,8 @@ describe('conversation-store', () => {
   it('keeps activation markers out of provider context while active-version read returns the persisted prefix', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
 
-    appendUserContextMessage(root, 'planner:project', 'input-1', 'notification', 0, { role: 'user', content: 'notification context' });
-    appendActivationMarker(root, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'input-1' });
+    appendUserContextMessage(testConversationMutations(root), 'planner:project', 'input-1', 'notification', 0, { role: 'user', content: 'notification context' });
+    appendActivationMarker(testConversationMutations(root), 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'input-1' });
 
     const active = readActiveVersionMessages(root, 'planner:project');
     expect(active.map((message) => message.kind)).toEqual(['text', 'activity']);

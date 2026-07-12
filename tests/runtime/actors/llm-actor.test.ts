@@ -1,4 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -87,7 +88,7 @@ function corruptActorMessages(projectRoot: string): void {
 
 class InitialOutcomeHarness extends BaseMainLLMCardProcessorActor {
   constructor(projectRoot: string, provider: LLMProviderPort) {
-    super({ projectRoot, cardId: 'project', provider });
+    super({ projectRoot, conversations: testConversationMutations(projectRoot), cardId: 'project', provider });
   }
 
   resolveForTest(llm: LLMActor, buildInput: () => LlmInvocationInput, isTerminalToolName = () => false): Promise<LLMActorOutcome> {
@@ -126,7 +127,7 @@ describe('LLMActor', () => {
         return completion({ kind: 'message' as const, content: 'done' });
       }),
     };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     const outcome = await actor.turn(input());
@@ -149,7 +150,7 @@ describe('LLMActor', () => {
     writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
-    const actor = new ConversationLLMActor({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher });
+    const actor = new ConversationLLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
     actor.start();
 
     await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result' });
@@ -170,7 +171,7 @@ describe('LLMActor', () => {
     writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 1, versions: { '1': { status: 'active', opened_at: '2026-07-01T00:00:00.000Z' } } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
-    const actor = LLMActor.fromActiveReconstruction({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
+    const actor = LLMActor.fromActiveReconstruction({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
     const harness = new InitialOutcomeHarness(projectRoot, provider);
     const factory = jest.fn(() => input('must-not-run'));
 
@@ -192,7 +193,7 @@ describe('LLMActor', () => {
     writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 1, versions: { '1': { status: 'active', opened_at: '2026-07-01T00:00:00.000Z' } } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
-    const actor = new LLMActor({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
     actor.start();
 
     await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result' });
@@ -205,11 +206,11 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     const sessionId = 'planner:project';
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
-    appendActivationMarker(projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'initial-turn' });
+    appendActivationMarker(testConversationMutations(projectRoot), sessionId, { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'initial-turn' });
     appendConversationMessage(projectRoot, { id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: new Date().toISOString() });
     for (let ordinal = 1; ordinal <= 3; ordinal++) {
-      appendActivationMarker(projectRoot, sessionId, { event: 'activation_open', role: 'planner', card_id: 'project', input_id: `history-${ordinal}` });
-      appendUserContextMessage(projectRoot, sessionId, `history-${ordinal}`, 'notification', 0, { role: 'user', content: `history ${ordinal} ${'x'.repeat(120)}` });
+      appendActivationMarker(testConversationMutations(projectRoot), sessionId, { event: 'activation_open', role: 'planner', card_id: 'project', input_id: `history-${ordinal}` });
+      appendUserContextMessage(testConversationMutations(projectRoot), sessionId, `history-${ordinal}`, 'notification', 0, { role: 'user', content: `history ${ordinal} ${'x'.repeat(120)}` });
     }
     const compactionConfig: CompactionConfig = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0, merge_line_fraction: 0.3, summary_line_fraction: 0.6, escalate_merge_line_fraction: 0.5, escalate_summary_line_fraction: 0.7, snap: 'compact_straddler', summarizer_model: 'test/_/summary' };
     await compact({
@@ -225,7 +226,7 @@ describe('LLMActor', () => {
     expect(readFileSync(activeVersionPath(projectRoot, sessionId, 1), 'utf-8')).toContain('planner:project:system-prompt');
     expect(readConversationMessages(projectRoot, sessionId).some((row) => row.kind === 'system_prompt')).toBe(false);
     const publisher = recordingPublisher();
-    const fresh = new LLMActor({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher });
+    const fresh = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
     fresh.start();
 
     await expect(fresh.turn(input('fresh-turn'))).resolves.toMatchObject({ type: 'result' });
@@ -252,7 +253,7 @@ describe('LLMActor', () => {
     const before = sessionSnapshot(projectRoot, sessionId);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
-    const actor = LLMActor.fromActiveReconstruction({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
+    const actor = LLMActor.fromActiveReconstruction({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
     const factory = jest.fn(() => input('must-not-run'));
     const harness = new InitialOutcomeHarness(projectRoot, provider);
     const pendingFailure = expect(actor.awaitPendingTurn()).rejects.toThrow(/expected 'system_prompt'/);
@@ -281,7 +282,7 @@ describe('LLMActor', () => {
     const before = sessionSnapshot(projectRoot, sessionId);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
-    const actor = new LLMActor({ projectRoot, agentId: sessionId, provider, conversationPublisher: publisher });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
     actor.start();
 
     await expect(actor.turn(input())).rejects.toThrow(/expected 'system_prompt'/);
@@ -304,7 +305,7 @@ describe('LLMActor', () => {
     const eventBus = new EventBus();
     const changed = jest.fn();
     eventBus.subscribe('conversation_changed', (event) => { changed(event); });
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) }, conversationPublisher: createConversationChangePublisher(eventBus) });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) }, conversationPublisher: createConversationChangePublisher(eventBus) });
     actor.start();
 
     const outcome = await actor.turn({ ...input(), contextMessages: [{ ...compacted, id: 'raw', kind: 'text', content: 'raw context before compaction', round_id: 'r-user-00000000000000000000000000000001' }] });
@@ -321,7 +322,7 @@ describe('LLMActor', () => {
     const config = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim', summarizer_model: 'test/_/summary' } satisfies CompactionConfig;
     const compactor = { shouldCompact: jest.fn(() => ({ shouldCompact: false })), compact: jest.fn(async () => ({ rows: [], versionReplacement: { sessionId: 'planner:project', activeVersion: 2, compactedThrough: { message_id: 'none', round_id: 'none', timestamp: new Date().toISOString() }, compactionGeneration: 1 } })) };
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 1, bufferTokens: 100 }) } });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 1, bufferTokens: 100 }) } });
     actor.start();
 
     await actor.turn(input());
@@ -334,14 +335,14 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     let finishCalling!: () => void;
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finishCalling = () => resolve(completion({ kind: 'message' as const, content: 'done' })); })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
     const pendingTurn = actor.turn(input());
     await eventually(() => expect(actor.state()).toBe('calling_provider'));
     const harness = new InitialOutcomeHarness(projectRoot, provider);
     const factory = jest.fn(() => {
-      appendActivationMarker(projectRoot, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
-      appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'notification', 0, { role: 'user', content: 'lazy notification context' });
+      appendActivationMarker(testConversationMutations(projectRoot), 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
+      appendUserContextMessage(testConversationMutations(projectRoot), 'planner:project', 'lazy-input', 'notification', 0, { role: 'user', content: 'lazy notification context' });
       return input('lazy-input');
     });
 
@@ -359,7 +360,7 @@ describe('LLMActor', () => {
   it('does not invoke the initial input factory on the waiting-tool branch', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
     await actor.turn(input());
     await eventually(() => expect(actor.state()).toBe('waiting_tool'));
@@ -374,12 +375,12 @@ describe('LLMActor', () => {
   it('invokes the initial input factory on the idle branch', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
     const harness = new InitialOutcomeHarness(projectRoot, provider);
     const factory = jest.fn(() => {
-      appendActivationMarker(projectRoot, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
-      const context = appendUserContextMessage(projectRoot, 'planner:project', 'lazy-input', 'notification', 0, { role: 'user', content: 'lazy notification context' });
+      appendActivationMarker(testConversationMutations(projectRoot), 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: 'lazy-input' });
+      const context = appendUserContextMessage(testConversationMutations(projectRoot), 'planner:project', 'lazy-input', 'notification', 0, { role: 'user', content: 'lazy notification context' });
       return { ...input('lazy-input'), contextMessages: [context.message] };
     });
 
@@ -396,7 +397,7 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     let finish!: () => void;
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finish = () => resolve(completion({ kind: 'message' as const, content: 'done' })); })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     const pending = actor.turn(input());
@@ -436,16 +437,16 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
 
-    expect(() => new LLMActor({ projectRoot, agentId: 'analyst:global', provider })).toThrow("LLMActor 'analyst:global' only supports autonomous card roles.");
-    expect(() => LLMActor.fromActiveReconstruction({ projectRoot, agentId: 'analyst:global', provider, state: 'calling_provider', activeReconstruction: {} as never })).toThrow("LLMActor 'analyst:global' only supports autonomous card roles.");
-    expect(() => new LLMActor({ projectRoot, agentId: 'planner:project', provider })).not.toThrow();
+    expect(() => new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'analyst:global', provider })).toThrow("LLMActor 'analyst:global' only supports autonomous card roles.");
+    expect(() => LLMActor.fromActiveReconstruction({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'analyst:global', provider, state: 'calling_provider', activeReconstruction: {} as never })).toThrow("LLMActor 'analyst:global' only supports autonomous card roles.");
+    expect(() => new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider })).not.toThrow();
   }));
 
   it('waits at the runtime gate instead of failing a provider turn while paused', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const gate = new RuntimeGate(false);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'unused' })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, gate });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider, gate });
     actor.start();
 
     const pending = actor.turn(input());
@@ -464,7 +465,7 @@ describe('LLMActor', () => {
         ? completion({ kind: 'message' as const, content: 'continued' })
         : completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{"ok":true}' } }] })),
     };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     const first = await actor.turn(input());
@@ -504,7 +505,7 @@ describe('LLMActor', () => {
           : completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] });
       }),
     };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await expect(actor.turn({ ...input(), contextMessages: [firstMessage, secondMessage], turnMessages: [firstMessage, secondMessage] })).resolves.toMatchObject({ type: 'tool_call' });
@@ -535,7 +536,7 @@ describe('LLMActor', () => {
         ? completion({ kind: 'message' as const, content: 'plain text' })
         : completion({ kind: 'message' as const, content: 'repaired' })),
     };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result', result: { content: 'plain text' } });
@@ -564,7 +565,7 @@ describe('LLMActor', () => {
       ? completion({ kind: 'message' as const, content: 'continued' })
       : completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] }));
     const provider: LLMProviderPort = { completeTurn };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await actor.turn({ ...input(), contextMessages: [{ role: 'user', content: 'base' }] });
@@ -595,7 +596,7 @@ describe('LLMActor', () => {
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async () => completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] })),
     };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await actor.turn(input());
@@ -612,7 +613,7 @@ describe('LLMActor', () => {
         ? completion({ kind: 'message' as const, content: 'continued' })
         : completion({ kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] })),
     };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await actor.turn(input());
@@ -629,7 +630,7 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     let finish!: () => void;
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finish = () => resolve(completion({ kind: 'message' as const, content: 'late' })); })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     const pending = actor.turn(input());
@@ -645,7 +646,7 @@ describe('LLMActor', () => {
     initProjectTree(projectRoot);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => { throw new Error('raw provider rejection'); }) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await expect(actor.turn(input())).rejects.toThrow("Provider boundary for 'turn-1' failed without ProviderTurnFailure metadata.");
@@ -664,7 +665,7 @@ describe('LLMActor', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => {
       throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [], originalFailure: new Error('missing envelope') });
     }) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await expect(actor.turn(input())).rejects.toThrow("Provider attempt for 'turn-1' failed without provider_exchange envelope.");
@@ -683,7 +684,7 @@ describe('LLMActor', () => {
     class FailingSetupLLMActor extends LLMActor {
       protected override async onBeforeProviderCall(): Promise<void> { throw new Error('pre-provider setup failed'); }
     }
-    const actor = new FailingSetupLLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new FailingSetupLLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await expect(actor.turn(input())).rejects.toThrow('pre-provider setup failed');
@@ -705,7 +706,7 @@ describe('LLMActor', () => {
         if (turnInput.inputId.includes(':tool:')) throw new Error('continuation setup failed');
       }
     }
-    const actor = new ContinuationSetupFailureLLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new ContinuationSetupFailureLLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await expect(actor.turn(input())).resolves.toMatchObject({ type: 'tool_call', toolCallId: 'call-1' });
@@ -722,7 +723,7 @@ describe('LLMActor', () => {
     corruptActorMessages(projectRoot);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'unused' })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await expect(actor.turn(input())).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);
@@ -739,7 +740,7 @@ describe('LLMActor', () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     let finish!: () => void;
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finish = () => resolve(completion({ kind: 'message' as const, content: 'done' })); })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     const pending = actor.turn(input());
@@ -760,7 +761,7 @@ describe('LLMActor', () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     let fail!: () => void;
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((_resolve, reject) => { fail = () => reject(new Error('provider failed')); })) };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     const pending = actor.turn(input());
@@ -784,7 +785,7 @@ describe('LLMActor', () => {
         throw new Error('runTask exploded');
       }
     }
-    const actor = new ThrowingRunTaskLLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new ThrowingRunTaskLLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     await expect(actor.turn(input())).rejects.toThrow('runTask exploded');
@@ -805,7 +806,7 @@ describe('LLMActor', () => {
         signal.addEventListener('abort', () => reject(signal.reason), { once: true });
       })),
     };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
     actor.start();
 
     const pending = actor.turn(input(), activation.signal);
@@ -835,7 +836,7 @@ describe('LLMActor', () => {
         throw new Error('unreachable');
       }),
     };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) } });
+    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) } });
     actor.start();
 
     const pending = actor.turn(input(), activation.signal);

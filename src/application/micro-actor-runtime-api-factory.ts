@@ -12,6 +12,7 @@ import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
 import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
+import type { ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
@@ -24,6 +25,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   now?: () => string;
+  conversations: ConversationMutationPort;
 }
 
 export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps): RuntimeApi {
@@ -43,6 +45,7 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     runtimeGate: deps.runtimeGate,
     mcpManagerProvider: deps.mcpManagerProvider,
     now: deps.now,
+    conversations: deps.conversations,
   });
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
+import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +29,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       const store = new CardStore(root);
       const runtime = createSupervisorRuntimeApi({
         projectRoot: root,
+        conversations: testConversationMutations(root),
         actorStore: store,
         provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },
         processRunner: runner,
@@ -68,6 +70,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       const store = new CardStore(root);
       const runtime = createSupervisorRuntimeApi({
         projectRoot: root,
+        conversations: testConversationMutations(root),
         actorStore: store,
         provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },
         processRunner: runner,

@@ -20,6 +20,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestPromptTemplateRegistry } from './prompt-template-registry.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
+import { testConversationMutations } from './conversation-mutations.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -125,6 +126,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     provider: createInvocationServiceProvider(invocationService),
     processRunner,
     mcpManager: analystRuntime.mcpManager,
+    conversations: testConversationMutations(projectRoot),
   };
 }
 
@@ -172,6 +174,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         provider: createInvocationServiceProvider(invocationService),
         processRunner,
         mcpManager: analystRuntime.mcpManager,
+        conversations: testConversationMutations(projectRoot),
       };
     },
     get analystRuntime() {

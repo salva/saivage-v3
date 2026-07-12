@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -67,7 +68,7 @@ function appendLoggedToolCall(projectRoot: string, cardId: string, role: 'planne
   const inputId = `${role}:${cardId}:1`;
   const assessmentId = `assessment-${cardId}-1`;
   const sessionId = role === 'reviewer' ? `reviewer:${cardId}:${assessmentId}` : agentId;
-  appendLlmTurnFinished(projectRoot, { inputId, agentId, role, sessionId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: role === 'reviewer' ? { cardId, assessmentId } : { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
+  appendLlmTurnFinished(testConversationMutations(projectRoot), { inputId, agentId, role, sessionId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: role === 'reviewer' ? { cardId, assessmentId } : { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
   if (!writeRequiredRecord) return;
   const record = openRecordSlot(projectRoot, { cardId, filename: role === 'reviewer' ? 'review.md' : 'status.md' });
   writeFileSync(record.absolutePath, `${role} recovery record`, 'utf8');
@@ -91,7 +92,7 @@ function reviewerCorrections(_evidenceId: string, summary = 'needs correction'):
 
 function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
   return {
-    projectRoot,
+    projectRoot, conversations: testConversationMutations(projectRoot),
     store,
     generatedAt: '2026-06-12T00:00:00.000Z',
   };
@@ -596,8 +597,8 @@ describe('actor recovery plan', () => {
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
     saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId, active_reconstruction: llmActive(cardId) });
     saveSnapshot(projectRoot, 'analyst:global', 'llm', 'idle');
-    appendLlmTurnFinished(projectRoot, { inputId: 'planner:input:1', agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'message', content: 'plain text' });
-    appendLlmTurnFinished(projectRoot, { inputId: 'analyst:global:1', agentId: 'analyst:global', role: 'analyst', sessionId: 'analyst:global', systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId: null } }, { kind: 'message', content: 'ordinary Analyst reply' });
+    appendLlmTurnFinished(testConversationMutations(projectRoot), { inputId: 'planner:input:1', agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'message', content: 'plain text' });
+    appendLlmTurnFinished(testConversationMutations(projectRoot), { inputId: 'analyst:global:1', agentId: 'analyst:global', role: 'analyst', sessionId: 'analyst:global', systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId: null } }, { kind: 'message', content: 'ordinary Analyst reply' });
     const analystMessages = readConversationMessages(projectRoot, 'analyst:global');
 
     const report = runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));

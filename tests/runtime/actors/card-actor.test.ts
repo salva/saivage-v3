@@ -1,4 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,7 +34,7 @@ function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled'
 }
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function cardActive(cardId: string): Record<string, unknown> {
@@ -335,7 +336,7 @@ describe('CardActor', () => {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
     const runtime = createSupervisorRuntimeApi({
-      projectRoot,
+      projectRoot, conversations: testConversationMutations(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store,
       provider: { completeTurn: jest.fn() as never },
@@ -356,7 +357,7 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     createProject(store);
     const runtime = createSupervisorRuntimeApi({
-      projectRoot,
+      projectRoot, conversations: testConversationMutations(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store,
       provider: { completeTurn: jest.fn() as never },

@@ -1,4 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -109,7 +110,7 @@ function providerTurnFailure(message: string): ProviderTurnFailure {
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort, runner = processRunner(projectRoot)): CardActorDeps {
-  return { projectRoot, store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: runner, notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, conversations: testConversationMutations(projectRoot), store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: runner, notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function actorFromCard(projectRoot: string, store: CardStore, card: ReturnType<typeof setup>['card'], processor: TerminalCardProcessorActor, provider: LLMProviderPort, runner?: ProcessRunner): CardActor {
@@ -119,7 +120,7 @@ function actorFromCard(projectRoot: string, store: CardStore, card: ReturnType<t
 }
 
 function terminalProcessor(projectRoot: string, cardId: string, provider: LLMProviderPort, store?: CardStore, runner = processRunner(projectRoot)): TerminalCardProcessorActor {
-  return new TerminalCardProcessorActor({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), cardId, provider, processRunner: runner, store });
+  return new TerminalCardProcessorActor({ projectRoot, conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId, provider, processRunner: runner, store });
 }
 
 async function eventually(assertion: () => void, attempts = 40): Promise<void> {

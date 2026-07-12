@@ -1,4 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import { testConversationMutations } from '../../../helpers/conversation-mutations.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -44,7 +45,7 @@ function input(contextMessages: AgentMessage[]): LlmInvocationInput {
 }
 
 function appendRound(projectRoot: string, ordinal: number, content: string): void {
-  appendActivationMarker(projectRoot, 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: `turn-${ordinal}` });
+  appendActivationMarker(testConversationMutations(projectRoot), 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: `turn-${ordinal}` });
   const timestamp = new Date().toISOString();
   appendConversationMessage(projectRoot, { id: `planner:project:text:${ordinal}`, session_id: 'planner:project', role: 'user', kind: 'text', content, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp });
 }

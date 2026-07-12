@@ -22,6 +22,7 @@ import { RuntimeGate } from '../runtime-gate.js';
 import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from '../runtime-control-state.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import { createConversationChangePublisher } from './conversation-publisher.js';
+import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
 
 export interface ProjectRootCardReader {
   read(cardId: string): { id: string; type: string } | null;
@@ -34,6 +35,7 @@ export interface SupervisorRuntimeApiOptions {
   rootCards?: ProjectRootCardReader;
   actorStore: CardActorStorePort;
   provider: LLMProviderPort;
+  conversations: ConversationMutationPort;
   compactor?: CompactorPort;
   compactionConfig?: CompactionConfig;
   summarizerProvider?: LLMProviderPort;
@@ -79,6 +81,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
       generatedAt: this.now(),
+      conversations: this.options.conversations,
     });
     if (this.hasRunningRecoveryWork(recoveryPlan)) {
       this.constructRunningCardActors(recoveryPlan);
@@ -332,6 +335,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification),
       lookup: this.cardActors,
       conversationPublisher: createConversationChangePublisher(this.eventBus),
+      conversations: this.options.conversations,
     };
   }
 

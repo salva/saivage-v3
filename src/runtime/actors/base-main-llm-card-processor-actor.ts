@@ -10,6 +10,7 @@ import type { BufferSizeEstimator, CompactionConfig } from './compaction/compact
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import { listConversationSessionIds, readConversationMessages, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import type { AgentMessage } from '../../schemas/index.js';
+import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
@@ -19,12 +20,14 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   readonly summarizerProvider?: LLMProviderPort;
   readonly bufferSizeEstimator?: BufferSizeEstimator;
   readonly conversationPublisher?: ConversationChangePublisher;
+  readonly conversations: ConversationMutationPort;
   readonly activeLlmActors = new Map<string, LLMActor>();
   #invocationInputCounter = 0;
 
-  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.provider = args.provider;
+    this.conversations = args.conversations;
     this.gate = args.gate ?? new RuntimeGate();
     this.compactor = args.compactor;
     this.compactionConfig = args.compactionConfig;
@@ -36,7 +39,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   protected createMainLlm(agentId: string): LLMActor {
     const existing = this.activeLlmActors.get(agentId);
     if (existing) return existing;
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, conversationPublisher: this.conversationPublisher });
+    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, conversations: this.conversations, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, conversationPublisher: this.conversationPublisher });
     llm.start();
     this.activeLlmActors.set(agentId, llm);
     return llm;
@@ -101,6 +104,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
         projectRoot: this.projectRoot,
         agentId,
         provider: this.provider,
+        conversations: this.conversations,
         gate: this.gate,
         compactor: this.compactor,
         compactionConfig: this.compactionConfig,

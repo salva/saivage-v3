@@ -17,6 +17,7 @@ import { deferred, type Deferred } from './deferred.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
+import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
 
 export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
 
@@ -91,6 +92,7 @@ export interface CardActorDeps {
   notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
   lookup: Map<string, CardActor>;
   conversationPublisher?: ConversationChangePublisher;
+  conversations: ConversationMutationPort;
 }
 
 export class CardActor extends BaseActor {
@@ -420,6 +422,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       store: owner.deps.store,
       children: { get: (childId) => owner.childCardActor(childId) },
       provider: owner.deps.provider,
+      conversations: owner.deps.conversations,
       gate: owner.deps.gate,
       notifyCard: owner.deps.notifyCard,
       mcpManagerProvider: owner.deps.mcpManagerProvider,
@@ -435,6 +438,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
     projectRoot: owner.deps.projectRoot,
     cardId: card.id,
     provider: owner.deps.provider,
+    conversations: owner.deps.conversations,
     processRunner: owner.deps.processRunner,
     gate: owner.deps.gate,
     store: owner.deps.store,
