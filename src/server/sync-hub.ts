@@ -21,21 +21,6 @@ function targetKey(target: LiveSyncInvalidateTarget): string {
   return target.resource === 'conversation' ? `${target.resource}\u0000${target.id}` : target.resource;
 }
 
-function isCardControlAction(event: DomainEvent<LiveSyncEventKind>): boolean {
-  const action = (event.payload as Record<string, unknown>)['action'];
-  return typeof action === 'string' && action.startsWith('card.');
-}
-
-function conversationId(event: DomainEvent<LiveSyncEventKind>): string | null {
-  const id = (event.payload as Record<string, unknown>)['session_id'];
-  return typeof id === 'string' && id ? id : null;
-}
-
-function isCardAnalystTool(event: DomainEvent<LiveSyncEventKind>): boolean {
-  const tool = (event.payload as Record<string, unknown>)['tool'];
-  return typeof tool === 'string' && ['create_card', 'edit_card', 'delete_card', 'reorder_child'].includes(tool);
-}
-
 export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyncInvalidateTarget[] {
   const targets: LiveSyncInvalidateTarget[] = [];
   const add = (target: LiveSyncInvalidateTarget) => targets.push(target);
@@ -46,25 +31,19 @@ export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyn
 
     case 'runtime_actionable_error':
     case 'runtime_diagnostic':
-      add({ resource: 'runtime' });
       add({ resource: 'timeline' });
       break;
 
     case 'notification_added':
     case 'control_action_recorded':
-      if (isCardControlAction(event)) add({ resource: 'cards' });
       add({ resource: 'timeline' });
       break;
 
     case 'analyst_tool_invoked':
-      if (isCardAnalystTool(event)) add({ resource: 'cards' });
       add({ resource: 'timeline' });
       break;
-    case 'conversation_changed': {
-      const id = conversationId(event);
-      if (id) add({ resource: 'conversation', id });
+    case 'conversation_changed':
       break;
-    }
 
 
   }
