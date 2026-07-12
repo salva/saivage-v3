@@ -57,12 +57,32 @@ function optimisticUserMessage(sessionId: string, content: string, timestamp: st
   };
 }
 
+type PendingMessage = {
+  owner: symbol;
+  entry: AgentConversationEntry;
+};
+
+function authoritativeContainsPending(entries: AgentConversationEntry[], pending: AgentConversationEntry): boolean {
+  return entries.some((entry) => entry.id === pending.id || (
+    entry.session_id === pending.session_id
+    && entry.role === 'user'
+    && entry.content === pending.content
+  ));
+}
+
 export const useAnalystChat = defineStore('analyst-chat', () => {
   let sessionsRequestSeq = 0;
   let messagesRequestSeq = 0;
+  let sessionsAbort: AbortController | null = null;
+  let messagesAbort: AbortController | null = null;
   const sessions = ref<ChatSession[]>([]);
   const activeSessionId = ref<string | null>(ANALYST_SESSION_ID);
-  const messages = ref<AgentConversationEntry[]>([]);
+  const authoritativeMessages = ref<AgentConversationEntry[]>([]);
+  const pendingMessages = ref<PendingMessage[]>([]);
+  const messages = computed(() => [
+    ...authoritativeMessages.value,
+    ...pendingMessages.value.map((pending) => pending.entry),
+  ]);
   const draft = ref('');
   const sessionsLoading = ref(false);
   const sessionsError = ref<DetailErrorState | null>(null);
@@ -103,10 +123,13 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   async function fetchSessions(): Promise<void> {
     const requestSeq = ++sessionsRequestSeq;
+    sessionsAbort?.abort();
+    const abort = new AbortController();
+    sessionsAbort = abort;
     sessionsLoading.value = true;
     sessionsError.value = null;
     try {
-      const response = await listChatSessions();
+      const response = await listChatSessions(abort.signal);
       if (requestSeq !== sessionsRequestSeq) return;
       const canonical = response.sessions.find((session) => session.id === ANALYST_SESSION_ID)
         ?? { id: ANALYST_SESSION_ID, role: 'analyst', status: 'active', started_at: nowIso() };
@@ -117,7 +140,10 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       sessionsError.value = buildErrorState(err, 'Failed to load analyst chat sessions.');
       throw err;
     } finally {
-      if (requestSeq === sessionsRequestSeq) sessionsLoading.value = false;
+      if (requestSeq === sessionsRequestSeq) {
+        sessionsLoading.value = false;
+        sessionsAbort = null;
+      }
     }
   }
 
@@ -129,22 +155,30 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   async function fetchMessages(sessionId = activeSessionId.value): Promise<void> {
     const requestSeq = ++messagesRequestSeq;
+    messagesAbort?.abort();
+    const abort = new AbortController();
+    messagesAbort = abort;
     const canonicalSessionId = sessionId === ANALYST_SESSION_ID ? sessionId : ANALYST_SESSION_ID;
     activeSessionId.value = ANALYST_SESSION_ID;
     ensureSessionInList();
     messagesLoading.value = true;
     messagesError.value = null;
     try {
-      const response = await getChatEntries(canonicalSessionId);
+      const response = await getChatEntries(canonicalSessionId, abort.signal);
       if (requestSeq !== messagesRequestSeq || activeSessionId.value !== ANALYST_SESSION_ID) return;
-      messages.value = [...response.entries];
+      authoritativeMessages.value = [...response.entries];
+      pendingMessages.value = pendingMessages.value.filter(
+        (pending) => !authoritativeContainsPending(response.entries, pending.entry),
+      );
     } catch (err) {
       if (requestSeq !== messagesRequestSeq || activeSessionId.value !== ANALYST_SESSION_ID) return;
-      messages.value = [];
       messagesError.value = buildErrorState(err, 'Failed to load analyst chat messages.');
       throw err;
     } finally {
-      if (requestSeq === messagesRequestSeq && activeSessionId.value === ANALYST_SESSION_ID) messagesLoading.value = false;
+      if (requestSeq === messagesRequestSeq && activeSessionId.value === ANALYST_SESSION_ID) {
+        messagesLoading.value = false;
+        messagesAbort = null;
+      }
     }
   }
 
@@ -170,14 +204,16 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     sending.value = true;
     sendError.value = null;
     const previousDraft = draft.value;
-    const previousMessages = messages.value;
+    const pendingOwner = Symbol('analyst-send');
+    let sendAccepted = false;
     try {
       const workspaceRoute = useWorkspaceRouteStore();
       const workspaceContext = workspaceRoute.current ?? { view: null, entityId: null, refinement: null };
       draft.value = '';
       const optimisticMessage = optimisticUserMessage(sessionId, content, nowIso(), messages.value.length);
-      messages.value = [...messages.value, optimisticMessage];
+      pendingMessages.value = [...pendingMessages.value, { owner: pendingOwner, entry: optimisticMessage }];
       const response = await sendChatMessage(sessionId, content, workspaceContext);
+      sendAccepted = true;
       presentRestartAcknowledgement(response.restart);
 
       for (const rawInvocation of response.toolInvocations) {
@@ -190,17 +226,14 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
       try {
         await fetchMessages(response.sessionId);
-      } catch (err) {
-        if (response.restart?.status === 'scheduled') {
-          messages.value = [...previousMessages, optimisticMessage];
-          return;
-        }
-        throw err;
+      } catch {
+        // The send was accepted. Refresh state is reported independently by fetchMessages.
       }
     } catch (err) {
+      if (sendAccepted) throw err;
       sendError.value = buildErrorState(err, 'Failed to send analyst chat message.');
-      draft.value = previousDraft;
-      messages.value = previousMessages;
+      pendingMessages.value = pendingMessages.value.filter((pending) => pending.owner !== pendingOwner);
+      if (draft.value === '') draft.value = previousDraft;
       useFeedbackStore().notifyError('Failed to send Analyst message', sendError.value.message);
       throw err;
     } finally {

@@ -32,6 +32,13 @@ function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEnt
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
 describe('analyst chat store', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -73,7 +80,7 @@ describe('analyst chat store', () => {
     });
     await store.fetchMessages('chat-2');
 
-    expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith('analyst:global');
+    expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith('analyst:global', expect.any(AbortSignal));
     expect(store.activeSessionId).toBe('analyst:global');
   });
 
@@ -123,7 +130,7 @@ describe('analyst chat store', () => {
     await store.sendMessage();
 
     expect(store.restartAcknowledgement).toEqual({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
-    expect(store.messages).toEqual([]);
+    expect(store.messages.map((message) => message.content)).toEqual(['restart it']);
   });
 
   it.each([
@@ -184,8 +191,107 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockRejectedValueOnce(new Error('refetch failed'));
     store.setDraft('restart it');
 
-    await expect(store.sendMessage()).rejects.toThrow('refetch failed');
+    await expect(store.sendMessage()).resolves.toBeUndefined();
 
     expect(store.restartAcknowledgement).toEqual({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    expect(store.sendError).toBeNull();
+    expect(store.messagesError?.message).toBe('refetch failed');
+    expect(store.messages.map((message) => message.content)).toEqual(['restart it']);
+  });
+
+  it('retains pending rows through stale and failed normal refreshes', async () => {
+    const stale = deferred<{ sessionId: string; entries: AgentConversationEntry[] }>();
+    apiMocks.getChatEntries.mockReturnValueOnce(stale.promise);
+    const store = useAnalystChat();
+    const staleFetch = store.fetchMessages();
+    store.setDraft('pending');
+    await store.sendMessage();
+    expect(store.messages.map((message) => message.content)).toEqual(['pending']);
+
+    stale.resolve({ sessionId: 'analyst:global', entries: [] });
+    await staleFetch;
+    expect(store.messages.map((message) => message.content)).toEqual(['pending']);
+
+    apiMocks.getChatEntries.mockRejectedValueOnce(new Error('refresh failed'));
+    await expect(store.fetchMessages()).rejects.toThrow('refresh failed');
+    expect(store.messages.map((message) => message.content)).toEqual(['pending']);
+
+    const accepted = entry({ id: 'accepted-later', content: 'pending' });
+    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [accepted] });
+    await store.fetchMessages();
+    expect(store.messages).toEqual([accepted]);
+  });
+
+  it('aborts superseded session and message requests', () => {
+    apiMocks.listChatSessions.mockReturnValue(new Promise(() => {}));
+    apiMocks.getChatEntries.mockReturnValue(new Promise(() => {}));
+    const store = useAnalystChat();
+    void store.fetchSessions();
+    const firstSessionSignal = apiMocks.listChatSessions.mock.calls[0][0] as AbortSignal;
+    void store.fetchSessions();
+    expect(firstSessionSignal.aborted).toBe(true);
+
+    void store.fetchMessages();
+    const firstMessageSignal = apiMocks.getChatEntries.mock.calls[0][1] as AbortSignal;
+    void store.fetchMessages();
+    expect(firstMessageSignal.aborted).toBe(true);
+  });
+
+  it('reconciles an accepted send only when an authoritative row proves it', async () => {
+    const store = useAnalystChat();
+    store.setDraft('accepted');
+    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [] });
+    await store.sendMessage();
+    expect(store.messages.map((message) => message.content)).toEqual(['accepted']);
+
+    const accepted = entry({ id: 'server-user', content: 'accepted' });
+    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [accepted] });
+    await store.fetchMessages();
+    expect(store.messages).toEqual([accepted]);
+  });
+
+  it('lets the newest normal or send-owned refresh win in either request order', async () => {
+    const store = useAnalystChat();
+    const normalFirst = deferred<{ sessionId: string; entries: AgentConversationEntry[] }>();
+    apiMocks.getChatEntries.mockReturnValueOnce(normalFirst.promise);
+    const oldNormal = store.fetchMessages();
+    store.setDraft('one');
+    await store.sendMessage();
+    normalFirst.resolve({ sessionId: 'analyst:global', entries: [entry({ id: 'stale', content: 'stale' })] });
+    await oldNormal;
+    expect(store.messages.map((message) => message.content)).toEqual(['one']);
+
+    const sendRefresh = deferred<{ sessionId: string; entries: AgentConversationEntry[] }>();
+    apiMocks.getChatEntries.mockReturnValueOnce(sendRefresh.promise);
+    store.setDraft('two');
+    const send = store.sendMessage();
+    await vi.waitFor(() => expect(apiMocks.getChatEntries).toHaveBeenCalledTimes(3));
+    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [entry({ id: 'new', content: 'newest' })] });
+    await store.fetchMessages();
+    sendRefresh.resolve({ sessionId: 'analyst:global', entries: [entry({ id: 'old', content: 'old' })] });
+    await send;
+    expect(store.messages.map((message) => message.content)).toEqual(['newest', 'one', 'two']);
+  });
+
+  it('isolates send failure cleanup and restores its draft only when unchanged', async () => {
+    const store = useAnalystChat();
+    const sendFailure = deferred<never>();
+    apiMocks.sendChatMessage.mockReturnValueOnce(sendFailure.promise);
+    store.setDraft('failed send');
+    const send = store.sendMessage();
+    store.setDraft('new edit');
+    const authoritative = entry({ id: 'server-existing', content: 'existing' });
+    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [authoritative] });
+    await store.fetchMessages();
+    sendFailure.reject(new Error('send failed'));
+    await expect(send).rejects.toThrow('send failed');
+    expect(store.draft).toBe('new edit');
+    expect(store.messages).toEqual([authoritative]);
+
+    apiMocks.sendChatMessage.mockRejectedValueOnce(new Error('again'));
+    store.setDraft('restore me');
+    await expect(store.sendMessage()).rejects.toThrow('again');
+    expect(store.draft).toBe('restore me');
+    expect(store.messages).toEqual([authoritative]);
   });
 });

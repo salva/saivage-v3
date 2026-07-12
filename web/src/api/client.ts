@@ -228,12 +228,12 @@ export function listControlActions(query?: { card_id?: string; since?: string })
   return operatorRequest('controlActions.list', { query });
 }
 
-export function listChatSessions(): Promise<ChatSessionsResponse> {
-  return operatorRequest('chats.list');
+export function listChatSessions(signal?: AbortSignal): Promise<ChatSessionsResponse> {
+  return operatorRequest('chats.list', { signal });
 }
 
-export function getChatEntries(sessionId: string): Promise<ChatEntriesResponse> {
-  return operatorRequest('chats.get', { params: { sessionId } }) as Promise<ChatEntriesResponse>;
+export function getChatEntries(sessionId: string, signal?: AbortSignal): Promise<ChatEntriesResponse> {
+  return operatorRequest('chats.get', { params: { sessionId }, signal }) as Promise<ChatEntriesResponse>;
 }
 
 export function sendChatMessage(sessionId: string, content: string, workspaceContext?: ChatWorkspaceContext): Promise<ChatResponse> {

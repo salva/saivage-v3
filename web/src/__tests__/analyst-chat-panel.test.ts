@@ -55,7 +55,7 @@ describe('AnalystChatPanel', () => {
 
     getChatEntries.mockClear();
     await openConversation.mock.calls[0][1]();
-    expect(getChatEntries).toHaveBeenCalledWith('analyst:global');
+    expect(getChatEntries).toHaveBeenCalledWith('analyst:global', expect.any(AbortSignal));
 
     wrapper.unmount();
     expect(closeConversation).toHaveBeenCalledTimes(1);
