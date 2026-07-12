@@ -1,7 +1,7 @@
 ---
 description: Implementer for Saivage v3 issue fixes. Use when an approved design/plan under docs/working/ is ready to be turned into code, tests, and doc changes.
 mode: subagent
-model: openai/gpt-5.6-terra
+model: openai/gpt-5.6-sol
 temperature: 0.2
 permission:
   edit: allow

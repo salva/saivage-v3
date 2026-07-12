@@ -1,7 +1,7 @@
 ---
 description: Implementation manager for Saivage v3 issue fixes. Use when an approved design/plan under docs/working/ is ready to be executed end to end; it decomposes the plan into ordered tasks and drives them to completion via the developer subagent.
 mode: subagent
-model: openai/gpt-5.6-terra
+model: openai/gpt-5.6-sol
 temperature: 0.2
 permission:
   edit: allow
