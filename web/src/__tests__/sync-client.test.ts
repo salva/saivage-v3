@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import type { LiveSyncInvalidateFrame, WsConnectionState } from '../api/types';
+import type { LiveSyncInvalidateFrame, LiveSyncSubscribedFrame, WsConnectionState } from '../api/types';
 import type { WsConnectionManager, WsEventHandler, WsOpenHandler, WsStateHandler, WsSyncFrameHandler } from '../api/websocket';
 import { SyncClient } from '../sync/client';
 import { useAnalystChat } from '../stores/analystChat';
@@ -33,7 +33,7 @@ function createConn(initial: WsConnectionState = 'offline') {
   return {
     conn,
     emitOpen() { for (const handler of openHandlers) handler(); },
-    emitSync(frame: LiveSyncInvalidateFrame) { for (const handler of syncHandlers) handler(frame); },
+    emitSync(frame: LiveSyncInvalidateFrame | LiveSyncSubscribedFrame) { for (const handler of syncHandlers) handler(frame); },
     emitEvent(envelope: Parameters<WsEventHandler>[0]) { for (const handler of eventHandlers) handler(envelope); },
     setState(state: WsConnectionState) {
       conn.state.value = state;
@@ -106,20 +106,24 @@ describe('SyncClient', () => {
 
     const close = client.openConversation('planner:g1', refetch);
     await flush();
-    expect(conn.sendRaw).toHaveBeenCalledWith({ t: 'subscribe', resource: 'conversation', id: 'planner:g1' });
-    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(conn.sendRaw).not.toHaveBeenCalled();
+    expect(refetch).not.toHaveBeenCalled();
 
     client.start();
     emitOpen();
     await flush();
-    expect(conn.sendRaw).toHaveBeenCalledWith({ t: 'subscribe', resource: 'conversation', id: 'planner:g1' });
+    const subscribe = vi.mocked(conn.sendRaw).mock.calls.at(-1)![0] as { t: string; resource: string; id: string; lease: string };
+    expect(subscribe).toMatchObject({ t: 'subscribe', resource: 'conversation', id: 'planner:g1' });
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'planner:g1', lease: subscribe.lease });
+    await flush();
+    expect(refetch).toHaveBeenCalledTimes(1);
 
     emitSync({ t: 'invalidate', resource: 'conversation', id: 'planner:g1' });
     await flush();
-    expect(refetch).toHaveBeenCalledTimes(3);
+    expect(refetch).toHaveBeenCalledTimes(2);
 
     close();
-    expect(conn.sendRaw).toHaveBeenCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'planner:g1' });
+    expect(conn.sendRaw).toHaveBeenCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'planner:g1', lease: subscribe.lease });
   });
 
   it('refetches conversations only from canonical live-sync invalidate frames', async () => {

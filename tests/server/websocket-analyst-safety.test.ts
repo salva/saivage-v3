@@ -106,12 +106,12 @@ describe('websocket analyst safety and live-sync control', () => {
     const { ws, handlers } = createSocket();
     route.handler(ws, { headers: {}, query: {} });
 
-    handlers.get('message')?.(Buffer.from(JSON.stringify({ t: 'subscribe', resource: 'conversation', id: 'planner:g1' })));
+    handlers.get('message')?.(Buffer.from(JSON.stringify({ t: 'subscribe', resource: 'conversation', id: 'planner:g1', lease: 'lease-1' })));
     await flushQueuedTurn();
     liveSyncSocket.invalidate({ resource: 'conversation', id: 'planner:g1' });
     expect((ws.send as jest.Mock).mock.calls.some((call) => String(call[0]).includes('"resource":"conversation"'))).toBe(true);
 
-    handlers.get('message')?.(Buffer.from(JSON.stringify({ t: 'unsubscribe', resource: 'conversation', id: 'planner:g1' })));
+    handlers.get('message')?.(Buffer.from(JSON.stringify({ t: 'unsubscribe', resource: 'conversation', id: 'planner:g1', lease: 'lease-1' })));
     await flushQueuedTurn();
     const callsBefore = (ws.send as jest.Mock).mock.calls.length;
     liveSyncSocket.invalidate({ resource: 'conversation', id: 'planner:g1' });

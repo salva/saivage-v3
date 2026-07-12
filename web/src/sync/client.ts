@@ -1,6 +1,6 @@
 import { readonly, ref } from 'vue';
 import { getWsConnection, type WsConnectionManager } from '../api/websocket';
-import type { LiveSyncInvalidateFrame, LiveSyncUnscopedResource, WsConnectionState } from '../api/types';
+import type { LiveSyncInvalidateFrame, LiveSyncSubscribedFrame, LiveSyncUnscopedResource, WsConnectionState } from '../api/types';
 import { isAnalystActivityContent, parseAnalystTurnAcknowledgedStatusContent } from '../api/contracts';
 import { useAnalystChat } from '../stores/analystChat';
 import { createLogger } from '../utils/logger';
@@ -25,7 +25,7 @@ const log = createLogger('sync');
 export class SyncClient {
   private readonly conn: WsConnectionManager;
   private readonly resources = new Map<SyncResourceKey, SyncResourceRegistration>();
-  private readonly conversations = new Map<string, () => Promise<void>>();
+  private readonly conversations = new Map<string, { callbacks: Set<() => Promise<void>>; lease: string | null }>();
   private readonly flights = new Map<string, FlightState>();
   private started = false;
 
@@ -91,24 +91,34 @@ export class SyncClient {
   }
 
   openConversation(sessionId: string, refetch: () => Promise<void>): () => void {
-    this.conversations.set(sessionId, refetch);
-    this.conn.sendRaw({ t: 'subscribe', resource: 'conversation', id: sessionId });
-    this.refetchConversation(sessionId);
-    return () => this.closeConversation(sessionId);
+    const entry = this.conversations.get(sessionId) ?? { callbacks: new Set(), lease: null };
+    entry.callbacks.add(refetch);
+    this.conversations.set(sessionId, entry);
+    if (entry.callbacks.size === 1 && this.conn.state.value === 'connected') this.subscribeConversation(sessionId, entry);
+    return () => this.closeConversation(sessionId, refetch);
   }
 
-  closeConversation(sessionId: string): void {
+  closeConversation(sessionId: string, refetch?: () => Promise<void>): void {
+    const entry = this.conversations.get(sessionId);
+    if (!entry) return;
+    if (refetch) entry.callbacks.delete(refetch); else entry.callbacks.clear();
+    if (entry.callbacks.size > 0) return;
     this.conversations.delete(sessionId);
-    this.conn.sendRaw({ t: 'unsubscribe', resource: 'conversation', id: sessionId });
+    if (entry.lease) this.conn.sendRaw({ t: 'unsubscribe', resource: 'conversation', id: sessionId, lease: entry.lease });
   }
 
   sendMessage(text: string): void {
     this.conn.sendMessage(text);
   }
 
-  private handleSyncFrame(frame: LiveSyncInvalidateFrame): void {
+  private handleSyncFrame(frame: LiveSyncInvalidateFrame | LiveSyncSubscribedFrame): void {
     const timestamp = new Date().toISOString();
     this.lastEventAtRef.value = timestamp;
+    if (frame.t === 'subscribed') {
+      const entry = this.conversations.get(frame.id);
+      if (entry?.lease === frame.lease) this.refetchConversation(frame.id);
+      return;
+    }
     if (frame.resource === 'conversation') {
       this.refetchConversation(frame.id);
       return;
@@ -118,11 +128,10 @@ export class SyncClient {
 
   private refetchRegistered(): void {
     for (const key of this.resources.keys()) this.refetchResource(key);
-    for (const sessionId of this.conversations.keys()) this.refetchConversation(sessionId);
   }
 
   private resubscribeConversations(): void {
-    for (const id of this.conversations.keys()) this.conn.sendRaw({ t: 'subscribe', resource: 'conversation', id });
+    for (const [id, entry] of this.conversations) this.subscribeConversation(id, entry);
   }
 
   private refetchResource(resource: SyncResourceKey, invalidatedAt?: string): void {
@@ -132,9 +141,18 @@ export class SyncClient {
   }
 
   private refetchConversation(sessionId: string): void {
-    const refetch = this.conversations.get(sessionId);
-    if (!refetch) return;
-    this.runSingleFlight(`conversation:${sessionId}`, refetch);
+    const entry = this.conversations.get(sessionId);
+    if (!entry) return;
+    this.runSingleFlight(`conversation:${sessionId}`, async () => {
+      await Promise.all([...entry.callbacks].map(async (callback) => {
+        try { await callback(); } catch (error) { log.warn(`Conversation refetch failed for ${sessionId}`, error); }
+      }));
+    });
+  }
+
+  private subscribeConversation(id: string, entry: { callbacks: Set<() => Promise<void>>; lease: string | null }): void {
+    entry.lease = crypto.randomUUID();
+    this.conn.sendRaw({ t: 'subscribe', resource: 'conversation', id, lease: entry.lease });
   }
 
   private runSingleFlight(key: string, refetch: () => Promise<void>, refetchedAt?: string, onRefetch?: (timestamp: string) => void): void {

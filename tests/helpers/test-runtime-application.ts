@@ -18,6 +18,8 @@ import { appendNotificationToActorSnapshot, cardActorId } from '../../src/runtim
 import type { CardNotification } from '../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestPromptTemplateRegistry } from './prompt-template-registry.js';
+import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
+import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -106,6 +108,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
   const availability = new MemoryCandidateAvailability();
   const registry = new ProviderRegistry(config);
   const invocationService = new InvocationService({
+    providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
     projectRoot,
     saivageDir: join(projectRoot, '.saivage'),
     registry,
@@ -152,6 +155,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       const availability = new MemoryCandidateAvailability();
       const registry = new ProviderRegistry(config);
       const invocationService = new InvocationService({
+        providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
         projectRoot,
         saivageDir: join(projectRoot, '.saivage'),
         registry,

@@ -3,9 +3,9 @@ import type { OperatorBroadcastEventKind } from '../events/index.js';
 import type { LiveSyncInvalidateTarget } from '../contracts/index.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { LiveSyncSocket } from './live-sync-socket.js';
+import type { ReadModelChangeListener } from '../application/read-model-changes.js';
 
 export const liveSyncEventKinds = [
-  'card_history_appended',
   'mcp_tool_invocation',
   'runtime_actionable_error',
   'runtime_diagnostic',
@@ -21,20 +21,14 @@ function targetKey(target: LiveSyncInvalidateTarget): string {
   return target.resource === 'conversation' ? `${target.resource}\u0000${target.id}` : target.resource;
 }
 
-function sessionIdFrom(event: DomainEvent<LiveSyncEventKind>): string | null {
-  const source = {
-    ...(event.payload as Record<string, unknown>),
-    ...(event as unknown as Record<string, unknown>),
-  };
-  const direct = source['session_id'];
-  if (typeof direct === 'string' && direct) return direct;
-  const camel = source['sessionId'];
-  return typeof camel === 'string' && camel ? camel : null;
-}
-
 function isCardControlAction(event: DomainEvent<LiveSyncEventKind>): boolean {
   const action = (event.payload as Record<string, unknown>)['action'];
   return typeof action === 'string' && action.startsWith('card.');
+}
+
+function conversationId(event: DomainEvent<LiveSyncEventKind>): string | null {
+  const id = (event.payload as Record<string, unknown>)['session_id'];
+  return typeof id === 'string' && id ? id : null;
 }
 
 function isCardAnalystTool(event: DomainEvent<LiveSyncEventKind>): boolean {
@@ -45,15 +39,7 @@ function isCardAnalystTool(event: DomainEvent<LiveSyncEventKind>): boolean {
 export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyncInvalidateTarget[] {
   const targets: LiveSyncInvalidateTarget[] = [];
   const add = (target: LiveSyncInvalidateTarget) => targets.push(target);
-  const addConversation = () => {
-    const id = sessionIdFrom(event);
-    if (id) add({ resource: 'conversation', id });
-  };
-
   switch (event.kind) {
-    case 'card_history_appended':
-      add({ resource: 'cards' });
-      break;
 
     case 'mcp_tool_invocation':
       break;
@@ -74,17 +60,19 @@ export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyn
       if (isCardAnalystTool(event)) add({ resource: 'cards' });
       add({ resource: 'timeline' });
       break;
-
-    case 'conversation_changed':
-      addConversation();
+    case 'conversation_changed': {
+      const id = conversationId(event);
+      if (id) add({ resource: 'conversation', id });
       break;
+    }
+
 
   }
 
   return targets;
 }
 
-export class SyncHub {
+export class SyncHub implements ReadModelChangeListener {
   private readonly pending = new Map<string, LiveSyncInvalidateTarget>();
   private readonly subscriptions = new Map<object, Subscription>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -121,6 +109,11 @@ export class SyncHub {
   subscriptionCount(): number {
     return this.subscriptions.size;
   }
+
+  runtimeChanged(): void { this.markDirty({ resource: 'runtime' }); }
+  cardStateChanged(): void { this.markDirty({ resource: 'cards' }); }
+  agentsChanged(): void { this.markDirty({ resource: 'agents' }); }
+  conversationChanged(id: string): void { this.markDirty({ resource: 'conversation', id }); }
 
   private markDirty(target: LiveSyncInvalidateTarget): void {
     this.pending.set(targetKey(target), target);

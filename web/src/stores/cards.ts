@@ -66,7 +66,9 @@ export function buildTree(cards: CardRecord[]): CardRecord[] {
   const roots: CardRecord[] = [];
 
   for (const card of cards) {
-    byId.set(card.id, { ...card, children: [] });
+    const node = card as CardRecord & { children?: CardRecord[] };
+    node.children = [];
+    byId.set(card.id, node);
   }
 
   for (const card of byId.values()) {
@@ -263,11 +265,16 @@ export function toCardDetailViewModel(response: { card: CardRecord; children: Ca
 
 export const useCardStore = defineStore('cards', () => {
   let cardDetailRequestSeq = 0;
+  let cardsRequestSeq = 0;
+  let cardsRequestController: AbortController | null = null;
+  let detailRequestController: AbortController | null = null;
   let cardHistoryRequestSeq = 0;
   let cardHistoryEntryRequestSeq = 0;
   const cards = ref<CardRecord[]>([]);
   const total = ref(0);
   const loading = ref(false);
+  const refreshing = ref(false);
+  const refreshError = ref<string | null>(null);
   const error = ref<string | null>(null);
 
   const currentCard = ref<CardRecord | null>(null);
@@ -421,24 +428,40 @@ export const useCardStore = defineStore('cards', () => {
   /* ── Fetch actions ── */
 
   async function fetchCards(): Promise<void> {
-    loading.value = true;
-    error.value = null;
+    const requestSeq = ++cardsRequestSeq;
+    cardsRequestController?.abort();
+    cardsRequestController = new AbortController();
+    const initial = cards.value.length === 0;
+    if (initial) loading.value = true; else refreshing.value = true;
+    if (initial) error.value = null; else refreshError.value = null;
     try {
-      const response: CardListResponse = await listCards();
-      cards.value = response.cards;
+      const response: CardListResponse = await listCards(cardsRequestController.signal);
+      if (requestSeq !== cardsRequestSeq) return;
+      const existing = new Map(cards.value.map((card) => [card.id, card]));
+      cards.value = response.cards.map((next) => {
+        const current = existing.get(next.id);
+        if (!current) return next;
+        Object.assign(current, next);
+        return current;
+      });
       total.value = response.total;
+      error.value = null;
+      refreshError.value = null;
     } catch (err) {
+      if (requestSeq !== cardsRequestSeq || (err instanceof DOMException && err.name === 'AbortError')) return;
       const msg = errorMessage(err, 'Failed to fetch cards');
-      error.value = msg;
+      if (initial) error.value = msg; else refreshError.value = msg;
       log.error('fetchCards', msg);
       throw err;
     } finally {
-      loading.value = false;
+      if (requestSeq === cardsRequestSeq) { loading.value = false; refreshing.value = false; }
     }
   }
 
   async function fetchCardDetail(id: string): Promise<void> {
     const requestSeq = ++cardDetailRequestSeq;
+    detailRequestController?.abort();
+    detailRequestController = new AbortController();
     ++cardHistoryRequestSeq;
     ++cardHistoryEntryRequestSeq;
     if (currentCard.value?.id !== id) clearCurrentDetail();
@@ -446,7 +469,7 @@ export const useCardStore = defineStore('cards', () => {
     error.value = null;
     currentDetailError.value = null;
     try {
-      const response: CardDetailResponse = await getCard(id);
+      const response: CardDetailResponse = await getCard(id, detailRequestController.signal);
       if (requestSeq !== cardDetailRequestSeq) return;
       const viewModel = toCardDetailViewModel(response);
       currentCard.value = viewModel.card;
@@ -496,6 +519,8 @@ export const useCardStore = defineStore('cards', () => {
     cards,
     total,
     loading,
+    refreshing,
+    refreshError,
     error,
     currentCard,
     currentChildren,

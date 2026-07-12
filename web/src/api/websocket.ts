@@ -12,7 +12,7 @@
 import type { WsConnectionState, WsEnvelope } from './types';
 import { issueWebSocketTicket } from './client';
 import { getAuthToken } from './auth';
-import { buildInboundAnalystMessageEnvelope, LiveSyncInvalidateFrameSchema, parseKnownWsEnvelope, parseWsEnvelope, type LiveSyncInvalidateFrame } from './contracts';
+import { buildInboundAnalystMessageEnvelope, LiveSyncInvalidateFrameSchema, LiveSyncSubscribedFrameSchema, parseKnownWsEnvelope, parseWsEnvelope, type LiveSyncInvalidateFrame, type LiveSyncSubscribedFrame } from './contracts';
 import { createLogger } from '../utils/logger';
 
 // ── Re-export auth helper ────────────────────────────────────
@@ -24,7 +24,7 @@ export { getAuthToken };
 export type WsEventHandler = (envelope: WsEnvelope) => void;
 export type WsStateHandler = (state: WsConnectionState) => void;
 export type WsOpenHandler = () => void;
-export type WsSyncFrameHandler = (frame: LiveSyncInvalidateFrame) => void;
+export type WsSyncFrameHandler = (frame: LiveSyncInvalidateFrame | LiveSyncSubscribedFrame) => void;
 
 export interface WsConnectionManager {
   /** Current connection state (reactive ref). */
@@ -183,9 +183,11 @@ export function createWsConnection(): WsConnectionManager {
             : new TextDecoder().decode(event.data as ArrayBuffer);
           const rawEnvelope = JSON.parse(data) as unknown;
           const syncFrame = LiveSyncInvalidateFrameSchema.safeParse(rawEnvelope);
-          if (syncFrame.success) {
+          const subscribedFrame = LiveSyncSubscribedFrameSchema.safeParse(rawEnvelope);
+          if (syncFrame.success || subscribedFrame.success) {
+            const frame = syncFrame.success ? syncFrame.data : subscribedFrame.data!;
             for (const handler of syncHandlers) {
-              try { handler(syncFrame.data); } catch (err) { log.error('WS sync frame handler error', err); }
+              try { handler(frame); } catch (err) { log.error('WS sync frame handler error', err); }
             }
             return;
           }

@@ -79,6 +79,7 @@ async function request<T>(
   query?: Record<string, string>,
   body?: unknown,
   operationId?: OperatorApiOperationId,
+  signal?: AbortSignal,
 ): Promise<T> {
   const url = new URL(path, window.location.origin);
   if (query) {
@@ -92,6 +93,7 @@ async function request<T>(
   const init: RequestInit = {
     method,
     headers: authHeaders(),
+    signal,
   };
 
   if (body !== undefined && method !== 'GET' && method !== 'HEAD') {
@@ -133,6 +135,7 @@ type OperatorRequestOptions<K extends OperatorApiOperationId> = {
   params?: OperatorApiParams<K>;
   query?: Record<string, string | undefined>;
   body?: OperatorApiBody<K>;
+  signal?: AbortSignal;
 };
 
 function buildOperatorPath<K extends OperatorApiOperationId>(operationId: K, params?: OperatorApiParams<K>): string {
@@ -164,6 +167,7 @@ function operatorRequest<K extends OperatorApiOperationId>(
     normalizeQuery(options.query),
     options.body,
     operationId,
+    options.signal,
   );
 }
 
@@ -172,12 +176,12 @@ export function issueWebSocketTicket(): Promise<OperatorApiSuccess<'auth.wsTicke
   return operatorRequest('auth.wsTicket');
 }
 
-export function listCards(): Promise<CardListResponse> {
-  return operatorRequest('cards.list');
+export function listCards(signal?: AbortSignal): Promise<CardListResponse> {
+  return operatorRequest('cards.list', { signal });
 }
 
-export function getCard(id: string): Promise<CardDetailResponse> {
-  return operatorRequest('cards.get', { params: { id } }) as Promise<CardDetailResponse>;
+export function getCard(id: string, signal?: AbortSignal): Promise<CardDetailResponse> {
+  return operatorRequest('cards.get', { params: { id }, signal }) as Promise<CardDetailResponse>;
 }
 
 export function listCardHistory(id: string): Promise<CardHistoryListResponse> {
@@ -198,8 +202,8 @@ export function getCardDiff(id: string, from: number, to: number): Promise<CardD
 
 
 
-export function getRuntimeState(): Promise<RuntimeStateResponse> {
-  return operatorRequest('runtime.getState');
+export function getRuntimeState(signal?: AbortSignal): Promise<RuntimeStateResponse> {
+  return operatorRequest('runtime.getState', { signal });
 }
 
 
@@ -208,12 +212,12 @@ export function getRuntimeState(): Promise<RuntimeStateResponse> {
 
 
 
-export function listAgentSessions(): Promise<AgentSessionsResponse> {
-  return operatorRequest('agents.list') as Promise<AgentSessionsResponse>;
+export function listAgentSessions(signal?: AbortSignal): Promise<AgentSessionsResponse> {
+  return operatorRequest('agents.list', { signal }) as Promise<AgentSessionsResponse>;
 }
 
-export function getAgentConversation(sessionId: string): Promise<AgentConversationResponse> {
-  return operatorRequest('agents.conversation', { params: { id: sessionId } }) as Promise<AgentConversationResponse>;
+export function getAgentConversation(sessionId: string, signal?: AbortSignal): Promise<AgentConversationResponse> {
+  return operatorRequest('agents.conversation', { params: { id: sessionId }, signal }) as Promise<AgentConversationResponse>;
 }
 
 export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: ProviderExchangePayload }> {

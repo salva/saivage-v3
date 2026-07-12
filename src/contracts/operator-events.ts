@@ -12,12 +12,14 @@ export const LiveSyncInvalidateFrameSchema = z.union([
   z.object({ t: z.literal('invalidate'), resource: LiveSyncUnscopedResourceSchema }).strict(),
   z.object({ t: z.literal('invalidate'), resource: z.literal('conversation'), id: z.string().min(1) }).strict(),
 ]);
-export const LiveSyncSubscribeFrameSchema = z.object({ t: z.literal('subscribe'), resource: z.literal('conversation'), id: z.string().min(1) }).strict();
-export const LiveSyncUnsubscribeFrameSchema = z.object({ t: z.literal('unsubscribe'), resource: z.literal('conversation'), id: z.string().min(1) }).strict();
+export const LiveSyncSubscribedFrameSchema = z.object({ t: z.literal('subscribed'), resource: z.literal('conversation'), id: z.string().min(1), lease: z.string().min(1) }).strict();
+export const LiveSyncSubscribeFrameSchema = z.object({ t: z.literal('subscribe'), resource: z.literal('conversation'), id: z.string().min(1), lease: z.string().min(1) }).strict();
+export const LiveSyncUnsubscribeFrameSchema = z.object({ t: z.literal('unsubscribe'), resource: z.literal('conversation'), id: z.string().min(1), lease: z.string().min(1) }).strict();
 export const LiveSyncClientFrameSchema = z.union([LiveSyncSubscribeFrameSchema, LiveSyncUnsubscribeFrameSchema]);
 
 export type LiveSyncUnscopedResource = z.infer<typeof LiveSyncUnscopedResourceSchema>;
 export type LiveSyncInvalidateFrame = z.infer<typeof LiveSyncInvalidateFrameSchema>;
+export type LiveSyncSubscribedFrame = z.infer<typeof LiveSyncSubscribedFrameSchema>;
 export type LiveSyncClientFrame = z.infer<typeof LiveSyncClientFrameSchema>;
 export type LiveSyncInvalidateTarget = LiveSyncInvalidateFrame extends infer T
   ? T extends { t: 'invalidate' }

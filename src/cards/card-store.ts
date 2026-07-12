@@ -37,6 +37,7 @@ import {
 } from './lifecycle.js';
 import type { CardNotification } from '../runtime/actors/card-actor.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
+import { ReadModelChangeBroadcaster, type ReadModelChanges } from '../application/read-model-changes.js';
 
 export type { CardMutationContext };
 
@@ -56,10 +57,12 @@ export class CardStore {
   private readonly historyReader: CardHistoryReader;
   private readonly lifecycleCommands: CardLifecycleCommands;
   private readonly eventBus: EventBus;
+  private readonly readModelChanges: ReadModelChanges;
 
-  constructor(projectRoot: string, eventBus?: EventBus) {
+  constructor(projectRoot: string, eventBus?: EventBus, readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster()) {
     this.projectRoot = projectRoot;
     this.eventBus = eventBus ?? new EventBus();
+    this.readModelChanges = readModelChanges;
     this.maxDepth = 5;
     this.projectLock = new ProjectLock(projectMutationLockFile(projectRoot));
     repairSiblingPositions(projectRoot, this.maxDepth, this.projectLock, this.eventBus);
@@ -185,7 +188,10 @@ export class CardStore {
   // ── Mutations ────────────────────────────────────────────────
 
   create(input: NewCardInput): CardRecord {
-    return this.lifecycleCommands.create(input);
+    const result = this.lifecycleCommands.create(input);
+    this.readModelChanges.cardStateChanged();
+    this.readModelChanges.runtimeChanged();
+    return result;
   }
 
   update(id: string, changes: Partial<CardRecord>): CardRecord {
@@ -234,10 +240,17 @@ export class CardStore {
 
   delete(id: string): void {
     this.archiveService.delete(id);
+    this.readModelChanges.cardStateChanged();
+    this.readModelChanges.runtimeChanged();
+    this.readModelChanges.agentsChanged();
   }
 
   archiveAndDeleteSubtree(ids: string[]): void {
     this.archiveService.archiveAndDeleteSubtree(ids);
+    if (ids.length === 0) return;
+    this.readModelChanges.cardStateChanged();
+    this.readModelChanges.runtimeChanged();
+    this.readModelChanges.agentsChanged();
   }
 
 
@@ -250,7 +263,16 @@ export class CardStore {
     historyKind: 'update' | 'status' | 'mutate' | 'depends',
     ctx: CardMutationContext,
   ): CardRecord {
-    return this.patchService.applyPatch(id, changes, historyKind, ctx);
+    const before = this.read(id);
+    const result = this.patchService.applyPatch(id, changes, historyKind, ctx);
+    this.readModelChanges.cardStateChanged();
+    if (before && result.status !== before.status) {
+      this.readModelChanges.runtimeChanged();
+      this.readModelChanges.agentsChanged();
+    } else if (before && result.type !== before.type) {
+      this.readModelChanges.runtimeChanged();
+    }
+    return result;
   }
 
   // ── Test helpers ────────────────────────────────────────────

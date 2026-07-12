@@ -21,6 +21,8 @@ import { ProcessRunner } from '../runtime/process-runner.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
+import type { ReadModelChanges } from './read-model-changes.js';
+import { createProviderExchangeMutationPort } from '../persistence/provider-exchange-mutation-port.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -55,6 +57,7 @@ export interface RuntimeApplicationServices {
   runtimeApiFactory?: (deps: RuntimeApiFactoryDeps) => RuntimeApi;
   restartServerAvailable?: boolean;
   restartPort?: RestartPort;
+  readModelChanges: ReadModelChanges;
 }
 
 function buildAnalystDeps(input: {
@@ -107,6 +110,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     router,
     eventLogger,
     candidateAvailability,
+    providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, services.readModelChanges),
   });
   const processRunner = new ProcessRunner(projectRoot);
   const runtimeGate = new RuntimeGate();

@@ -11,7 +11,7 @@ function isOpen(ws: WebSocket): boolean {
 
 export class LiveSyncSocket {
   private readonly clients = new Set<WebSocket>();
-  private readonly conversationSubscriptions = new WeakMap<WebSocket, Set<string>>();
+  private readonly conversationSubscriptions = new WeakMap<WebSocket, Map<string, string>>();
 
   add(ws: WebSocket): void {
     this.clients.add(ws);
@@ -45,9 +45,12 @@ export class LiveSyncSocket {
   handleClientFrame(ws: WebSocket, input: unknown): boolean {
     const frame = parseLiveSyncClientFrame(input);
     if (!frame) return false;
-    const set = this.conversationSubscriptions.get(ws) ?? new Set<string>();
-    if (frame.t === 'subscribe') set.add(scopedKey({ resource: 'conversation', id: frame.id }));
-    else set.delete(scopedKey({ resource: 'conversation', id: frame.id }));
+    const set = this.conversationSubscriptions.get(ws) ?? new Map<string, string>();
+    const key = scopedKey({ resource: 'conversation', id: frame.id });
+    if (frame.t === 'subscribe') {
+      set.set(key, frame.lease);
+      this.sendRaw(ws, JSON.stringify({ t: 'subscribed', resource: 'conversation', id: frame.id, lease: frame.lease }));
+    } else if (set.get(key) === frame.lease) set.delete(key);
     if (set.size > 0) this.conversationSubscriptions.set(ws, set);
     else this.conversationSubscriptions.delete(ws);
     return true;

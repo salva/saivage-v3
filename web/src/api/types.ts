@@ -50,6 +50,7 @@ export type {
   NoteAuthor,
   LiveSyncClientFrame,
   LiveSyncInvalidateFrame,
+  LiveSyncSubscribedFrame,
   LiveSyncInvalidateTarget,
   LiveSyncUnscopedResource,
   ServerAvailability,

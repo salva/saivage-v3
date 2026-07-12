@@ -23,6 +23,7 @@ import { createRuntimeApplication } from '../../src/application/runtime-composit
 import { EventBus } from '../../src/events/bus.js';
 import { EventLogger, ErrorLogger } from '../../src/observability/index.js';
 import type { CardLifecycleState, CardStatus } from '../../src/schemas/index.js';
+import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { readDeletedCardIds } from '../../src/persistence/deleted-card-ids.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
@@ -386,7 +387,7 @@ describe('Reconfigure MCP live manager refresh', () => {
       try {
         const config = loadTestConfig(root);
       const eventBus = new EventBus();
-      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus) });
+      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
       const mcpManager = new McpManager(root, { config });
       const depsBeforeMcp = runtimeApplication.analystDeps;
       expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);
@@ -418,7 +419,7 @@ describe('internal runtime shutdown', () => {
   it('cleans runtime-owned processes during application disposal without an Analyst tool', async () => {
     const root = setupRoot();
     const eventBus = new EventBus();
-    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus) });
+    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
     try {
       await runtimeApplication.runtimeApi.start();
       const process = runtimeApplication.processRunner.spawn({ command: 'sleep 30', cardId: null, ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: false });

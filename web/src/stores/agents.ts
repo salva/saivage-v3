@@ -16,7 +16,9 @@ export const useAgentStore = defineStore('agents', () => {
   const activityStatus = ref<ActivityStatus>(idleActivity());
   const currentSession = ref<AgentSession | null>(null);
   const loading = ref(false);
+  const refreshing = ref(false);
   const error = ref<string | null>(null);
+  const refreshError = ref<string | null>(null);
   const lastFetchedAt = ref<string | null>(null);
   const lastWsEventAt = ref<string | null>(null);
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
@@ -29,6 +31,8 @@ export const useAgentStore = defineStore('agents', () => {
   let sessionsRequestSeq = 0;
   let conversationRequestSeq = 0;
   let exchangeRequestSeq = 0;
+  let sessionsController: AbortController | null = null;
+  let conversationController: AbortController | null = null;
 
   const isStale = computed(() => { const latest = lastWsEventAt.value ?? lastFetchedAt.value; return latest ? Date.now() - new Date(latest).getTime() > STALE_AFTER_MS : false; });
   const sessionsByRole = computed<Map<AgentRole, AgentSession[]>>(() => { const map = new Map<AgentRole, AgentSession[]>(); for (const session of sessions.value) { const list = map.get(session.role) ?? []; list.push(session); map.set(session.role, list); } return map; });
@@ -41,27 +45,31 @@ export const useAgentStore = defineStore('agents', () => {
 
   async function fetchSessions(): Promise<void> {
     const requestSeq = ++sessionsRequestSeq;
-    loading.value = true; error.value = null; unauthorized.value = false;
-    try { const response = await listAgentSessions(); if (requestSeq !== sessionsRequestSeq) return; sessions.value = response.sessions; markRestSync(); }
-    catch (err) { if (requestSeq !== sessionsRequestSeq) return; const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent sessions'; error.value = msg; unauthorized.value = err instanceof ApiError && err.isUnauthorized; log.error('fetchSessions', msg); throw err; }
-    finally { if (requestSeq === sessionsRequestSeq) loading.value = false; }
+    sessionsController?.abort(); sessionsController = new AbortController();
+    const initial = sessions.value.length === 0;
+    if (initial) loading.value = true; else refreshing.value = true;
+    if (initial) error.value = null; else refreshError.value = null; unauthorized.value = false;
+    try { const response = await listAgentSessions(sessionsController.signal); if (requestSeq !== sessionsRequestSeq) return; const existing = new Map(sessions.value.map((session) => [session.id, session])); sessions.value = response.sessions.map((next) => { const current = existing.get(next.id); if (!current) return next; Object.assign(current, next); return current; }); error.value = null; refreshError.value = null; markRestSync(); }
+    catch (err) { if (requestSeq !== sessionsRequestSeq || (err instanceof DOMException && err.name === 'AbortError')) return; const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent sessions'; if (initial) error.value = msg; else refreshError.value = msg; unauthorized.value = err instanceof ApiError && err.isUnauthorized; log.error('fetchSessions', msg); throw err; }
+    finally { if (requestSeq === sessionsRequestSeq) { loading.value = false; refreshing.value = false; } }
   }
 
   async function fetchConversation(sessionId: string): Promise<void> {
     const requestSeq = ++conversationRequestSeq;
-    clearLlmExchange(); loading.value = true; error.value = null; conversationWarning.value = null; unauthorized.value = false;
+    conversationController?.abort(); conversationController = new AbortController();
+    clearLlmExchange(); const initial = currentSession.value?.id !== sessionId; if (initial) loading.value = true; else refreshing.value = true; if (initial) error.value = null; else refreshError.value = null; unauthorized.value = false;
     try {
-      const response = await getAgentConversation(sessionId);
+      const response = await getAgentConversation(sessionId, conversationController.signal);
       if (requestSeq !== conversationRequestSeq) return;
       const conversationEntries = response.entries;
-      currentSession.value = response.session;
+      if (currentSession.value?.id === response.session.id) Object.assign(currentSession.value, response.session); else currentSession.value = response.session;
       entries.value = conversationEntries;
       activityStatus.value = response.activity_status;
       if (conversationEntries.length === 0) conversationWarning.value = 'No recorded conversation entries were returned for this session.';
       else if (conversationEntries.some((entry) => entry.kind === 'model_issue')) conversationWarning.value = 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.';
       markRestSync();
-    } catch (err) { if (requestSeq !== conversationRequestSeq) return; const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent conversation'; error.value = msg; unauthorized.value = err instanceof ApiError && err.isUnauthorized; log.error('fetchConversation', msg); throw err; }
-    finally { if (requestSeq === conversationRequestSeq) loading.value = false; }
+    } catch (err) { if (requestSeq !== conversationRequestSeq || (err instanceof DOMException && err.name === 'AbortError')) return; const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent conversation'; if (initial) error.value = msg; else refreshError.value = msg; unauthorized.value = err instanceof ApiError && err.isUnauthorized; log.error('fetchConversation', msg); throw err; }
+    finally { if (requestSeq === conversationRequestSeq) { loading.value = false; refreshing.value = false; } }
   }
   const refreshConversation = fetchConversation;
 
@@ -71,5 +79,5 @@ export const useAgentStore = defineStore('agents', () => {
   async function refetchConversation(sessionId = currentSession.value?.id): Promise<void> { if (sessionId) await fetchConversation(sessionId); }
   async function refetch(): Promise<void> { await fetchSessions(); if (currentSession.value?.id) await refetchConversation(currentSession.value.id); }
 
-  return { sessions, entries, activityStatus, currentSession, loading, error, lastFetchedAt, lastWsEventAt, lastUpdatedBy, unauthorized, conversationWarning, currentLlmExchange, llmExchangeLoading, llmExchangeError, llmExchangeSessionId, sessionsByRole, activeSessions, completedSessions, attentionSessions, isStale, fetchSessions, fetchConversation, refreshConversation, refetchConversation, refetch, fetchLlmExchange, clearLlmExchange, markWsSync };
+  return { sessions, entries, activityStatus, currentSession, loading, refreshing, error, refreshError, lastFetchedAt, lastWsEventAt, lastUpdatedBy, unauthorized, conversationWarning, currentLlmExchange, llmExchangeLoading, llmExchangeError, llmExchangeSessionId, sessionsByRole, activeSessions, completedSessions, attentionSessions, isStale, fetchSessions, fetchConversation, refreshConversation, refetchConversation, refetch, fetchLlmExchange, clearLlmExchange, markWsSync };
 });

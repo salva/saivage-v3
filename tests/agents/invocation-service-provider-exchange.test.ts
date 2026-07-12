@@ -12,6 +12,8 @@ import { createInvocationServiceProvider } from '../../src/application/micro-act
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { LLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { readActorSnapshots } from '../../src/runtime/actors/snapshots.js';
+import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
+import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
 
 const candidates: Candidate[] = [
   { provider: 'a', account: null, model: 'm-a' },
@@ -53,8 +55,10 @@ function request(): InvocationRequest {
 
 describe('InvocationService provider exchange accumulation', () => {
   it('accumulates failed attempts before later success and normalizes attempt indexes', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-test-'));
     const service = new InvocationService({
-      projectRoot: mkdtempSync(join(tmpdir(), 'saivage-invoke-test-')),
+      providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
+      projectRoot,
       saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-state-')),
       registry: {} as never,
       router: { resolve: async () => candidates, getLastCapabilitySkips: () => [] } as never,
@@ -78,6 +82,7 @@ describe('InvocationService provider exchange accumulation', () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const service = new InvocationService({
+        providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
         projectRoot,
         saivageDir,
         registry: {} as never,

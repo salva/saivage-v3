@@ -7,6 +7,8 @@ import { MemoryCandidateAvailability } from '../../src/agents/candidate-availabi
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { ProviderTurnFailure, type LlmCallFn } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
+import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
+import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
 
 const candidate: Candidate = { provider: 'p', account: null, model: 'm' };
 const alternate: Candidate = { provider: 'alt', account: null, model: 'm-alt' };
@@ -29,8 +31,10 @@ function request(chain: Candidate[] = [candidate], signal?: AbortSignal): Invoca
 
 function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvailability; llmCallFn?: LlmCallFn } = {}): InvocationService {
   const chain = args.chain ?? [candidate];
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-'));
   return new InvocationService({
-    projectRoot: mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-')),
+    providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
+    projectRoot,
     saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-state-')),
     registry: {} as never,
     router: { resolve: async () => chain, getLastCapabilitySkips: () => [] } as never,

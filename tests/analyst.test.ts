@@ -584,7 +584,7 @@ describe('API Chat and WebSocket Integration', () => {
       }
       if (!welcomed && data.content?.event === 'connected') {
         welcomed = true;
-        ws.send(JSON.stringify({ t: 'subscribe', resource: 'conversation', id: 'analyst:global' }));
+        ws.send(JSON.stringify({ t: 'subscribe', resource: 'conversation', id: 'analyst:global', lease: 'test-lease' }));
         void fetchAnalystGlobalEntries()
           .then((entries) => {
             if (settled) return;

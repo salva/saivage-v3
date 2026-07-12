@@ -49,12 +49,16 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const cardIndex = ref<CardIndex>({ total: 0, byStatus: {}, byType: {} });
   const serverAvailability = ref<ServerAvailability | null>(null);
   const loading = ref(false);
+  const refreshing = ref(false);
+  const refreshError = ref<string | null>(null);
   const error = ref<string | null>(null);
   const lastFetchedAt = ref<string | null>(null);
   const lastWsEventAt = ref<string | null>(null);
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
   const unauthorized = ref(false);
   const lastActionableError = ref<ActionableErrorEnvelope | null>(null);
+  let requestEpoch = 0;
+  let requestController: AbortController | null = null;
 
   const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'stopped');
   const isRunning = computed(() => status.value === 'running');
@@ -123,11 +127,16 @@ export const useRuntimeStore = defineStore('runtime', () => {
   }
 
   async function fetchState(): Promise<void> {
-    loading.value = true;
-    error.value = null;
+    const epoch = ++requestEpoch;
+    requestController?.abort();
+    requestController = new AbortController();
+    const initial = runtime.value === null;
+    if (initial) loading.value = true; else refreshing.value = true;
+    if (initial) error.value = null; else refreshError.value = null;
     unauthorized.value = false;
     try {
-      const response = await getRuntimeState();
+      const response = await getRuntimeState(requestController.signal);
+      if (epoch !== requestEpoch) return;
       runtime.value = response.runtime;
       projectRoot.value = response.projectRoot;
       projectId.value = response.projectId;
@@ -135,9 +144,12 @@ export const useRuntimeStore = defineStore('runtime', () => {
       cardIndex.value = response.cardIndex;
       serverAvailability.value = response.serverAvailability ?? null;
       markRestSync();
+      error.value = null;
+      refreshError.value = null;
     } catch (err) {
+      if (epoch !== requestEpoch || (err instanceof DOMException && err.name === 'AbortError')) return;
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch runtime state';
-      error.value = msg;
+      if (initial) error.value = msg; else refreshError.value = msg;
       unauthorized.value = err instanceof ApiError && err.isUnauthorized;
       if (unauthorized.value) {
         projectRoot.value = null;
@@ -146,7 +158,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
       log.error('fetchState', msg);
       throw err;
     } finally {
-      loading.value = false;
+      if (epoch === requestEpoch) {
+        loading.value = false;
+        refreshing.value = false;
+      }
     }
   }
   const refetch = fetchState;
@@ -159,6 +174,8 @@ export const useRuntimeStore = defineStore('runtime', () => {
     serverAvailability: readonly(serverAvailability),
     lastActionableError: readonly(lastActionableError),
     loading: readonly(loading),
+    refreshing: readonly(refreshing),
+    refreshError: readonly(refreshError),
     error: readonly(error),
     lastFetchedAt: readonly(lastFetchedAt),
     lastWsEventAt: readonly(lastWsEventAt),

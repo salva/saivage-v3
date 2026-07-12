@@ -16,6 +16,7 @@ import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
 import { startTelegramNotifications } from './telegram-lifecycle.js';
+import { ReadModelChangeBroadcaster, type ReadModelChangeSubscription } from '../../application/read-model-changes.js';
 
 export interface ServerServices {
   projectRoot: string;
@@ -30,15 +31,18 @@ export interface ServerServices {
   mcpManager: McpManager;
   liveSyncSocket: LiveSyncSocket;
   syncHub: SyncHub;
+  readModelChanges: ReadModelChangeBroadcaster;
+  readModelChangeSubscription: ReadModelChangeSubscription | null;
   authPolicy: AuthPolicy;
   telegramBot?: TelegramBot;
   stop(): Promise<void>;
 }
 
 async function stopServerResources(services: Omit<ServerServices, 'stop'>): Promise<void> {
-  const { projectRoot, fastify, runtimeApplication, mcpManager, telegramBot, liveSyncSocket, syncHub } = services;
-  liveSyncSocket.dispose();
-  syncHub.dispose(runtimeApplication.runtimeApi);
+  const { projectRoot, fastify, runtimeApplication, mcpManager, telegramBot, syncHub } = services;
+  services.readModelChangeSubscription?.unsubscribe();
+  services.readModelChangeSubscription = null;
+  syncHub.dispose();
   clearProjectNotificationDeliveryAdapters(projectRoot);
   clearProjectNotificationEventBus(projectRoot);
 
@@ -89,13 +93,13 @@ export async function createServerServices(input: {
   const saivageDir = join(projectRoot, '.saivage');
   const eventLogger = new EventLogger(saivageDir);
   const errorLogger = new ErrorLogger(saivageDir);
-  const cardStore = new CardStore(projectRoot, eventBus);
+  const readModelChanges = new ReadModelChangeBroadcaster();
+  const cardStore = new CardStore(projectRoot, eventBus, readModelChanges);
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, eventBus, eventLogger, errorLogger, cardStore, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, config, eventBus, eventLogger, errorLogger, cardStore, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
-  syncHub.wire(runtimeApplication.runtimeApi);
   fastify.log.info('Runtime application started');
 
   const mcpManager = new McpManager(projectRoot, { config, scope: scope.child('mcp') });
@@ -104,6 +108,8 @@ export async function createServerServices(input: {
   runtimeApplication.setMcpManager(mcpManager);
 
   const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig: config, fastify, runtimeApplication });
+  syncHub.wire(runtimeApplication.runtimeApi);
+  const readModelChangeSubscription = readModelChanges.subscribe(syncHub);
 
   const servicesBase = {
     projectRoot,
@@ -118,6 +124,8 @@ export async function createServerServices(input: {
     mcpManager,
     liveSyncSocket,
     syncHub,
+    readModelChanges,
+    readModelChangeSubscription,
     authPolicy,
     telegramBot,
   };

@@ -13,7 +13,8 @@ import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js
 import { ProviderTurnFailure, type LlmCallFn, type ProviderTurnCompletion, type ResponsesReplayProjection, type ToolDefinition } from './llm-contracts.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
-import { appendProviderExchangeLogEntry, readProviderExchangeLogEntries } from '../persistence/provider-exchange-log.js';
+import { readProviderExchangeLogEntries } from '../persistence/provider-exchange-log.js';
+import type { ProviderExchangeMutationPort } from '../persistence/provider-exchange-mutation-port.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
@@ -54,6 +55,7 @@ export interface InvocationServiceConfig {
   eventLogger?: EventLogger;
   candidateAvailability?: CandidateAvailability;
   llmCallFn?: LlmCallFn;
+  providerExchangeMutations: ProviderExchangeMutationPort;
 }
 
 export class InvocationService {
@@ -64,6 +66,7 @@ export class InvocationService {
   private readonly maxRecoveryRetries: number;
   private readonly llmGateway: AgentLlmInvocationGateway;
   private readonly llmCallFn?: LlmCallFn;
+  private readonly providerExchangeMutations: ProviderExchangeMutationPort;
 
   constructor(config: InvocationServiceConfig) {
     this.projectRoot = config.projectRoot;
@@ -78,6 +81,7 @@ export class InvocationService {
       eventLogger: config.eventLogger,
     });
     this.llmCallFn = config.llmCallFn;
+    this.providerExchangeMutations = config.providerExchangeMutations;
   }
 
   async resolveCandidates(role: OperationalAgentRole, capabilityRequest: CapabilityRequest): Promise<Candidate[]> {
@@ -105,7 +109,7 @@ export class InvocationService {
   }
 
   async invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion> {
-    const persisted = new ProviderExchangeAppender(this.projectRoot, request.sessionId, request.inputId);
+    const persisted = new ProviderExchangeAppender(this.projectRoot, request.sessionId, request.inputId, this.providerExchangeMutations);
     const settled: ProviderExchangeAttempt[] = [];
     let lastFailure: unknown = null;
     const deadlineMs = Date.now() + LLM_UNAVAILABILITY_TIMEOUT_MS;
@@ -289,7 +293,7 @@ class ProviderExchangeAppender {
   private nextAttemptIndex: number;
   private readonly identities = new Set<string>();
 
-  constructor(private readonly projectRoot: string, private readonly sessionId: string, private readonly sourceInputId: string) {
+  constructor(private readonly projectRoot: string, private readonly sessionId: string, private readonly sourceInputId: string, private readonly mutations: ProviderExchangeMutationPort) {
     const existing = readProviderExchangeLogEntries(projectRoot, sessionId).filter((entry) => entry.source_input_id === sourceInputId);
     for (const entry of existing) this.identities.add(this.identity(entry.attempt_index));
     this.nextAttemptIndex = existing.length === 0 ? 0 : Math.max(...existing.map((entry) => entry.attempt_index)) + 1;
@@ -307,7 +311,7 @@ class ProviderExchangeAppender {
     const payload = indexed.status === 'ok'
       ? { ...indexed, assistant_output_ids: [] }
       : indexed;
-    appendProviderExchangeLogEntry(this.projectRoot, {
+    this.mutations.append({
       session_id: this.sessionId,
       source_input_id: this.sourceInputId,
       attempt_index: indexed.attempt_index,
