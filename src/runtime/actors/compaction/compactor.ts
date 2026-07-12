@@ -4,8 +4,9 @@ import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import { genericContextMessagesForInvocation } from '../llm-invocation.js';
 import { conversationMessagesForModel, readActiveVersionMessages } from '../conversation-store.js';
-import { ensureConversationIndex, writeCompactedConversationVersion } from '../conversation-index.js';
+import { ensureConversationIndex } from '../conversation-index.js';
 import type { ConversationVersionReplacement } from '../conversation-index.js';
+import type { ConversationMutationPort } from '../../../persistence/conversation-mutation-port.js';
 import { computeCompactionBands, type BandConfig, type SnapPolicy } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedRound } from './round-classifier.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors, type RecoverableEvidenceDescriptor } from './result-dropping.js';
@@ -41,6 +42,7 @@ export function shouldCompact(input: LlmInvocationInput, config: CompactionConfi
 
 export async function compact(args: {
   projectRoot: string;
+  conversations: ConversationMutationPort;
   sessionId: string;
   input: LlmInvocationInput;
   config: CompactionConfig;
@@ -76,8 +78,7 @@ export async function compact(args: {
 
   const content = rows.map((row) => JSON.stringify(agentMessageSchema.parse(row))).join('\n') + (rows.length === 0 ? '' : '\n');
   const compactedThrough = compactedThroughFor(rows, activeRows);
-  const writeResult = writeCompactedConversationVersion({
-    projectRoot: args.projectRoot,
+  const writeResult = args.conversations.replaceActiveVersion({
     sessionId: args.sessionId,
     sourceVersion: index.active_version,
     content,

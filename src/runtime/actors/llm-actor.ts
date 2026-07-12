@@ -28,7 +28,7 @@ export interface LLMProviderPort {
 
 export interface CompactorPort {
   shouldCompact(input: LlmInvocationInput, config: CompactionConfig, estimator: BufferSizeEstimator): { shouldCompact: boolean };
-  compact(args: { projectRoot: string; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; bufferSizeEstimator: BufferSizeEstimator; signal?: AbortSignal }): Promise<{ rows: unknown[]; versionReplacement: ConversationVersionReplacement }>;
+  compact(args: { projectRoot: string; conversations: ConversationMutationPort; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; bufferSizeEstimator: BufferSizeEstimator; signal?: AbortSignal }): Promise<{ rows: unknown[]; versionReplacement: ConversationVersionReplacement }>;
 }
 
 type WaitingToolCall = {
@@ -499,7 +499,7 @@ export class LLMActor extends ConversationLLMActor {
     try {
       this.#compacting = true;
       saveActorSnapshot(this.projectRoot, this.snapshot());
-      const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, signal });
+      const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, conversations: this.conversations, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, signal });
       this.conversationPublisher?.versionReplaced(compacted.versionReplacement);
       const compactedRows = compacted.rows as AgentMessage[];
       const compactedInput = { ...input, genericContextMessages: conversationMessagesForModel(compactedRows), contextMessages: conversationMessagesForModel(compactedRows), activeConversationReplay: buildResponsesReplayProjection(input.sessionId, compactedRows) } as LlmInvocationInput;

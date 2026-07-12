@@ -9,6 +9,21 @@ jest.unstable_mockModule('../../src/runtime/actors/conversation-index.js', () =>
 const { createConversationMutationPort } = await import('../../src/persistence/conversation-mutation-port.js');
 
 describe('ConversationMutationPort persistence delegation', () => {
+  it('binds the factory root for append and returns the exact persistence result', () => {
+    const changes = { conversationChanged: jest.fn(), agentsChanged: jest.fn() };
+    const port = createConversationMutationPort('/bound/root', changes as never);
+    const message = { id: 'm1', session_id: 'planner:project' };
+    const persistenceResult = { appended: true, message };
+    appendConversationMessage.mockReturnValueOnce(persistenceResult);
+
+    const result = port.append(message as never);
+
+    expect(appendConversationMessage).toHaveBeenCalledWith('/bound/root', message);
+    expect(result).toBe(persistenceResult);
+    expect(changes.conversationChanged).toHaveBeenCalledTimes(1);
+    expect(changes.agentsChanged).toHaveBeenCalledTimes(1);
+  });
+
   it('forwards exactly the factory root and seven replacement fields and returns the exact persistence result', () => {
     const changes = { conversationChanged: jest.fn(), agentsChanged: jest.fn() } as never;
     const port = createConversationMutationPort('/bound/root', changes);

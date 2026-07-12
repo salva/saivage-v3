@@ -63,9 +63,13 @@ describe('conversation compactor orchestration', () => {
     appendRound(projectRoot, 2, 'middle round two ' + 'b'.repeat(80));
     appendRound(projectRoot, 3, 'recent round three ' + 'c'.repeat(80));
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (llmInput: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] })) };
+    const conversations = testConversationMutations(projectRoot);
+    const replaceActiveVersion = jest.spyOn(conversations, 'replaceActiveVersion');
 
-    const { rows } = await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
+    const { rows } = await compact({ projectRoot, conversations, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
 
+    expect(replaceActiveVersion).toHaveBeenCalledTimes(1);
+    expect(Object.keys(replaceActiveVersion.mock.calls[0]![0])).toEqual(['sessionId', 'sourceVersion', 'content', 'compactedThrough', 'summaryIds', 'compactionGeneration', 'bands']);
     expect(rows.every((row) => row.kind !== 'activity')).toBe(true);
     const summaries = rows.filter((row) => row.kind === 'context_compaction');
     expect(summaries.length).toBeGreaterThan(0);
@@ -87,10 +91,10 @@ describe('conversation compactor orchestration', () => {
       return { result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] };
     }) };
 
-    await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
+    await compact({ projectRoot, conversations: testConversationMutations(projectRoot), sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
     const firstSummaryContent = readActiveVersionMessages(projectRoot, 'planner:project').filter((row) => row.kind === 'context_compaction').map((row) => row.content).join('\n');
     appendRound(projectRoot, 4, 'new recent round four ' + 'd'.repeat(40));
-    await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(130) });
+    await compact({ projectRoot, conversations: testConversationMutations(projectRoot), sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(130) });
     const active = readActiveVersionMessages(projectRoot, 'planner:project');
     const secondSummaryRows = active.filter((row) => row.kind === 'context_compaction');
 
@@ -114,7 +118,7 @@ describe('conversation compactor orchestration', () => {
     appendConversationMessage(projectRoot, { id: visibleId, session_id: 'planner:project', role: 'assistant', kind: 'text', content: 'visible', round_id: 'r-assistant-00000000000000000000000000000003', message_index: 1, block_index: 1, timestamp, provider_projection: { kind: 'openai_responses', source_input_id: 'responses-input', private_message_id: privateId, projection_kind: 'assistant_message' } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (llmInput: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] })) };
 
-    const { rows } = await compact({ projectRoot, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
+    const { rows } = await compact({ projectRoot, conversations: testConversationMutations(projectRoot), sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80) });
     const active = readActiveVersionMessages(projectRoot, 'planner:project');
 
     expect(rows.some((row) => row.kind === 'provider_private')).toBe(false);

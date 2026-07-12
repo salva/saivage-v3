@@ -215,6 +215,7 @@ describe('LLMActor', () => {
     const compactionConfig: CompactionConfig = { enabled: true, trigger_fraction: 0.8, completion_reserve_fraction: 0, merge_line_fraction: 0.3, summary_line_fraction: 0.6, escalate_merge_line_fraction: 0.5, escalate_summary_line_fraction: 0.7, snap: 'compact_straddler', summarizer_model: 'test/_/summary' };
     await compact({
       projectRoot,
+      conversations: testConversationMutations(projectRoot),
       sessionId,
       input: { ...input('compaction'), contextMessages: readConversationMessages(projectRoot, sessionId) },
       config: compactionConfig,
@@ -305,15 +306,18 @@ describe('LLMActor', () => {
     const eventBus = new EventBus();
     const changed = jest.fn();
     eventBus.subscribe('conversation_changed', (event) => { changed(event); });
-    const actor = new LLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) }, conversationPublisher: createConversationChangePublisher(eventBus) });
+    const conversations = testConversationMutations(projectRoot);
+    const actor = new LLMActor({ projectRoot, conversations, agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) }, conversationPublisher: createConversationChangePublisher(eventBus) });
     actor.start();
 
     const outcome = await actor.turn({ ...input(), contextMessages: [{ ...compacted, id: 'raw', kind: 'text', content: 'raw context before compaction', round_id: 'r-user-00000000000000000000000000000001' }] });
 
     expect(compactor.shouldCompact).toHaveBeenCalledTimes(1);
     expect(compactor.compact).toHaveBeenCalledTimes(1);
+    expect(compactor.compact).toHaveBeenCalledWith(expect.objectContaining({ projectRoot, conversations }));
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ contextMessages: [compacted] }), expect.any(AbortSignal));
     expect(changed).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ mutation: 'version_replaced', session_id: 'planner:project', active_version: 2 }) }));
+    expect(changed.mock.calls.filter(([event]) => (event as { payload: { mutation: string } }).payload.mutation === 'version_replaced')).toHaveLength(1);
     expect(outcome).toMatchObject({ type: 'result', result: { content: expect.stringContaining('saw:1:[Compacted prior conversation') } });
   }));
 

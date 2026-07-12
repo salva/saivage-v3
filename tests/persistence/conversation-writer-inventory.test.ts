@@ -14,7 +14,15 @@ function typescriptFiles(root: string): string[] {
 describe('production conversation writer inventory', () => {
   it('confines raw conversation append imports to the mutation-port implementation', () => {
     const importers = typescriptFiles(sourceRoot)
-      .filter((path) => /import[\s\S]*?appendConversationMessage[\s\S]*?from/.test(readFileSync(path, 'utf8')))
+      .filter((path) => /import\s*{[^}]*\bappendConversationMessage\b[^}]*}\s*from/.test(readFileSync(path, 'utf8')))
+      .map((path) => relative(process.cwd(), path));
+
+    expect(importers).toEqual(['src/persistence/conversation-mutation-port.ts']);
+  });
+
+  it('confines raw active-version replacement imports to the mutation-port implementation', () => {
+    const importers = typescriptFiles(sourceRoot)
+      .filter((path) => /import\s*{[^}]*\bwriteCompactedConversationVersion\b[^}]*}\s*from/.test(readFileSync(path, 'utf8')))
       .map((path) => relative(process.cwd(), path));
 
     expect(importers).toEqual(['src/persistence/conversation-mutation-port.ts']);
