@@ -64,9 +64,9 @@
           "tool_call": true,
           "temperature": true
         },
-        "z-ai/glm-5.1": {
-          "id": "z-ai/glm-5.1",
-          "name": "GLM 5.1",
+        "z-ai/glm-5.2": {
+          "id": "z-ai/glm-5.2",
+          "name": "GLM 5.2",
           "family": "glm-5",
           "reasoning": true,
           "tool_call": true,

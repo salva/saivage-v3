@@ -21,7 +21,7 @@ See historical: docs under `docs-old/` and stale design docs are provenance, not
 
 ## Operational Workflow
 
-- When fixing any issue, first create a design and implementation plan under `docs/working/`, then use a subagent to perform an adversarial review of the design and plan. Critically evaluate each finding to confirm it is sound and real, fix confirmed issues, and repeat the adversarial review/fix cycle until no confirmed issues remain. If the cycle keeps surfacing new material findings without converging, step back and re-aim the overall approach before looping further; see Reassessment On Repeated Review Loops in the `saivage-issue-fix-adversarial-review` skill. Follow the detailed `saivage-issue-fix-adversarial-review` skill for the full procedure.
+- When fixing any issue, first create a design and implementation plan under `docs/working/`, then have two independent reviewers review the same plan revision concurrently. Critically evaluate the union of their findings, fix confirmed issues, and repeat the paired adversarial review/fix cycle until neither review has a confirmed material finding. If the cycle keeps surfacing new material findings without converging, step back and re-aim the overall approach before looping further; see Reassessment On Repeated Review Loops in the `saivage-issue-fix-adversarial-review` skill. Follow the detailed `saivage-issue-fix-adversarial-review` skill for the full procedure.
 
 ## Commit Policy
 
