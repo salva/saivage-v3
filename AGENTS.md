@@ -82,6 +82,17 @@ large or cross-cutting refactor.
 - Defer non-essential robustness and rare edge-case handling — for example corrupted-file recovery — to separate changesets rather than bundling them in. Call them out as deferred follow-ups in the plan.
 - Expand scope only when a deferred item would block the core change or leave the system unsafe. This complements, and does not weaken, the root-cause and brave-refactor guidance above: fix the needed change fully, but do not pad it with extras.
 
+## Storage Policy
+
+- This policy governs Saivage-owned durable application and runtime persistence. It does not constrain target projects, MCP integrations, external tools, or use of SQL as a language when SQL is not being used as a Saivage persistence backend.
+- Every database persistence backend is forbidden for Saivage-owned durable state, including SQL, embedded, document, key-value, graph, and other database forms. Saivage durable state selected for persistence must be stored as ordinary files.
+- Application-built or custom transaction protocols are categorically forbidden regardless of their name, implementation quality, or claimed simplicity. Do not build write-ahead logs, journals, two-phase commit, commit manifests, recovery engines, multi-file transaction emulation, or equivalent transactional coordination.
+- Simple single-file atomic replacement is permitted: write one temporary file, `fsync` that file, rename it over its one target file, and `fsync` the containing parent directory to make that one rename durable. Ordinary file locks for single-writer ownership are also permitted. The parent-directory `fsync` is part of completing the local replacement of that single target file; it does not make other files part of the operation. These primitives must remain local to one target file and must not coordinate, commit, roll back, or recover changes across multiple files. Coordinated multi-file transactions and transaction emulation remain forbidden.
+- Saivage file persistence provides no guarantee against data loss for any persisted state after interruption or corruption. This applies to authoritative and non-reconstructible state as well as generated state; loss tolerance is not limited to deterministically reconstructible or explicitly disposable data.
+- Whenever adding or changing Saivage file persistence, design and implement the simplest subsystem-local deterministic best-effort restabilization for identifiable interrupted or incomplete states. Prefer rollback or discard of an identifiable incomplete latest artifact. Keep the mechanism local to that persistence subsystem; do not build a generic recovery or transaction engine.
+- Restabilization must never fabricate authoritative values or violate credential, permission, security, ownership, single-writer, or lock invariants. If persisted state cannot be safely restabilized within those constraints, fail clearly for operator repair. Strict failure remains correct at this boundary; do not guess, synthesize authoritative defaults, steal ownership, or silently normalize the failure.
+- Existing persistence without a designed restabilization path is technical debt to address when that persistence is changed. It does not justify adding generic recovery machinery or expanding an unrelated policy-only change.
+
 ## Runtime Coding Rules
 
 - Fail fast for impossible states. If a code path should be unreachable under correct operation, throw rather than silently recovering, normalizing, or returning fallback values.
