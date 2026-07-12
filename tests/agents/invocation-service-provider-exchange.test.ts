@@ -15,6 +15,7 @@ import { LLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { readActorSnapshots } from '../../src/runtime/actors/snapshots.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
+import type { ProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
 
 const candidates: Candidate[] = [
   { provider: 'a', account: null, model: 'm-a' },
@@ -74,6 +75,36 @@ describe('InvocationService provider exchange accumulation', () => {
       ['a', 'error', 0],
       ['b', 'ok', 1],
     ]);
+  });
+
+  it('appends multi-row provider results in order and stops at the first persistence error', async () => {
+    const appended: string[] = [];
+    const persistenceError = new Error('provider exchange persistence failed');
+    const abortController = new AbortController();
+    const providerExchangeMutations: ProviderExchangeMutationPort = {
+      append(data) {
+        appended.push(data.payload.provider);
+        if (data.payload.provider === 'b') {
+          abortController.abort(persistenceError);
+          throw persistenceError;
+        }
+        return {} as never;
+      },
+    };
+    const service = new InvocationService({
+      providerExchangeMutations,
+      projectRoot: mkdtempSync(join(tmpdir(), 'saivage-invoke-test-')),
+      saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-state-')),
+      registry: {} as never,
+      router: { resolve: async () => candidates, getLastCapabilitySkips: () => [] } as never,
+      llmCallFn: async () => ({
+        result: { kind: 'message', content: 'ok' },
+        provider_exchanges: [attempt('a', 'error'), attempt('b', 'error'), attempt('c', 'ok')],
+      }),
+    });
+
+    await expect(service.invokeWithRecovery({ ...request(), abortSignal: abortController.signal })).rejects.toBe(persistenceError);
+    expect(appended).toEqual(['a', 'b']);
   });
 
   it('settles the real InvocationService malformed-attempt rejection through the LLM actor', async () => {

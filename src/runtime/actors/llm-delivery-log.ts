@@ -3,9 +3,6 @@ import { z } from 'zod';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { LlmCompleteResult, ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
-import type { ProviderExchangeAttempt, ProviderExchangePayload } from '../../contracts/provider-exchange.js';
-import { appendProviderExchangeLogEntry } from '../../persistence/provider-exchange-log.js';
-import type { AppLogEntry } from '../../persistence/app-log.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { listConversationSessionIds, readActiveVersionMessages, readConversationMessages, type ConversationAppendResult } from './conversation-store.js';
@@ -163,25 +160,6 @@ export function appendLlmTurnError(conversations: ConversationMutationPort, inpu
   });
   const appendResult = conversations.append(message);
   return Object.assign(message, { appendResult });
-}
-
-export function appendLlmProviderExchangeEntries(projectRoot: string, input: LlmInvocationInput, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): AppLogEntry[] {
-  if (attempts.length === 0) return [];
-  const entries: AppLogEntry[] = [];
-  const sorted = [...attempts].sort((a, b) => (a.attempt_index ?? -1) - (b.attempt_index ?? -1));
-  sorted.forEach((attempt, index) => {
-    if (attempt.source_input_id !== input.inputId) throw new Error(`provider_exchange source_input_id '${attempt.source_input_id}' does not match input '${input.inputId}'.`);
-    if (attempt.attempt_index !== index) throw new Error(`provider_exchange attempt indexes for '${input.inputId}' must be consecutive 0..N.`);
-    const payload = providerExchangePayload(attempt, assistantOutputIds);
-    entries.push(appendProviderExchangeLogEntry(projectRoot, {
-      session_id: input.sessionId,
-      source_input_id: input.inputId,
-      attempt_index: payload.attempt_index,
-      timestamp: payload.completed_at,
-      payload,
-    }));
-  });
-  return entries;
 }
 
 export function appendToolDelivery(conversations: ConversationMutationPort, record: Omit<ToolDeliveryRecord, 'delivery_id' | 'created_at'>): ToolDeliveryRecord & { appendResult: ConversationAppendResult } {
@@ -463,12 +441,4 @@ export function appendModelRepairMessage(conversations: ConversationMutationPort
 
 function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {
   return `r-${kind}-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
-}
-
-function providerExchangePayload(attempt: ProviderExchangeAttempt, assistantOutputIds: string[]): ProviderExchangePayload {
-  if (attempt.attempt_index === undefined) throw new Error(`provider_exchange for '${attempt.source_input_id}' is missing attempt_index.`);
-  if (attempt.status === 'ok') {
-    return { ...attempt, attempt_index: attempt.attempt_index, assistant_output_ids: assistantOutputIds } as ProviderExchangePayload;
-  }
-  return { ...attempt, attempt_index: attempt.attempt_index } as ProviderExchangePayload;
 }

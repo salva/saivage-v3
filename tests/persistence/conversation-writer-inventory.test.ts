@@ -28,3 +28,19 @@ describe('production conversation writer inventory', () => {
     expect(importers).toEqual(['src/persistence/conversation-mutation-port.ts']);
   });
 });
+
+describe('provider-exchange writer inventory', () => {
+  it('confines raw provider-exchange append imports to the mutation port and persistence-focused tests', () => {
+    const importers = [sourceRoot, join(process.cwd(), 'tests')]
+      .flatMap(typescriptFiles)
+      .filter((path) => /import\s*{[^}]*\bappendProviderExchangeLogEntry\b[^}]*}\s*from/.test(readFileSync(path, 'utf8')))
+      .map((path) => relative(process.cwd(), path))
+      .sort();
+
+    expect(importers).toEqual([
+      'src/persistence/provider-exchange-mutation-port.ts',
+      'tests/application/read-models.test.ts',
+      'tests/server/operator-agent-llm-exchange.test.ts',
+    ]);
+  });
+});
