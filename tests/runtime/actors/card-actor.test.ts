@@ -10,6 +10,7 @@ import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
+import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-card-actor-'));
@@ -336,6 +337,7 @@ describe('CardActor', () => {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
     const runtime = createSupervisorRuntimeApi({
+      readModelChanges: new ReadModelChangeBroadcaster(),
       projectRoot, conversations: testConversationMutations(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store,
@@ -357,6 +359,7 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     createProject(store);
     const runtime = createSupervisorRuntimeApi({
+      readModelChanges: new ReadModelChangeBroadcaster(),
       projectRoot, conversations: testConversationMutations(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store,

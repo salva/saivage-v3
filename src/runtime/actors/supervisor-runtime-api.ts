@@ -15,7 +15,8 @@ import type { Subscription, SubscriptionOptions } from '../../events/index.js';
 import type { ActorActiveWork, ActorPauseMode, ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { CardNotification } from './card-actor.js';
-import { createRuntimeStateMutationPort, type RuntimeStateMutationPort } from '../mutations.js';
+import { createRuntimeStateMutationPort, createServingRuntimeStateMutationPort, type RuntimeStateMutationPort } from '../mutations.js';
+import type { ReadModelChanges } from '../../application/read-model-changes.js';
 import { readRuntimeState } from '../state-api.js';
 import type { ProcessRunner } from '../process-runner.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -36,6 +37,7 @@ export interface SupervisorRuntimeApiOptions {
   actorStore: CardActorStorePort;
   provider: LLMProviderPort;
   conversations: ConversationMutationPort;
+  readModelChanges: ReadModelChanges;
   compactor?: CompactorPort;
   compactionConfig?: CompactionConfig;
   summarizerProvider?: LLMProviderPort;
@@ -50,6 +52,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private readonly eventBus: EventBus;
   private readonly now: () => string;
   private readonly runtimeState: RuntimeStateMutationPort;
+  private readonly servingRuntimeState: RuntimeStateMutationPort;
   private readonly runtimeGate: RuntimeGate;
   private started = false;
   private lifecycle: 'ready' | 'running' | 'shutting_down' | 'shutdown' = 'ready';
@@ -63,6 +66,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.eventBus = options.eventBus ?? new EventBus();
     this.now = options.now ?? (() => new Date().toISOString());
     this.runtimeState = createRuntimeStateMutationPort(options.projectRoot);
+    this.servingRuntimeState = createServingRuntimeStateMutationPort(options.projectRoot, options.readModelChanges);
     this.runtimeGate = options.runtimeGate ?? new RuntimeGate();
   }
 
@@ -130,7 +134,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const status = this.runtimeStatus() ?? 'stopped';
     if (status !== 'running') throw new Error(`Cannot pause runtime from '${status}'.`);
     this.runtimeGate.close();
-    this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() } });
+    this.servingRuntimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() } });
   }
 
   resume(): void {
@@ -139,7 +143,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const status = this.runtimeStatus() ?? 'stopped';
     if (status !== 'paused') throw new Error(`Cannot resume runtime from '${status}'.`);
     const activeRunStartedAt = readRuntimeState(this.options.projectRoot)?.active_card_run?.started_at ?? this.now();
-    this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildResumeRuntimeStatePatch(readRuntimeState(this.options.projectRoot)), status: 'running', active_card_run: this.activeCardRun(activeRunStartedAt), updated_at: this.now() } });
+    this.servingRuntimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildResumeRuntimeStatePatch(readRuntimeState(this.options.projectRoot)), status: 'running', active_card_run: this.activeCardRun(activeRunStartedAt), updated_at: this.now() } });
     this.runtimeGate.open();
   }
 
@@ -174,7 +178,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const startedAt = this.now();
     this.runtimeGate.open();
     this.currentCardId = PROJECT_CARD_ID;
-    const runtime = this.runtimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...(readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt)), status: 'running', active_card_run: this.activeCardRun(startedAt), updated_at: startedAt } });
+    const runtime = this.servingRuntimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...(readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt)), status: 'running', active_card_run: this.activeCardRun(startedAt), updated_at: startedAt } });
     const generation = ++this.runGeneration;
     void this.runRootProject(startedAt, generation);
     return { runtime, status: runtime.status, started: true, stopped: false };
@@ -259,12 +263,12 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       if (generation !== this.runGeneration || this.lifecycle !== 'running') return;
       const at = this.now();
       const current = readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt);
-      this.runtimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...current, status: 'error', active_card_run: null, updated_at: at } });
+      this.servingRuntimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...current, status: 'error', active_card_run: null, updated_at: at } });
     } finally {
       if (generation !== this.runGeneration || this.lifecycle !== 'running') return;
       this.currentCardId = null;
       const current = readRuntimeState(this.options.projectRoot);
-      if (current?.status === 'running') this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'stopped', active_card_run: null, updated_at: this.now() } });
+      if (current?.status === 'running') this.servingRuntimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'stopped', active_card_run: null, updated_at: this.now() } });
     }
   }
 

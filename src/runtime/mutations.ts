@@ -1,4 +1,5 @@
 import type { RuntimeState } from '../schemas/index.js';
+import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { updateRuntimeState, updateRuntimeStateLockedDeriving } from './state.js';
 
 type VoidRuntimeMutation =
@@ -37,5 +38,16 @@ export function applyRuntimeMutation(projectRoot: string, mutation: RuntimeMutat
 export function createRuntimeStateMutationPort(projectRoot: string): RuntimeStateMutationPort {
   return {
     apply: ((mutation: RuntimeMutation) => applyRuntimeMutation(projectRoot, mutation)) as RuntimeStateMutationPort['apply'],
+  };
+}
+
+export function createServingRuntimeStateMutationPort(projectRoot: string, changes: ReadModelChanges): RuntimeStateMutationPort {
+  const persistence = createRuntimeStateMutationPort(projectRoot);
+  return {
+    apply: ((mutation: RuntimeMutation) => {
+      const result = persistence.apply(mutation as MergeRuntimeStateSnapshotMutation);
+      if (mutation.kind !== 'completeActivation') changes.runtimeChanged();
+      return result;
+    }) as RuntimeStateMutationPort['apply'],
   };
 }

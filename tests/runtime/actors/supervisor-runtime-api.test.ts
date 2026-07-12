@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,6 +9,8 @@ import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervis
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { readRuntimeState } from '../../../src/runtime/state-api.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
+import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
+import { updateRuntimeState } from '../../../src/runtime/state.js';
 
 function descendantAlive(pid: number): boolean {
   try {
@@ -21,6 +23,40 @@ function descendantAlive(pid: number): boolean {
 }
 
 describe('SupervisorRuntimeApi shutdown', () => {
+  it('publishes serving pause/resume writes but excludes startup and shutdown writes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-supervisor-freshness-'));
+    const runner = new ProcessRunner(root);
+    try {
+      initProjectTree(root);
+      const changes = new ReadModelChangeBroadcaster();
+      const runtimeChanged = jest.fn();
+      changes.subscribe({ runtimeChanged, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {} });
+      const runtime = createSupervisorRuntimeApi({
+        projectRoot: root,
+        conversations: testConversationMutations(root),
+        readModelChanges: changes,
+        actorStore: new CardStore(root),
+        provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },
+        processRunner: runner,
+        promptTemplates: createTestPromptTemplateRegistry(),
+      });
+
+      await runtime.start();
+      expect(runtimeChanged).not.toHaveBeenCalled();
+      updateRuntimeState(root, { status: 'running' });
+      runtime.pause();
+      runtime.resume();
+      expect(runtimeChanged).toHaveBeenCalledTimes(2);
+
+      await runtime.shutdown();
+      expect(runtimeChanged).toHaveBeenCalledTimes(2);
+      expect(readRuntimeState(root)?.status).toBe('stopped');
+    } finally {
+      await runner.stopRuntimeOwned('test cleanup', { graceMs: 100 });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('is terminal, cancels runtime-owned groups, and shares repeated shutdown', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-supervisor-shutdown-'));
     const runner = new ProcessRunner(root);
@@ -30,6 +66,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       const runtime = createSupervisorRuntimeApi({
         projectRoot: root,
         conversations: testConversationMutations(root),
+        readModelChanges: new ReadModelChangeBroadcaster(),
         actorStore: store,
         provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },
         processRunner: runner,
@@ -71,6 +108,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       const runtime = createSupervisorRuntimeApi({
         projectRoot: root,
         conversations: testConversationMutations(root),
+        readModelChanges: new ReadModelChangeBroadcaster(),
         actorStore: store,
         provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },
         processRunner: runner,

@@ -35,6 +35,7 @@ export interface RuntimeApiFactoryDeps {
   runtimeGate: RuntimeGate;
   mcpManagerProvider?: () => McpManager | undefined;
   conversations: ConversationMutationPort;
+  readModelChanges: ReadModelChanges;
 }
 
 type DisposableCandidateAvailability = CandidateAvailability & { dispose(): void };
@@ -126,7 +127,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, readModelChanges: services.readModelChanges }),
     candidateAvailability,
     eventLogger,
     errorLogger,
