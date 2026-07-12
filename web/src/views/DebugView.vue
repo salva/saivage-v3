@@ -203,6 +203,7 @@
                 <button v-if="selectedAgentDebugPath" class="sv-fetch-btn" :disabled="agentDebugContentLoading" @click="debugStore.loadSelectedAgentDebugContent">Reload</button>
               </div>
               <div v-if="selectedAgentDebugSession" class="agent-debug-path mono">{{ selectedAgentDebugPath || 'No file recorded for this view.' }}</div>
+              <StatusBanner v-if="agentDebugContentRefreshError" tone="warning" :message="agentDebugContentRefreshError" />
               <ViewState v-if="agentDebugContentLoading" state="loading" title="Loading agent file..." />
               <ViewState v-else-if="agentDebugContentError" state="error" title="Failed to load" :message="agentDebugContentError" />
               <ViewState v-else-if="!selectedAgentDebugPath" state="empty" title="Select a session and an available file type." />
@@ -408,7 +409,7 @@ const {
   operatorLastFetchedAt, operatorDataFreshnessLabel,
   agentDebugSessions, selectedAgentDebugSessionId, selectedAgentDebugKind,
   selectedAgentDebugSession, selectedAgentDebugPath, selectedAgentDebugConversation, formattedAgentDebugContent,
-  agentDebugLoading, agentDebugError, agentDebugContentLoading, agentDebugContentError,
+  agentDebugLoading, agentDebugError, agentDebugContentLoading, agentDebugContentError, agentDebugContentRefreshError,
 } = storeToRefs(debugStore);
 
 const {

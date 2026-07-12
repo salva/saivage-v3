@@ -93,7 +93,7 @@ describe('debug store selected agent conversation refetch', () => {
     await store.refetchSelectedAgentDebugConversation();
 
     expect(getAgentConversation).not.toHaveBeenCalled();
-    expect(store.selectedAgentDebugConversation).toEqual(existing);
+    expect(store.selectedAgentDebugConversation).toBeNull();
   });
 
   it('does nothing when no agent debug session is selected', async () => {
@@ -115,7 +115,7 @@ describe('debug store selected agent conversation refetch', () => {
 
     const refetch = store.refetchSelectedAgentDebugConversation();
 
-    expect(getAgentConversation).toHaveBeenCalledWith(sessionA.id);
+    expect(getAgentConversation).toHaveBeenCalledWith(sessionA.id, expect.any(AbortSignal));
     expect(store.selectedAgentDebugConversation).toEqual(existing);
     expect(store.agentDebugContentLoading).toBe(false);
     pending.resolve(next);
@@ -136,7 +136,9 @@ describe('debug store selected agent conversation refetch', () => {
       .mockReturnValueOnce(pendingB.promise);
 
     const refetch = store.refetchSelectedAgentDebugConversation();
+    const signalA = vi.mocked(getAgentConversation).mock.calls[0]?.[1];
     store.selectAgentDebugSession(sessionB.id);
+    expect(signalA?.aborted).toBe(true);
     pendingA.resolve(stale);
     await refetch;
 
@@ -145,7 +147,7 @@ describe('debug store selected agent conversation refetch', () => {
     pendingB.resolve(makeConversation(sessionB, 'session-b'));
   });
 
-  it('keeps visible content and error state unchanged when background refetch fails', async () => {
+  it('keeps accepted content and records a separate error when background refetch fails', async () => {
     const existing = makeConversation(sessionA, 'existing');
     const store = await makeStoreWithSessions([sessionA], existing);
     vi.mocked(getAgentConversation).mockRejectedValueOnce(new Error('network failed'));
@@ -154,5 +156,30 @@ describe('debug store selected agent conversation refetch', () => {
 
     expect(store.selectedAgentDebugConversation).toEqual(existing);
     expect(store.agentDebugContentError).toBeNull();
+    expect(store.agentDebugContentRefreshError).toBe('network failed');
+  });
+
+  it('allows only the latest epoch for the same identity to alter accepted rows or request state', async () => {
+    const existing = makeConversation(sessionA, 'existing');
+    const stale = makeConversation(sessionA, 'stale');
+    const current = makeConversation(sessionA, 'current');
+    const store = await makeStoreWithSessions([sessionA], existing);
+    const first = deferred<AgentConversationResponse>();
+    const second = deferred<AgentConversationResponse>();
+    vi.mocked(getAgentConversation).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    const firstRequest = store.refetchSelectedAgentDebugConversation();
+    const firstSignal = vi.mocked(getAgentConversation).mock.calls[0]?.[1];
+    const secondRequest = store.refetchSelectedAgentDebugConversation();
+    expect(firstSignal?.aborted).toBe(true);
+
+    second.resolve(current);
+    await secondRequest;
+    first.resolve(stale);
+    await firstRequest;
+
+    expect(store.selectedAgentDebugConversation).toEqual(current);
+    expect(store.agentDebugContentLoading).toBe(false);
+    expect(store.agentDebugContentRefreshError).toBeNull();
   });
 });

@@ -8,7 +8,7 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref, computed, readonly } from 'vue';
+import { ref, computed, readonly, watch } from 'vue';
 import type {
   RuntimeState,
   CardType,
@@ -118,6 +118,9 @@ export const useDebugStore = defineStore('debug', () => {
   const selectedAgentDebugConversation = ref<AgentConversationResponse | null>(null);
   const agentDebugContentLoading = ref(false);
   const agentDebugContentError = ref<string | null>(null);
+  const agentDebugContentRefreshError = ref<string | null>(null);
+  let agentDebugConversationEpoch = 0;
+  let agentDebugConversationController: AbortController | null = null;
 
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -141,6 +144,19 @@ export const useDebugStore = defineStore('debug', () => {
     return session.files[selectedAgentDebugKind.value] ?? null;
   });
   const formattedAgentDebugContent = computed(() => formatAgentDebugContent(agentDebugContent.value, selectedAgentDebugPath.value));
+  const selectedAgentDebugConversationIdentity = computed(() =>
+    selectedAgentDebugKind.value === 'conversation' ? selectedAgentDebugSession.value?.id ?? null : null,
+  );
+
+  watch(selectedAgentDebugConversationIdentity, () => {
+    agentDebugConversationEpoch += 1;
+    agentDebugConversationController?.abort();
+    agentDebugConversationController = null;
+    selectedAgentDebugConversation.value = null;
+    agentDebugContentError.value = null;
+    agentDebugContentRefreshError.value = null;
+    agentDebugContentLoading.value = false;
+  }, { flush: 'sync' });
 
   async function fetchState(): Promise<void> {
     loading.value = true;
@@ -265,16 +281,17 @@ export const useDebugStore = defineStore('debug', () => {
 
   async function loadSelectedAgentDebugContent(): Promise<void> {
     agentDebugContent.value = '';
-    selectedAgentDebugConversation.value = null;
-    agentDebugContentError.value = null;
     const session = selectedAgentDebugSession.value;
     const path = selectedAgentDebugPath.value;
     if (!session || !path) return;
+    if (selectedAgentDebugKind.value === 'conversation') {
+      await requestSelectedAgentDebugConversation(session.id);
+      return;
+    }
+    agentDebugContentError.value = null;
     agentDebugContentLoading.value = true;
     try {
-      if (selectedAgentDebugKind.value === 'conversation') {
-        selectedAgentDebugConversation.value = await getAgentConversation(session.id);
-      } else if (selectedAgentDebugKind.value === 'llmExchange') {
+      if (selectedAgentDebugKind.value === 'llmExchange') {
         agentDebugContent.value = JSON.stringify(await getAgentLlmExchange(session.id), null, 2);
       } else {
         const file = await getFileContent(path);
@@ -287,21 +304,42 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
+  async function requestSelectedAgentDebugConversation(sessionId: string): Promise<void> {
+    const epoch = ++agentDebugConversationEpoch;
+    agentDebugConversationController?.abort();
+    const controller = new AbortController();
+    agentDebugConversationController = controller;
+    const refreshing = selectedAgentDebugConversation.value?.session.id === sessionId;
+    if (refreshing) agentDebugContentRefreshError.value = null;
+    else {
+      selectedAgentDebugConversation.value = null;
+      agentDebugContentError.value = null;
+      agentDebugContentLoading.value = true;
+    }
+    try {
+      const conversation = await getAgentConversation(sessionId, controller.signal);
+      if (epoch !== agentDebugConversationEpoch || selectedAgentDebugConversationIdentity.value !== sessionId) return;
+      selectedAgentDebugConversation.value = conversation;
+      agentDebugContentError.value = null;
+      agentDebugContentRefreshError.value = null;
+    } catch (err) {
+      if (epoch !== agentDebugConversationEpoch || selectedAgentDebugConversationIdentity.value !== sessionId) return;
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      const message = err instanceof Error ? err.message : String(err);
+      if (refreshing) agentDebugContentRefreshError.value = message;
+      else agentDebugContentError.value = message;
+    } finally {
+      if (epoch === agentDebugConversationEpoch && selectedAgentDebugConversationIdentity.value === sessionId) {
+        agentDebugContentLoading.value = false;
+        agentDebugConversationController = null;
+      }
+    }
+  }
+
   async function refetchSelectedAgentDebugConversation(): Promise<void> {
     const session = selectedAgentDebugSession.value;
     if (!session || selectedAgentDebugKind.value !== 'conversation') return;
-    const sessionId = session.id;
-    try {
-      const conversation = await getAgentConversation(sessionId);
-      if (
-        selectedAgentDebugSession.value?.id === sessionId &&
-        selectedAgentDebugKind.value === 'conversation'
-      ) {
-        selectedAgentDebugConversation.value = conversation;
-      }
-    } catch (err) {
-      log.warn('refetchSelectedAgentDebugConversation', err);
-    }
+    await requestSelectedAgentDebugConversation(session.id);
   }
 
   async function refreshAgentDebug(): Promise<void> {
@@ -398,6 +436,7 @@ export const useDebugStore = defineStore('debug', () => {
     agentDebugError: readonly(agentDebugError),
     agentDebugContentLoading: readonly(agentDebugContentLoading),
     agentDebugContentError: readonly(agentDebugContentError),
+    agentDebugContentRefreshError: readonly(agentDebugContentRefreshError),
     loading: readonly(loading),
     error: readonly(error),
     errorsBySource,
