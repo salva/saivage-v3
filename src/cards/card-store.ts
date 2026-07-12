@@ -219,7 +219,9 @@ export class CardStore {
   }
 
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): ReorderChildrenResult {
-    return this.hierarchyCommands.reorderChildren(parentId, orderedChildIds, ctx);
+    const result = this.hierarchyCommands.reorderChildren(parentId, orderedChildIds, ctx);
+    if (result.ok && result.changed > 0) this.readModelChanges.cardStateChanged();
+    return result;
   }
 
   updateDependsOn(
@@ -265,11 +267,12 @@ export class CardStore {
   ): CardRecord {
     const before = this.read(id);
     const result = this.patchService.applyPatch(id, changes, historyKind, ctx);
+    if (!before || result.version_seq === before.version_seq) return result;
     this.readModelChanges.cardStateChanged();
-    if (before && result.status !== before.status) {
+    if (result.status !== before.status) {
       this.readModelChanges.runtimeChanged();
       this.readModelChanges.agentsChanged();
-    } else if (before && result.type !== before.type) {
+    } else if (result.type !== before.type) {
       this.readModelChanges.runtimeChanged();
     }
     return result;
