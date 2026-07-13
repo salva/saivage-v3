@@ -8,7 +8,7 @@ import { createServer } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { buildServerAvailability } from '../../src/server/availability.js';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
-import { initRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState } from '../helpers/runtime-state.js';
 
 import { createTestRestartPort } from '../helpers/restart-port.js';
 

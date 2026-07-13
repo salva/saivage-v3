@@ -4,13 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import {
-  initRuntimeState,
-  readRuntimeState,
-  runtimeStatePath,
-  saveRuntimeState,
-  updateRuntimeState,
-} from '../../src/runtime/state.js';
+import { readRuntimeState, runtimeStatePath } from '../../src/runtime/state.js';
+import { initRuntimeState, saveRuntimeState, updateRuntimeState } from '../helpers/runtime-state.js';
 import type { ActiveCardRun, RuntimeState } from '../../src/schemas/types.js';
 
 let root: string;

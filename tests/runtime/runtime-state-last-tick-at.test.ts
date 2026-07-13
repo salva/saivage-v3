@@ -2,7 +2,8 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
+import { readRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState, updateRuntimeState } from '../helpers/runtime-state.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 
 function root(): string { return mkdtempSync(join(tmpdir(), 'saivage-runtime-last-tick-')); }

@@ -29,6 +29,9 @@ import type { AppLogStore } from '../persistence/app-log.js';
 import type { CompositionMutationAuthority } from './mutation-authority.js';
 import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
 import type { MutationLane } from './mutation-lane.js';
+import { RuntimeStateStore } from '../runtime/state.js';
+import { ActorSnapshotStore } from '../runtime/actors/snapshots.js';
+import { RecoveryDiagnosticsStore } from '../runtime/actors/actor-recovery.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -42,6 +45,9 @@ export interface RuntimeApiFactoryDeps {
   mcpManagerProvider?: () => McpManager | undefined;
   conversations: ConversationStore;
   appLogs: AppLogStore;
+  runtimeState: RuntimeStateStore;
+  snapshots: ActorSnapshotStore;
+  recoveryDiagnostics: RecoveryDiagnosticsStore;
   readModelChanges: ReadModelChanges;
 }
 
@@ -116,6 +122,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   candidateAvailability.restabilize(services.compositionAuthority);
   const conversations = new ConversationStore(projectRoot, services.mutationLane, services.readModelChanges);
   conversations.restabilize(services.compositionAuthority);
+  const runtimeState = new RuntimeStateStore(projectRoot, services.mutationLane, services.readModelChanges);
+  runtimeState.restabilize(services.compositionAuthority);
+  runtimeState.initialize(services.compositionAuthority);
+  const snapshots = new ActorSnapshotStore(projectRoot, services.mutationLane, services.readModelChanges);
+  snapshots.restabilize(services.compositionAuthority);
+  const recoveryDiagnostics = new RecoveryDiagnosticsStore(projectRoot, services.mutationLane);
+  recoveryDiagnostics.restabilize(services.compositionAuthority);
   let mcpManager: McpManager | undefined;
 
   const registry = new ProviderRegistry(config);
@@ -143,7 +156,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, compositionAuthority: services.compositionAuthority, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, compositionAuthority: services.compositionAuthority, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, runtimeState, snapshots, recoveryDiagnostics, readModelChanges: services.readModelChanges }),
     eventLogger,
     errorLogger,
     eventBus,

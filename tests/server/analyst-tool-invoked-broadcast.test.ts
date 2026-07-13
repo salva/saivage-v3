@@ -2,7 +2,7 @@ import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, expect, it, jest, beforeEach, afterEach } from '@jest/globals';
 import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { EventBus } from '../../src/events/bus.js';
-import { initRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState } from '../helpers/runtime-state.js';
 import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

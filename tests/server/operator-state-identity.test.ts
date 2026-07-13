@@ -7,7 +7,7 @@ import type { ServerInstance } from '../../src/server/server.js';
 import { createServer } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { parseOperatorResponse } from '../../src/contracts/operator-api.js';
-import { initRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState } from '../helpers/runtime-state.js';
 
 import { createTestRestartPort } from '../helpers/restart-port.js';
 

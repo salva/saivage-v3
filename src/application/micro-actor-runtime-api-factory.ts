@@ -16,6 +16,9 @@ import type { ConversationStore } from '../persistence/conversation-store.js';
 import type { AppLogStore } from '../persistence/app-log.js';
 import type { ReadModelChanges } from './read-model-changes.js';
 import type { CompositionMutationAuthority } from './mutation-authority.js';
+import type { RuntimeStateStore } from '../runtime/state.js';
+import type { ActorSnapshotStore } from '../runtime/actors/snapshots.js';
+import type { RecoveryDiagnosticsStore } from '../runtime/actors/actor-recovery.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
@@ -31,6 +34,9 @@ export interface MicroActorRuntimeApiFactoryDeps {
   now?: () => string;
   conversations: ConversationStore;
   appLogs: AppLogStore;
+  runtimeState: RuntimeStateStore;
+  snapshots: ActorSnapshotStore;
+  recoveryDiagnostics: RecoveryDiagnosticsStore;
   readModelChanges: ReadModelChanges;
 }
 
@@ -54,6 +60,9 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     now: deps.now,
     conversations: deps.conversations,
     appLogs: deps.appLogs,
+    runtimeState: deps.runtimeState,
+    snapshots: deps.snapshots,
+    recoveryDiagnostics: deps.recoveryDiagnostics,
     readModelChanges: deps.readModelChanges,
   });
 }

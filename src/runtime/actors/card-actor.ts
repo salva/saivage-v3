@@ -452,7 +452,7 @@ export class CardActor extends BaseActor {
   }
 
   private persist(): void {
-    this.deps.snapshots.save(this.snapshot());
+    this.deps.snapshots.save(this.deps.storeForCard(this.cardId).currentMutationAuthority(), this.snapshot());
   }
 }
 

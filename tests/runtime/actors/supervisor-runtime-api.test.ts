@@ -13,7 +13,8 @@ import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { readRuntimeState } from '../../../src/runtime/state-api.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
-import { updateRuntimeState } from '../../../src/runtime/state.js';
+import { updateRuntimeState } from '../../helpers/runtime-state.js';
+import { testRuntimePersistence } from '../../helpers/runtime-persistence.js';
 
 function descendantAlive(pid: number): boolean {
   try {
@@ -34,7 +35,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       const changes = new ReadModelChangeBroadcaster();
       const runtimeChanged = jest.fn();
       changes.subscribe({ runtimeChanged, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {} });
-      const runtime = createSupervisorRuntimeApi({
+    const runtime = createSupervisorRuntimeApi({ ...testRuntimePersistence(root, changes),
         projectRoot: root,
         conversations: testConversationMutations(root),
         appLogs: testAppLogs(root),
@@ -68,11 +69,12 @@ describe('SupervisorRuntimeApi shutdown', () => {
     try {
       initProjectTree(root);
       const store = new CardStore(root);
-      const runtime = createSupervisorRuntimeApi({
+      const changes = new ReadModelChangeBroadcaster();
+      const runtime = createSupervisorRuntimeApi({ ...testRuntimePersistence(root, changes),
         projectRoot: root,
         conversations: testConversationMutations(root),
         appLogs: testAppLogs(root),
-        readModelChanges: new ReadModelChangeBroadcaster(),
+        readModelChanges: changes,
         actorStore: store.repository,
         compositionAuthority: testCompositionAuthority(root),
         provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },
@@ -113,11 +115,12 @@ describe('SupervisorRuntimeApi shutdown', () => {
     try {
       initProjectTree(root);
       const store = new CardStore(root);
-      const runtime = createSupervisorRuntimeApi({
+      const changes = new ReadModelChangeBroadcaster();
+      const runtime = createSupervisorRuntimeApi({ ...testRuntimePersistence(root, changes),
         projectRoot: root,
         conversations: testConversationMutations(root),
         appLogs: testAppLogs(root),
-        readModelChanges: new ReadModelChangeBroadcaster(),
+        readModelChanges: changes,
         actorStore: store.repository,
         compositionAuthority: testCompositionAuthority(root),
         provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },

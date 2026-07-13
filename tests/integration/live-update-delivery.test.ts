@@ -1,13 +1,13 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { ConversationStore } from '../../src/persistence/conversation-store.js';
 import { createMutationLane } from '../../src/application/mutation-lane.js';
-import { createServingRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
+import { RuntimeStateStore } from '../../src/runtime/state.js';
 import { ActorSnapshotStore } from '../../src/runtime/actors/snapshots.js';
-import { initRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState } from '../helpers/runtime-state.js';
 import { SyncHub } from '../../src/server/sync-hub.js';
 import type { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
@@ -61,15 +61,13 @@ describe('live-update semantic-owner inventory', () => {
 
   it('keeps raw runtime persistence delivery-free and snapshots owned by the required store', () => {
     const stateSource = readFileSync(join(sourceRoot, 'runtime/state.ts'), 'utf8');
-    const mutationSource = readFileSync(join(sourceRoot, 'runtime/mutations.ts'), 'utf8');
     const supervisorSource = readFileSync(join(sourceRoot, 'runtime/actors/supervisor-runtime-api.ts'), 'utf8');
     const snapshotSource = readFileSync(join(sourceRoot, 'runtime/actors/snapshots.ts'), 'utf8');
 
-    expect(stateSource).not.toContain('ReadModelChanges');
-    expect(stateSource).not.toContain('runtimeChanged');
-    expect(mutationSource.match(/changes\.runtimeChanged\(\)/g)).toHaveLength(1);
-    expect(supervisorSource).toContain('this.runtimeState.apply');
-    expect(supervisorSource).toContain('this.servingRuntimeState.apply');
+    expect(stateSource).toContain('export class RuntimeStateStore');
+    expect(existsSync(join(sourceRoot, 'runtime/mutations.ts'))).toBe(false);
+    expect(supervisorSource).toContain('this.runtimeState.patch');
+    expect(supervisorSource).not.toContain('servingRuntimeState');
     expect(snapshotSource).toContain('export class ActorSnapshotStore');
     expect(snapshotSource).not.toMatch(/export (?:function|const) (?:save|remove|append)ActorSnapshot/);
   });
@@ -86,12 +84,13 @@ describe('server-composed semantic delivery', () => {
       const changes = new ReadModelChangeBroadcaster();
       const subscription = changes.subscribe(hub);
 
-      createServingRuntimeStateMutationPort(root, changes).apply({ kind: 'patchRuntimeState', patch: { status: 'paused' } });
       const mutation = createMutationLane();
+      const runtimeState = new RuntimeStateStore(root, mutation.lane, changes);
+      runtimeState.patch(mutation.authority, { status: 'paused' });
       const conversations = new ConversationStore(root, mutation.lane, changes);
       conversations.restabilize(mutation.authority);
       conversations.appendBatch(mutation.authority, [message('planner:project')]);
-      new ActorSnapshotStore(root, changes).save({
+      new ActorSnapshotStore(root, mutation.lane, changes).save(mutation.authority, {
         actor_id: 'processor:project', actor_kind: 'processor', state_value: 'idle', context: {}, updated_at: '2026-07-13T00:00:00.000Z',
       });
       jest.advanceTimersByTime(1);

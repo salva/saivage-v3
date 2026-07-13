@@ -11,6 +11,8 @@ import { recordControlAction, stableStringify, isInitialized, findProjectRoot } 
 import { classifyPersistenceOpenMode, createProjectPersistenceAuthority } from './persistence/project-persistence-authority.js';
 import { isLocked, pauseRuntimeControl, resumeRuntimeControl } from './runtime/control-api.js';
 import { readRuntimeState } from './runtime/state-api.js';
+import { RuntimeStateStore } from './runtime/state.js';
+import { createMutationLane } from './application/mutation-lane.js';
 import { deriveCurrentCardId } from './runtime/current-run.js';
 import { readRuntimeLockStatus } from './runtime/lock.js';
 import { runtimeProcessLockFile } from './persistence/layout.js';
@@ -78,7 +80,11 @@ async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resum
     console.log(body);
     return;
   }
-  const result = action === 'pause' ? pauseRuntimeControl({ projectRoot }) : resumeRuntimeControl({ projectRoot });
+  const composition = createMutationLane();
+  const runtimeState = new RuntimeStateStore(projectRoot, composition.lane);
+  runtimeState.restabilize(composition.authority);
+  const context = { projectRoot, runtimeState, authority: composition.authority };
+  const result = action === 'pause' ? pauseRuntimeControl(context) : resumeRuntimeControl(context);
   recordCliControlAction(projectRoot, { actor: 'user', surface: 'cli', action: `runtime.${action}`, target_kind: 'runtime', target_id: 'project', params_summary: stableStringify({ action, liveRuntimeUpdated: false }), outcome: result.ok ? 'ok' : 'error', outcome_summary: result.ok ? 'persisted-only mutation applied (server not running)' : (result.message ?? result.error ?? 'mutation failed'), ...(result.ok ? {} : { error: result.message ?? result.error ?? 'mutation failed' }) });
   if (!result.ok) throw new Error(result.message ?? result.error ?? `Failed to ${action} runtime`);
   console.log(`Notice: server not running; updated persisted runtime state only.`);

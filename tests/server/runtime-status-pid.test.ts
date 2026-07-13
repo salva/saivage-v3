@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 
-import { initRuntimeState, runtimeStatePath } from '../../src/runtime/state.js';
+import { runtimeStatePath } from '../../src/runtime/state.js';
+import { initRuntimeState } from '../helpers/runtime-state.js';
 import { ensureTestSaivageConfig } from '../helpers/test-runtime-application.js';
 
 let root: string;

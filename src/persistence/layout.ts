@@ -40,20 +40,8 @@ export function runtimeProcessLockFile(projectRoot: string): string {
   return join(saivageLocksRoot(projectRoot), 'runtime.lock');
 }
 
-export function runtimeStateLockFile(projectRoot: string): string {
-  return join(saivageLocksRoot(projectRoot), 'state.lock');
-}
-
-export function actorSnapshotsLockFile(projectRoot: string): string {
-  return join(saivageLocksRoot(projectRoot), 'actor-snapshots.lock');
-}
-
 export function recoveryDiagnosticsFile(projectRoot: string): string {
   return join(saivageStateRoot(projectRoot), 'recovery-diagnostics.json');
-}
-
-export function recoveryDiagnosticsLockFile(projectRoot: string): string {
-  return join(saivageLocksRoot(projectRoot), 'recovery-diagnostics.lock');
 }
 
 export function providerAvailabilityFile(projectRoot: string): string {

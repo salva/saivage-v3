@@ -12,12 +12,11 @@ import {
   readConversationMessages,
   recoverActorStartupOutcomes,
   recoverProjectedTerminalToolOutcomes,
-  runActorStartupRecovery,
   readRecoveryDiagnostics,
   readActorSnapshots,
   recoveryDiagnosticsPath,
-      writeRecoveryDiagnostics,
 } from '../../../src/runtime/actors/index.js';
+import { runActorStartupRecovery, writeRecoveryDiagnostics } from '../../helpers/recovery-diagnostics.js';
 
 const appendLlmTurnFinished = (conversations: ReturnType<typeof testConversationMutations>, input: Parameters<typeof productionAppendLlmTurnFinished>[2], result: Parameters<typeof productionAppendLlmTurnFinished>[3]) => productionAppendLlmTurnFinished(conversations, testCompositionAuthority(conversations.projectRoot), input, result);
 

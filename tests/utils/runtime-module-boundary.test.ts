@@ -8,8 +8,8 @@ import {
   pauseRuntimeControl,
   resumeRuntimeControl,
 } from '../../src/runtime/control-api.js';
-import { initRuntimeState, runtimeStatePath } from '../../src/runtime/state.js';
-import { readRuntimeState as directReadRuntimeState, updateRuntimeState as directUpdateRuntimeState } from '../../src/runtime/state.js';
+import { runtimeStatePath, readRuntimeState as directReadRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState } from '../helpers/runtime-state.js';
 import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl } from '../../src/runtime/control.js';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -64,16 +64,14 @@ describe('runtime module ownership boundary', () => {
     expect('upsertRuntimeActivation' in stateApi).toBe(false);
   });
 
-  it('keeps runtime state writers behind the mutation port', () => {
-    const allowed = new Set([
-      join(process.cwd(), 'src/runtime/state.ts'),
-      join(process.cwd(), 'src/runtime/mutations.ts'),
-    ]);
+  it('keeps runtime state mutations inside RuntimeStateStore', () => {
+    const allowed = new Set([join(process.cwd(), 'src/runtime/state.ts')]);
     const writerImportPattern = /import\s+\{[^}]*\b(saveRuntimeState|updateRuntimeState|appendRuntimeCommand|appendRuntimeRun|updateRuntimeRun|upsertRuntimeActivation)\b[^}]*\}\s+from ['"]\.\/state\.js['"]/;
     for (const filePath of listTypeScriptFiles(join(process.cwd(), 'src/runtime'))) {
       if (allowed.has(filePath)) continue;
       expect(readFileSync(filePath, 'utf8')).not.toMatch(writerImportPattern);
     }
+    expect(existsSync(join(process.cwd(), 'src/runtime/mutations.ts'))).toBe(false);
   });
 
   it('keeps tests on the runtime test harness instead of concrete Runtime imports', () => {

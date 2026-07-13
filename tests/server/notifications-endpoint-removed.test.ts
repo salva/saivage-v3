@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { initRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState } from '../helpers/runtime-state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { ensureTestSaivageConfig } from '../helpers/test-runtime-application.js';

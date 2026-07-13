@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { globProject, grepProject, readProject, writeProject } from '../../src/tools/project-file-tools.js';
 
-import { initRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState } from '../helpers/runtime-state.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-project-tools-'));

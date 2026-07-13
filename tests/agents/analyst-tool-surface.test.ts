@@ -14,7 +14,7 @@ import { reconfigure } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
-import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState, updateRuntimeState } from '../helpers/runtime-state.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';

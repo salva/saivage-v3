@@ -5,6 +5,7 @@ import type { ActorSnapshotStore } from './snapshots.js';
 import type { ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { deferred, type Deferred } from './deferred.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
+import type { MutationAuthority } from '../../application/mutation-authority.js';
 
 export type CardProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -12,6 +13,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   readonly projectRoot: string;
   readonly cardId: string;
   readonly snapshots: ActorSnapshotStore;
+  readonly mutationAuthority: () => MutationAuthority;
   outcome: CardProcessorOutcome | null = null;
   activeReconstruction: ProcessorActiveReconstructionRecord | null = null;
   #result: Deferred<CardProcessorOutcome> | null = null;
@@ -20,11 +22,12 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   #activationCounter = 0;
   #operationTracker: ActivationOperationTracker | null = null;
 
-  protected constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore }) {
+  protected constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; mutationAuthority: () => MutationAuthority }) {
     super();
     this.projectRoot = args.projectRoot;
     this.cardId = args.cardId;
     this.snapshots = args.snapshots;
+    this.mutationAuthority = args.mutationAuthority;
   }
 
   activate(input: CardActivationInput, signal: AbortSignal): Promise<CardProcessorOutcome> {
@@ -79,7 +82,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   }
 
   protected persist(): void {
-    this.snapshots.save(this.snapshot());
+    this.snapshots.save(this.mutationAuthority(), this.snapshot());
   }
 
   protected abstract get processorLabel(): string;

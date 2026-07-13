@@ -10,7 +10,7 @@ jest.unstable_mockModule('node:dns/promises', () => ({
 const { CardStore, initProjectTree } = await import('../helpers/canonical-project.js');
 const { buildInvocationSurface, invokeTool } = await import('../../src/tools/invocation.js');
 const { createWebProvider } = await import('../../src/tools/web-tools.js');
-const { initRuntimeState, updateRuntimeState } = await import('../../src/runtime/state.js');
+const { initRuntimeState, updateRuntimeState } = await import('../helpers/runtime-state.js');
 
 function mockFetch(text = 'fetched body'): jest.SpiedFunction<typeof fetch> {
   return jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(text, { status: 200, headers: { 'content-type': 'text/plain' } }));

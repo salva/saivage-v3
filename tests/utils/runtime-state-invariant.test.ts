@@ -5,13 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { writeFileAtomic } from '../../src/persistence/durable-write.js';
-import {
-  initRuntimeState,
-  readRuntimeState,
-  saveRuntimeState,
-  updateRuntimeState,
-  RuntimeStateInvariantError,
-} from '../../src/runtime/state.js';
+import { readRuntimeState, RuntimeStateInvariantError } from '../../src/runtime/state.js';
+import { initRuntimeState, saveRuntimeState, updateRuntimeState } from '../helpers/runtime-state.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 import type { ActiveCardRun, RuntimeState } from '../../src/schemas/types.js';
 import { runtimeStateFile } from '../../src/persistence/layout.js';

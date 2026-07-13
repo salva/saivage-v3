@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { initRuntimeState, readRuntimeState } from '../../src/runtime/state.js';
+import { readRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState } from '../helpers/runtime-state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';

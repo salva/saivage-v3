@@ -1,5 +1,6 @@
 import { initProjectTree, CardStore, testCompositionAuthority } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
+import { testRuntimePersistence } from '../../helpers/runtime-persistence.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { testAppLogs } from '../../helpers/app-logs.js';
@@ -347,7 +348,7 @@ describe('CardActor', () => {
     const readModelChanges = new ReadModelChangeBroadcaster();
     const runtimeChanged = jest.fn();
     readModelChanges.subscribe({ runtimeChanged, cardStateChanged: jest.fn(), agentsChanged: jest.fn(), conversationChanged: jest.fn() });
-    const runtime = createSupervisorRuntimeApi({
+    const runtime = createSupervisorRuntimeApi({ ...testRuntimePersistence(projectRoot, readModelChanges),
       readModelChanges,
       projectRoot, conversations: testConversationMutations(projectRoot), appLogs: testAppLogs(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
@@ -371,8 +372,9 @@ describe('CardActor', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const runtime = createSupervisorRuntimeApi({
-      readModelChanges: new ReadModelChangeBroadcaster(),
+    const readModelChanges = new ReadModelChangeBroadcaster();
+    const runtime = createSupervisorRuntimeApi({ ...testRuntimePersistence(projectRoot, readModelChanges),
+      readModelChanges,
       projectRoot, conversations: testConversationMutations(projectRoot), appLogs: testAppLogs(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store.repository,

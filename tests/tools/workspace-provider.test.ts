@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 
 
-import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState, updateRuntimeState } from '../helpers/runtime-state.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
 

@@ -8,7 +8,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 
 
-import { initRuntimeState, readRuntimeState, saveRuntimeState } from '../../src/runtime/state.js';
+import { readRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState, saveRuntimeState } from '../helpers/runtime-state.js';
 import { appendTestConversationMessage as appendConversationMessage } from '../helpers/conversation-mutations.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { AgentMessage } from '../../src/schemas/index.js';

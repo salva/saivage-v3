@@ -14,12 +14,8 @@ import { tmpdir } from 'node:os';
 
 import { createTestRestartPort } from './helpers/restart-port.js';
 import { listControlActions } from '../src/persistence/index.js';
-import {
-  initRuntimeState,
-  readRuntimeState,
-  runtimeStatePath,
-  updateRuntimeState,
-} from '../src/runtime/state.js';
+import { readRuntimeState, runtimeStatePath } from '../src/runtime/state.js';
+import { initRuntimeState, updateRuntimeState } from './helpers/runtime-state.js';
 import {
   create_card,
   list_cards,

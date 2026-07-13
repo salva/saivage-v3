@@ -1,6 +1,6 @@
-import { readRuntimeState } from './state.js';
 import type { RuntimeState } from '../schemas/index.js';
-import { createRuntimeStateMutationPort } from './mutations.js';
+import type { RuntimeStateStore } from './state.js';
+import type { CompositionMutationAuthority } from '../application/mutation-authority.js';
 import { pauseRuntimeCommand, resumeRuntimeCommand, type RuntimeControlResult } from './runtime-control-commands.js';
 
 /**
@@ -15,21 +15,22 @@ import { pauseRuntimeCommand, resumeRuntimeCommand, type RuntimeControlResult } 
 
 export interface RuntimeControlContext {
   projectRoot: string;
+  runtimeState: RuntimeStateStore;
+  authority: CompositionMutationAuthority;
 }
 
 export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlResult {
-  return pauseRuntimeCommand(ctx.projectRoot, createPersistedControlEffects(ctx.projectRoot));
+  return pauseRuntimeCommand(ctx.projectRoot, createPersistedControlEffects(ctx));
 }
 
 export function resumeRuntimeControl(ctx: RuntimeControlContext): RuntimeControlResult {
-  return resumeRuntimeCommand(ctx.projectRoot, createPersistedControlEffects(ctx.projectRoot));
+  return resumeRuntimeCommand(ctx.projectRoot, createPersistedControlEffects(ctx));
 }
 
-function createPersistedControlEffects(projectRoot: string) {
-  const mutations = createRuntimeStateMutationPort(projectRoot);
+function createPersistedControlEffects(ctx: RuntimeControlContext) {
   return {
-    readState: () => readRuntimeState(projectRoot),
+    readState: () => ctx.runtimeState.read(),
     now: () => new Date().toISOString(),
-    applyStatePatch: (patch: Partial<RuntimeState>) => mutations.apply({ kind: 'patchRuntimeState', patch }),
+    applyStatePatch: (patch: Partial<RuntimeState>) => ctx.runtimeState.patch(ctx.authority, patch),
   };
 }

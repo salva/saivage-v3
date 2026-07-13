@@ -9,7 +9,7 @@ import {
 } from '../../src/runtime/runtime-control-commands.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../src/runtime/control.js';
 
-import { saveRuntimeState } from '../../src/runtime/state.js';
+import { saveRuntimeState, testRuntimeStateStore } from '../helpers/runtime-state.js';
 import type { RuntimeState } from '../../src/schemas/index.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,6 +36,11 @@ function effects(state: RuntimeState | null, overrides: Partial<PauseResumeEffec
     }),
     ...overrides,
   };
+}
+
+function controlContext(projectRoot: string) {
+  const { store: runtimeState, authority } = testRuntimeStateStore(projectRoot);
+  return { projectRoot, runtimeState, authority };
 }
 
 describe('runtime-control-commands', () => {
@@ -81,8 +86,8 @@ describe('runtime-control-commands', () => {
       saveRuntimeState(projectRoot, runtimeState({ status: 'running' }));
       testActorSnapshots(projectRoot).save({ actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
 
-      const paused = pauseRuntimeControl({ projectRoot });
-      const resumed = resumeRuntimeControl({ projectRoot });
+      const paused = pauseRuntimeControl(controlContext(projectRoot));
+      const resumed = resumeRuntimeControl(controlContext(projectRoot));
 
       expect(paused).toMatchObject({ ok: true, code: 'paused', status: 'paused' });
       expect(resumed).toMatchObject({ ok: true, code: 'resumed', status: 'stopped' });
@@ -100,7 +105,7 @@ describe('runtime-control-commands', () => {
       saveRuntimeState(projectRoot, runtimeState({ status: 'running' }));
       testActorSnapshots(projectRoot).save({ actor_id: 'planner:missing-project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
 
-      const result = pauseRuntimeControl({ projectRoot });
+      const result = pauseRuntimeControl(controlContext(projectRoot));
 
       expect(result).toMatchObject({ ok: true, code: 'paused', status: 'paused' });
       expect(result).not.toHaveProperty('notificationDelivery');

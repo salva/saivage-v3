@@ -7,7 +7,7 @@ import { run } from '../../src/cli.js';
 
 import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import { readRuntimeState } from '../../src/runtime/state-api.js';
-import { updateRuntimeState } from '../../src/runtime/state.js';
+import { updateRuntimeState } from '../helpers/runtime-state.js';
 
 const originalCwd = process.cwd();
 const originalFetch = globalThis.fetch;

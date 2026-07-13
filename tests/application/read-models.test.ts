@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 
 import { providerExchangeAppLogEntry } from '../../src/persistence/provider-exchange-log.js';
 import { testAppLogAuthority, testAppLogs } from '../helpers/app-logs.js';
-import { initRuntimeState, runtimeStatePath, updateRuntimeState } from '../../src/runtime/state.js';
+import { runtimeStatePath } from '../../src/runtime/state.js';
+import { initRuntimeState, updateRuntimeState } from '../helpers/runtime-state.js';
 
 import { buildContextTextMessage } from '../../src/runtime/actors/index.js';
 import { appendTestConversationMessage as appendConversationMessage } from '../helpers/conversation-mutations.js';

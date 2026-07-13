@@ -544,7 +544,7 @@ export class LLMActor extends ConversationLLMActor {
   }
 
   protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
-    this.snapshots.save(this.snapshot());
+    this.snapshots.save(this.mutationAuthority(), this.snapshot());
   }
 
   snapshot() {
@@ -584,7 +584,7 @@ export class LLMActor extends ConversationLLMActor {
     if (!decision.shouldCompact) return;
     try {
       this.#compacting = true;
-      this.snapshots.save(this.snapshot());
+      this.snapshots.save(this.mutationAuthority(), this.snapshot());
       const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, conversations: this.conversations, sessionId: input.sessionId, input, mutationAuthority: this.mutationAuthority(), config: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, signal });
       this.conversationPublisher?.versionReplaced(compacted.versionReplacement);
       const compactedRows = compacted.rows as AgentMessage[];
@@ -592,7 +592,7 @@ export class LLMActor extends ConversationLLMActor {
       this.#compacting = false;
       if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction to refresh after compaction.`);
       this.activeReconstruction = { ...this.activeReconstruction, input: compactedInput };
-      this.snapshots.save(this.snapshot());
+      this.snapshots.save(this.mutationAuthority(), this.snapshot());
       return compactedInput;
     } finally {
       this.#compacting = false;
