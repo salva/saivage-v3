@@ -111,13 +111,14 @@ function sessionHeaders(handle?: McpServerHandle): Record<string, string> {
   return handle?.streamableHttpSessionId ? { 'Mcp-Session-Id': handle.streamableHttpSessionId } : {};
 }
 
-export async function discoverStreamableHttpTools(input: { serverName: string; config: McpServerConfig; handle?: McpServerHandle; ids: MessageIdSource }): Promise<McpToolDefinition[]> {
-  const { serverName: name, config: cfg, handle, ids } = input;
+export async function discoverStreamableHttpTools(input: { serverName: string; config: McpServerConfig; handle?: McpServerHandle; ids: MessageIdSource; signal: AbortSignal }): Promise<McpToolDefinition[]> {
+  const { serverName: name, config: cfg, handle, ids, signal } = input;
   if (!cfg.url) throw new Error('Streamable HTTP server has no URL configured');
   const discoveryAbort = new AbortController();
   const timeoutId = setTimeout(() => discoveryAbort.abort(), MCP_DISCOVERY_TIMEOUT_MS);
   const serverSignal = handle?.abortController?.signal;
   if (serverSignal) serverSignal.addEventListener('abort', () => discoveryAbort.abort(), { once: true });
+  signal.addEventListener('abort', () => discoveryAbort.abort(), { once: true });
   const tools: McpToolDefinition[] = [];
   try {
     const initId = ids.next();
@@ -155,13 +156,14 @@ export async function discoverStreamableHttpTools(input: { serverName: string; c
   } finally { clearTimeout(timeoutId); }
 }
 
-export async function invokeStreamableHttpTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; config: McpServerConfig; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource }): Promise<unknown> {
-  const { serverName, toolName, args, config: cfg, handle, timeoutMs, ids } = input;
+export async function invokeStreamableHttpTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; config: McpServerConfig; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource; signal: AbortSignal }): Promise<unknown> {
+  const { serverName, toolName, args, config: cfg, handle, timeoutMs, ids, signal: operationSignal } = input;
   if (!cfg.url) throw new TransportError(serverName, 'No URL configured for Streamable HTTP server');
   const signal = handle?.abortController?.signal;
   const invokeAbort = new AbortController();
   const timeoutId = setTimeout(() => invokeAbort.abort(), timeoutMs);
   if (signal) signal.addEventListener('abort', () => invokeAbort.abort(), { once: true });
+  operationSignal.addEventListener('abort', () => invokeAbort.abort(), { once: true });
   try {
     const requestId = ids.next();
     const request: McpJsonRpcRequest = { jsonrpc: '2.0', id: requestId, method: 'tools/call', params: { name: toolName, arguments: args } };
@@ -169,23 +171,24 @@ export async function invokeStreamableHttpTool(input: { serverName: string; tool
     try {
       resp = await fetch(cfg.url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...sessionHeaders(handle) }, body: JSON.stringify(request), signal: invokeAbort.signal });
     } catch (err) {
+      if (operationSignal.aborted) throw new DOMException('MCP invocation aborted', 'AbortError');
       if (invokeAbort.signal.aborted) throw new TimeoutError(serverName, toolName, timeoutMs);
       throw new TransportError(serverName, `HTTP POST failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (!resp.ok) throw new TransportError(serverName, `tools/call HTTP POST returned status ${resp.status}`);
     let body: Record<string, unknown>;
     try { body = await readStreamableHttpJsonRpcResponse(resp, { serverName, operation: 'tools/call', expectedId: requestId, signal: invokeAbort.signal }); }
-    catch (err) { if (invokeAbort.signal.aborted) throw new TimeoutError(serverName, toolName, timeoutMs); throw err; }
+    catch (err) { if (operationSignal.aborted) throw new DOMException('MCP invocation aborted', 'AbortError'); if (invokeAbort.signal.aborted) throw new TimeoutError(serverName, toolName, timeoutMs); throw err; }
     return processToolsCallResponse(body, serverName, toolName);
   } finally { clearTimeout(timeoutId); }
 }
 
-export async function healthStreamableHttpServer(input: { serverName: string; config: McpServerConfig; handle?: McpServerHandle }): Promise<boolean> {
-  const { config: cfg, handle } = input;
+export async function healthStreamableHttpServer(input: { serverName: string; config: McpServerConfig; handle?: McpServerHandle; signal: AbortSignal }): Promise<boolean> {
+  const { config: cfg, handle, signal } = input;
   if (!handle || handle.abortController?.signal.aborted || !cfg.url) return false;
   try {
-    let resp = await fetch(cfg.url, { method: 'HEAD' });
-    if (resp.status === 405 || resp.status === 501) resp = await fetch(cfg.url, { method: 'GET' });
+    let resp = await fetch(cfg.url, { method: 'HEAD', signal });
+    if (resp.status === 405 || resp.status === 501) resp = await fetch(cfg.url, { method: 'GET', signal });
     return resp.ok;
   } catch { return false; }
 }

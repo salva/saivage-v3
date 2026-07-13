@@ -49,14 +49,15 @@ async function closeReadline(rl: readline.Interface, wasClosed: () => boolean): 
   });
 }
 
-export async function discoverStdioTools(input: { serverName: string; handle?: McpServerHandle; ids: MessageIdSource }): Promise<McpToolDefinition[]> {
-  const { serverName: name, handle, ids } = input;
+export async function discoverStdioTools(input: { serverName: string; handle?: McpServerHandle; ids: MessageIdSource; signal: AbortSignal }): Promise<McpToolDefinition[]> {
+  const { serverName: name, handle, ids, signal } = input;
   if (!handle?.process) throw new Error('Server process is not running');
   const proc = handle.process;
   if (!proc.stdin || !proc.stdout) throw new Error('Server process has no stdin/stdout');
   const tools: McpToolDefinition[] = [];
   const rl = readline.createInterface({ input: proc.stdout, crlfDelay: Infinity });
   const abortController = new AbortController();
+  signal.addEventListener('abort', () => abortController.abort(), { once: true });
   const timeoutId = setTimeout(() => abortController.abort(), MCP_DISCOVERY_TIMEOUT_MS);
   let rlClosed = false;
   rl.once('close', () => { rlClosed = true; });
@@ -89,12 +90,13 @@ export async function discoverStdioTools(input: { serverName: string; handle?: M
   }
 }
 
-export async function invokeStdioTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; config: McpServerConfig; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource }): Promise<unknown> {
-  const { serverName, toolName, args, handle, timeoutMs, ids } = input;
+export async function invokeStdioTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; config: McpServerConfig; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource; signal: AbortSignal }): Promise<unknown> {
+  const { serverName, toolName, args, handle, timeoutMs, ids, signal } = input;
   const proc = handle?.process;
   if (!proc?.stdin || !proc.stdout) throw new TransportError(serverName, 'Process has no stdin/stdout pipes');
   const rl = readline.createInterface({ input: proc.stdout, crlfDelay: Infinity });
   const abortController = new AbortController();
+  signal.addEventListener('abort', () => abortController.abort(), { once: true });
   const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
   let rlClosed = false;
   rl.once('close', () => { rlClosed = true; });
@@ -104,6 +106,7 @@ export async function invokeStdioTool(input: { serverName: string; toolName: str
     safeWrite(proc.stdin, JSON.stringify(request) + '\n', serverName);
     const response = await readJsonRpcResponse(rl, requestId, abortController.signal);
     if (!response) {
+      if (signal.aborted) throw new DOMException('MCP invocation aborted', 'AbortError');
       if (abortController.signal.aborted) throw new TimeoutError(serverName, toolName, timeoutMs);
       throw new TransportError(serverName, 'stdio stream closed before response received');
     }

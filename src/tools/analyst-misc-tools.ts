@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { queueNotification, resolveRecipient } from '../notifications/index.js';
 import { redactAnalystSecretValue } from '../workspace/file-access-security.js';
 import type { ConfigMutation } from '../config/index.js';
+import type { McpReconciliationReport } from '../mcp/mcp-manager.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../agents/session-ids.js';
 import { AgentOperatorReadModelService } from '../application/read-models/index.js';
@@ -52,18 +53,56 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
       case 'set_failover_chain': mutation = { kind: 'set_failover_chain', forModel: params.for_model!, orderedFailoverModels: params.ordered_failover_models! }; break;
       case 'mcp_add': mutation = { kind: 'mcp_add', name: params.name!, command: params.command!, args: params.args, env: params.env }; break;
       case 'mcp_edit': mutation = { kind: 'mcp_edit', name: params.name!, patch: { command: params.command, args: params.args, env: params.env } }; break;
-      case 'mcp_remove': await ctx.mcpManager?.stopServer(params.name!); mutation = { kind: 'mcp_remove', name: params.name! }; break;
+      case 'mcp_remove': mutation = { kind: 'mcp_remove', name: params.name! }; break;
       case 'set_runtime_setting': mutation = { kind: 'set_runtime_setting', key: params.key!, value: params.value }; break;
       case 'set_server_setting': mutation = { kind: 'set_server_setting', key: params.key!, value: params.value }; break;
       default: return invalid('action', 'Unknown reconfigure action.');
     }
-    const result = await ctx.configAuthority.mutate(mutation);
-    if (!result.success) return invalid(result.fieldPath, result.message);
-    if (params.action === 'mcp_add') { ctx.mcpManager?.reloadServersFromConfig(); await ctx.mcpManager?.startServer(params.name!); }
-    if (params.action === 'mcp_edit') { ctx.mcpManager?.reloadServersFromConfig(); await ctx.mcpManager?.restartServer(params.name!); }
-    if (params.action === 'mcp_remove') ctx.mcpManager?.reloadServersFromConfig();
+    const mcpMutation = params.action === 'mcp_add' || params.action === 'mcp_edit' || params.action === 'mcp_remove';
+    let result;
+    try { result = await ctx.configAuthority.mutate(mutation); }
+    catch (error) {
+      if (mcpMutation) return toolFailure('MCP desired state was not persisted.', { persisted: false, reconciled: false });
+      throw error;
+    }
+    if (!result.success) {
+      if (mcpMutation) return toolFailure(result.message, { persisted: false, reconciled: false, reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message });
+      return invalid(result.fieldPath, result.message);
+    }
+    if (params.action === 'mcp_add' || params.action === 'mcp_edit' || params.action === 'mcp_remove') {
+      if (!ctx.mcpManager) return toolFailure('MCP desired state was persisted but runtime reconciliation is unavailable.', { persisted: true, reconciled: false, retry_action: 'mcp_reconcile' });
+      let reconciliation: McpReconciliationReport;
+      try { reconciliation = await ctx.mcpManager.reconcilePersistedConfig(); }
+      catch { return toolFailure('MCP desired state was persisted but runtime reconciliation failed.', { persisted: true, reconciled: false, retry_action: 'mcp_reconcile' }); }
+      if (!reconciliation.converged) return pendingMcpResult(reconciliation);
+      return { success: true, data: { persisted: true, reconciled: true, reconciliation: safeReconciliation(reconciliation) } };
+    }
     if (params.action === 'set_server_setting' && result.requires_restart) return { success: true, data: { applied: true, requires_restart: true, key: params.key } };
     return { success: true, data: { applied: true, action: params.action } };
+  } });
+}
+
+function pendingMcpResult(reconciliation: McpReconciliationReport): ToolResult {
+  return toolFailure('MCP desired state was persisted but runtime convergence is pending.', { persisted: true, reconciled: false, retry_action: 'mcp_reconcile', reconciliation: safeReconciliation(reconciliation) });
+}
+
+function safeReconciliation(reconciliation: McpReconciliationReport) {
+  return {
+    converged: reconciliation.converged,
+    desired: reconciliation.desired.map((entry) => ({ ...entry })),
+    active: reconciliation.active.map((entry) => ({ ...entry })),
+    pending: reconciliation.pending.map((entry) => ({ ...entry })),
+  };
+}
+
+export async function mcp_reconcile(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
+  return runAuditedAnalystTool(ctx, {}, { action: 'mcp.reconcile', safety_class: 'low', target_kind: 'config', getTargetId: () => 'mcp', run: async () => {
+    if (!ctx.mcpManager) return toolFailure('MCP runtime reconciliation is unavailable.', { persisted: false, reconciled: false });
+    let reconciliation: McpReconciliationReport;
+    try { reconciliation = await ctx.mcpManager.reconcilePersistedConfig(); }
+    catch { return toolFailure('MCP runtime reconciliation failed.', { persisted: false, reconciled: false }); }
+    if (!reconciliation.converged) return toolFailure('MCP runtime convergence is pending.', { persisted: false, reconciled: false, reconciliation: safeReconciliation(reconciliation) });
+    return { success: true, data: { persisted: false, reconciled: true, reconciliation: safeReconciliation(reconciliation) } };
   } });
 }
 
@@ -95,6 +134,7 @@ export const analystMiscTools: readonly UnifiedToolDefinition<string, any>[] = [
   { name: 'queue_notification', description: 'Queue a notification for delivery into the next agent session targeting a given card or role. The platform forgets the notification once it has been delivered; there is no list/get/acknowledge/delete.', input: z.object({ recipient: describe(z.string(), 'A card id, an agent role, or an active session id.'), kind: describe(z.string(), 'A short categorical label for the notification.'), body: describe(z.string(), 'The notification text to inject.') }).strict(), roles: ['analyst', 'planner'], executor: queue_notification },
   { name: 'show_config', description: 'Show the current project configuration with secrets redacted.', input: emptyInput, roles: ['analyst'], executor: show_config },
   { name: 'reconfigure', description: 'Reconfigure role routing, failover, MCP servers, runtime, or server settings.', input: z.object({ action: z.enum(['set_role_routing', 'set_failover_chain', 'mcp_add', 'mcp_edit', 'mcp_remove', 'set_runtime_setting', 'set_server_setting']), role: z.string().optional(), model_candidate: z.string().optional(), for_model: z.string().optional(), ordered_failover_models: z.array(z.string()).optional(), name: z.string().optional(), command: z.string().optional(), args: z.array(z.string()).optional(), env: z.record(z.string()).optional(), key: z.string().optional(), value: z.unknown().optional() }).strict(), roles: ['analyst'], executor: reconfigure },
+  { name: 'mcp_reconcile', description: 'Retry MCP runtime convergence from the already persisted configuration without writing configuration again.', input: emptyInput, roles: ['analyst'], executor: mcp_reconcile },
   { name: 'list_agent_sessions', description: 'List all agent sessions in the project (analyst, planner, executor, etc.), not just the current analyst session.', input: emptyInput, roles: ['analyst'], executor: list_agent_sessions },
   { name: 'read_agent_session', description: "Read a specific agent session's metadata and most recent persisted messages. Useful for inspecting what other agents (planner, executor, etc.) have been doing.", input: z.object({ sessionId: z.string(), lastN: z.number().int().optional() }).strict(), roles: ['analyst'], executor: read_agent_session },
 ] as const;

@@ -1,15 +1,13 @@
-/** MCP Server Lifecycle Manager facade. */
-
-import { EventLogger } from '../observability/index.js';
+import { createHash } from 'node:crypto';
 import type { ResolvedConfigAuthority } from '../config/index.js';
-import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
+import { EventLogger } from '../observability/index.js';
+import type { ProcessRunner } from '../runtime/process-runner.js';
 import { ServerNotRunningError } from './errors.js';
+import { McpInvocationStatsRecorder } from './invocation-stats.js';
 import { MCP_INVOKE_TIMEOUT_MS, type McpServerStatus, type McpToolDefinition } from './protocol.js';
 import { loadMcpServersFromConfig, type McpServerConfig } from './server-registry.js';
-import { McpInvocationStatsRecorder } from './invocation-stats.js';
-import { buildMcpToolsReadModel } from './status-projection.js';
 import { McpServerRuntime } from './server-runtime.js';
-import type { ProcessRunner } from '../runtime/process-runner.js';
+import { buildMcpToolsReadModel } from './status-projection.js';
 
 export type { McpServerConfig, McpServerHandle } from './server-registry.js';
 export type { McpTransport, McpStatus, McpServerStatus, McpToolAnnotations, McpToolDefinition, McpJsonRpcRequest, McpJsonRpcResponse, McpJsonRpcError, ListToolsResult, McpInitializeParams, ToolsCallResult } from './protocol.js';
@@ -21,234 +19,181 @@ export interface McpToolsReadModelProvider { getToolsReadModel(): ReturnType<typ
 export type McpToolCapability = ReturnType<typeof buildMcpToolsReadModel>['serverDetails'][number]['tools'][number] & { serverName: string };
 export interface McpToolInvocationPort { getServerTools(name: string): McpToolDefinition[] | undefined; findToolCapability(serverName: string, toolName: string): McpToolCapability | null; invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> }
 
-export interface McpManagerOptions { configAuthority: ResolvedConfigAuthority; processRunner: ProcessRunner; scope?: ResourceScope; }
+export interface McpReconciliationReport {
+  converged: boolean;
+  desired: Array<{ name: string; revision: string; shouldRun: boolean }>;
+  active: Array<{ name: string; revision: string; state: 'running' | 'stopped' }>;
+  pending: Array<{ name: string; operation: 'add' | 'remove' | 'replace' | 'start' | 'stop'; diagnostic: string }>;
+}
+export interface McpReconciliationPort { reconcilePersistedConfig(): Promise<McpReconciliationReport> }
+export interface McpManagerOptions { configAuthority: ResolvedConfigAuthority; processRunner: ProcessRunner }
 
-export class McpManager {
-  private readonly scope: ResourceScope;
-  /** All configured MCP servers, loaded at construction time. */
-  private servers: Record<string, McpServerConfig>;
-  private runtimes: Map<string, McpServerRuntime> = new Map();
-  /** Auto-incrementing JSON-RPC message ID counter. */
+interface DesiredServer { name: string; config: McpServerConfig; revision: string; shouldRun: boolean }
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, stableValue(child)]));
+  return value;
+}
+
+function revisionOf(config: McpServerConfig): string {
+  return createHash('sha256').update(JSON.stringify(stableValue(config))).digest('hex');
+}
+
+export class McpManager implements McpReconciliationPort {
+  private readonly runtimes = new Map<string, McpServerRuntime>();
   private nextMsgId = 1;
   private readonly invocationStats = new McpInvocationStatsRecorder();
+  private reconciliationTail: Promise<void> = Promise.resolve();
+  private currentReconciliation: Promise<McpReconciliationReport> | null = null;
+  private admissionOpen = true;
 
-  constructor(private readonly options: McpManagerOptions) {
-    this.scope = options.scope ?? createResourceScope('mcp-manager');
-    this.servers = loadMcpServersFromConfig(options.configAuthority.loadEffective().config);
-    this.rebuildRuntimes(this.servers);
-    this.scope.add({ dispose: () => { for (const runtime of this.runtimes.values()) void runtime.dispose(); this.runtimes.clear(); } }, { name: 'mcp-manager-runtimes' });
-  }
+  constructor(private readonly options: McpManagerOptions) {}
 
   next(): number { return this.nextMsgId++; }
-
-  // ── Event Logger / Invocation Statistics ───────────────────
-
   setEventLogger(logger: EventLogger): void { this.invocationStats.setEventLogger(logger); }
+  getInvocationStats(): Record<string, { total: number; success: number; error: number; lastInvokedAt?: string }> { return this.invocationStats.snapshot(); }
 
-  getInvocationStats(): Record<string, { total: number; success: number; error: number; lastInvokedAt?: string }> {
-    return this.invocationStats.snapshot();
+  reconcilePersistedConfig(): Promise<McpReconciliationReport> {
+    if (!this.admissionOpen) return Promise.reject(new Error('MCP reconciliation admission is closed.'));
+    const run = this.reconciliationTail.then(() => this.reconcileTurn());
+    this.currentReconciliation = run;
+    this.reconciliationTail = run.then(() => undefined, () => undefined);
+    void run.finally(() => { if (this.currentReconciliation === run) this.currentReconciliation = null; }).catch(() => undefined);
+    return run;
   }
 
-  // ── Public API ──────────────────────────────────────────────
+  closeAdmission(): void { this.admissionOpen = false; }
 
-  /**
-   * Start all autostart servers. Disabled servers are skipped.
-   */
-  reloadServersFromConfig(): void {
-    const nextServers = loadMcpServersFromConfig(this.options.configAuthority.loadEffective().config);
-    this.rebuildRuntimes(nextServers);
-    this.servers = nextServers;
-  }
-
-  async startAll(): Promise<void> {
-    const promises: Promise<void>[] = [];
-    const names: string[] = [];
-    for (const [name, cfg] of Object.entries(this.servers)) {
-      if (!cfg.disabled && cfg.autostart) {
-        names.push(name);
-        promises.push(this.startServer(name));
-      }
-    }
-    const results = await Promise.allSettled(promises);
-    const failures = results.flatMap((result, index) => result.status === 'rejected' ? [{ name: names[index]!, reason: result.reason }] : []);
-    if (failures.length > 0) {
-      const summary = failures.map((failure) => `${failure.name}: ${failure.reason instanceof Error ? failure.reason.message : String(failure.reason)}`).join('; ');
-      throw new Error(`Failed to start ${failures.length} MCP autostart server(s): ${summary}`);
-    }
-  }
-
-  /**
-   * Start a single MCP server by name.
-   *
-   * If the server is disabled, silently skips (no error).
-   * If the server is already running, does nothing.
-   *
-   * After the server is started, performs MCP tool discovery
-   * (init handshake + tools/list). Discovery failures are recorded
-   * but do not change the server status if the process is still alive.
-   */
-  async startServer(name: string): Promise<void> {
-    const runtime = this.runtimes.get(name);
-    if (!runtime) {
-      throw new Error(`MCP server '${name}' not found in configuration.`);
-    }
-    await runtime.start();
-  }
-
-  /**
-   * Stop a single MCP server by name.
-   *
-   * For stdio: sends SIGTERM, waits 3 s, then SIGKILL if still alive.
-   * For streamable-http: aborts the AbortController to close in-flight requests.
-   *
-   * Clears the cached tool list for this server.
-   */
-  async stopServer(name: string): Promise<void> {
-    await this.runtimes.get(name)?.stop();
-  }
-
-  /**
-   * Stop all running servers.
-   */
-  async stopAll(): Promise<void> {
-    const promises = Array.from(this.runtimes.values()).map((runtime) => runtime.stop());
-    await Promise.allSettled(promises);
-  }
-
-  /**
-   * Restart a server: stop then start.
-   */
-  async restartServer(name: string): Promise<void> {
-    const runtime = this.runtimes.get(name);
-    if (!runtime) throw new Error(`MCP server '${name}' not found in configuration.`);
-    await runtime.restart();
-  }
-
-  /**
-   * Return status for all configured servers (including disabled ones).
-   */
-  getStatus(): McpServerStatus[] {
-    return Array.from(this.runtimes.values()).map((runtime) => runtime.getStatus());
-  }
-
-  /**
-   * Return status for a single server, or undefined if not configured.
-   */
-  getServerStatus(name: string): McpServerStatus | undefined {
-    return this.runtimes.get(name)?.getStatus();
-  }
-
-  /**
-   * Return merged tool definitions from all servers.
-   */
-  getTools(): McpToolDefinition[] {
-    const all: McpToolDefinition[] = [];
+  async dispose(): Promise<void> {
+    this.closeAdmission();
+    for (const runtime of this.runtimes.values()) runtime.closeAdmission();
+    await this.currentReconciliation?.catch(() => undefined);
+    const failures: string[] = [];
     for (const runtime of this.runtimes.values()) {
-      const tools = runtime.getTools();
-      if (tools) all.push(...tools);
+      try { await runtime.dispose(); }
+      catch { failures.push(runtime.name); }
     }
-    return all;
+    if (failures.length > 0) throw new Error(`Failed to contain ${failures.length} MCP runtime(s).`);
+    this.runtimes.clear();
   }
 
-  /**
-   * Return cached tool definitions for a specific server.
-   */
-  getServerTools(name: string): McpToolDefinition[] | undefined {
-    return this.runtimes.get(name)?.getTools();
-  }
+  getStatus(): McpServerStatus[] { return [...this.runtimes.values()].map((runtime) => runtime.getStatus()); }
+  getServerStatus(name: string): McpServerStatus | undefined { return this.runtimes.get(name)?.getStatus(); }
+  getTools(): McpToolDefinition[] { return [...this.runtimes.values()].flatMap((runtime) => runtime.getTools() ?? []); }
+  getServerTools(name: string): McpToolDefinition[] | undefined { return this.runtimes.get(name)?.getTools(); }
+  getToolServers(): string[] { return [...this.runtimes.values()].filter((runtime) => runtime.getTools() !== undefined).map((runtime) => runtime.name); }
 
-  /**
-   * Return server names that have cached tool definitions.
-   */
-  getToolServers(): string[] {
-    return Array.from(this.runtimes.values())
-      .filter((runtime) => runtime.getTools() !== undefined)
-      .map((runtime) => runtime.name);
-  }
-
-  /**
-   * Invoke an MCP tool on a running server.
-   *
-   * Sends a `tools/call` JSON-RPC request over the appropriate transport
-   * (stdio or Streamable HTTP) and returns the result. The response is screened for
-   * structured error codes and mapped to typed exceptions.
-   *
-   * @param serverName  - The configured MCP server name.
-   * @param toolName    - The tool to invoke (must exist in the tools cache).
-   * @param args        - Tool arguments as a key-value record.
-   * @param options     - Optional overrides (e.g. timeoutMs).
-   * @returns           - The tool result (typically `result.content` or the
-   *                      full JSON-RPC result object).
-   * @throws {ServerNotRunningError}  Server is not configured or not running.
-   * @throws {ToolNotFoundError}      Tool not found in the server's tool list.
-   * @throws {InvalidArgumentsError}  Server returned JSON-RPC error -32602.
-   * @throws {TimeoutError}           Invocation exceeded timeout.
-   * @throws {TransportError}         Transport-level failure (connection, process).
-   * @throws {McpInvokeError}         Other JSON-RPC error returned by the server.
-   */
-  async invokeTool(
-    serverName: string,
-    toolName: string,
-    args: Record<string, unknown>,
-    options?: { timeoutMs?: number },
-  ): Promise<unknown> {
+  async invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> {
     const runtime = this.runtimes.get(serverName);
     if (!runtime) throw new ServerNotRunningError(serverName);
     return runtime.invokeTool(toolName, args, options);
   }
 
-  /**
-   * Health check a specific server.
-   *
-   * - stdio: process must be running (pid alive, not exited with an error code).
-   * - streamable-http: performs a HEAD request (fallback to GET) to the configured URL
-   *   and expects a 2xx response.
-   *
-   * Returns true if healthy, false otherwise.
-   */
-  async healthCheck(name: string): Promise<boolean> {
-    const cfg = this.servers[name];
-    if (!cfg) return false;
-    return this.runtimes.get(name)?.healthCheck() ?? false;
-  }
-
-  // ── Read Models ─────────────────────────────────────────────
+  async healthCheck(name: string): Promise<boolean> { return this.runtimes.get(name)?.healthCheck() ?? false; }
 
   getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel> {
-    return buildMcpToolsReadModel({
-      tools: this.getTools(),
-      servers: this.getToolServers(),
-      statuses: this.getStatus(),
-      getServerTools: (name) => this.getServerTools(name),
-      invocationStats: this.getInvocationStats(),
-    });
+    return buildMcpToolsReadModel({ tools: this.getTools(), servers: this.getToolServers(), statuses: this.getStatus(), getServerTools: (name) => this.getServerTools(name), invocationStats: this.getInvocationStats() });
   }
 
   findToolCapability(serverName: string, toolName: string): McpToolCapability | null {
-    const projection = this.getToolsReadModel();
-    const server = projection.serverDetails.find((candidate) => candidate.name === serverName);
+    const server = this.getToolsReadModel().serverDetails.find((candidate) => candidate.name === serverName);
     const tool = server?.tools.find((candidate) => candidate.name === toolName);
     return tool ? { ...tool, serverName } : null;
   }
 
-  private rebuildRuntimes(nextServers: Record<string, McpServerConfig>): void {
-    for (const [name, runtime] of Array.from(this.runtimes.entries())) {
-      if (!nextServers[name]) {
-        void runtime.dispose();
-        this.runtimes.delete(name);
+  private async reconcileTurn(): Promise<McpReconciliationReport> {
+    if (!this.admissionOpen) throw new Error('MCP reconciliation admission is closed.');
+    const configs = loadMcpServersFromConfig(this.options.configAuthority.loadEffective().config);
+    const desired = Object.entries(configs).map(([name, config]): DesiredServer => ({ name, config, revision: revisionOf(config), shouldRun: !config.disabled && config.autostart })).sort((a, b) => a.name.localeCompare(b.name));
+    const desiredByName = new Map(desired.map((entry) => [entry.name, entry]));
+    const destructive = [...this.runtimes.values()].filter((runtime) => {
+      const target = desiredByName.get(runtime.name);
+      return !target || target.revision !== runtime.revision;
+    });
+    if (destructive.length > 1) {
+      return {
+        converged: false,
+        desired: desired.map(({ name, revision, shouldRun }) => ({ name, revision, shouldRun })),
+        active: [...this.runtimes.values()].sort((a, b) => a.name.localeCompare(b.name)).map((runtime) => ({ name: runtime.name, revision: runtime.revision, state: runtime.isRunning() ? 'running' : 'stopped' })),
+        pending: destructive.sort((a, b) => a.name.localeCompare(b.name)).map((runtime) => ({
+          name: runtime.name,
+          operation: desiredByName.has(runtime.name) ? 'replace' as const : 'remove' as const,
+          diagnostic: 'MCP reconciliation requires at most one destructive remove or replace target.',
+        })),
+      };
+    }
+
+    const pending: McpReconciliationReport['pending'] = [];
+    const replacedNames = new Set<string>();
+    for (const runtime of destructive) {
+      const target = desiredByName.get(runtime.name);
+      const operation = target ? 'replace' : 'remove';
+      try { await runtime.stop(); }
+      catch { pending.push({ name: runtime.name, operation, diagnostic: `MCP server '${runtime.name}' could not be contained.` }); continue; }
+      this.runtimes.delete(runtime.name);
+      if (target) replacedNames.add(runtime.name);
+    }
+
+    for (const target of desired) {
+      let runtime = this.runtimes.get(target.name);
+      if (runtime && runtime.revision !== target.revision) continue;
+      let startOperation: 'add' | 'replace' | 'start' = 'start';
+      if (!runtime) {
+        this.assertAdmission();
+        runtime = this.createRuntime(target);
+        this.runtimes.set(target.name, runtime);
+        startOperation = replacedNames.has(target.name) ? 'replace' : 'add';
+      }
+      if (!target.shouldRun) {
+        if (runtime.isRunning()) {
+          try { await runtime.stop(); }
+          catch { pending.push({ name: target.name, operation: 'stop', diagnostic: `MCP server '${target.name}' could not be contained.` }); }
+        }
+        continue;
+      }
+      if (runtime.isReady()) continue;
+      if (runtime.isContained()) {
+        this.assertAdmission();
+        runtime = this.createRuntime(target);
+        this.runtimes.set(target.name, runtime);
+      } else if (runtime.isRunning()) {
+        pending.push({ name: target.name, operation: 'start', diagnostic: `MCP server '${target.name}' has not completed startup.` });
+        continue;
+      }
+      try { this.assertAdmission(); await runtime.start(); }
+      catch {
+        try { await runtime.stop(); } catch { /* retained below as active truth */ }
+        pending.push({ name: target.name, operation: startOperation, diagnostic: `MCP server '${target.name}' failed to start.` });
       }
     }
-    for (const [name, config] of Object.entries(nextServers)) {
-      const existing = this.runtimes.get(name);
-      if (existing) existing.updateConfig(config);
-      else this.runtimes.set(name, new McpServerRuntime({
-        name,
-        config,
-        processRunner: this.options.processRunner,
-        processScope: this.options.processRunner.createDirectScope(this.options.processRunner.serviceRootScope, `mcp-server:${name}`, 'service_infrastructure'),
-        ids: this,
-        invocationStats: this.invocationStats,
-      }));
-    }
+
+    const report: McpReconciliationReport = {
+      converged: false,
+      desired: desired.map(({ name, revision, shouldRun }) => ({ name, revision, shouldRun })),
+      active: [...this.runtimes.values()].sort((a, b) => a.name.localeCompare(b.name)).map((runtime) => ({ name: runtime.name, revision: runtime.revision, state: runtime.isRunning() ? 'running' : 'stopped' })),
+      pending,
+    };
+    report.converged = pending.length === 0 && report.desired.every((target) => {
+      const runtime = this.runtimes.get(target.name);
+      return runtime?.revision === target.revision && (target.shouldRun ? runtime.isReady() : !runtime.isRunning());
+    }) && report.active.every((runtime) => desiredByName.has(runtime.name));
+    return report;
+  }
+
+  private createRuntime(target: DesiredServer): McpServerRuntime {
+    return new McpServerRuntime({
+      name: target.name,
+      config: target.config,
+      revision: target.revision,
+      processRunner: this.options.processRunner,
+      processScope: this.options.processRunner.createDirectScope(this.options.processRunner.serviceRootScope, `mcp-server:${target.name}:${target.revision}`, 'service_infrastructure'),
+      ids: this,
+      invocationStats: this.invocationStats,
+    });
+  }
+
+  private assertAdmission(): void {
+    if (!this.admissionOpen) throw new Error('MCP reconciliation admission is closed.');
   }
 }

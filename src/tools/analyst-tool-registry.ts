@@ -19,6 +19,7 @@ const analystToolOrder = [
   'navigate_back',
   'show_config',
   'reconfigure',
+  'mcp_reconcile',
   'read_runtime_events',
   'read_runtime_errors',
   'read_control_actions',

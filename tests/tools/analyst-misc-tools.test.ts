@@ -1,12 +1,12 @@
 import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
-import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 
 import { appendConversationMessage, buildContextTextMessage } from '../../src/runtime/actors/index.js';
-import { list_agent_sessions, read_agent_session } from '../../src/tools/analyst-misc-tools.js';
+import { list_agent_sessions, mcp_reconcile, read_agent_session, reconfigure } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
@@ -52,5 +52,36 @@ describe('analyst misc tools', () => {
       returned: 1,
       messages: [expect.objectContaining({ id: 'executor-message-2', content: 'second' })],
     }));
+  });
+
+  it('writes MCP desired state once and retries only mutation-free reconciliation', async () => {
+    const mutate = jest.fn(async () => ({ success: true, config: {}, warnings: [], requires_restart: false }));
+    const pending = { converged: false, desired: [], active: [], pending: [{ name: 'server', operation: 'start' as const, diagnostic: 'pending' }] };
+    const converged = { converged: true, desired: [], active: [], pending: [] };
+    const reconcilePersistedConfig = jest.fn<() => Promise<typeof pending | typeof converged>>()
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(converged);
+    ctx.configAuthority = { ...ctx.configAuthority, mutate } as never;
+    ctx.mcpManager = { reconcilePersistedConfig } as never;
+
+    const mutation = await reconfigure(ctx, { action: 'mcp_add', name: 'server', command: '/bin/server' });
+    const retry = await mcp_reconcile(ctx);
+
+    expect(mutation).toMatchObject({ success: false, data: { persisted: true, reconciled: false, retry_action: 'mcp_reconcile' } });
+    expect(retry).toMatchObject({ success: true, data: { persisted: false, reconciled: true } });
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(reconcilePersistedConfig).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports MCP persistence failure without attempting reconciliation', async () => {
+    const mutate = jest.fn(async () => ({ success: false as const, fieldPath: 'mcpServers/server', message: 'invalid server' }));
+    const reconcilePersistedConfig = jest.fn();
+    ctx.configAuthority = { ...ctx.configAuthority, mutate } as never;
+    ctx.mcpManager = { reconcilePersistedConfig } as never;
+
+    const result = await reconfigure(ctx, { action: 'mcp_add', name: 'server', command: '/bin/server' });
+
+    expect(result).toMatchObject({ success: false, data: { persisted: false, reconciled: false, fieldPath: 'mcpServers/server' } });
+    expect(reconcilePersistedConfig).not.toHaveBeenCalled();
   });
 });

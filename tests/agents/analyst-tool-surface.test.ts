@@ -148,7 +148,7 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
   it('exposes registry, schema, policy, and prompt names without retired note-inbox tools', () => {
     const names = ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort();
     for (const retired of RETIRED_NOTE_TOOLS) expect(names).not.toContain(retired);
-    for (const required of ['start_project','pause_runtime','resume_runtime','restart_server','queue_notification','create_card','reorder_child','cancel_card','delete_card','navigate_workspace','navigate_back','show_config','reconfigure']) expect(names).toContain(required);
+    for (const required of ['start_project','pause_runtime','resume_runtime','restart_server','queue_notification','create_card','reorder_child','cancel_card','delete_card','navigate_workspace','navigate_back','show_config','reconfigure','mcp_reconcile']) expect(names).toContain(required);
     expect(names).not.toContain('stop_project');
     expect(names).not.toContain('write_file');
     expect(names).not.toContain('terminate_process');
@@ -399,11 +399,13 @@ describe('Reconfigure MCP live manager refresh', () => {
       const ctx: ToolContext = toolCtx(root, runtimeApplication.analystDeps.cardStore, { runtime: runtimeApplication.analystDeps.runtime, mcpManager });
 
       const added = await reconfigure(ctx, { action: 'mcp_add', name: 'test-server', command: '/bin/true', args: [] });
-      expect(added.success).toBe(true);
+      expect(added.success).toBe(false);
+      expect(added.data).toMatchObject({ persisted: true, reconciled: false, retry_action: 'mcp_reconcile' });
       expect(mcpManager.getStatus().some((status) => status.name === 'test-server')).toBe(true);
 
       const edited = await reconfigure(ctx, { action: 'mcp_edit', name: 'test-server', command: '/bin/true', args: [] });
-      expect(edited.success).toBe(true);
+      expect(edited.success).toBe(false);
+      expect(edited.data).toMatchObject({ persisted: true, reconciled: false, retry_action: 'mcp_reconcile' });
       const onDisk = YAML.parse(readFileSync(join(root, '.saivage', 'saivage.yaml'), 'utf-8')) as { mcpServers: Record<string, { command: string }> };
       expect(onDisk.mcpServers['test-server'].command).toBe('/bin/true');
       expect(mcpManager.getStatus().find((status) => status.name === 'test-server')).toBeDefined();
@@ -411,7 +413,7 @@ describe('Reconfigure MCP live manager refresh', () => {
       const removed = await reconfigure(ctx, { action: 'mcp_remove', name: 'test-server' });
       expect(removed.success).toBe(true);
       expect(mcpManager.getStatus().some((status) => status.name === 'test-server')).toBe(false);
-      await mcpManager.stopAll();
+      await mcpManager.dispose();
       await runtimeApplication.runtimeApi.shutdown().catch(() => undefined);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

@@ -1,921 +1,238 @@
-/**
- * Stage 9 — MCP Manager Tests
- *
- * Tests cover:
- *   1. Config loading from saivage.yaml
- *   2. Disabled servers are skipped
- *   3. Error handling (unknown server, missing command, missing URL)
- *   4. Health check returns false for unknown/disabled servers
- *   5. getStatus() and getServerStatus() return correct info
- *   6. Streamable HTTP start errors when URL is missing
- *   7. stdio start errors when command is missing
- *   8. startAll skips disabled, starts autostart
- *   9. startServer starts and stopServer stops gracefully
- *   10. restartServer stops then starts
- *   11. Tool discovery: getTools(), getServerTools(), getToolServers(), tools_count in status, stop clears cache
- */
-
-import { describe, it, expect, beforeEach, afterEach, beforeAll, jest } from '@jest/globals';
-import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from 'node:fs';
-import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PassThrough, Writable } from 'node:stream';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import * as YAML from 'yaml';
-import { testConfigAuthority } from '../helpers/canonical-project.js';
+import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { ManagedProcessGroupRegistry, type ManagedProcessPlatform } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { testConfigAuthority } from '../helpers/canonical-project.js';
 
-// ── Mocks ─────────────────────────────────────────────────────
+const roots: string[] = [];
 
-// Each spawn creates an independent mock process with its own handlers.
-let nextPid = 12345;
-
-function createMockProc(opts?: { earlyExit?: boolean }) {
-  const handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
-  const pid = nextPid++;
-  // stdin/stdout stream mocks with 'on' and writable flag
-  const stdin = {
-    writable: !opts?.earlyExit,
-    on: jest.fn(),
-    write: jest.fn((_data: string) => {
-      if (!stdin.writable) {
-        const err = new Error('write EPIPE');
-        process.nextTick(() => {
-          const errHandlers = handlers['error.stdin'] ?? [];
-          for (const h of errHandlers) h(err);
-        });
-        return false;
-      }
-      return true;
-    }),
-  };
-  const stdout = {
-    on: jest.fn(),
-  };
-  const proc = {
-    pid,
-    killed: false,
-    exitCode: null as number | null,
-    stdin,
-    stdout,
-    on: jest.fn((event: string, handler: (...args: unknown[]) => void) => {
-      (handlers[event] ??= []).push(handler);
-      return proc;
-    }),
-    once: jest.fn((event: string, handler: (...args: unknown[]) => void) => {
-      // For 'exit' event, register it separately so it fires alongside the 'on' handlers
-      // and then auto-removes (we track it in a separate list).
-      (handlers[event] ??= []).push(handler);
-      return proc;
-    }),
-    kill: jest.fn((_signal?: string) => {
-      proc.killed = true;
-      proc.exitCode = _signal === 'SIGKILL' ? 137 : 0;
-      // Fire all exit handlers
-      const exitHandlers = [...(handlers['exit'] ?? [])];
-      for (const h of exitHandlers) {
-        try {
-          h(proc.exitCode, _signal ?? 'SIGTERM');
-        } catch {
-          // ignore handler errors
-        }
-      }
-      // Remove exit handlers after firing (simulate once behavior)
-      delete handlers['exit'];
-      return true;
-    }),
-  };
-  return proc;
+function projectRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'saivage-mcp-reconcile-'));
+  roots.push(root);
+  return root;
 }
 
-const mockSpawn = jest.fn((_cmd: string, _args: string[], _opts: unknown) => {
-  return createMockProc();
-});
-
-// Store a reference so tests can override spawn behavior per-call
-let _spawnOpts: { earlyExit?: boolean } = {};
-
-jest.unstable_mockModule('node:child_process', () => ({
-  spawn: mockSpawn,
-}));
-
-jest.unstable_mockModule('node:child_process', () => ({
-  spawn: mockSpawn,
-}));
-
-// ── Helpers ───────────────────────────────────────────────────
-
-const testRoots: string[] = [];
-
-function makeProjectRoot(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'saivage-mcp-test-'));
-  testRoots.push(dir);
-  return dir;
-}
-
-function writeSaivageJson(projectRoot: string, overrides: Record<string, unknown>): void {
-  const saivageDir = join(projectRoot, '.saivage');
-  mkdirSync(saivageDir, { recursive: true });
-  const config = {
+function baseConfig(mcpServers: Record<string, unknown>): Record<string, unknown> {
+  return {
     server: { port: 8080, host: '127.0.0.1' },
     models: { default: ['test-model'] },
-    providers: {
-      test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' },
-    },
-    ...overrides,
+    providers: { test: { priority: 10, models: ['test-model'], apiKey: 'synthetic-secret' } },
+    mcpServers,
   };
-  writeFileSync(join(saivageDir, 'saivage.yaml'), YAML.stringify(config));
 }
 
-function loadTestConfig(projectRoot: string) {
-  return testConfigAuthority(projectRoot).loadEffective().config;
+function writeConfig(root: string, mcpServers: Record<string, unknown>): void {
+  mkdirSync(join(root, '.saivage'), { recursive: true });
+  writeFileSync(join(root, '.saivage', 'saivage.yaml'), YAML.stringify(baseConfig(mcpServers)));
 }
 
-function createMcpManager(McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'], projectRoot: string, options: { scope?: import('../../src/lifecycle/index.js').ResourceScope } = {}) {
-  const processes = new Map<number, ReturnType<typeof createMockProc>>();
+function stdio(command: string): Record<string, unknown> {
+  return { transport: 'stdio', command, args: [], env: { TOKEN: 'synthetic-mcp-secret' }, autostart: true, disabled: false };
+}
+
+function http(url: string): Record<string, unknown> {
+  return { transport: 'streamable-http', url, autostart: true, disabled: false };
+}
+
+function createChild(pid: number) {
+  const emitter = new EventEmitter();
+  const stdout = new PassThrough();
+  const stdin = new Writable({
+    write(chunk, _encoding, callback) {
+      for (const line of String(chunk).trim().split('\n')) {
+        const request = JSON.parse(line) as { id?: number; method: string };
+        if (request.method === 'initialize') setImmediate(() => stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2025-06-18' } })}\n`));
+        if (request.method === 'tools/list') setImmediate(() => stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { tools: [{ name: 'ping', inputSchema: { type: 'object', properties: {} } }] } })}\n`));
+        if (request.method === 'tools/call') setImmediate(() => stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { content: ['pong'] } })}\n`));
+      }
+      callback();
+    },
+  });
+  return Object.assign(emitter, { pid, stdin, stdout, stderr: new PassThrough(), killed: false, exitCode: null as number | null });
+}
+
+function createManager(root: string, control: { failStop?: boolean } = {}) {
+  let pid = 22000;
+  const children = new Map<number, ReturnType<typeof createChild>>();
+  const spawn = jest.fn(() => {
+    const child = createChild(pid++);
+    children.set(child.pid, child);
+    return child;
+  });
+  const signal = jest.fn((pgid: number, sent: NodeJS.Signals) => {
+    const child = children.get(pgid)!;
+    child.killed = true;
+    child.exitCode = sent === 'SIGKILL' ? 137 : 0;
+    child.emit('exit', child.exitCode, sent);
+    child.emit('close', child.exitCode, sent);
+  });
   const platform: ManagedProcessPlatform = {
-    spawn: (file, args, spawnOptions) => {
-      const child = mockSpawn(file, [...args], spawnOptions) as ReturnType<typeof createMockProc>;
-      processes.set(child.pid, child);
-      return child as never;
-    },
+    spawn: spawn as never,
+    signal,
     probe: (pgid) => {
-      const child = processes.get(pgid)!;
-      if (child.killed || child.exitCode !== null) throw Object.assign(new Error('absent'), { code: 'ESRCH' });
+      if (control.failStop) throw Object.assign(new Error('ambiguous'), { code: 'EPERM' });
+      const child = children.get(pgid)!;
+      if (child.killed) throw Object.assign(new Error('absent'), { code: 'ESRCH' });
     },
-    signal: (pgid, signal) => { processes.get(pgid)!.kill(signal); },
   };
-  const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry(platform));
-  return new McpManager({ ...options, configAuthority: testConfigAuthority(projectRoot), processRunner });
+  const processRunner = new ProcessRunner(root, new ManagedProcessGroupRegistry(platform));
+  return { manager: new McpManager({ configAuthority: testConfigAuthority(root), processRunner }), spawn, signal };
 }
 
-function stdioConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    command: 'echo',
-    args: ['hello'],
-    transport: 'stdio',
-    disabled: false,
-    autostart: true,
-    ...overrides,
-  };
+function rpcResponse(id: number, result: Record<string, unknown>): Response {
+  return new Response(JSON.stringify({ jsonrpc: '2.0', id, result }), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
-function sseResponse(events: string, init: ResponseInit = {}): Response {
-  return new Response(events, {
-    status: 200,
-    headers: {
-      'content-type': 'text/event-stream',
-      ...(init.headers as Record<string, string> | undefined),
-    },
-    ...init,
+function successfulHttpFetch() {
+  return jest.fn(async (_url: string | URL, init?: RequestInit) => {
+    if (init?.method === 'HEAD') return new Response(null, { status: 200 });
+    const request = JSON.parse(String(init?.body)) as { id: number; method: string };
+    if (request.method === 'notifications/initialized') return new Response(null, { status: 202 });
+    if (request.method === 'initialize') return rpcResponse(request.id, { protocolVersion: '2025-06-18' });
+    if (request.method === 'tools/list') return rpcResponse(request.id, { tools: [{ name: 'ping', inputSchema: { type: 'object', properties: {} } }] });
+    return rpcResponse(request.id, { content: ['pong'] });
   });
 }
 
-function sseData(payload: unknown): string {
-  return `data: ${JSON.stringify(payload)}\n\n`;
-}
-
-function streamableHttpConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    url: 'http://localhost:9999/mcp',
-    transport: 'streamable-http',
-    disabled: false,
-    autostart: true,
-    ...overrides,
-  };
-}
-
+beforeEach(() => { globalThis.fetch = successfulHttpFetch() as typeof fetch; });
 afterEach(() => {
-  mockSpawn.mockClear();
-  nextPid = 12345;
-  for (const dir of testRoots) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
-  }
-  testRoots.length = 0;
+  jest.restoreAllMocks();
+  for (const root of roots) rmSync(root, { recursive: true, force: true });
+  roots.length = 0;
 });
 
-// ── Dynamic import ────────────────────────────────────────────
+describe('persisted MCP reconciliation', () => {
+  it('starts independent stdio and HTTP runtimes and reports secret-free deterministic revisions', async () => {
+    const root = projectRoot();
+    writeConfig(root, { stdioA: stdio('a'), stdioB: stdio('b'), httpA: http('http://user:password@localhost/a'), httpB: http('http://localhost/b') });
+    const { manager, spawn } = createManager(root);
 
-async function importMcpManager() {
-  return await import('../../src/mcp/mcp-manager.js');
-}
+    const first = await manager.reconcilePersistedConfig();
+    const second = await manager.reconcilePersistedConfig();
 
-// ═══════════════════════════════════════════════════════════════
-// Suite 1: Config Loading
-// ═══════════════════════════════════════════════════════════════
-
-describe('McpManager config loading', () => {
-  let McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'];
-
-  beforeAll(async () => {
-    const mod = await importMcpManager();
-    McpManager = mod.McpManager;
+    expect(first.converged).toBe(true);
+    expect(first.active).toHaveLength(4);
+    expect(first.active.every((entry) => entry.state === 'running')).toBe(true);
+    expect(second.desired).toEqual(first.desired);
+    expect(spawn).toHaveBeenCalledTimes(2);
+    const rendered = JSON.stringify(first);
+    expect(rendered).not.toContain('synthetic-mcp-secret');
+    expect(rendered).not.toContain('password');
+    expect(rendered).not.toContain('http://');
+    expect(rendered).not.toContain('command');
   });
 
-  it('loads mcpServers from saivage.yaml', () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-        'test-streamable': streamableHttpConfig(),
-      },
-    });
+  it('serializes concurrent reconciliations without duplicate runtimes', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: stdio('one') });
+    const { manager, spawn } = createManager(root);
 
-    const mgr = createMcpManager(McpManager, root);
-    const status = mgr.getStatus();
-    expect(status).toHaveLength(2);
-    expect(status.map((s) => s.name).sort()).toEqual(['test-stdio', 'test-streamable']);
-    expect(status[0]).toHaveProperty('transport');
-    expect(status[0]).toHaveProperty('status');
+    const reports = await Promise.all([manager.reconcilePersistedConfig(), manager.reconcilePersistedConfig()]);
+
+    expect(reports.every((report) => report.converged)).toBe(true);
+    expect(spawn).toHaveBeenCalledTimes(1);
   });
 
-  it('returns empty status list when no mcpServers configured', () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {});
+  it('preflights more than one destructive target before lifecycle mutation', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: stdio('one'), two: stdio('two') });
+    const { manager, signal } = createManager(root);
+    await manager.reconcilePersistedConfig();
+    writeConfig(root, { one: stdio('changed-one'), two: stdio('changed-two') });
 
-    const mgr = createMcpManager(McpManager, root);
-    const status = mgr.getStatus();
-    expect(status).toEqual([]);
+    const report = await manager.reconcilePersistedConfig();
+    expect(report.converged).toBe(false);
+    expect(report.pending).toHaveLength(2);
+    expect(signal).not.toHaveBeenCalled();
+    expect(manager.getStatus().every((status) => status.status === 'running')).toBe(true);
   });
 
-  it('treats disabled servers as stopped in getStatus', () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-disabled': stdioConfig({ disabled: true, autostart: true }),
-      },
-    });
+  it('retains the exact old revision and starts no successor when replacement containment fails', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: stdio('old') });
+    const control = { failStop: false };
+    const { manager, spawn } = createManager(root, control);
+    const initial = await manager.reconcilePersistedConfig();
+    const oldRevision = initial.active[0]!.revision;
+    writeConfig(root, { one: stdio('new') });
+    control.failStop = true;
 
-    const mgr = createMcpManager(McpManager, root);
-    const status = mgr.getStatus();
-    expect(status).toHaveLength(1);
-    expect(status[0].status).toBe('stopped');
+    const report = await manager.reconcilePersistedConfig();
+
+    expect(report.converged).toBe(false);
+    expect(report.pending).toEqual([expect.objectContaining({ name: 'one', operation: 'replace' })]);
+    expect(report.active).toEqual([{ name: 'one', revision: oldRevision, state: 'running' }]);
+    expect(spawn).toHaveBeenCalledTimes(1);
   });
 
-  it('getServerStatus returns undefined for unknown server', () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
+  it('retains no running old revision after successor failure and retries from persisted desired state', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: http('http://localhost/old') });
+    const { manager } = createManager(root);
+    await manager.reconcilePersistedConfig();
+    writeConfig(root, { one: http('http://localhost/new') });
+    globalThis.fetch = jest.fn(async () => new Response(null, { status: 503 })) as typeof fetch;
 
-    const mgr = createMcpManager(McpManager, root);
-    expect(mgr.getServerStatus('nonexistent')).toBeUndefined();
+    const failed = await manager.reconcilePersistedConfig();
+    expect(failed.converged).toBe(false);
+    expect(failed.active).toEqual([expect.objectContaining({ name: 'one', state: 'stopped' })]);
+    expect(failed.active[0]!.revision).toBe(failed.desired[0]!.revision);
+
+    globalThis.fetch = successfulHttpFetch() as typeof fetch;
+    const retried = await manager.reconcilePersistedConfig();
+    expect(retried.converged).toBe(true);
+    expect(retried.active).toEqual([expect.objectContaining({ name: 'one', revision: retried.desired[0]!.revision, state: 'running' })]);
   });
 
-  it('getServerStatus returns status for configured server', () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
+  it('aborts and joins HTTP invocation work before remove and suppresses late publication', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: http('http://localhost/one') });
+    const { manager } = createManager(root);
+    await manager.reconcilePersistedConfig();
+    globalThis.fetch = jest.fn((_url: string | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+    })) as typeof fetch;
 
-    const mgr = createMcpManager(McpManager, root);
-    const s = mgr.getServerStatus('test-stdio');
-    expect(s).toBeDefined();
-    expect(s!.name).toBe('test-stdio');
-    expect(s!.transport).toBe('stdio');
-  });
-});
+    const invocation = manager.invokeTool('one', 'ping', {});
+    writeConfig(root, {});
+    const report = await manager.reconcilePersistedConfig();
 
-// ═══════════════════════════════════════════════════════════════
-// Suite 2: Disabled Servers
-// ═══════════════════════════════════════════════════════════════
-
-describe('McpManager disabled servers', () => {
-  let McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'];
-
-  beforeAll(async () => {
-    const mod = await importMcpManager();
-    McpManager = mod.McpManager;
+    await expect(invocation).rejects.toThrow();
+    expect(report.converged).toBe(true);
+    expect(report.active).toEqual([]);
+    expect(manager.getInvocationStats()).toEqual({});
   });
 
-  it('startAll skips disabled servers (autostart true)', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-enabled': stdioConfig({ disabled: false, autostart: true }),
-        'test-disabled': stdioConfig({ disabled: true, autostart: true }),
-      },
-    });
+  it('invalid persisted config performs no lifecycle mutation', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: stdio('one') });
+    const { manager, signal } = createManager(root);
+    const before = await manager.reconcilePersistedConfig();
+    writeFileSync(join(root, '.saivage', 'saivage.yaml'), 'mcpServers: invalid\n');
 
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startAll();
-
-    // wait a tick for the async start to settle
-    await new Promise((r) => setTimeout(r, 50));
-
-    const enabledStatus = mgr.getServerStatus('test-enabled');
-    const disabledStatus = mgr.getServerStatus('test-disabled');
-
-    expect(enabledStatus!.status).toBe('running');
-    expect(disabledStatus!.status).toBe('stopped');
-    // Only one spawn call
-    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    await expect(manager.reconcilePersistedConfig()).rejects.toThrow();
+    expect(signal).not.toHaveBeenCalled();
+    expect(manager.getStatus()[0]?.status).toBe('running');
+    expect(before.active[0]?.revision).toBeDefined();
   });
 
-  it('startServer silently skips a disabled server (no error)', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-disabled': stdioConfig({ disabled: true }),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await expect(mgr.startServer('test-disabled')).resolves.toBeUndefined();
-    expect(mockSpawn).not.toHaveBeenCalled();
-  });
-
-  it('healthCheck returns false for disabled server', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-disabled': stdioConfig({ disabled: true }),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    const healthy = await mgr.healthCheck('test-disabled');
-    expect(healthy).toBe(false);
-  });
-
-  it('healthCheck returns false for unknown server', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {});
-
-    const mgr = createMcpManager(McpManager, root);
-    const healthy = await mgr.healthCheck('nonexistent');
-    expect(healthy).toBe(false);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// Suite 3: Error Handling
-// ═══════════════════════════════════════════════════════════════
-
-describe('McpManager error handling', () => {
-  let McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'];
-
-  beforeAll(async () => {
-    const mod = await importMcpManager();
-    McpManager = mod.McpManager;
-  });
-
-  it('startServer throws for unknown server name', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {});
-
-    const mgr = createMcpManager(McpManager, root);
-    await expect(mgr.startServer('nonexistent')).rejects.toThrow(
-      "MCP server 'nonexistent' not found in configuration.",
-    );
-  });
-
-  it('_startStdio throws when command is missing', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'no-command': { transport: 'stdio', disabled: false, autostart: true },
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await expect(mgr.startServer('no-command')).rejects.toThrow(
-      "stdio MCP server 'no-command' has no 'command' configured.",
-    );
-
-    const status = mgr.getServerStatus('no-command');
-    expect(status).toBeDefined();
-    expect(status!.status).toBe('error');
-    expect(status!.error).toContain("has no 'command' configured");
-  });
-
-  it('startStreamableHttp throws when URL is missing', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'no-url': { transport: 'streamable-http', disabled: false, autostart: true },
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await expect(mgr.startServer('no-url')).rejects.toThrow(
-      "streamable-http MCP server 'no-url' has no 'url' configured.",
-    );
-
-    const status = mgr.getServerStatus('no-url');
-    expect(status).toBeDefined();
-    expect(status!.status).toBe('error');
-    expect(status!.error).toContain("has no 'url' configured");
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// Suite 4: Lifecycle (start / stop / restart / getStatus)
-// ═══════════════════════════════════════════════════════════════
-
-describe('McpManager lifecycle', () => {
-  let McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'];
-
-  beforeAll(async () => {
-    const mod = await importMcpManager();
-    McpManager = mod.McpManager;
-  });
-
-  beforeEach(() => {
-    mockSpawn.mockClear();
-    nextPid = 12345;
-  });
-
-  it('startServer spawns stdio process and status shows running', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('test-stdio');
-
-    expect(mockSpawn).toHaveBeenCalledTimes(1);
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'echo',
-      ['hello'],
-      expect.objectContaining({
-        env: expect.any(Object),
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }),
-    );
-
-    const status = mgr.getServerStatus('test-stdio');
-    expect(status).toBeDefined();
-    expect(status!.status).toBe('running');
-    expect(status!.pid).toBe(12345);
-    expect(status!.startedAt).toBeDefined();
-  });
-
-  it('stopServer sets status to stopped', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('test-stdio');
-    expect(mgr.getServerStatus('test-stdio')!.status).toBe('running');
-
-    await mgr.stopServer('test-stdio');
-    const status = mgr.getServerStatus('test-stdio');
-    expect(status).toBeDefined();
-    expect(status!.status).toBe('stopped');
-  });
-
-  it('restartServer works: status is running after restart', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig({ command: 'node', args: ['-e', '1'] }),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    // Start first, then restart (stop + start)
-    await mgr.startServer('test-stdio');
-    expect(mgr.getServerStatus('test-stdio')!.status).toBe('running');
-
-    await mgr.restartServer('test-stdio');
-    const status = mgr.getServerStatus('test-stdio');
-    expect(status).toBeDefined();
-    expect(status!.status).toBe('running');
-
-    // start + restart = 2 spawns total
-    expect(mockSpawn).toHaveBeenCalledTimes(2);
-  });
-
-  it('stopAll stops all running servers', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        srv1: stdioConfig({ command: 'cmd1' }),
-        srv2: stdioConfig({ command: 'cmd2' }),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('srv1');
-    await mgr.startServer('srv2');
-
-    expect(mgr.getServerStatus('srv1')!.status).toBe('running');
-    expect(mgr.getServerStatus('srv2')!.status).toBe('running');
-
-    await mgr.stopAll();
-
-    const srv1Status = mgr.getServerStatus('srv1');
-    const srv2Status = mgr.getServerStatus('srv2');
-    expect(srv1Status!.status).toBe('stopped');
-    expect(srv2Status!.status).toBe('stopped');
-  });
-
-  it('does not restart an already running stdio server', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('test-stdio');
-    expect(mockSpawn).toHaveBeenCalledTimes(1);
-
-    // Start again - should be a no-op
-    await mgr.startServer('test-stdio');
-    expect(mockSpawn).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// Suite 5: Health Check
-// ═══════════════════════════════════════════════════════════════
-
-describe('McpManager health check', () => {
-  let McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'];
-
-  beforeAll(async () => {
-    const mod = await importMcpManager();
-    McpManager = mod.McpManager;
-  });
-
-  beforeEach(() => {
-    mockSpawn.mockClear();
-    nextPid = 12345;
-  });
-
-  it('healthCheck returns false when no handle exists', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    // Not started — no handle
-    const healthy = await mgr.healthCheck('test-stdio');
-    expect(healthy).toBe(false);
-  });
-
-  it('healthCheck returns boolean for running stdio process', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('test-stdio');
-
-    // healthCheck calls process.kill(pid, 0) which checks if the PID exists
-    // on the real system. The mock PID 12345 may or may not exist.
-    // We verify healthCheck runs without throwing and returns a boolean.
-    const healthy = await mgr.healthCheck('test-stdio');
-    expect(typeof healthy).toBe('boolean');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// Suite 6: Tool Discovery
-// ═══════════════════════════════════════════════════════════════
-
-describe('McpManager tool discovery', () => {
-  let McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'];
-
-  beforeAll(async () => {
-    const mod = await importMcpManager();
-    McpManager = mod.McpManager;
-  });
-
-  beforeEach(() => {
-    mockSpawn.mockClear();
-    nextPid = 12345;
-  });
-
-  it('discovers tools from text/event-stream initialize and paginated tools/list with session propagation', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: { stream: streamableHttpConfig({ url: 'http://localhost:9999/mcp' }) },
-    });
-    const calls: any[] = [];
-    (globalThis as any).fetch = jest.fn(async (_url: string, init?: any) => {
-      calls.push(init);
-      if (init.method === 'HEAD') return { ok: true, status: 200 };
-      const body = JSON.parse(init.body);
-      if (body.method === 'initialize') {
-        return sseResponse(
-          sseData({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2025-06-18' } }),
-          {
-            headers: {
-              'content-type': 'text/event-stream',
-              'Mcp-Session-Id': 'synthetic-session-2',
-            },
-          },
-        );
-      }
-      if (body.method === 'notifications/initialized') {
-        return new Response(null, { status: 202 });
-      }
-      if (body.method === 'tools/list' && !body.params?.cursor) {
-        return sseResponse(
-          sseData({
-            jsonrpc: '2.0',
-            id: body.id,
-            result: {
-              tools: [{ name: 'one', inputSchema: { type: 'object' } }],
-              nextCursor: 'page-2',
-            },
-          }),
-        );
-      }
-      return sseResponse(
-        sseData({
-          jsonrpc: '2.0',
-          id: body.id,
-          result: { tools: [{ name: 'two', inputSchema: { type: 'object' } }] },
-        }),
-      );
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('stream');
-
-    expect(mgr.getServerTools('stream')?.map((tool) => tool.name)).toEqual(['one', 'two']);
-    const rpcCalls = calls.filter((call) => call?.body);
-    const notificationCall = rpcCalls.find(
-      (call) => JSON.parse(call.body).method === 'notifications/initialized',
-    );
-    expect(notificationCall.headers).toEqual(
-      expect.objectContaining({
-        Accept: 'application/json, text/event-stream',
-        'Mcp-Session-Id': 'synthetic-session-2',
-      }),
-    );
-    const listCalls = rpcCalls.filter((call) => JSON.parse(call.body).method === 'tools/list');
-    expect(listCalls).toHaveLength(2);
-    expect(listCalls[0].headers['Mcp-Session-Id']).toBe('synthetic-session-2');
-    expect(listCalls[1].headers['Mcp-Session-Id']).toBe('synthetic-session-2');
-  });
-
-  it('records unsupported endpoint event-stream diagnostic instead of caching tools', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: { endpoint: streamableHttpConfig({ url: 'http://localhost:9999/sse' }) },
-    });
-    (globalThis as any).fetch = jest.fn(async (_url: string, init?: any) => {
-      if (init.method === 'HEAD') return { ok: true, status: 200 };
-      return new Response('event: endpoint\ndata: /message\n\n', {
-        headers: { 'content-type': 'text/event-stream' },
-      });
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('endpoint');
-
-    expect(mgr.getServerTools('endpoint')).toBeUndefined();
-    expect(mgr.getServerStatus('endpoint')?.status).toBe('running');
-  });
-
-  it('getTools() returns empty array initially', () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {});
-    const mgr = createMcpManager(McpManager, root);
-    expect(mgr.getTools()).toEqual([]);
-    expect(mgr.getToolServers()).toEqual([]);
-  });
-
-  it('getServerTools returns undefined for unknown server', () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {});
-    const mgr = createMcpManager(McpManager, root);
-    expect(mgr.getServerTools('nonexistent')).toBeUndefined();
-  });
-
-  it('tools_count appears in status for running server', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('test-stdio');
-
-    const status = mgr.getServerStatus('test-stdio');
-    expect(status).toBeDefined();
-    expect(status!).toHaveProperty('tools_count');
-    expect(typeof status!.tools_count).toBe('number');
-
-    await mgr.stopServer('test-stdio');
-  });
-
-  it('stopServer clears tool cache', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('test-stdio');
-
-    // Start populates tools_cache (even if empty from failed discovery)
-    await mgr.stopServer('test-stdio');
-
-    // After stop, getToolServers should not include the stopped server
-    expect(mgr.getServerTools('test-stdio')).toBeUndefined();
-    expect(mgr.getToolServers()).not.toContain('test-stdio');
-  });
-
-  it('getTools() returns empty after server stopped without discovery', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-stdio': stdioConfig(),
-      },
-    });
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('test-stdio');
-    await mgr.stopServer('test-stdio');
-
-    expect(mgr.getTools()).toEqual([]);
-  });
-
-  it('tools_count defaults to 0 for disabled servers', () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'test-disabled': stdioConfig({ disabled: true }),
-      },
-    });
-    const mgr = createMcpManager(McpManager, root);
-    const status = mgr.getServerStatus('test-disabled')!;
-    // Disabled servers don't have tools_count field
-    expect(status.tools_count).toBeUndefined();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// Suite 7: Bad Stdio Fixtures (Early Exit / EPIPE)
-// ═══════════════════════════════════════════════════════════════
-
-describe('McpManager bad stdio fixtures (early exit / EPIPE)', () => {
-  let McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'];
-
-  beforeAll(async () => {
-    const mod = await importMcpManager();
-    McpManager = mod.McpManager;
-  });
-
-  beforeEach(() => {
-    mockSpawn.mockClear();
-    nextPid = 12345;
-  });
-
-  it('startServer does not crash when stdio command exits early (EPIPE)', async () => {
-    // Simulate a bad command that exits immediately: after spawn, we manually
-    // trigger the exit handler to simulate a process that exits before discovery.
-    // The McpManager should handle this gracefully.
-
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'bad-cmd': stdioConfig({ command: 'non-existent-command', args: [] }),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-
-    // startServer should resolve without throwing
-    await expect(mgr.startServer('bad-cmd')).resolves.toBeUndefined();
-
-    // Verify spawn was called
-    expect(mockSpawn).toHaveBeenCalledTimes(1);
-
-    // Simulate the process exiting immediately with non-zero exit code
-    // (the exit handler marks it as error and cleans up)
-    await mgr.stopServer('bad-cmd');
-    await new Promise((r) => setTimeout(r, 10));
-
-    const status = mgr.getServerStatus('bad-cmd');
-    expect(status).toBeDefined();
-    // After stopServer, the status should be 'stopped'
-    expect(status!.status).toBe('stopped');
-  });
-
-  it('startAll does not crash when a bad stdio server exits early', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'good-cmd': stdioConfig({ command: 'echo', args: ['ok'] }),
-        'bad-cmd': stdioConfig({ command: 'non-existent-binary', args: [] }),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-
-    // startAll should not throw — Promise.allSettled absorbs individual failures
-    await expect(mgr.startAll()).resolves.toBeUndefined();
-
-    // Give async starts time to settle
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Both servers should have status entries
-    const goodStatus = mgr.getServerStatus('good-cmd');
-    const badStatus = mgr.getServerStatus('bad-cmd');
-    expect(goodStatus).toBeDefined();
-    expect(badStatus).toBeDefined();
-  });
-
-  it('bad stdio server reports correct error in status', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'bad-exit': stdioConfig({ command: 'false', args: [] }),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-
-    // startServer should not throw
-    await mgr.startServer('bad-exit');
-
-    // Wait for exit handler
-    await new Promise((r) => setTimeout(r, 50));
-
-    const status = mgr.getServerStatus('bad-exit');
-    expect(status).toBeDefined();
-    // Should be in error state with a meaningful message
-    if (status!.status === 'error') {
-      expect(typeof status!.error).toBe('string');
-      expect(status!.error!.length).toBeGreaterThan(0);
-    }
-  });
-
-  it('getStatus() returns all servers including failed ones', async () => {
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'srv-a': stdioConfig({ command: 'echo', args: ['a'] }),
-        'srv-b': stdioConfig({ command: 'badcmd', args: [] }),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startAll();
-    await new Promise((r) => setTimeout(r, 50));
-
-    const allStatus = mgr.getStatus();
-    expect(allStatus).toHaveLength(2);
-
-    const names = allStatus.map((s) => s.name).sort();
-    expect(names).toEqual(['srv-a', 'srv-b']);
-
-    // Every server should have name, transport, status
-    for (const s of allStatus) {
-      expect(s).toHaveProperty('name');
-      expect(s).toHaveProperty('transport');
-      expect(s).toHaveProperty('status');
-      expect(['running', 'stopped', 'error']).toContain(s.status);
-    }
-  });
-
-  it('discovery does not run when process exits before discovery starts', async () => {
-    // The exit handler in _startStdio removes the handle immediately.
-    // startServer checks handle presence before calling _discoverTools.
-    // This test verifies that discovery is skipped when the handle is gone.
-
-    const root = makeProjectRoot();
-    writeSaivageJson(root, {
-      mcpServers: {
-        'fast-exit': stdioConfig({ command: 'true', args: [] }),
-      },
-    });
-
-    const mgr = createMcpManager(McpManager, root);
-    await mgr.startServer('fast-exit');
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Tools should be empty (discovery didn't run or failed)
-    expect(mgr.getTools()).toEqual([]);
-    expect(mgr.getToolServers()).toEqual([]);
+  it('closes manager admission synchronously and terminally contains retained runtimes', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: stdio('one') });
+    const { manager, signal } = createManager(root);
+    await manager.reconcilePersistedConfig();
+
+    manager.closeAdmission();
+    await expect(manager.reconcilePersistedConfig()).rejects.toThrow('closed');
+    await manager.dispose();
+
+    expect(signal).toHaveBeenCalled();
+    expect(manager.getStatus()).toEqual([]);
   });
 });

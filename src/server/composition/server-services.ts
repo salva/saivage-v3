@@ -59,7 +59,7 @@ async function stopServerResources(services: Omit<ServerServices, 'stop'>): Prom
       }
     }
     try {
-      await mcpManager.stopAll();
+      await mcpManager.dispose();
       fastify.log.info('MCP manager stopped');
     } catch (err) {
       fastify.log.warn(`MCP manager stop failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -104,8 +104,9 @@ export async function createServerServices(input: {
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
 
-  const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner: runtimeApplication.processRunner, scope: scope.child('mcp') });
-  await mcpManager.startAll();
+  const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner: runtimeApplication.processRunner });
+  const mcpReconciliation = await mcpManager.reconcilePersistedConfig();
+  if (!mcpReconciliation.converged) throw new Error('MCP startup did not converge to persisted configuration.');
   fastify.log.info('MCP manager started');
   runtimeApplication.setMcpManager(mcpManager);
 

@@ -26,7 +26,7 @@ describe('ResolvedConfigAuthority', () => {
     expect(environment.configAuthority.path).toBe(custom);
     await environment.configAuthority.mutate({ kind: 'set_server_setting', key: 'port', value: 8003 });
     const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner: createTestProcessRunner(projectRoot) });
-    mcpManager.reloadServersFromConfig();
+    await mcpManager.reconcilePersistedConfig();
     expect(mcpManager.getStatus().map(({ name }) => name)).toEqual(['selectedServer']);
     expect(YAML.parse(readFileSync(custom, 'utf8')).server.port).toBe(8003);
     expect(YAML.parse(readFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), 'utf8')).server.port).toBe(8001);

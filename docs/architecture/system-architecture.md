@@ -220,6 +220,8 @@ Conversation append and active-version replacement target the scoped conversatio
 
 MCP server configuration and status use the `stdio` and `streamable-http` transport values. The Streamable HTTP client may parse `text/event-stream` response framing internally, but `streamable-http` is the configuration/API transport name.
 
+Each active MCP server revision owns a distinct `service_infrastructure` direct process scope and a local lifecycle generation, synchronous admission fence, operation AbortControllers, and joinable operation set. Startup, discovery, stdio requests, Streamable HTTP requests/SSE reads, invocation publication, and health work are admitted through that containment boundary. Stop/remove/replace closes local and process-scope admission first, advances the generation, aborts and joins admitted work, suppresses obsolete-generation publication, and then requires stdio process-scope absence; HTTP-only containment ends after fence/abort/join. Runtime maps, tool caches, revisions, and scopes remain retained until containment succeeds.
+
 The Analyst can drive workspace navigation by asking the webapp to show a specific card, file, process, debug view, runtime view, or agent session. The UI also sends enough active view/entity/filter context for the Analyst to reason about what the user is seeing.
 
 Internal actor state and compiled transition tables must not leak directly through operator APIs. Public responses expose Saivage read models.
@@ -322,12 +324,14 @@ This appendix is maintained as source-derived reference data for documentation d
 | `planner` | `cancel_card,create_card,queue_notification,reorder_child` | `src/tools/analyst-card-tools.ts:249` |
 | `executor` | `` | `src/tools/analyst-tool-registry.ts:55` |
 | `reviewer` | `` | `src/tools/analyst-tool-registry.ts:55` |
-| `analyst` | `cancel_card,create_card,delete_card,get_status,list_agent_sessions,list_processes_tool,navigate_back,navigate_workspace,pause_runtime,queue_notification,read_agent_session,read_control_actions,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_server,resume_runtime,show_config,start_project` | `src/tools/analyst-tool-registry.ts:63` |
+| `analyst` | `cancel_card,create_card,delete_card,get_status,list_agent_sessions,list_processes_tool,mcp_reconcile,navigate_back,navigate_workspace,pause_runtime,queue_notification,read_agent_session,read_control_actions,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_server,resume_runtime,show_config,start_project` | `src/tools/analyst-tool-registry.ts:64` |
 <!-- saivage:agent-tools:end -->
 
 ### Config schema
 
 Server composition injects one `ResolvedConfigAuthority` created by `loadEnvironment()` into the runtime/Analyst tool context, operator config handlers, and `McpManager`. The authority immutably owns the startup-selected absolute path, selection source, and interpolation-environment snapshot. It is the sole initializer and selected-config writer. Its private FIFO promise queue is the only config write serialization mechanism: each turn reads the latest raw YAML, applies one closed-union mutation, validates the effective document with canonical schema and model-role checks, and performs one durable same-file replacement. Reads and MCP reloads return to the authority rather than deriving a path, accepting a preloaded config, or consulting current `process.env`. There is no global or path-keyed config lock and no second per-operation writer. Raw-document mutation keeps placeholders in durable YAML while effective consumers receive interpolated values.
+
+`McpManager` has no mutable config copy or public mutation-facing start/stop/restart API. Its serialized reconciliation port reloads the authority on every turn, hashes a stable complete server configuration into a secret-free revision identifier, preflights the one-destructive-target bound, and compares desired revisions with retained active runtimes. Removes delete only after containment. Replacements stop the old revision before constructing a new per-server scope; failed old containment retains the exact runtime, while failed successor startup retains truthful stopped desired state for the next reconciliation. Startup invokes this same port and does not become ready with pending convergence. Analyst MCP mutations are one authority write followed by reconciliation, and `mcp_reconcile` retries only reconciliation. The manager exposes synchronous terminal admission closure and joinable terminal disposal for the future application stop coordinator; it does not coordinate App stop, composition disposal, lock release, or process exit.
 
 Project persistence bootstrap creates generated directories and canonical card/runtime artifacts but not configuration. With `--create-runtime`, configuration initialization is queued through the same authority after directory scaffolding; it creates only a missing selected file and preserves an existing one.
 
