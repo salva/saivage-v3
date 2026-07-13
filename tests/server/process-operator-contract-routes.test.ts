@@ -6,13 +6,14 @@ import { join } from 'node:path';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
-import { testConfigAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 
 describe('contract-backed process routes', () => {
   it('lists and reads safe process views without the old hand-mounted route owner', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
+    initProjectTree(projectRoot);
     const fastify = Fastify({ logger: false });
     try {
       const processRunner = createTestProcessRunner(projectRoot);
@@ -50,6 +51,7 @@ describe('contract-backed process routes', () => {
 
   it('preserves the existing missing-process 404 body', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
+    initProjectTree(projectRoot);
     const fastify = Fastify({ logger: false });
     try {
       const processRunner = createTestProcessRunner(projectRoot);

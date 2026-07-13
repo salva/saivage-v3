@@ -8,7 +8,7 @@ import { recordControlAction } from '../../src/persistence/index.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
-import { testConfigAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { writeSaivageConfig } from '../helpers/project-config.js';
 
 function testConfig(): SaivageConfig {
@@ -87,6 +87,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
 
   it('filters and sorts control actions through the operator contract runtime', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-control-actions-route-'));
+    initProjectTree(projectRoot);
     const fastify = Fastify({ logger: false });
     try {
       mkdirSync(join(projectRoot, '.saivage', 'runtime'), { recursive: true });

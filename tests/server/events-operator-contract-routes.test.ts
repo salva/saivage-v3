@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { operatorRouteInventory } from '../../src/contracts/operator-api.js';
 import { EventLogger } from '../../src/observability/index.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
-import { testConfigAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 
 const timestamp = '2026-01-01T00:00:00.000Z';
@@ -14,6 +14,7 @@ const timestamp = '2026-01-01T00:00:00.000Z';
 describe('contract-backed events route', () => {
   it('lists logged events through the operator contract runtime', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-events-route-'));
+    initProjectTree(projectRoot);
     const fastify = Fastify({ logger: false });
     try {
       const logger = new EventLogger(join(projectRoot, '.saivage'));
@@ -36,6 +37,7 @@ describe('contract-backed events route', () => {
 
   it.each(['abc', '-1', '1.5'])('rejects invalid limit query value %s before handler execution', async (limit) => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-events-route-'));
+    initProjectTree(projectRoot);
     const fastify = Fastify({ logger: false });
     try {
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), authPolicy: new AuthPolicy() });
@@ -52,6 +54,7 @@ describe('contract-backed events route', () => {
 
   it.each(['abc', '-1', '1.5'])('rejects invalid offset query value %s before handler execution', async (offset) => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-events-route-'));
+    initProjectTree(projectRoot);
     const fastify = Fastify({ logger: false });
     try {
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), authPolicy: new AuthPolicy() });
