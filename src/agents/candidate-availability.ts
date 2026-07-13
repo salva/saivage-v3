@@ -8,6 +8,8 @@
 
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry } from '../contracts/candidate-availability.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
+import { isAuthorityCurrent } from '../application/mutation-authority.js';
 export type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry, CandidateState } from '../contracts/candidate-availability.js';
 
 /** In-memory implementation suitable for tests and short-lived processes. */
@@ -21,7 +23,8 @@ export class MemoryCandidateAvailability implements CandidateAvailability {
     return Date.now() >= entry.untilMs;
   }
 
-  async markSucceeded(candidate: Candidate): Promise<void> {
+  markSucceeded(_authority: MutationAuthority, candidate: Candidate): void {
+    if (!isAuthorityCurrent(_authority)) throw new Error('Candidate availability mutation authority is stale.');
     const key = candidateKey(candidate);
     const next: CandidateAvailabilityEntry = {
       candidate,
@@ -30,10 +33,10 @@ export class MemoryCandidateAvailability implements CandidateAvailability {
       updatedAtMs: Date.now(),
     };
     this.entries.set(key, next);
-    await this.persist(next);
   }
 
-  async markFailed(candidate: Candidate, decision: AvailabilityDecision): Promise<void> {
+  markFailed(_authority: MutationAuthority, candidate: Candidate, decision: AvailabilityDecision): void {
+    if (!isAuthorityCurrent(_authority)) throw new Error('Candidate availability mutation authority is stale.');
     const key = candidateKey(candidate);
     const now = Date.now();
     const prev = this.entries.get(key);
@@ -51,7 +54,6 @@ export class MemoryCandidateAvailability implements CandidateAvailability {
       updatedAtMs: now,
     };
     this.entries.set(key, next);
-    await this.persist(next);
   }
 
   getEntry(candidate: Candidate): CandidateAvailabilityEntry | undefined {
@@ -60,10 +62,5 @@ export class MemoryCandidateAvailability implements CandidateAvailability {
 
   getAllEntries(): CandidateAvailabilityEntry[] {
     return Array.from(this.entries.values());
-  }
-
-  /** Hook for subclasses that want durable persistence. */
-  protected async persist(_entry: CandidateAvailabilityEntry): Promise<void> {
-    return;
   }
 }

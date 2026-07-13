@@ -4,10 +4,7 @@ import { buildLlmOptions } from './llm-options-factory.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import type { ModelRouter } from './model-router.js';
-import {
-  type CandidateAvailability,
-  MemoryCandidateAvailability,
-} from './candidate-availability.js';
+import type { CandidateAvailability } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
 import { ProviderTurnFailure, type LlmCallFn, type ProviderTurnCompletion, type ResponsesReplayProjection, type ToolDefinition } from './llm-contracts.js';
@@ -56,7 +53,7 @@ export interface InvocationServiceConfig {
   registry: ProviderRegistry;
   router: ModelRouter;
   eventLogger?: EventLogger;
-  candidateAvailability?: CandidateAvailability;
+  candidateAvailability: CandidateAvailability;
   llmCallFn?: LlmCallFn;
   providerExchangeMutations: ProviderExchangeMutationPort;
   authProfiles: AuthProfileRepository;
@@ -75,7 +72,7 @@ export class InvocationService {
   constructor(config: InvocationServiceConfig) {
     this.projectRoot = config.projectRoot;
     this.router = config.router;
-    this.candidateAvailability = config.candidateAvailability ?? new MemoryCandidateAvailability();
+    this.candidateAvailability = config.candidateAvailability;
     this.recoveryDelayMs = INVOCATION_RECOVERY_DELAY_MS;
     this.maxRecoveryRetries = MAX_INVOCATION_RECOVERY_RETRIES;
     this.llmGateway = new AgentLlmInvocationGateway({
@@ -150,7 +147,7 @@ export class InvocationService {
           const result = await this.invokeCall(request, candidate);
           const persistedAttempts = persisted.appendAll(result.provider_exchanges);
           settled.push(...persistedAttempts);
-          await this.candidateAvailability.markSucceeded(candidate);
+          this.candidateAvailability.markSucceeded(request.mutationAuthority, candidate);
           return { result: result.result, provider_exchanges: settled, provider_private_context: result.provider_private_context };
         } catch (err) {
           if (isAbortFromSignal(err, request.abortSignal)) throw err;
@@ -172,7 +169,7 @@ export class InvocationService {
             if (err.provider_exchanges.length === 0) throw new Error(`Provider attempt for input '${request.inputId}' settled without a provider_exchange envelope.`);
             settled.push(...persisted.appendAll(err.provider_exchanges));
           }
-          if (decision.markFailed && decision.availability) await this.candidateAvailability.markFailed(candidate, decision.availability);
+          if (decision.markFailed && decision.availability) this.candidateAvailability.markFailed(request.mutationAuthority, candidate, decision.availability);
           if (decision.action === 'abort_without_retry' || decision.action === 'fail_invocation') {
             throw new ProviderTurnFailure({
               failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',

@@ -107,7 +107,7 @@ export async function createServerServices(input: {
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, cardStore, authProfiles, compositionAuthority: input.compositionAuthority, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, cardStore, authProfiles, mutationLane: input.mutationLane, compositionAuthority: input.compositionAuthority, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
 

@@ -7,6 +7,7 @@
  */
 
 import type { Candidate } from './provider-candidate.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 export type CandidateState = 'HEALTHY' | 'BLOCKED_UNTIL' | 'COOLING';
 
@@ -27,8 +28,8 @@ export interface AvailabilityDecision {
 
 export interface CandidateAvailability {
   isAvailable(candidate: Candidate): boolean;
-  markSucceeded(candidate: Candidate): Promise<void>;
-  markFailed(candidate: Candidate, decision: AvailabilityDecision): Promise<void>;
+  markSucceeded(authority: MutationAuthority, candidate: Candidate): void;
+  markFailed(authority: MutationAuthority, candidate: Candidate, decision: AvailabilityDecision): void;
   getEntry(candidate: Candidate): CandidateAvailabilityEntry | undefined;
   getAllEntries(): CandidateAvailabilityEntry[];
 }

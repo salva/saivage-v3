@@ -64,10 +64,6 @@ export function providerAvailabilityFile(projectRoot: string): string {
   return join(saivageStateRoot(projectRoot), 'provider-availability.jsonl');
 }
 
-export function providerAvailabilityLockFile(projectRoot: string): string {
-  return join(saivageLocksRoot(projectRoot), 'provider-availability.lock');
-}
-
 export function saivageWorkRoot(projectRoot: string): string {
   return join(projectRoot, SAIVAGE_WORK_RELATIVE_DIR);
 }

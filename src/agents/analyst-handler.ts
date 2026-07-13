@@ -10,7 +10,6 @@ import { CardStore, CardStoreRepository } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventBus, EventPayload } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
-import type { CandidateAvailability } from './candidate-availability.js';
 import type { EventLogger } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
@@ -88,7 +87,6 @@ export interface AnalystRuntimeDeps {
   configAuthority: ResolvedConfigAuthority;
   cardStore: CardStoreRepository;
   runtime: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
-  candidateAvailability?: CandidateAvailability;
   eventLogger?: EventLogger;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   eventBus: EventBus;

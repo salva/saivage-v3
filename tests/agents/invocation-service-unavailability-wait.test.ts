@@ -41,7 +41,7 @@ function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvai
     saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-state-')),
     registry: {} as never,
     router: { resolve: async () => chain, getLastCapabilitySkips: () => [] } as never,
-    candidateAvailability: args.availability,
+    candidateAvailability: args.availability ?? new MemoryCandidateAvailability(),
     authProfiles: createTestAuthProfileRepository(projectRoot).repository,
     llmCallFn: args.llmCallFn ?? (async () => ({ result: { kind: 'message', content: 'ok' }, provider_exchanges: [] })),
   });
@@ -72,7 +72,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
   it('waits when the only candidate is already cooling, then invokes it after the horizon', async () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
-    await availability.markFailed(candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
+    availability.markFailed(issueCompositionMutationAuthority(), candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
     let calls = 0;
     const invocation = service({ availability, llmCallFn: async () => {
       calls += 1;
@@ -90,7 +90,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
   it('fails after the fixed two-hour timeout when a temporary candidate never becomes usable', async () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
-    await availability.markFailed(candidate, { state: 'COOLING', untilMs: 3 * 60 * 60 * 1000, reason: 'server_transient' });
+    availability.markFailed(issueCompositionMutationAuthority(), candidate, { state: 'COOLING', untilMs: 3 * 60 * 60 * 1000, reason: 'server_transient' });
     const invocation = service({ availability }).invokeWithRecovery(request());
     const rejection = expect(invocation).rejects.toThrow("No LLM candidate became available for role 'planner' within 7200000ms.");
 
@@ -106,7 +106,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
   it('does not wait for auth-permanent-only unavailability', async () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
-    await availability.markFailed(candidate, { state: 'BLOCKED_UNTIL', untilMs: 60_000, reason: 'auth_permanent' });
+    availability.markFailed(issueCompositionMutationAuthority(), candidate, { state: 'BLOCKED_UNTIL', untilMs: 60_000, reason: 'auth_permanent' });
 
     await expect(service({ availability }).invokeWithRecovery(request())).rejects.toThrow("No healthy candidates available for role 'planner'.");
     expect(jest.getTimerCount()).toBe(0);
@@ -115,7 +115,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
   it('tries an available alternate before waiting for a cooled primary', async () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
-    await availability.markFailed(candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
+    availability.markFailed(issueCompositionMutationAuthority(), candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
     const seen: Candidate[] = [];
 
     const completion = await service({
@@ -134,7 +134,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
   it('propagates aborts during an availability wait without wrapping them', async () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
-    await availability.markFailed(candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
+    availability.markFailed(issueCompositionMutationAuthority(), candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
     const controller = new AbortController();
     const reason = new Error('stop');
     const invocation = service({ availability }).invokeWithRecovery(request([candidate], controller.signal));

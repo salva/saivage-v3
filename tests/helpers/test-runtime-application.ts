@@ -49,7 +49,6 @@ function testRuntimeTimestamp(): string { return new Date(0).toISOString(); }
 
 interface TestAnalystRuntime {
   eventLogger?: AnalystRuntimeDeps['eventLogger'];
-  candidateAvailability?: AnalystRuntimeDeps['candidateAvailability'];
   mcpManager?: AnalystRuntimeDeps['mcpManager'];
   emitAnalystToolInvoked(payload: Parameters<EventBus['emit']>[1]): void;
   setMcpManager(mcpManager: NonNullable<AnalystRuntimeDeps['mcpManager']>): void;
@@ -59,7 +58,6 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: C
   const eventBus = opts.eventBus ?? new EventBus();
   const runtime: TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> = {
     eventLogger: undefined,
-    candidateAvailability: undefined,
     mcpManager: undefined,
     async start(): Promise<void> {},
     async shutdown(): Promise<void> {},
@@ -123,7 +121,6 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     configAuthority: testConfigAuthority(projectRoot),
     runtime: analystRuntime,
     cardStore: cardStore.repository,
-    candidateAvailability: analystRuntime.candidateAvailability,
     eventLogger: analystRuntime.eventLogger,
     eventBus,
     emitAnalystToolInvoked: (payload: Parameters<typeof analystRuntime.emitAnalystToolInvoked>[0]) => analystRuntime.emitAnalystToolInvoked(payload),
@@ -174,7 +171,6 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         configAuthority: testConfigAuthority(projectRoot),
         runtime: analystRuntime,
         cardStore: cardStore.repository,
-        candidateAvailability: analystRuntime.candidateAvailability,
         eventLogger: analystRuntime.eventLogger,
         eventBus,
         emitAnalystToolInvoked: (payload: Parameters<typeof analystRuntime.emitAnalystToolInvoked>[0]) => analystRuntime.emitAnalystToolInvoked(payload),

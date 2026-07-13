@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SaivageConfig } from '../agents/config-api.js';
 import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
-import { FsCandidateAvailability } from '../agents/candidate-availability-store.js';
+import { CandidateAvailabilityStore } from '../agents/candidate-availability-store.js';
 import type { CandidateAvailability } from '../agents/candidate-availability.js';
 import { AnalystRuntime, type AnalystRuntimeDeps } from '../agents/analyst-api.js';
 import { ProviderRegistry } from '../agents/provider.js';
@@ -28,6 +28,7 @@ import { createProviderExchangeMutationPort } from '../persistence/provider-exch
 import { createConversationMutationPort, type ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
 import type { CompositionMutationAuthority } from './mutation-authority.js';
 import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
+import type { MutationLane } from './mutation-lane.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -43,7 +44,6 @@ export interface RuntimeApiFactoryDeps {
   readModelChanges: ReadModelChanges;
 }
 
-type DisposableCandidateAvailability = CandidateAvailability & { dispose(): void };
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -64,6 +64,7 @@ export interface RuntimeApplicationServices {
   errorLogger: ErrorLogger;
   cardStore: CardStoreRepository;
   authProfiles: AuthProfileRepository;
+  mutationLane: MutationLane;
   compositionAuthority: CompositionMutationAuthority;
   runtimeApiFactory?: (deps: RuntimeApiFactoryDeps) => RuntimeApi;
   restartServerAvailable?: boolean;
@@ -74,7 +75,6 @@ export interface RuntimeApplicationServices {
 function buildAnalystDeps(input: {
   runtimeApi: RuntimeApi;
   cardStore: CardStoreRepository;
-  candidateAvailability: DisposableCandidateAvailability;
   eventLogger: EventLogger;
   eventBus: EventBus;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
@@ -88,7 +88,6 @@ function buildAnalystDeps(input: {
     configAuthority: input.configAuthority,
     runtime: input.runtimeApi,
     cardStore: input.cardStore,
-    candidateAvailability: input.candidateAvailability,
     eventLogger: input.eventLogger,
     eventBus: input.eventBus,
     emitAnalystToolInvoked: input.emitAnalystToolInvoked,
@@ -109,9 +108,8 @@ function bundledPromptDefaultsRoot(): string {
 
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
   const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore, restartServerAvailable = false, restartPort } = services;
-  const candidateAvailability = new FsCandidateAvailability(projectRoot, {
-    compactBytes: config.runtime.candidateAvailabilityCompactBytes,
-  });
+  const candidateAvailability = new CandidateAvailabilityStore(projectRoot, services.mutationLane, config.runtime.candidateAvailabilityCompactBytes);
+  candidateAvailability.restabilize(services.compositionAuthority);
   const conversations = createConversationMutationPort(projectRoot, services.readModelChanges);
   let mcpManager: McpManager | undefined;
 
@@ -141,7 +139,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
     runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, compositionAuthority: services.compositionAuthority, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, readModelChanges: services.readModelChanges }),
-    candidateAvailability,
     eventLogger,
     errorLogger,
     eventBus,
@@ -155,7 +152,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     analystDepsCache ??= buildAnalystDeps({
       runtimeApi,
       cardStore,
-      candidateAvailability,
       eventLogger,
       eventBus,
       emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime,
@@ -196,7 +192,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
 function createComposedRuntimeApi(input: {
   runtimeApi: RuntimeApi;
-  candidateAvailability: DisposableCandidateAvailability;
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
   eventBus: EventBus;
@@ -206,7 +201,6 @@ function createComposedRuntimeApi(input: {
       start: () => input.runtimeApi.start(),
       shutdown: async () => {
         await input.runtimeApi.shutdown();
-        input.candidateAvailability.dispose();
       },
       pause: () => input.runtimeApi.pause(),
       resume: () => input.runtimeApi.resume(),

@@ -20,6 +20,7 @@ import { createProviderExchangeMutationPort } from '../../src/persistence/provid
 import type { ProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
 import { createTestAuthProfileRepository } from '../helpers/mutation-composition.js';
 import { issueCompositionMutationAuthority } from '../../src/application/mutation-authority.js';
+import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 
 const candidates: Candidate[] = [
   { provider: 'a', account: null, model: 'm-a' },
@@ -70,6 +71,7 @@ describe('InvocationService provider exchange accumulation', () => {
       registry: {} as never,
       router: { resolve: async () => candidates, getLastCapabilitySkips: () => [] } as never,
       authProfiles: createTestAuthProfileRepository(projectRoot).repository,
+      candidateAvailability: new MemoryCandidateAvailability(),
       llmCallFn: async (candidate) => {
         if (candidate.provider === 'a') throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [attempt('a', 'error')], originalFailure: new LlmRequestError({ kind: 'rate_limit', provider: 'a', status: 429, message: 'temporary', retryAfterMs: 60_000 }) });
         return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [attempt('b', 'ok')] };
@@ -105,6 +107,7 @@ describe('InvocationService provider exchange accumulation', () => {
       registry: {} as never,
       router: { resolve: async () => candidates, getLastCapabilitySkips: () => [] } as never,
       authProfiles: createTestAuthProfileRepository(projectRoot).repository,
+      candidateAvailability: new MemoryCandidateAvailability(),
       llmCallFn: async () => ({
         result: { kind: 'message', content: 'ok' },
         provider_exchanges: [attempt('a', 'error'), attempt('b', 'error'), attempt('c', 'ok')],
@@ -128,6 +131,7 @@ describe('InvocationService provider exchange accumulation', () => {
         registry: {} as never,
         router: { resolve: async () => [candidates[0]!], getLastCapabilitySkips: () => [] } as never,
         authProfiles: createTestAuthProfileRepository(projectRoot).repository,
+        candidateAvailability: new MemoryCandidateAvailability(),
         llmCallFn: async () => {
           throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [], originalFailure: new Error('missing envelope') });
         },

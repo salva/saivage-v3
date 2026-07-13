@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testAuthProfiles, testCardRepository, testCompositionAuthority, testConfigAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testAuthProfiles, testCardRepository, testCompositionAuthority, testConfigAuthority, testMutationComposition } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -389,7 +389,7 @@ describe('pre-quiescent-Pause MCP configuration', () => {
       try {
         const config = loadTestConfig(root);
       const eventBus = new EventBus();
-      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: testCardRepository(root), authProfiles: testAuthProfiles(root), compositionAuthority: testCompositionAuthority(root), readModelChanges: new ReadModelChangeBroadcaster() });
+      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: testCardRepository(root), authProfiles: testAuthProfiles(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root), readModelChanges: new ReadModelChangeBroadcaster() });
       const mcpManager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runtimeApplication.processRunner });
       const depsBeforeMcp = runtimeApplication.analystDeps;
       expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);
@@ -414,7 +414,7 @@ describe('internal runtime shutdown', () => {
   it('cleans runtime-owned processes during application disposal without an Analyst tool', async () => {
     const root = setupRoot();
     const eventBus = new EventBus();
-    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: testCardRepository(root), authProfiles: testAuthProfiles(root), compositionAuthority: testCompositionAuthority(root), readModelChanges: new ReadModelChangeBroadcaster() });
+    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: testCardRepository(root), authProfiles: testAuthProfiles(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root), readModelChanges: new ReadModelChangeBroadcaster() });
     try {
       await runtimeApplication.runtimeApi.start();
       const processScope = runtimeApplication.processRunner.createDirectScope(runtimeApplication.processRunner.runtimeRootScope, 'test-runtime', 'runtime_card');
