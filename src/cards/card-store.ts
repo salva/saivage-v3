@@ -371,6 +371,7 @@ export class CardRecordStore {
   readonly #authority: () => MutationAuthority;
   constructor(repository: CardStoreRepository, authority: () => MutationAuthority) { this.#repository = repository; this.#authority = authority; }
   get recordReader(): ProjectCardRecordReader { return this.#repository.recordReader; }
+  currentMutationAuthority(): MutationAuthority { return this.#authority(); }
   read(id: string): CardRecord | null { return this.#repository.read(id); }
   getAncestors(id: string): string[] { return this.#repository.getAncestors(id); }
   readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest'): RecordProjection { return this.#repository.readRecord(cardId, filename, version); }

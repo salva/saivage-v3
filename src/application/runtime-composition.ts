@@ -27,6 +27,7 @@ import type { ReadModelChanges } from './read-model-changes.js';
 import { createProviderExchangeMutationPort } from '../persistence/provider-exchange-mutation-port.js';
 import { createConversationMutationPort, type ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
 import type { CompositionMutationAuthority } from './mutation-authority.js';
+import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -62,6 +63,7 @@ export interface RuntimeApplicationServices {
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
   cardStore: CardStoreRepository;
+  authProfiles: AuthProfileRepository;
   compositionAuthority: CompositionMutationAuthority;
   runtimeApiFactory?: (deps: RuntimeApiFactoryDeps) => RuntimeApi;
   restartServerAvailable?: boolean;
@@ -126,6 +128,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     eventLogger,
     candidateAvailability,
     providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, services.readModelChanges),
+    authProfiles: services.authProfiles,
   });
   const processRegistry = new ManagedProcessGroupRegistry();
   const processRunner = new ProcessRunner(projectRoot, processRegistry);

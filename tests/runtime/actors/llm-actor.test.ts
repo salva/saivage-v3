@@ -1,4 +1,4 @@
-import { initProjectTree } from '../../helpers/canonical-project.js';
+import { initProjectTree, testCompositionAuthority } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { ActorSnapshotStore, appendActivationMarker, appendConversationMessage, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, ConversationLLMActor, createConversationChangePublisher, LLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { ActorSnapshotStore, appendActivationMarker, appendConversationMessage, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, ConversationLLMActor as ProductionConversationLLMActor, createConversationChangePublisher, LLMActor as ProductionLLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 import { EventBus } from '../../../src/events/index.js';
 import { activeVersionPath, readConversationIndex, writeConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
@@ -20,6 +20,22 @@ import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletio
 import type { InvocationSurface } from '../../../src/tools/invocation.js';
 import type { CompactionConfig } from '../../../src/runtime/actors/compaction/compactor.js';
 import { readAppLogEntries } from '../../../src/persistence/app-log.js';
+
+class LLMActor extends ProductionLLMActor {
+  constructor(args: Omit<ConstructorParameters<typeof ProductionLLMActor>[0], 'mutationAuthority'>) {
+    super({ ...args, mutationAuthority: () => testCompositionAuthority(args.projectRoot) });
+  }
+
+  static override fromActiveReconstruction(args: Omit<Parameters<typeof ProductionLLMActor.fromActiveReconstruction>[0], 'mutationAuthority'>): ProductionLLMActor {
+    return ProductionLLMActor.fromActiveReconstruction({ ...args, mutationAuthority: () => testCompositionAuthority(args.projectRoot) });
+  }
+}
+
+class ConversationLLMActor extends ProductionConversationLLMActor {
+  constructor(args: Omit<ConstructorParameters<typeof ProductionConversationLLMActor>[0], 'mutationAuthority'>) {
+    super({ ...args, mutationAuthority: () => testCompositionAuthority(args.projectRoot) });
+  }
+}
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-actor-'));
@@ -91,7 +107,7 @@ function corruptActorMessages(projectRoot: string): void {
 
 class InitialOutcomeHarness extends BaseMainLLMCardProcessorActor {
   constructor(projectRoot: string, provider: LLMProviderPort) {
-    super({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), cardId: 'project', provider });
+    super({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), cardId: 'project', provider, mutationAuthority: () => testCompositionAuthority(projectRoot) });
   }
 
   resolveForTest(llm: LLMActor, buildInput: () => LlmInvocationInput, isTerminalToolName = () => false): Promise<LLMActorOutcome> {
@@ -221,6 +237,7 @@ describe('LLMActor', () => {
       conversations: testConversationMutations(projectRoot),
       sessionId,
       input: { ...input('compaction'), contextMessages: readConversationMessages(projectRoot, sessionId) },
+      mutationAuthority: testCompositionAuthority(projectRoot),
       config: compactionConfig,
       summarizerProvider: provider,
       bufferSizeEstimator: { estimate: (candidate) => ({ estimatedTokens: candidate.contextMessages.some((message) => typeof message === 'object' && message !== null && 'kind' in message && message.kind === 'context_compaction') ? 1 : 100, bufferTokens: 100 }) },
@@ -321,7 +338,7 @@ describe('LLMActor', () => {
     expect(compactor.shouldCompact).toHaveBeenCalledTimes(1);
     expect(compactor.compact).toHaveBeenCalledTimes(1);
     expect(compactor.compact).toHaveBeenCalledWith(expect.objectContaining({ projectRoot, conversations }));
-    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ contextMessages: [compacted] }), expect.any(AbortSignal));
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ contextMessages: [compacted] }), expect.any(AbortSignal), testCompositionAuthority(projectRoot));
     const invocationSignal = ((compactor.compact as jest.Mock).mock.calls[0]![0] as { signal: AbortSignal }).signal;
     expect(gateWait.mock.calls[0]![0]).toBe(invocationSignal);
     expect((provider.completeTurn as jest.Mock).mock.calls[0]![1]).toBe(invocationSignal);
@@ -864,8 +881,8 @@ describe('LLMActor', () => {
     };
     const compactor = {
       shouldCompact: jest.fn(() => ({ shouldCompact: true })),
-      compact: jest.fn(async ({ input: turnInput, summarizerProvider: summarizer, signal }: Parameters<CompactorPort['compact']>[0]) => {
-        await summarizer.completeTurn(turnInput, signal!);
+      compact: jest.fn(async ({ input: turnInput, mutationAuthority, summarizerProvider: summarizer, signal }: Parameters<CompactorPort['compact']>[0]) => {
+        await summarizer.completeTurn(turnInput, signal!, mutationAuthority);
         throw new Error('unreachable');
       }),
     };

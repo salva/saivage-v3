@@ -7,6 +7,7 @@ import { ProviderRegistry } from '../../src/agents/provider.js';
 import { buildLlmOptions } from '../../src/agents/llm-options-factory.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
+import { testAuthProfiles, testCompositionAuthority } from '../helpers/canonical-project.js';
 
 let roots: string[] = [];
 
@@ -50,7 +51,7 @@ describe('AgentLlmInvocationGateway transport freshness', () => {
     const projectRoot = root();
     writeProfiles(projectRoot, 'acct_a');
     const registry = new ProviderRegistry(config());
-    const gateway = new AgentLlmInvocationGateway({ projectRoot, saivageDir: join(projectRoot, '.saivage'), registry });
+    const gateway = new AgentLlmInvocationGateway({ projectRoot, saivageDir: join(projectRoot, '.saivage'), registry, authProfiles: testAuthProfiles(projectRoot) });
     expect('llmClientCache' in gateway).toBe(false);
 
     const seenAccounts: string[] = [];
@@ -69,9 +70,9 @@ describe('AgentLlmInvocationGateway transport freshness', () => {
     const candidate = { provider: 'openai-codex', account: null, model: 'gpt-5' };
     const messages: AgentMessage[] = [];
     const opts = buildLlmOptions('analyst', [], [], { temperature: 0, max_tokens: 16 }, undefined, 'input-1', undefined);
-    await call(candidate, 'system', messages, 'session-1', opts);
+    await call(candidate, 'system', messages, 'session-1', opts, undefined, testCompositionAuthority(projectRoot));
     writeProfiles(projectRoot, 'acct_b');
-    await call(candidate, 'system', messages, 'session-1', { ...opts, inputId: 'input-2' });
+    await call(candidate, 'system', messages, 'session-1', { ...opts, inputId: 'input-2' }, undefined, testCompositionAuthority(projectRoot));
 
     expect(seenAccounts).toEqual(['acct_a', 'acct_b']);
     expect(JSON.stringify(seenAccounts)).not.toContain(codexToken('acct_a'));

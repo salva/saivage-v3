@@ -10,9 +10,10 @@ import { createServerServices } from './composition/server-services.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import type { ProjectPersistenceAuthority } from '../persistence/project-persistence-authority.js';
 import type { CompositionMutationAuthority } from '../application/mutation-authority.js';
+import type { MutationLane } from '../application/mutation-lane.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
-export interface CreateServerOptions { environment: Environment; authority: ProjectPersistenceAuthority; compositionAuthority: CompositionMutationAuthority; scope?: ResourceScope; restartPort?: RestartPort; }
+export interface CreateServerOptions { environment: Environment; authority: ProjectPersistenceAuthority; mutationLane: MutationLane; compositionAuthority: CompositionMutationAuthority; scope?: ResourceScope; restartPort?: RestartPort; }
 export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager: McpManager; telegramBot?: TelegramBot; runtimeApplication: RuntimeApplication; stop: () => Promise<void>; }
 export function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
 export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) console.warn(`⚠  Binding to ${resolvedHost} without SAIVAGE_API_TOKEN. All API endpoints are unauthenticated.`); }
@@ -22,7 +23,7 @@ export async function createServer(options: CreateServerOptions): Promise<Server
   const environment = options.environment;
   const scope = options.scope ?? createResourceScope('server');
   const serverConfig = getServerConfig(environment);
-  const services = await createServerServices({ environment, authority: options.authority, compositionAuthority: options.compositionAuthority, scope, restartPort: options.restartPort });
+  const services = await createServerServices({ environment, authority: options.authority, mutationLane: options.mutationLane, compositionAuthority: options.compositionAuthority, scope, restartPort: options.restartPort });
 
   registerServerRoutes({
     fastify: services.fastify,

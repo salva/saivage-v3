@@ -66,8 +66,9 @@ function buildCompactionWiring(invocationService: InvocationService, config: Sai
     compactionConfig,
     bufferSizeEstimator: heuristicBufferSizeEstimator,
     summarizerProvider: {
-      completeTurn: (input: Parameters<LLMProviderPort['completeTurn']>[0], signal: AbortSignal) => invocationService.invokeWithRecovery({
+      completeTurn: (input: Parameters<LLMProviderPort['completeTurn']>[0], signal: AbortSignal, mutationAuthority: Parameters<LLMProviderPort['completeTurn']>[2]) => invocationService.invokeWithRecovery({
         inputId: input.inputId,
+        mutationAuthority,
         role: input.role,
         sessionId: input.sessionId,
         systemPrompt: input.systemPrompt,
@@ -86,8 +87,9 @@ function buildCompactionWiring(invocationService: InvocationService, config: Sai
 
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
-    completeTurn: (input, signal) => invocationService.invokeWithRecovery({
+    completeTurn: (input, signal, mutationAuthority) => invocationService.invokeWithRecovery({
       inputId: input.inputId,
+      mutationAuthority,
       role: input.role,
       sessionId: input.sessionId,
       systemPrompt: input.systemPrompt,

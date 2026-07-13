@@ -19,6 +19,8 @@ import { startTelegramNotifications } from './telegram-lifecycle.js';
 import { ReadModelChangeBroadcaster, type ReadModelChangeSubscription } from '../../application/read-model-changes.js';
 import type { ProjectPersistenceAuthority } from '../../persistence/project-persistence-authority.js';
 import type { CompositionMutationAuthority } from '../../application/mutation-authority.js';
+import type { MutationLane } from '../../application/mutation-lane.js';
+import { AuthProfileRepository } from '../../auth/auth-profile-store.js';
 
 export interface ServerServices {
   projectRoot: string;
@@ -81,6 +83,7 @@ export async function createServerServices(input: {
   restartPort?: RestartPort;
   authority: ProjectPersistenceAuthority;
   compositionAuthority: CompositionMutationAuthority;
+  mutationLane: MutationLane;
 }): Promise<ServerServices> {
   const { environment } = input;
   const projectRoot = environment.projectRoot;
@@ -99,10 +102,12 @@ export async function createServerServices(input: {
   const errorLogger = new ErrorLogger(saivageDir);
   const readModelChanges = new ReadModelChangeBroadcaster();
   const cardStore = new CardStoreRepository({ projectRoot, reader: input.authority.reader, writer: input.authority.writer, eventBus, readModelChanges });
+  const authProfiles = new AuthProfileRepository(projectRoot, input.mutationLane);
+  authProfiles.restabilize(input.compositionAuthority);
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, cardStore, compositionAuthority: input.compositionAuthority, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, cardStore, authProfiles, compositionAuthority: input.compositionAuthority, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
 

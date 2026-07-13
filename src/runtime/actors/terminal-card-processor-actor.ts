@@ -43,7 +43,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly promptTemplates: PromptTemplateRegistry;
 
   constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationMutationPort; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardRecordStore; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
-    super(args);
+    super({ ...args, mutationAuthority: () => args.store.currentMutationAuthority() });
     this.store = args.store;
     this.processRunner = args.processRunner;
     this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);

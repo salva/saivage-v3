@@ -9,12 +9,15 @@ import { ProviderTurnFailure, type LlmCallFn } from '../../src/agents/llm-contra
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
+import { createTestAuthProfileRepository } from '../helpers/mutation-composition.js';
+import { issueCompositionMutationAuthority } from '../../src/application/mutation-authority.js';
 
 const candidate: Candidate = { provider: 'p', account: null, model: 'm' };
 const alternate: Candidate = { provider: 'alt', account: null, model: 'm-alt' };
 
 function request(chain: Candidate[] = [candidate], signal?: AbortSignal): InvocationRequest {
   return {
+    mutationAuthority: issueCompositionMutationAuthority(),
     inputId: 'planner:card:1',
     role: 'planner',
     sessionId: 'planner:card',
@@ -39,6 +42,7 @@ function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvai
     registry: {} as never,
     router: { resolve: async () => chain, getLastCapabilitySkips: () => [] } as never,
     candidateAvailability: args.availability,
+    authProfiles: createTestAuthProfileRepository(projectRoot).repository,
     llmCallFn: args.llmCallFn ?? (async () => ({ result: { kind: 'message', content: 'ok' }, provider_exchanges: [] })),
   });
 }

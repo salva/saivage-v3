@@ -17,6 +17,7 @@ import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationVersionReplacement } from './conversation-index.js';
 import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
 import { InvocationLifecycle, type CompletionPersistenceAdmission, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
+import type { MutationAuthority } from '../../application/mutation-authority.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -24,12 +25,12 @@ export type LLMActorOutcome =
   | { type: 'error'; agentId: string; error: string };
 
 export interface LLMProviderPort {
-  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
+  completeTurn(input: LlmInvocationInput, signal: AbortSignal, mutationAuthority: MutationAuthority): Promise<ProviderTurnCompletion>;
 }
 
 export interface CompactorPort {
   shouldCompact(input: LlmInvocationInput, config: CompactionConfig, estimator: BufferSizeEstimator): { shouldCompact: boolean };
-  compact(args: { projectRoot: string; conversations: ConversationMutationPort; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; bufferSizeEstimator: BufferSizeEstimator; signal: AbortSignal }): Promise<{ rows: unknown[]; versionReplacement: ConversationVersionReplacement }>;
+  compact(args: { projectRoot: string; conversations: ConversationMutationPort; sessionId: string; input: LlmInvocationInput; mutationAuthority: MutationAuthority; config: CompactionConfig; summarizerProvider: LLMProviderPort; bufferSizeEstimator: BufferSizeEstimator; signal: AbortSignal }): Promise<{ rows: unknown[]; versionReplacement: ConversationVersionReplacement }>;
 }
 
 type PersistedProviderCompletion =
@@ -83,8 +84,9 @@ export class ConversationLLMActor extends BaseActor {
 
   readonly conversationPublisher?: ConversationChangePublisher;
   readonly conversations: ConversationMutationPort;
+  readonly mutationAuthority: () => MutationAuthority;
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; gate?: RuntimeGate; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; mutationAuthority: () => MutationAuthority; gate?: RuntimeGate; conversationPublisher?: ConversationChangePublisher }) {
     super();
     if (actorKindFromId(args.agentId) !== 'llm') throw new Error(`LLMActor requires an LLM actor id: ${args.agentId}`);
     this.projectRoot = args.projectRoot;
@@ -93,6 +95,7 @@ export class ConversationLLMActor extends BaseActor {
     this.conversations = args.conversations;
     this.gate = args.gate ?? new RuntimeGate();
     this.conversationPublisher = args.conversationPublisher;
+    this.mutationAuthority = args.mutationAuthority;
   }
 
   turn(input: LlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome> {
@@ -241,7 +244,7 @@ export class ConversationLLMActor extends BaseActor {
           await this.gate.waitUntilOpen(exactSignal);
           this.#invocations.assertCurrent(invocation);
           this.#providerBoundaryEntered = true;
-          const completion = await this.provider.completeTurn(providerInput, exactSignal);
+          const completion = await this.provider.completeTurn(providerInput, exactSignal, this.mutationAuthority());
           this.#invocations.assertCurrent(invocation);
           this.#completionPersistenceEntered = true;
           return this.#completionPersistence.admit(invocation, () => Promise.resolve(this.persistProviderCompletion(providerInput, completion)));
@@ -499,7 +502,7 @@ export class LLMActor extends ConversationLLMActor {
   readonly summarizerProvider?: LLMProviderPort;
   readonly bufferSizeEstimator?: BufferSizeEstimator;
 
-  static fromActiveReconstruction(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; snapshots: ActorSnapshotStore; gate?: RuntimeGate; state: string; activeReconstruction: LlmActiveReconstructionRecord; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }): LLMActor {
+  static fromActiveReconstruction(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; mutationAuthority: () => MutationAuthority; snapshots: ActorSnapshotStore; gate?: RuntimeGate; state: string; activeReconstruction: LlmActiveReconstructionRecord; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }): LLMActor {
     const actor = new LLMActor({ ...args });
     actor.activeReconstruction = args.activeReconstruction;
     actor.input = args.activeReconstruction.input;
@@ -544,7 +547,7 @@ export class LLMActor extends ConversationLLMActor {
     this.activeReconstruction = this.createActiveReconstruction(input);
   }
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; snapshots: ActorSnapshotStore; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationMutationPort; mutationAuthority: () => MutationAuthority; snapshots: ActorSnapshotStore; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     if (parseLlmActorId(args.agentId).role === 'analyst') throw new Error(`LLMActor '${args.agentId}' only supports autonomous card roles.`);
     this.compactor = args.compactor;
@@ -563,7 +566,7 @@ export class LLMActor extends ConversationLLMActor {
     try {
       this.#compacting = true;
       this.snapshots.save(this.snapshot());
-      const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, conversations: this.conversations, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, signal });
+      const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, conversations: this.conversations, sessionId: input.sessionId, input, mutationAuthority: this.mutationAuthority(), config: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, signal });
       this.conversationPublisher?.versionReplaced(compacted.versionReplacement);
       const compactedRows = compacted.rows as AgentMessage[];
       const compactedInput = { ...input, genericContextMessages: conversationMessagesForModel(compactedRows), contextMessages: conversationMessagesForModel(compactedRows), activeConversationReplay: buildResponsesReplayProjection(input.sessionId, compactedRows) } as LlmInvocationInput;

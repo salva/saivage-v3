@@ -30,7 +30,7 @@ afterEach(async () => {
 describe('GET /api/debug/state pid overlay', () => {
   it('surfaces process.pid on body.runtime.pid', async () => {
     updateRuntimeState(root, { status: 'running' });
-    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), compositionAuthority: testCompositionAuthority(root) });
+    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root) });
     const res = await server.fastify.inject({ method: 'GET', url: '/api/debug/state' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ runtime: { pid: number; status: string } | null }>();

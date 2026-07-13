@@ -11,6 +11,7 @@ import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../
 import { createMutationLane } from '../../src/application/mutation-lane.js';
 import type { MutationLane } from '../../src/application/mutation-lane.js';
 import { ProjectIdentityStore, projectIdentityDigest } from '../../src/persistence/project-identity-store.js';
+import { AuthProfileRepository } from '../../src/auth/auth-profile-store.js';
 
 interface TestProjectComposition {
   authority: ProjectPersistenceAuthority;
@@ -80,6 +81,13 @@ export function testCompositionAuthority(projectRoot: string): import('../../src
 export function testMutationComposition(projectRoot: string): { lane: MutationLane; authority: import('../../src/application/mutation-authority.js').CompositionMutationAuthority } {
   const opened = composition(projectRoot);
   return { lane: opened.lane, authority: opened.mutationAuthority };
+}
+
+export function testAuthProfiles(projectRoot: string): AuthProfileRepository {
+  const opened = composition(projectRoot);
+  const repository = new AuthProfileRepository(projectRoot, opened.lane);
+  repository.restabilize(opened.mutationAuthority);
+  return repository;
 }
 
 export function closeTestProject(projectRoot: string): void {

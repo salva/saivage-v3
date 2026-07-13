@@ -15,6 +15,8 @@ import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js'
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { readProviderExchangeLogEntries } from '../persistence/provider-exchange-log.js';
 import type { ProviderExchangeMutationPort } from '../persistence/provider-exchange-mutation-port.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
+import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
@@ -32,6 +34,7 @@ interface CandidateRecoveryRecord {
 }
 
 export interface InvocationRequest {
+  mutationAuthority: MutationAuthority;
   inputId: string;
   role: OperationalAgentRole;
   sessionId: string;
@@ -56,6 +59,7 @@ export interface InvocationServiceConfig {
   candidateAvailability?: CandidateAvailability;
   llmCallFn?: LlmCallFn;
   providerExchangeMutations: ProviderExchangeMutationPort;
+  authProfiles: AuthProfileRepository;
 }
 
 export class InvocationService {
@@ -79,6 +83,7 @@ export class InvocationService {
       saivageDir: config.saivageDir,
       registry: config.registry,
       eventLogger: config.eventLogger,
+      authProfiles: config.authProfiles,
     });
     this.llmCallFn = config.llmCallFn;
     this.providerExchangeMutations = config.providerExchangeMutations;
@@ -105,6 +110,7 @@ export class InvocationService {
         request.inputId,
         undefined,
       ),
+      request.mutationAuthority,
     );
   }
 

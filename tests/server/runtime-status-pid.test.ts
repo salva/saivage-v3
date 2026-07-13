@@ -29,7 +29,7 @@ afterEach(async () => {
 
 describe('GET /api/runtime/status pid overlay', () => {
   it('returns process.pid in the live runtime branch', async () => {
-    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), compositionAuthority: testCompositionAuthority(root) });
+    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root) });
     const res = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ pid: number }>();
@@ -57,7 +57,7 @@ describe('GET /api/runtime/status pid overlay', () => {
     };
     writeFileSync(runtimeStatePath(root), JSON.stringify(payload));
 
-    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), compositionAuthority: testCompositionAuthority(root) });
+    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root) });
     const res = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ pid: number }>();

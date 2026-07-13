@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
+import { testAuthProfiles, testCompositionAuthority } from '../helpers/canonical-project.js';
+import { AuthProfileConflictError } from '../../src/auth/auth-profile-store.js';
 
 const SYNTHETIC_ACCESS_SECRET = 'transport-synthetic-access-token-SECRET';
 const SYNTHETIC_REFRESH_SECRET = 'transport-synthetic-refresh-token-SECRET';
@@ -51,6 +53,7 @@ function expectNoTransportSecrets(value: unknown): void {
 }
 
 afterEach(() => {
+  jest.restoreAllMocks();
   for (const root of roots) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -82,7 +85,7 @@ describe('resolveLlmTransportConfig', () => {
       },
     }));
 
-    const transport = await resolveLlmTransportConfig(root, registry, {
+    const transport = await resolveLlmTransportConfig(testAuthProfiles(root), testCompositionAuthority(root), registry, {
       provider: 'openai-codex',
       account: 'primary',
       model: 'm1',
@@ -108,7 +111,7 @@ describe('resolveLlmTransportConfig', () => {
       'openai-codex': { models: ['m1'] },
     }));
 
-    const transport = await resolveLlmTransportConfig(root, registry, {
+    const transport = await resolveLlmTransportConfig(testAuthProfiles(root), testCompositionAuthority(root), registry, {
       provider: 'openai-codex',
       account: null,
       model: 'm1',
@@ -128,15 +131,35 @@ describe('resolveLlmTransportConfig', () => {
       'openai-codex': { models: ['m1'] },
     }));
 
-    await expect(resolveLlmTransportConfig(root, registry, {
+    await expect(resolveLlmTransportConfig(testAuthProfiles(root), testCompositionAuthority(root), registry, {
       provider: 'openai-codex',
       account: null,
       model: 'm1',
     })).rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'ambiguous_auth_profile' } });
-    await expect(resolveLlmTransportConfig(root, registry, {
+    await expect(resolveLlmTransportConfig(testAuthProfiles(root), testCompositionAuthority(root), registry, {
       provider: 'openai-codex',
       account: null,
       model: 'm1',
     })).rejects.not.toThrow(SYNTHETIC_ACCESS_SECRET);
+  });
+
+  it('keeps refresh network I/O outside the lane and rejects replacement after a profile revision conflict', async () => {
+    const root = makeRoot();
+    writeProfiles(root, {
+      copilot: { type: 'oauth', provider: 'github-copilot', accessToken: 'expired-access', refreshToken: 'refresh-source', expiresAt: 0 },
+    });
+    const registry = new ProviderRegistry(config({
+      github: { models: ['m1'], authProfile: 'copilot' },
+    }));
+    const repository = testAuthProfiles(root);
+    const authority = testCompositionAuthority(root);
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      const projection = repository.profile('copilot');
+      repository.replaceProfile(authority, 'copilot', projection!.revision, { ...projection!.profile, accessToken: 'newer-concurrent-access' });
+      return new Response(JSON.stringify({ token: 'stale-network-access', expires_at: Math.floor(Date.now() / 1000) + 3600 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    await expect(resolveLlmTransportConfig(repository, authority, registry, { provider: 'github', account: null, model: 'm1' })).rejects.toBeInstanceOf(AuthProfileConflictError);
+    expect(repository.profile('copilot')?.profile.accessToken).toBe('newer-concurrent-access');
   });
 });

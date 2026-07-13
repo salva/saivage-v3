@@ -1,5 +1,6 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import type { ProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
@@ -123,7 +124,8 @@ export type LlmCallFn = (
   genericContextMessages: AgentMessage[],
   activeConversationReplayOrSessionId: ResponsesReplayProjection | string,
   sessionIdOrOpts: string | LlmCompleteOptions,
-  opts?: LlmCompleteOptions,
+  opts: LlmCompleteOptions | undefined,
+  mutationAuthority: MutationAuthority,
 ) => Promise<ProviderTurnCompletion>;
 
 export function parseCompleteInvocationArgs(

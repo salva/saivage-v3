@@ -58,7 +58,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly promptTemplates: PromptTemplateRegistry;
 
   constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; store: CardStore; children: PlannerChildActorPort; provider: LLMProviderPort; conversations: ConversationMutationPort; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
-    super(args);
+    super({ ...args, mutationAuthority: () => args.store.currentMutationAuthority() });
     this.store = args.store;
     this.children = args.children;
     this.notifyCard = args.notifyCard;

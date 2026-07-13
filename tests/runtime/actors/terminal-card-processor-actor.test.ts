@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { CardActor, TerminalCardProcessorActor, readActorSnapshots, type CardActorDeps, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
+import type { MutationAuthority } from '../../../src/application/mutation-authority.js';
 
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
@@ -72,11 +73,11 @@ function expectNotificationSeparatedFromTerminalError(error: string, notificatio
   expect(error).not.toContain(notificationPayload);
 }
 
-function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal: AbortSignal) => Promise<LlmCompleteResult | ProviderTurnCompletion> | LlmCompleteResult | ProviderTurnCompletion): LLMProviderPort {
+function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal: AbortSignal, mutationAuthority: MutationAuthority) => Promise<LlmCompleteResult | ProviderTurnCompletion> | LlmCompleteResult | ProviderTurnCompletion): LLMProviderPort {
   const pending = new Map<string, LlmCompleteResult>();
   const statusWrites = new Map<string, number>();
   return {
-    completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+    completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal, mutationAuthority: MutationAuthority) => {
       const key = input.sessionId;
       const pendingTerminal = pending.get(key);
       if (pendingTerminal) {
@@ -87,7 +88,7 @@ function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal:
           return providerCompletion(pendingTerminal);
         }
       }
-      const completion = await responder(input, new AbortController().signal);
+      const completion = await responder(input, signal, mutationAuthority);
       const result = 'result' in completion ? completion.result : completion;
       if (result.kind === 'tool_calls' && result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result')) {
         pending.set(key, result);
@@ -153,7 +154,7 @@ describe('TerminalCardProcessorActor', () => {
       terminalToolNames: ['emit_result'],
       systemPrompt: expect.stringContaining('record:///status.md?v=next'),
       tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
-    }), expect.any(AbortSignal));
+    }), expect.any(AbortSignal), store.currentMutationAuthority());
     const input = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[0]?.[0];
     if (!input) throw new Error('Missing executor invocation input');
     const names = invocationToolNames(input);

@@ -17,6 +17,8 @@ import { ProviderRegistry, type Provider } from '../agents/provider.js';
 import { LlmProviderGateway } from '../agents/llm-provider-gateway.js';
 import { resolveLlmTransportConfig, transportAuthProfileDependency } from '../agents/llm-transport.js';
 import { createMutationLane } from '../application/mutation-lane.js';
+import { AuthProfileRepository } from '../auth/auth-profile-store.js';
+import type { CompositionMutationAuthority } from '../application/mutation-authority.js';
 import { buildLlmOptions } from '../agents/llm-options-factory.js';
 import { createPlannerContract } from '../contracts/planner-contract.js';
 import { createExecutorContract } from '../contracts/executor-contract.js';
@@ -103,7 +105,8 @@ async function probeOne(
   role: OperationalAgentRole,
   config: SaivageConfig,
   registry: ProviderRegistry,
-  projectRoot: string,
+  authProfiles: AuthProfileRepository,
+  authority: CompositionMutationAuthority,
 ): Promise<ProbeRow> {
   const start = Date.now();
   const roleModels = resolveModelListForRole(config, role) ?? [];
@@ -117,7 +120,7 @@ async function probeOne(
     if (dependency !== 'none') {
       return { provider: provider.name, role, model, status: 'skipped', ms: Date.now() - start, reason: dependency };
     }
-    const { baseUrl, apiKey, openAICodexAccountId } = await resolveLlmTransportConfig(projectRoot, registry, candidate);
+    const { baseUrl, apiKey, openAICodexAccountId } = await resolveLlmTransportConfig(authProfiles, authority, registry, candidate);
     const gateway = new LlmProviderGateway({ baseUrl, apiKey, openAICodexAccountId, registry });
     const opts = buildOptionsForRole(role);
     const messages = [buildPingMessage()];
@@ -146,12 +149,14 @@ async function main(): Promise<number> {
   const projectRoot = process.argv[2] ?? process.cwd();
   const mutation = createMutationLane();
   const { config } = await loadEnvironment(['node', 'probe-llm-contract', '--project-root', projectRoot], process.env, mutation);
+  const authProfiles = new AuthProfileRepository(projectRoot, mutation.lane);
+  authProfiles.restabilize(mutation.authority);
   const registry = new ProviderRegistry(config);
   const providers = registry.getAll();
   let allOk = providers.length > 0;
   for (const provider of providers) {
     for (const role of ROLES) {
-      const row = await probeOne(provider, role, config, registry, projectRoot);
+      const row = await probeOne(provider, role, config, registry, authProfiles, mutation.authority);
       emit(row);
       if (row.status !== 'ok') allOk = false;
     }

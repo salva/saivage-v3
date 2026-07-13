@@ -10,6 +10,7 @@ import { dropRecoverableResultBodies, recoverableEvidenceDescriptors, type Recov
 import { classifyConversationRounds, type ClassifiedRound, type PositionedMessage } from '../../../src/runtime/actors/compaction/round-classifier.js';
 import { appendSummaryCacheEntry, contentHashForMessages, renderRecoverableEvidenceSection, summaryCacheKey } from '../../../src/runtime/actors/compaction/summary-cache.js';
 import { summarizeMerge, summarizeRound, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { issueCompositionMutationAuthority } from '../../../src/application/mutation-authority.js';
 
 const timestamp = '2026-01-01T00:00:00.000Z';
 
@@ -153,10 +154,11 @@ describe('compaction primitives', () => {
         return { result: { kind: 'message', content: 'Plain prose summary.' }, provider_exchanges: [] };
       },
     };
+    const mutationAuthority = issueCompositionMutationAuthority();
 
-    await expect(summarizeRound({ round_id: 'round-1', rows: [msg({ id: 'raw', role: 'user', kind: 'text', content: 'raw' })], summarizerProvider: provider, modelSpec: 'cheap-model', signal: new AbortController().signal })).resolves.toBe('Plain prose summary.');
-    await expect(summarizeRound({ round_id: 'round-2', rows: [msg({ id: 'summary', role: 'user', kind: 'context_compaction', content: 'old summary' })], summarizerProvider: provider, modelSpec: 'cheap-model', signal: new AbortController().signal })).rejects.toThrow(/context_compaction/);
-    await expect(summarizeMerge({ entries: [{ cache_key: 'k', round_id: 'r', content_hash: 'h', summary_text: 'Cached prose.', recoverable_evidence: [{ flavor: 'stash', url: 'work:///tmp/stash/a', label: 'stash' }], provenance: { source_message_ids: [] }, created_at: timestamp }], summarizerProvider: provider, modelSpec: 'cheap-model', signal: new AbortController().signal })).resolves.toBe('Plain prose summary.');
+    await expect(summarizeRound({ round_id: 'round-1', rows: [msg({ id: 'raw', role: 'user', kind: 'text', content: 'raw' })], summarizerProvider: provider, modelSpec: 'cheap-model', signal: new AbortController().signal, mutationAuthority })).resolves.toBe('Plain prose summary.');
+    await expect(summarizeRound({ round_id: 'round-2', rows: [msg({ id: 'summary', role: 'user', kind: 'context_compaction', content: 'old summary' })], summarizerProvider: provider, modelSpec: 'cheap-model', signal: new AbortController().signal, mutationAuthority })).rejects.toThrow(/context_compaction/);
+    await expect(summarizeMerge({ entries: [{ cache_key: 'k', round_id: 'r', content_hash: 'h', summary_text: 'Cached prose.', recoverable_evidence: [{ flavor: 'stash', url: 'work:///tmp/stash/a', label: 'stash' }], provenance: { source_message_ids: [] }, created_at: timestamp }], summarizerProvider: provider, modelSpec: 'cheap-model', signal: new AbortController().signal, mutationAuthority })).resolves.toBe('Plain prose summary.');
 
     expect(JSON.stringify(calls)).not.toContain('Recoverable evidence');
     expect(JSON.stringify(calls)).not.toContain('work:///tmp/stash/a');

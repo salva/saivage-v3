@@ -39,7 +39,7 @@ beforeEach(async () => {
   initProjectTree(root);
   ensureTestSaivageConfig(root);
   initRuntimeState(root);
-  server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), compositionAuthority: testCompositionAuthority(root) });
+  server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root) });
 });
 
 afterEach(async () => {

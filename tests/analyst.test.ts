@@ -515,7 +515,7 @@ describe('API Chat and WebSocket Integration', () => {
     setupTestProject(projectRoot);
     authToken = process.env['SAIVAGE_API_TOKEN'] || 'test-token';
     process.env['SAIVAGE_API_TOKEN'] = authToken;
-    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env, testMutationComposition(projectRoot)), authority: testProjectAuthority(projectRoot), compositionAuthority: testCompositionAuthority(projectRoot), restartPort: createTestRestartPort() });
+    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env, testMutationComposition(projectRoot)), authority: testProjectAuthority(projectRoot), mutationLane: testMutationComposition(projectRoot).lane, compositionAuthority: testCompositionAuthority(projectRoot), restartPort: createTestRestartPort() });
     await server.fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (server.fastify.server.address() as { port: number }).port;
     const ticketResponse = await fetch(`http://127.0.0.1:${port}/api/auth/ws-ticket`, { method: 'POST', headers: { authorization: `Bearer ${authToken}` } });

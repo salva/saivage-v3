@@ -1,392 +1,113 @@
-import { describe, it, expect, afterEach } from '@jest/globals';
-import {
-  mkdtempSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-  statSync,
-  rmSync,
-  mkdirSync,
-  readdirSync,
-} from 'node:fs';
-import { join } from 'node:path';
+import { afterEach, describe, expect, it } from '@jest/globals';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
+  AuthProfileConflictError,
   AuthProfileRecoveryRequiredError,
-  AuthProfileStore,
+  AuthProfileRepository,
+  authProfileRevision,
   type AuthProfile,
 } from '../../src/auth/auth-profile-store.js';
-import {
-  deleteAuthProfile,
-  loadAuthProfiles,
-  saveAuthProfile,
-} from '../../src/auth/oauth-profiles.js';
+import { createMutationLane } from '../../src/application/mutation-lane.js';
 
-let testRoots: string[] = [];
+const roots: string[] = [];
 
-function makeProjectRoot(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'saivage-auth-store-test-'));
-  testRoots.push(dir);
-  return dir;
+function root(): string {
+  const value = mkdtempSync(join(tmpdir(), 'saivage-auth-repository-'));
+  roots.push(value);
+  return value;
+}
+
+function profile(overrides: Partial<AuthProfile> = {}): AuthProfile {
+  return { type: 'oauth', provider: 'synthetic', accessToken: 'synthetic-access', refreshToken: 'synthetic-refresh', expiresAt: 42, ...overrides };
+}
+
+function setup(projectRoot = root()) {
+  const mutation = createMutationLane();
+  const repository = new AuthProfileRepository(projectRoot, mutation.lane);
+  repository.restabilize(mutation.authority);
+  return { projectRoot, repository, authority: mutation.authority };
+}
+
+function file(projectRoot: string): string {
+  return join(projectRoot, '.saivage', 'auth-profiles.json');
 }
 
 afterEach(() => {
-  for (const dir of testRoots) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
-    }
-  }
-  testRoots = [];
+  for (const value of roots) rmSync(value, { recursive: true, force: true });
+  roots.length = 0;
 });
 
-function authFilePath(root: string): string {
-  return join(root, '.saivage', 'auth-profiles.json');
-}
-
-function authDir(root: string): string {
-  return join(root, '.saivage');
-}
-
-function writeAuthProfiles(root: string, content: string, mode = 0o644): void {
-  mkdirSync(authDir(root), { recursive: true });
-  writeFileSync(authFilePath(root), content, { mode });
-}
-
-function makeProfile(overrides: Partial<AuthProfile> = {}): AuthProfile {
-  return {
-    type: 'oauth',
-    provider: 'synthetic-provider',
-    accessToken: 'at-synthetic-access-token',
-    refreshToken: 'rt-synthetic-refresh-token',
-    expiresAt: 1893456000000,
-    ...overrides,
-  };
-}
-
-function canonicalJson(profiles: Record<string, AuthProfile>): string {
-  return JSON.stringify({ version: 1, profiles }, null, 2) + '\n';
-}
-
-function tempFiles(root: string): string[] {
-  if (!existsSync(authDir(root))) return [];
-  return readdirSync(authDir(root)).filter((name) => name.includes('.tmp'));
-}
-
-function expectRestrictiveMode(path: string): void {
-  const mode = statSync(path).mode & 0o777;
-  expect(mode & 0o077).toBe(0);
-}
-
-function expectNoRawSecrets(output: string): void {
-  expect(output).not.toContain('at-synthetic-access-token');
-  expect(output).not.toContain('rt-synthetic-refresh-token');
-  expect(output).not.toContain('accessToken');
-  expect(output).not.toContain('refreshToken');
-  expect(output).not.toContain('access');
-  expect(output).not.toContain('refresh');
-}
-
-describe('AuthProfileStore read states', () => {
-  it('classifies an absent auth profile store', async () => {
-    const root = makeProjectRoot();
-    const state = await new AuthProfileStore(root).read();
-    expect(state.state).toBe('absent');
-    await expect(loadAuthProfiles(root)).resolves.toBeNull();
+describe('AuthProfileRepository', () => {
+  it('reads an absent store without mutating the filesystem', () => {
+    const projectRoot = root();
+    const mutation = createMutationLane();
+    const repository = new AuthProfileRepository(projectRoot, mutation.lane);
+    expect(repository.load()).toBeNull();
+    expect(existsSync(join(projectRoot, '.saivage'))).toBe(false);
   });
 
-  it('classifies a loaded canonical auth profile store', async () => {
-    const root = makeProjectRoot();
-    writeAuthProfiles(root, JSON.stringify({
-      version: 1,
-      profiles: {
-        canonical: {
-          type: 'oauth',
-          provider: 'synthetic-provider',
-          accessToken: 'at-synthetic-access-token',
-          refreshToken: 'rt-synthetic-refresh-token',
-          expiresAt: 1893456000000,
-        },
-      },
-    }));
+  it('restabilizes exact owned temporaries and file mode before reads', () => {
+    const projectRoot = root();
+    const directory = join(projectRoot, '.saivage');
+    mkdirSync(directory);
+    writeFileSync(file(projectRoot), JSON.stringify({ version: 1, profiles: {} }), { mode: 0o644 });
+    const temporary = join(directory, '.auth-profiles.json.saivage-write-11111111-1111-4111-8111-111111111111.tmp');
+    writeFileSync(temporary, 'incomplete');
+    const { repository } = setup(projectRoot);
+    expect(repository.load()).toEqual({ version: 1, profiles: {} });
+    expect(existsSync(temporary)).toBe(false);
+    expect(statSync(file(projectRoot)).mode & 0o777).toBe(0o600);
+  });
 
-    const state = await new AuthProfileStore(root).read();
-    expect(state.state).toBe('loaded');
-    if (state.state === 'loaded') {
-      expect(state.file.profiles['canonical'].accessToken).toBe('at-synthetic-access-token');
-      expect(state.file.profiles['canonical'].refreshToken).toBe('rt-synthetic-refresh-token');
+  it('creates and replaces a profile under the expected revision', () => {
+    const { projectRoot, repository, authority } = setup();
+    const first = profile({ provider: 'first' });
+    repository.replaceProfile(authority, 'account', null, first);
+    const projection = repository.profile('account');
+    expect(projection).toEqual({ profile: first, revision: authProfileRevision(first) });
+
+    const second = profile({ provider: 'second', accessToken: 'second-access' });
+    repository.replaceProfile(authority, 'account', projection!.revision, second);
+    expect(repository.profile('account')?.profile).toEqual(second);
+    expect(readFileSync(file(projectRoot), 'utf8').endsWith('\n')).toBe(true);
+    expect(statSync(file(projectRoot)).mode & 0o077).toBe(0);
+  });
+
+  it('rejects stale replacement and deletion revisions without changing the file', () => {
+    const { projectRoot, repository, authority } = setup();
+    const initial = profile();
+    repository.replaceProfile(authority, 'account', null, initial);
+    const before = readFileSync(file(projectRoot), 'utf8');
+    expect(() => repository.replaceProfile(authority, 'account', 'stale', profile({ provider: 'other' }))).toThrow(AuthProfileConflictError);
+    expect(() => repository.deleteProfile(authority, 'account', 'stale')).toThrow(AuthProfileConflictError);
+    expect(readFileSync(file(projectRoot), 'utf8')).toBe(before);
+  });
+
+  it('deletes only the exact projected profile revision', () => {
+    const { repository, authority } = setup();
+    repository.replaceProfile(authority, 'account', null, profile());
+    repository.deleteProfile(authority, 'account', repository.profile('account')!.revision);
+    expect(repository.load()).toEqual({ version: 1, profiles: {} });
+  });
+
+  it('fails closed with credential-safe diagnostics for malformed JSON and schema', () => {
+    for (const content of [
+      '{ invalid synthetic-access synthetic-refresh',
+      JSON.stringify({ version: 1, profiles: { bad: { type: 'oauth', provider: 'synthetic', accessToken: 7, refreshToken: 'synthetic-refresh' } } }),
+    ]) {
+      const projectRoot = root();
+      mkdirSync(join(projectRoot, '.saivage'));
+      writeFileSync(file(projectRoot), content, { mode: 0o600 });
+      const { repository, authority } = setup(projectRoot);
+      let caught: unknown;
+      try { repository.replaceProfile(authority, 'new', null, profile()); } catch (error) { caught = error; }
+      expect(caught).toBeInstanceOf(AuthProfileRecoveryRequiredError);
+      expect(String(caught)).not.toContain('synthetic-access');
+      expect(String(caught)).not.toContain('synthetic-refresh');
+      expect(readFileSync(file(projectRoot), 'utf8')).toBe(content);
     }
-    expectRestrictiveMode(authFilePath(root));
-  });
-
-  it('classifies missing file version as invalid schema', async () => {
-    const root = makeProjectRoot();
-    writeAuthProfiles(root, JSON.stringify({
-      profiles: {
-        canonical: makeProfile(),
-      },
-    }));
-
-    const state = await new AuthProfileStore(root).read();
-    expect(state.state).toBe('invalid_schema');
-    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema/i);
-  });
-
-  it('classifies shorthand-only credential keys as invalid schema', async () => {
-    const root = makeProjectRoot();
-    writeAuthProfiles(root, JSON.stringify({
-      version: 1,
-      profiles: {
-        shorthand: {
-          type: 'oauth',
-          provider: 'synthetic-provider',
-          access: 'at-synthetic-access-token',
-          refresh: 'rt-synthetic-refresh-token',
-          expires: 1893456000000,
-        },
-      },
-    }));
-
-    const state = await new AuthProfileStore(root).read();
-    expect(state.state).toBe('invalid_schema');
-  });
-
-  it('classifies canonical profiles with obsolete credential aliases as invalid schema', async () => {
-    const root = makeProjectRoot();
-    writeAuthProfiles(root, JSON.stringify({
-      version: 1,
-      profiles: {
-        mixed: {
-          ...makeProfile(),
-          access: 'at-obsolete-alias',
-        },
-      },
-    }));
-
-    const state = await new AuthProfileStore(root).read();
-    expect(state.state).toBe('invalid_schema');
-  });
-
-  it('classifies corrupt JSON without exposing raw file content', async () => {
-    const root = makeProjectRoot();
-    writeAuthProfiles(root, '{ invalid json at-synthetic-access-token rt-synthetic-refresh-token }');
-
-    const state = await new AuthProfileStore(root).read();
-    expect(state.state).toBe('corrupt_json');
-    if (state.state === 'corrupt_json') {
-      expectNoRawSecrets(state.causeMessage);
-    }
-    await expect(loadAuthProfiles(root)).rejects.toThrow(/parse/i);
-  });
-
-  it('classifies invalid schema and keeps diagnostics token-safe', async () => {
-    const root = makeProjectRoot();
-    writeAuthProfiles(root, JSON.stringify({
-      version: 1,
-      profiles: {
-        bad: {
-          type: 'oauth',
-          provider: 'synthetic-provider',
-          refreshToken: 'rt-synthetic-refresh-token',
-        },
-      },
-    }));
-
-    const state = await new AuthProfileStore(root).read();
-    expect(state.state).toBe('invalid_schema');
-    if (state.state === 'invalid_schema') {
-      expect(state.causeMessage).toContain('expected profile schema');
-      expectNoRawSecrets(state.causeMessage);
-    }
-    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema/i);
-  });
-});
-
-describe('AuthProfileStore atomic persistence', () => {
-  it('saves an absent store atomically with restrictive mode and no temp files left behind', async () => {
-    const root = makeProjectRoot();
-    await new AuthProfileStore(root).saveProfile('synthetic', makeProfile());
-
-    expect(existsSync(authFilePath(root))).toBe(true);
-    expectRestrictiveMode(authFilePath(root));
-    expect(tempFiles(root)).toEqual([]);
-
-    const loaded = await loadAuthProfiles(root);
-    expect(loaded!.profiles['synthetic'].accessToken).toBe('at-synthetic-access-token');
-  });
-
-  it('deletes from a loaded store atomically and leaves no temp files behind', async () => {
-    const root = makeProjectRoot();
-    writeAuthProfiles(root, canonicalJson({
-      keep: makeProfile({ provider: 'keep' }),
-      remove: makeProfile({ provider: 'remove' }),
-    }));
-
-    await new AuthProfileStore(root).deleteProfile('remove');
-
-    const loaded = await loadAuthProfiles(root);
-    expect(Object.keys(loaded!.profiles)).toEqual(['keep']);
-    expectRestrictiveMode(authFilePath(root));
-    expect(tempFiles(root)).toEqual([]);
-  });
-
-  it('cleans up temp files and leaves previous target intact on write failure', async () => {
-    const root = makeProjectRoot();
-    const original = canonicalJson({ keep: makeProfile({ accessToken: 'original-synthetic-access' }) });
-    writeAuthProfiles(root, original, 0o600);
-
-    const store = new AuthProfileStore(root, {
-      atomicWriteOptions: { simulateFailureAt: 'write' },
-      tempNameFactory: () => 'deterministic-write-failure',
-    });
-
-    await expect(store.saveProfile('new', makeProfile())).rejects.toThrow(/Failed to persist auth profiles atomically/);
-    expect(readFileSync(authFilePath(root), 'utf-8')).toBe(original);
-    expect(tempFiles(root)).toEqual([]);
-  });
-
-  it('cleans up temp files and leaves previous target intact on rename failure', async () => {
-    const root = makeProjectRoot();
-    const original = canonicalJson({ keep: makeProfile({ accessToken: 'original-synthetic-access' }) });
-    writeAuthProfiles(root, original, 0o600);
-
-    const store = new AuthProfileStore(root, {
-      atomicWriteOptions: { simulateFailureAt: 'rename' },
-      tempNameFactory: () => 'deterministic-rename-failure',
-    });
-
-    await expect(store.deleteProfile('keep')).rejects.toThrow(/Failed to persist auth profiles atomically/);
-    expect(readFileSync(authFilePath(root), 'utf-8')).toBe(original);
-    expect(tempFiles(root)).toEqual([]);
-  });
-});
-
-describe('AuthProfileStore refusal semantics', () => {
-  it('refuses save on corrupt JSON and preserves the original file', async () => {
-    const root = makeProjectRoot();
-    const corrupt = '{ invalid json at-synthetic-access-token rt-synthetic-refresh-token }';
-    writeAuthProfiles(root, corrupt, 0o600);
-
-    await expect(saveAuthProfile(root, 'new', makeProfile())).rejects.toBeInstanceOf(
-      AuthProfileRecoveryRequiredError,
-    );
-
-    expect(readFileSync(authFilePath(root), 'utf-8')).toBe(corrupt);
-    expect(tempFiles(root)).toEqual([]);
-  });
-
-  it('refuses delete on invalid schema and preserves the original file', async () => {
-    const root = makeProjectRoot();
-    const invalid = JSON.stringify({
-      version: 1,
-      profiles: {
-        bad: { type: 'oauth', provider: 'synthetic-provider', refreshToken: 'rt-synthetic-refresh-token' },
-      },
-    });
-    writeAuthProfiles(root, invalid, 0o600);
-
-    await expect(deleteAuthProfile(root, 'bad')).rejects.toBeInstanceOf(
-      AuthProfileRecoveryRequiredError,
-    );
-
-    expect(readFileSync(authFilePath(root), 'utf-8')).toBe(invalid);
-    expect(tempFiles(root)).toEqual([]);
-  });
-
-  it('recovery-required errors expose only redacted metadata, not synthetic token values', async () => {
-    const root = makeProjectRoot();
-    writeAuthProfiles(root, '{ invalid json at-synthetic-access-token rt-synthetic-refresh-token }', 0o600);
-
-    let caught: unknown;
-    try {
-      await saveAuthProfile(root, 'new', makeProfile());
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBeInstanceOf(AuthProfileRecoveryRequiredError);
-    const message = String(caught);
-    expect(message).toContain('corrupt_json');
-    expect(message).toContain('ordinary write refused');
-    expectNoRawSecrets(message);
-    const details = (caught as AuthProfileRecoveryRequiredError).details;
-    expect(details.state).toBe('corrupt_json');
-    expect(details.action).toBe('refused');
-    expectNoRawSecrets(JSON.stringify(details));
-  });
-
-
-  it('recovery-required corrupt JSON diagnostics omit embedded synthetic secrets', async () => {
-    const root = makeProjectRoot();
-    const syntheticSecret = 'sk-synthetic-corrupt-secret-12345';
-    writeAuthProfiles(root, `{ "profiles": { "bad": "${syntheticSecret}`, 0o600);
-
-    let caught: unknown;
-    try {
-      await saveAuthProfile(root, 'new', makeProfile());
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBeInstanceOf(AuthProfileRecoveryRequiredError);
-    const recoveryError = caught as AuthProfileRecoveryRequiredError;
-    expect(recoveryError.message).toContain('corrupt_json');
-    expect(recoveryError.details.causeMessage).toContain('malformed JSON');
-    expect(recoveryError.message).not.toContain(syntheticSecret);
-    expect(JSON.stringify(recoveryError.details)).not.toContain(syntheticSecret);
-    expectNoRawSecrets(recoveryError.message);
-    expectNoRawSecrets(JSON.stringify(recoveryError.details));
-  });
-
-  it('recovery-required invalid schema diagnostics omit credential field names and values', async () => {
-    const root = makeProjectRoot();
-    const syntheticAccessSecret = 'at-synthetic-invalid-secret-12345';
-    const syntheticRefreshSecret = 'rt-synthetic-invalid-secret-12345';
-    writeAuthProfiles(root, JSON.stringify({
-      version: 1,
-      profiles: {
-        bad: {
-          type: 'oauth',
-          provider: 'synthetic-provider',
-          accessToken: 123,
-          refreshToken: { nested: syntheticRefreshSecret },
-          access: syntheticAccessSecret,
-          refresh: syntheticRefreshSecret,
-        },
-      },
-    }), 0o600);
-
-    let caught: unknown;
-    try {
-      await saveAuthProfile(root, 'new', makeProfile());
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBeInstanceOf(AuthProfileRecoveryRequiredError);
-    const recoveryError = caught as AuthProfileRecoveryRequiredError;
-    expect(recoveryError.message).toContain('invalid_schema');
-    expect(recoveryError.details.causeMessage).toContain('expected profile schema');
-    expect(recoveryError.message).not.toContain(syntheticAccessSecret);
-    expect(recoveryError.message).not.toContain(syntheticRefreshSecret);
-    expect(JSON.stringify(recoveryError.details)).not.toContain(syntheticAccessSecret);
-    expect(JSON.stringify(recoveryError.details)).not.toContain(syntheticRefreshSecret);
-    expectNoRawSecrets(recoveryError.message);
-    expectNoRawSecrets(JSON.stringify(recoveryError.details));
-  });
-
-  it('keeps public save/delete APIs working for clean stores', async () => {
-    const root = makeProjectRoot();
-
-    await saveAuthProfile(root, 'first', makeProfile({ provider: 'one' }));
-    await saveAuthProfile(root, 'second', makeProfile({ provider: 'two' }));
-    await deleteAuthProfile(root, 'first');
-    await deleteAuthProfile(root, 'missing');
-
-    const loaded = await loadAuthProfiles(root);
-    expect(Object.keys(loaded!.profiles)).toEqual(['second']);
-    expect(loaded!.profiles['second'].provider).toBe('two');
   });
 });

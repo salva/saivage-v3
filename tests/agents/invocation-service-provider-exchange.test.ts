@@ -1,4 +1,4 @@
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { initProjectTree, testCompositionAuthority } from '../helpers/canonical-project.js';
 import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { testConversationMutations } from '../helpers/conversation-mutations.js';
@@ -18,6 +18,8 @@ import { readActorSnapshots } from '../../src/runtime/actors/snapshots.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
 import type { ProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
+import { createTestAuthProfileRepository } from '../helpers/mutation-composition.js';
+import { issueCompositionMutationAuthority } from '../../src/application/mutation-authority.js';
 
 const candidates: Candidate[] = [
   { provider: 'a', account: null, model: 'm-a' },
@@ -44,6 +46,7 @@ function attempt(provider: string, status: 'ok' | 'error'): ProviderExchangeAtte
 
 function request(): InvocationRequest {
   return {
+    mutationAuthority: issueCompositionMutationAuthority(),
     inputId: 'planner:card:1',
     role: 'planner',
     sessionId: 'planner:card',
@@ -66,6 +69,7 @@ describe('InvocationService provider exchange accumulation', () => {
       saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-state-')),
       registry: {} as never,
       router: { resolve: async () => candidates, getLastCapabilitySkips: () => [] } as never,
+      authProfiles: createTestAuthProfileRepository(projectRoot).repository,
       llmCallFn: async (candidate) => {
         if (candidate.provider === 'a') throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [attempt('a', 'error')], originalFailure: new LlmRequestError({ kind: 'rate_limit', provider: 'a', status: 429, message: 'temporary', retryAfterMs: 60_000 }) });
         return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [attempt('b', 'ok')] };
@@ -93,12 +97,14 @@ describe('InvocationService provider exchange accumulation', () => {
         return {} as never;
       },
     };
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-test-'));
     const service = new InvocationService({
       providerExchangeMutations,
-      projectRoot: mkdtempSync(join(tmpdir(), 'saivage-invoke-test-')),
+      projectRoot,
       saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-state-')),
       registry: {} as never,
       router: { resolve: async () => candidates, getLastCapabilitySkips: () => [] } as never,
+      authProfiles: createTestAuthProfileRepository(projectRoot).repository,
       llmCallFn: async () => ({
         result: { kind: 'message', content: 'ok' },
         provider_exchanges: [attempt('a', 'error'), attempt('b', 'error'), attempt('c', 'ok')],
@@ -121,11 +127,12 @@ describe('InvocationService provider exchange accumulation', () => {
         saivageDir,
         registry: {} as never,
         router: { resolve: async () => [candidates[0]!], getLastCapabilitySkips: () => [] } as never,
+        authProfiles: createTestAuthProfileRepository(projectRoot).repository,
         llmCallFn: async () => {
           throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [], originalFailure: new Error('missing envelope') });
         },
       });
-      const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider: createInvocationServiceProvider(service) });
+      const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), mutationAuthority: () => testCompositionAuthority(projectRoot), agentId: 'planner:project', provider: createInvocationServiceProvider(service) });
       actor.start();
 
       await expect(actor.turn({

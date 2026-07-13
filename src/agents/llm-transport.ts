@@ -5,9 +5,9 @@ import { localSetupFailure } from '../contracts/llm-failure.js';
 import {
   type AuthProfile,
   isProfileExpired,
-  loadAuthProfiles,
-  saveAuthProfile,
 } from '../auth/index.js';
+import { authProfileRevision, type AuthProfileRepository } from '../auth/auth-profile-store.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -19,7 +19,8 @@ export interface LlmTransportConfig {
 }
 
 export async function resolveLlmTransportConfig(
-  projectRoot: string,
+  authProfiles: AuthProfileRepository,
+  mutationAuthority: MutationAuthority,
   registry: ProviderRegistry,
   candidate: Candidate,
 ): Promise<LlmTransportConfig> {
@@ -45,9 +46,9 @@ export async function resolveLlmTransportConfig(
   }
 
   const resolver = new CredentialSourceResolver({
-    loadAuthProfiles: () => loadAuthProfiles(projectRoot),
+    loadAuthProfiles: async () => authProfiles.load(),
     usableProfileAccessToken: (profileName, profile) =>
-      usableProfileAccessToken(projectRoot, profileName, profile),
+      usableProfileAccessToken(authProfiles, mutationAuthority, profileName, profile),
   });
   const resolved = await resolver.resolve(provider, account);
 
@@ -70,27 +71,30 @@ export function transportAuthProfileDependency(registry: ProviderRegistry, candi
 }
 
 async function usableProfileAccessToken(
-  projectRoot: string,
+  authProfiles: AuthProfileRepository,
+  mutationAuthority: MutationAuthority,
   profileName: string,
   profile: AuthProfile,
 ): Promise<string | undefined> {
   if (profile.provider === 'openai-codex' && isProfileExpired(profile) && profile.refreshToken) {
-    const refreshed = await refreshOpenAICodexProfile(projectRoot, profileName, profile);
+    const refreshed = await refreshOpenAICodexProfile(authProfiles, mutationAuthority, profileName, profile);
     return refreshed?.accessToken ?? profile.accessToken;
   }
   if (profile.provider === 'github-copilot' && isProfileExpired(profile) && profile.refreshToken) {
-    const refreshed = await refreshGitHubCopilotProfile(projectRoot, profileName, profile);
+    const refreshed = await refreshGitHubCopilotProfile(authProfiles, mutationAuthority, profileName, profile);
     return refreshed?.accessToken ?? profile.accessToken;
   }
   return profile.accessToken;
 }
 
 async function refreshOpenAICodexProfile(
-  projectRoot: string,
+  authProfiles: AuthProfileRepository,
+  mutationAuthority: MutationAuthority,
   profileName: string,
   profile: AuthProfile,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
+  let refreshed: AuthProfile;
   try {
     const response = await fetch(OPENAI_CODEX_TOKEN_URL, {
       method: 'POST',
@@ -108,7 +112,7 @@ async function refreshOpenAICodexProfile(
     if (!response.ok) return null;
     const data = await response.json().catch(() => null);
     if (typeof data?.access_token !== 'string') return null;
-    const refreshed: AuthProfile = {
+    refreshed = {
       ...profile,
       accessToken: data.access_token,
       refreshToken: typeof data.refresh_token === 'string'
@@ -118,19 +122,21 @@ async function refreshOpenAICodexProfile(
         ? Date.now() + data.expires_in * 1000
         : profile.expiresAt,
     };
-    await saveAuthProfile(projectRoot, profileName, refreshed);
-    return refreshed;
   } catch {
     return null;
   }
+  authProfiles.replaceProfile(mutationAuthority, profileName, authProfileRevision(profile), refreshed);
+  return refreshed;
 }
 
 async function refreshGitHubCopilotProfile(
-  projectRoot: string,
+  authProfiles: AuthProfileRepository,
+  mutationAuthority: MutationAuthority,
   profileName: string,
   profile: AuthProfile,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
+  let refreshed: AuthProfile;
   try {
     const response = await fetch('https://api.github.com/copilot_internal/v2/token', {
       headers: {
@@ -146,16 +152,16 @@ async function refreshGitHubCopilotProfile(
     if (!response.ok) return null;
     const data = await response.json().catch(() => null);
     if (typeof data?.token !== 'string') return null;
-    const refreshed: AuthProfile = {
+    refreshed = {
       ...profile,
       accessToken: data.token,
       expiresAt: typeof data.expires_at === 'number'
         ? data.expires_at * 1000 - 5 * 60 * 1000
         : profile.expiresAt,
     };
-    await saveAuthProfile(projectRoot, profileName, refreshed);
-    return refreshed;
   } catch {
     return null;
   }
+  authProfiles.replaceProfile(mutationAuthority, profileName, authProfileRevision(profile), refreshed);
+  return refreshed;
 }

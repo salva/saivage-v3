@@ -27,7 +27,7 @@ describe('server availability contract', () => {
   let originalToken: string | undefined;
 
   async function createTestServer(root: string) {
-    return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), compositionAuthority: testCompositionAuthority(root), restartPort: createTestRestartPort() });
+    return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root), restartPort: createTestRestartPort() });
   }
 
   beforeEach(() => {

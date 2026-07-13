@@ -17,6 +17,7 @@ import { ProviderRegistry } from '../../src/agents/provider.js';
 import { MemoryCandidateAvailability, type AvailabilityDecision } from '../../src/agents/candidate-availability.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
+import { testAuthProfiles, testCompositionAuthority } from '../helpers/canonical-project.js';
 
 function blockedDecision(ms = 60000): AvailabilityDecision {
   return { state: 'COOLING', untilMs: Date.now() + ms, reason: 'test' };
@@ -439,7 +440,7 @@ describe('ModelRouter', () => {
         const router = new ModelRouter(cfg, registry);
 
         const candidate = (await router.resolve('planner'))[0];
-        await expect(resolveLlmTransportConfig(root, registry, candidate))
+        await expect(resolveLlmTransportConfig(testAuthProfiles(root), testCompositionAuthority(root), registry, candidate))
           .rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'missing_auth_profile' } });
       });
 

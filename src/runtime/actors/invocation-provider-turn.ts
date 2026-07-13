@@ -4,6 +4,7 @@ import type { AgentMessage } from '../../schemas/index.js';
 import type { InvocationRequest } from '../../agents/invocation-service.js';
 import type { ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import { activeConversationReplayForInvocation, genericContextMessagesForInvocation, type LlmInvocationInput, type ProviderTurnPort } from './llm-invocation.js';
+import type { MutationAuthority } from '../../application/mutation-authority.js';
 
 export interface InvocationTurnService {
   invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion>;
@@ -14,9 +15,10 @@ const agentMessageArraySchema = z.array(agentMessageSchema);
 export class InvocationProviderTurnPort implements ProviderTurnPort {
   constructor(private readonly invocationService: InvocationTurnService) {}
 
-  async completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
+  async completeTurn(input: LlmInvocationInput, signal: AbortSignal, mutationAuthority: MutationAuthority): Promise<ProviderTurnCompletion> {
     return this.invocationService.invokeWithRecovery({
       inputId: input.inputId,
+      mutationAuthority,
       role: input.role,
       sessionId: input.sessionId,
       systemPrompt: input.systemPrompt,

@@ -192,7 +192,7 @@ export class AnalystSessionActor extends BaseActor {
   constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
     super();
     this.processScope = args.runtimeDeps.processRunner.createDirectScope(args.runtimeDeps.analystProcessRootScope, `analyst-session:${args.sessionId}`, 'operator_session');
-    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
+    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, mutationAuthority: () => this.mutationAuthority(), conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
   }
 
   override start(): void {
@@ -467,6 +467,11 @@ export class AnalystSessionActor extends BaseActor {
     const onActivity = this.pendingTurn?.onActivity;
     if (!onActivity) return;
     try { onActivity(activity); } catch (err) { this.logBoundaryDiagnostic('analyst_activity_callback_failed', err); }
+  }
+
+  private mutationAuthority(): AnalystTurnAuthority {
+    if (this.turnAuthority === null) throw new Error('Analyst turn authority is not current.');
+    return this.turnAuthority;
   }
 
   private logBoundaryDiagnostic(phase: string, err: unknown): void {

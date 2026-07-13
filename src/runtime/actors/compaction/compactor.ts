@@ -13,6 +13,7 @@ import { dropRecoverableResultBodies, recoverableEvidenceDescriptors, type Recov
 import { appendSummaryCacheEntry, contentHashForMessages, readSummaryCache, renderRecoverableEvidenceSection, type SummaryCacheEntry } from './summary-cache.js';
 import { summarizeMerge, summarizeRound, type SummarizerProviderPort } from './summarizer.js';
 import { buildResponsesReplayProjection } from '../../../agents/llm-openai-responses-mapper.js';
+import type { MutationAuthority } from '../../../application/mutation-authority.js';
 
 export type CompactionConfig = {
   enabled: boolean;
@@ -45,6 +46,7 @@ export async function compact(args: {
   conversations: ConversationMutationPort;
   sessionId: string;
   input: LlmInvocationInput;
+  mutationAuthority: MutationAuthority;
   config: CompactionConfig;
   summarizerProvider: SummarizerProviderPort;
   bufferSizeEstimator: BufferSizeEstimator;
@@ -97,6 +99,7 @@ async function buildCompactedRows(args: {
   projectRoot: string;
   sessionId: string;
   input: LlmInvocationInput;
+  mutationAuthority: MutationAuthority;
   config: CompactionConfig;
   summarizerProvider: SummarizerProviderPort;
   bufferSizeEstimator: BufferSizeEstimator;
@@ -131,7 +134,7 @@ async function buildCompactedRows(args: {
   const mergedRows: AgentMessage[] = [];
   if (mergeEntries.length > 0) {
     const uniqueMergeEntries = uniqueEntries(mergeEntries);
-    const summaryText = await summarizeMerge({ entries: uniqueMergeEntries, summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model as string, signal: args.signal });
+    const summaryText = await summarizeMerge({ entries: uniqueMergeEntries, summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model as string, signal: args.signal, mutationAuthority: args.mutationAuthority });
     mergedRows.push(summaryMessage(args.sessionId, args.generation, 'merged', summaryText, uniqueMergeEntries.flatMap((entry) => entry.recoverable_evidence) as RecoverableEvidenceDescriptor[]));
     mergeEntries.length = 0;
     mergeEntries.push(...uniqueMergeEntries);
@@ -146,7 +149,7 @@ async function buildCompactedRows(args: {
   return { rows, summaryIds, bands: { merge_line: args.mergeLine, summary_line: args.summaryLine, trigger: args.config.trigger_fraction, snap: args.snap } };
 }
 
-async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: string; config: CompactionConfig; summarizerProvider: SummarizerProviderPort; signal: AbortSignal }, round: ClassifiedRound, cache: Map<string, SummaryCacheEntry>): Promise<SummaryCacheEntry> {
+async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: string; config: CompactionConfig; summarizerProvider: SummarizerProviderPort; signal: AbortSignal; mutationAuthority: MutationAuthority }, round: ClassifiedRound, cache: Map<string, SummaryCacheEntry>): Promise<SummaryCacheEntry> {
   const rows = conversationMessagesForModel(round.rows.map((row) => row.message));
   const hash = contentHashForMessages(rows);
   const cacheKey = `${round.round_id}:${hash}`;
@@ -154,7 +157,7 @@ async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: s
   if (existing) return existing;
   const evidence = recoverableEvidenceDescriptors(rows);
   const dropped = dropRecoverableResultBodies(rows);
-  const summaryText = await summarizeRound({ round_id: round.round_id, rows: dropped, summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model as string, signal: args.signal });
+  const summaryText = await summarizeRound({ round_id: round.round_id, rows: dropped, summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model as string, signal: args.signal, mutationAuthority: args.mutationAuthority });
   args.signal.throwIfAborted();
   const entry = appendSummaryCacheEntry(args.projectRoot, args.sessionId, {
     cache_key: cacheKey,

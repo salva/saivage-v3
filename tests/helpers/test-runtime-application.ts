@@ -1,4 +1,4 @@
-import { CardStore, testCardRepository, testConfigAuthority } from './canonical-project.js';
+import { CardStore, testAuthProfiles, testCardRepository, testConfigAuthority } from './canonical-project.js';
 import { testActorSnapshots } from './actor-snapshots.js';
 import { EventBus } from '../../src/events/bus.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -117,6 +117,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     registry,
     router: new ModelRouter(config, registry),
     candidateAvailability: availability,
+    authProfiles: testAuthProfiles(projectRoot),
   });
   return {
     configAuthority: testConfigAuthority(projectRoot),
@@ -167,6 +168,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         registry,
         router: new ModelRouter(config, registry),
         candidateAvailability: availability,
+        authProfiles: testAuthProfiles(projectRoot),
       });
       return {
         configAuthority: testConfigAuthority(projectRoot),
