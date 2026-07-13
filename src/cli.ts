@@ -77,7 +77,7 @@ function removeLockEntriesExceptHeldRuntime(projectRoot: string): void {
 }
 async function handleReset(): Promise<void> {
   const projectRoot = process.cwd();
-  acquireLock(projectRoot);
+  const lifecycleLock = acquireLock(projectRoot);
   try {
     const generatedRoots = ['cards', 'agents', 'state', 'logs', 'work', 'stages'].map((name) => join(projectRoot, '.saivage', name));
     const obsoleteRoots = ['runtime', 'tmp', 'archive', 'supervision', 'notes', 'outputs', 'views'].map((name) => join(projectRoot, '.saivage', name));
@@ -91,7 +91,7 @@ async function handleReset(): Promise<void> {
     initProjectTree(projectRoot);
     console.log('Project reset and reinitialized with an empty current layout and root project card. Durable credentials, config, prompt overrides, skills, instructions, and source/docs were preserved.');
   } finally {
-    releaseLock(projectRoot);
+    releaseLock(lifecycleLock);
   }
 }
 function handleHelp(): void { console.log(USAGE); }

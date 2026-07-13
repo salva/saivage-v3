@@ -8,6 +8,7 @@ import {
   mkdirSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { constants } from 'node:fs';
 import { runtimeProcessLockFile } from '../persistence/layout.js';
 
@@ -22,6 +23,21 @@ export interface LockConfig {
   /** Lock file path (overridable for testing) */
   lockFilePath?: string;
 }
+
+declare const runtimeLifecycleLockHandleBrand: unique symbol;
+
+/** Opaque proof of one live runtime-lock acquisition. */
+export interface RuntimeLifecycleLockHandle {
+  readonly [runtimeLifecycleLockHandleBrand]: never;
+}
+
+interface RuntimeLifecycleLockOwnership {
+  active: boolean;
+  canonicalProjectRoot: string;
+  lockFilePath: string;
+}
+
+const runtimeLifecycleLockOwnership = new WeakMap<object, RuntimeLifecycleLockOwnership>();
 
 type LockState =
   | { kind: 'missing' }
@@ -113,10 +129,10 @@ function unlinkIfPresent(path: string): void {
  *
  * @param projectRoot - Absolute path to the project root directory.
  * @param config - Optional lock configuration.
- * @returns The LockPayload written to the lock file.
+ * @returns Opaque live ownership proof bound to this canonical project root.
  * @throws If the lock is held by a live process and cannot be acquired.
  */
-export function acquireLock(projectRoot: string, config?: LockConfig): LockPayload {
+export function acquireLock(projectRoot: string, config?: LockConfig): RuntimeLifecycleLockHandle {
   const lp = lockPath(projectRoot, config);
 
   // Ensure parent directory exists before attempting O_EXCL
@@ -131,7 +147,13 @@ export function acquireLock(projectRoot: string, config?: LockConfig): LockPaylo
     const fd = openSync(lp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
     writeSync(fd, JSON.stringify(payload, null, 2) + '\n');
     closeSync(fd);
-    return payload;
+    const handle = {} as RuntimeLifecycleLockHandle;
+    runtimeLifecycleLockOwnership.set(handle, {
+      active: true,
+      canonicalProjectRoot: realpathSync(projectRoot),
+      lockFilePath: lp,
+    });
+    return handle;
   } catch (err: unknown) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code !== 'EEXIST') {
@@ -163,15 +185,34 @@ export function acquireLock(projectRoot: string, config?: LockConfig): LockPaylo
 /**
  * Release the runtime lock by deleting the lock file.
  *
- * @param projectRoot - Absolute path to the project root directory.
- * @param config - Optional lock configuration.
+ * Releasing invalidates the handle even when the lock file is already absent.
  */
-export function releaseLock(projectRoot: string, config?: LockConfig): void {
-  const lp = lockPath(projectRoot, config);
+export function releaseLock(handle: RuntimeLifecycleLockHandle): void {
+  const ownership = runtimeLifecycleLockOwnership.get(handle);
+  if (!ownership?.active) throw new Error('Runtime lifecycle lock handle is foreign or already released.');
+  const lp = ownership.lockFilePath;
   // Gracefully handle missing parent directory
-  if (!existsSync(dirname(lp))) return;
+  if (!existsSync(dirname(lp))) {
+    ownership.active = false;
+    return;
+  }
   if (existsSync(lp)) {
     unlinkSync(lp);
+  }
+  ownership.active = false;
+}
+
+export function assertRuntimeLifecycleLock(
+  handle: RuntimeLifecycleLockHandle,
+  projectRoot: string,
+): void {
+  const ownership = runtimeLifecycleLockOwnership.get(handle);
+  if (!ownership?.active) throw new Error('A live runtime lifecycle lock handle is required.');
+  const canonicalProjectRoot = realpathSync(projectRoot);
+  if (ownership.canonicalProjectRoot !== canonicalProjectRoot) {
+    throw new Error(
+      `Runtime lifecycle lock belongs to '${ownership.canonicalProjectRoot}', not '${canonicalProjectRoot}'.`,
+    );
   }
 }
 

@@ -126,13 +126,13 @@ describe('saivage reset', () => {
     const marker = join(root, '.saivage', 'state', 'runtime.json');
     try {
       initProjectTree(root);
-      acquireLock(root);
+      const handle = acquireLock(root);
       process.chdir(root);
       await expect(run(['node', 'cli', 'reset'])).rejects.toThrow(/lock/i);
       expect(existsSync(marker)).toBe(true);
       expect(existsSync(join(root, '.saivage', 'cards', 'project'))).toBe(true);
+      releaseLock(handle);
     } finally {
-      releaseLock(root);
       process.chdir(cwd);
       rmSync(root, { recursive: true, force: true });
     }
@@ -156,7 +156,7 @@ describe('saivage reset', () => {
       expect(existsSync(join(root, '.saivage', 'cards', 'project'))).toBe(true);
       expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual({ pid: process.pid, started_at: oldStartedAt });
     } finally {
-      releaseLock(root);
+      if (existsSync(lockPath)) rmSync(lockPath, { force: true });
       process.chdir(cwd);
       rmSync(root, { recursive: true, force: true });
     }

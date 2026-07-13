@@ -43,8 +43,8 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   const env = options.env ?? process.env;
   const prelock = prelockStartupInputs(options.argv, env);
   const scope = createResourceScope('app');
-  acquireLock(prelock.projectRoot);
-  scope.add({ dispose: () => releaseLock(prelock.projectRoot) }, { name: 'runtime-process-lock' });
+  const lifecycleLock = acquireLock(prelock.projectRoot);
+  scope.add({ dispose: () => releaseLock(lifecycleLock) }, { name: 'runtime-process-lock' });
   let environment: Environment;
   let server: ServerInstance;
   const restartPort = createRestartPort({ dispose: async () => { await scope.dispose(); }, exit: (code) => process.exit(code) });

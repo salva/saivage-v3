@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach, afterEach } from '@jest/globals';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { acquireLock, isLocked, readLiveLockHolder, releaseLock, removeStaleLock } from '../../src/runtime/lock.js';
+import { acquireLock, assertRuntimeLifecycleLock, isLocked, readLiveLockHolder, releaseLock, removeStaleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 
 const deadPid = 99999999;
 const oldDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -10,6 +10,7 @@ const validIso = '2026-01-01T00:00:00.000Z';
 
 describe('runtime lock', () => {
   let projectRoot: string;
+  let handle: RuntimeLifecycleLockHandle | undefined;
 
   beforeEach(() => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-lock-'));
@@ -17,32 +18,43 @@ describe('runtime lock', () => {
   });
 
   afterEach(() => {
-    try {
-      releaseLock(projectRoot);
-    } catch {
-      // ignore cleanup races in tests
-    }
+    if (handle) try { releaseLock(handle); } catch { /* already released */ }
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
   it('prevents a second live runtime from acquiring the same lock', () => {
-    const payload = acquireLock(projectRoot);
+    handle = acquireLock(projectRoot);
 
-    expect(payload.pid).toBe(process.pid);
+    expect(() => assertRuntimeLifecycleLock(handle!, projectRoot)).not.toThrow();
     expect(isLocked(projectRoot)).toBe(true);
     expect(() => acquireLock(projectRoot)).toThrow(/Cannot acquire lock/);
 
-    releaseLock(projectRoot);
+    releaseLock(handle);
+    expect(() => assertRuntimeLifecycleLock(handle!, projectRoot)).toThrow(/live runtime lifecycle lock/);
     expect(isLocked(projectRoot)).toBe(false);
-    expect(acquireLock(projectRoot).pid).toBe(process.pid);
+    handle = acquireLock(projectRoot);
+  });
+
+  it('rejects foreign, wrong-root, and released ownership handles', () => {
+    const otherRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-lock-other-'));
+    try {
+      handle = acquireLock(projectRoot);
+      expect(() => assertRuntimeLifecycleLock({} as RuntimeLifecycleLockHandle, projectRoot)).toThrow(/live runtime lifecycle lock/);
+      expect(() => assertRuntimeLifecycleLock(handle!, otherRoot)).toThrow(/belongs to/);
+      releaseLock(handle);
+      expect(() => assertRuntimeLifecycleLock(handle!, projectRoot)).toThrow(/live runtime lifecycle lock/);
+      expect(() => releaseLock(handle!)).toThrow(/already released/);
+    } finally {
+      rmSync(otherRoot, { recursive: true, force: true });
+    }
   });
 
   it('removes dead-PID locks but refuses old valid locks held by live PIDs', () => {
     const lockPath = join(projectRoot, '.saivage', 'locks', 'runtime.lock');
     writeFileSync(lockPath, JSON.stringify({ pid: deadPid, started_at: new Date().toISOString() }), 'utf-8');
 
-    expect(() => acquireLock(projectRoot)).not.toThrow();
-    releaseLock(projectRoot);
+    handle = acquireLock(projectRoot);
+    releaseLock(handle);
 
     writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: oldDate }), 'utf-8');
 
@@ -59,7 +71,7 @@ describe('runtime lock', () => {
     removeStaleLock(projectRoot);
     expect(existsSync(lockPath)).toBe(true);
 
-    releaseLock(projectRoot);
+    unlinkSync(lockPath);
     writeFileSync(lockPath, JSON.stringify({ pid: deadPid, started_at: new Date().toISOString() }), 'utf-8');
 
     removeStaleLock(projectRoot);
@@ -85,9 +97,9 @@ describe('runtime lock', () => {
       expect(existsSync(lockPath)).toBe(false);
 
       writeFileSync(lockPath, payload, 'utf-8');
-      expect(acquireLock(projectRoot).pid).toBe(process.pid);
+      handle = acquireLock(projectRoot);
       expect(isLocked(projectRoot)).toBe(true);
-      releaseLock(projectRoot);
+      releaseLock(handle);
     }
   });
 
