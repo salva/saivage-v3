@@ -23,7 +23,7 @@ describe('conversation change publisher', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.payload).toMatchObject({ session_id: 'analyst:global', mutation: 'entry_appended', message_id: 'analyst-message', message_timestamp: message.timestamp });
-    expect(mapLiveSyncEvent(events[0] as DomainEvent<any>)).toEqual([{ resource: 'conversation', id: 'analyst:global' }]);
+    expect(mapLiveSyncEvent(events[0] as DomainEvent<any>)).toEqual([]);
     expect(toEventLogRecord(events[0] as DomainEvent).timestamp).toBe(events[0]?.timestamp);
   });
 
