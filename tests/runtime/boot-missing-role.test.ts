@@ -7,6 +7,7 @@ import { EnvironmentLoadError, loadEnvironment } from '../../src/config/environm
 import { startApp, type App } from '../../src/boot/index.js';
 
 import { writeSaivageConfig } from '../helpers/project-config.js';
+import { createTestMutationComposition } from '../helpers/mutation-composition.js';
 
 const roots: string[] = [];
 const liveApps: App[] = [];
@@ -38,7 +39,7 @@ describe('boot fail-fast on missing dispatched model roles', () => {
   it('loadEnvironment throws EnvironmentLoadError naming every missing role', async () => {
     const root = makeProject({});
     let thrown: unknown;
-    try { await loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root }); }
+    try { await loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root }, createTestMutationComposition()); }
     catch (err) { thrown = err; }
     expect(thrown).toBeInstanceOf(EnvironmentLoadError);
     const error = thrown as EnvironmentLoadError;

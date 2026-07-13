@@ -156,8 +156,8 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
   deps.emitAnalystToolInvoked({ sessionId, tool, success: result.success, ...payload });
 }
 
-function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardStore; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
-  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
+function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardStore; mutationAuthority: () => AnalystTurnAuthority; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
+  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, mutationAuthority: args.mutationAuthority, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
 }
 
 type PendingAnalystTurn = {
@@ -290,11 +290,12 @@ export class AnalystSessionActor extends BaseActor {
       this.pendingRestartConfirmation = false;
       if (input.userContent === 'RESTART SERVER') return this.scheduleConfirmedRestart(input);
     }
-    const store = this.args.runtimeDeps.cardStore.authorize(() => {
+    const mutationAuthority = (): AnalystTurnAuthority => {
       if (this.turnAuthority === null) throw new Error('Analyst turn authority is not current.');
       return this.turnAuthority;
-    });
-    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
+    };
+    const store = this.args.runtimeDeps.cardStore.authorize(mutationAuthority);
+    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store, mutationAuthority, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
     const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
     const previousToolCallFingerprints = new Set<string>();
     let noProgressDirectiveSent = false;
@@ -592,7 +593,7 @@ export class AnalystRuntime {
     const processScope = this.args.runtimeDeps.processRunner.createDirectScope(this.args.runtimeDeps.analystProcessRootScope, 'analyst-tool-catalog', 'operator_session');
     try {
       const catalogStore = this.args.runtimeDeps.cardStore.authorize(() => { throw new Error('Tool catalog has no mutation authority.'); });
-      const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store: catalogStore, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
+      const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store: catalogStore, mutationAuthority: () => { throw new Error('Tool catalog has no mutation authority.'); }, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
       return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
     } finally {
       this.args.runtimeDeps.processRunner.closeScope(processScope);

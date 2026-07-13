@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testCompositionAuthority, testConfigAuthority, testProjectAuthority } from './helpers/canonical-project.js';
+import { initProjectTree, CardStore, testCompositionAuthority, testConfigAuthority, testMutationComposition, testProjectAuthority } from './helpers/canonical-project.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
@@ -116,12 +116,12 @@ function setupTestProject(projectRoot: string): CardStore {
 
 function ctx(projectRoot: string, store: CardStore): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
 }
 
 function testToolContext(projectRoot: string, store: CardStore): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-runtime', 'operator_session'), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-runtime', 'operator_session'), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false };
 }
 
 describe('Analyst Tool Definitions', () => {
@@ -515,7 +515,7 @@ describe('API Chat and WebSocket Integration', () => {
     setupTestProject(projectRoot);
     authToken = process.env['SAIVAGE_API_TOKEN'] || 'test-token';
     process.env['SAIVAGE_API_TOKEN'] = authToken;
-    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env), authority: testProjectAuthority(projectRoot), compositionAuthority: testCompositionAuthority(projectRoot), restartPort: createTestRestartPort() });
+    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env, testMutationComposition(projectRoot)), authority: testProjectAuthority(projectRoot), compositionAuthority: testCompositionAuthority(projectRoot), restartPort: createTestRestartPort() });
     await server.fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (server.fastify.server.address() as { port: number }).port;
     const ticketResponse = await fetch(`http://127.0.0.1:${port}/api/auth/ws-ticket`, { method: 'POST', headers: { authorization: `Bearer ${authToken}` } });

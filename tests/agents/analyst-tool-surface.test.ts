@@ -120,7 +120,7 @@ function setCardStatusForTest(store: CardStore, cardId: string, status: CardStat
 
 function toolCtx(root: string, store: CardStore, overrides: Partial<ToolContext> = {}): ToolContext {
   const processRunner = overrides.processRunner ?? createTestProcessRunner(root);
-  return { projectRoot: root, configAuthority: overrides.configAuthority ?? testConfigAuthority(root), processRunner, processScope: overrides.processScope ?? processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, ...overrides };
+  return { projectRoot: root, configAuthority: overrides.configAuthority ?? testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: overrides.processScope ?? processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, ...overrides };
 }
 
 function toolResponse(tool: string, args: Record<string, unknown>): Response {
@@ -383,8 +383,8 @@ describe('Contract C2 partial-success reporting', () => {
   });
 });
 
-describe('Reconfigure MCP live manager refresh', () => {
-  it('adds, edits, and removes MCP servers in active manager state', async () => {
+describe('pre-quiescent-Pause MCP configuration', () => {
+  it('rejects Analyst desired-config mutation without touching config or manager state', async () => {
       const root = setupRoot();
       try {
         const config = loadTestConfig(root);
@@ -400,18 +400,9 @@ describe('Reconfigure MCP live manager refresh', () => {
 
       const added = await reconfigure(ctx, { action: 'mcp_add', name: 'test-server', command: '/bin/true', args: [] });
       expect(added.success).toBe(false);
-      expect(added.data).toMatchObject({ persisted: true, reconciled: false, retry_action: 'mcp_reconcile' });
-      expect(mcpManager.getStatus().some((status) => status.name === 'test-server')).toBe(true);
-
-      const edited = await reconfigure(ctx, { action: 'mcp_edit', name: 'test-server', command: '/bin/true', args: [] });
-      expect(edited.success).toBe(false);
-      expect(edited.data).toMatchObject({ persisted: true, reconciled: false, retry_action: 'mcp_reconcile' });
+      expect(added.data).toMatchObject({ persisted: false, reconciled: false });
       const onDisk = YAML.parse(readFileSync(join(root, '.saivage', 'saivage.yaml'), 'utf-8')) as { mcpServers: Record<string, { command: string }> };
-      expect(onDisk.mcpServers['test-server'].command).toBe('/bin/true');
-      expect(mcpManager.getStatus().find((status) => status.name === 'test-server')).toBeDefined();
-
-      const removed = await reconfigure(ctx, { action: 'mcp_remove', name: 'test-server' });
-      expect(removed.success).toBe(true);
+      expect(onDisk.mcpServers?.['test-server']).toBeUndefined();
       expect(mcpManager.getStatus().some((status) => status.name === 'test-server')).toBe(false);
       await mcpManager.dispose();
       await runtimeApplication.runtimeApi.shutdown().catch(() => undefined);

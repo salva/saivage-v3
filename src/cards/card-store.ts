@@ -330,6 +330,7 @@ export class CardStore {
   get projectRoot(): string { return this.repository.projectRoot; }
   get maxDepth(): number { return this.repository.maxDepth; }
   get recordReader(): ProjectCardRecordReader { return this.repository.recordReader; }
+  currentMutationAuthority(): MutationAuthority { return this.authority(); }
   setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void { this.repository.setNotifyCard(notifyCard); }
   readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest'): RecordProjection { return this.repository.readRecord(cardId, filename, version); }
   openRecord(cardId: string, filename: string): RecordProjection { return this.repository.openRecord(this.authority(), cardId, filename); }

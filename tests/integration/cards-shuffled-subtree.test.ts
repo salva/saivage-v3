@@ -31,7 +31,7 @@ describe('canonical persisted subtree ordering', () => {
     store = new CardStore(root);
     expect(store.listChildren(parent.id)).toEqual(expected);
     const processRunner = createTestProcessRunner(root);
-    const context = { projectRoot: root, configAuthority: testConfigAuthority(root), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst' as const, surface: 'web-chat' as const, restartServerAvailable: false };
+    const context = { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst' as const, surface: 'web-chat' as const, restartServerAvailable: false };
     const detail = await get_card(context, { id: parent.id });
     const tree = await get_tree(context, { rootId: parent.id });
     expect(detail.success).toBe(true);

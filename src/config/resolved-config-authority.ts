@@ -6,6 +6,8 @@ import { saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../persistence/durable-file-replacement.js';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { validateModelRoles } from './validate-model-roles.js';
+import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
+import type { MutationLane } from '../application/mutation-lane.js';
 
 export type ConfigSelectionSource =
   | { readonly kind: 'cli'; readonly argument: '--config' }
@@ -34,8 +36,9 @@ export interface ResolvedConfigAuthority {
   readDocument(): ConfigDocument;
   validateDocument(document: ConfigDocument): { config: SaivageConfig; warnings: readonly string[] };
   loadEffective(): { config: SaivageConfig; warnings: readonly string[] };
-  initializeCanonicalDefaultIfMissing(): Promise<void>;
-  mutate(mutation: ConfigMutation): Promise<ConfigMutationResult>;
+  restabilize(authority: CompositionMutationAuthority): void;
+  initializeCanonicalDefaultIfMissing(authority: CompositionMutationAuthority): void;
+  mutate(authority: MutationAuthority, mutation: ConfigMutation): ConfigMutationResult;
 }
 
 const RUNTIME_KEYS = new Set(['continuous_improvement', 'max_review_retries', 'process_timeouts']);
@@ -70,9 +73,8 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
   readonly path: string;
   readonly source: ConfigSelectionSource;
   readonly #interpolationEnvironment: EnvironmentSource;
-  #writeQueue: Promise<void> = Promise.resolve();
 
-  constructor(path: string, source: ConfigSelectionSource, interpolationEnvironment: EnvironmentSource) {
+  constructor(path: string, source: ConfigSelectionSource, interpolationEnvironment: EnvironmentSource, private readonly lane: MutationLane) {
     this.path = path;
     this.source = Object.freeze(source);
     this.#interpolationEnvironment = Object.freeze({ ...interpolationEnvironment });
@@ -80,7 +82,6 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
   }
 
   readDocument(): ConfigDocument {
-    this.cleanupInterruptedReplacement();
     if (!existsSync(this.path)) throw new Error(`Configuration not found at ${this.path}`);
     const document = YAML.parseDocument(readFileSync(this.path, 'utf8')) as ConfigDocument;
     if (document.errors.length > 0) throw new Error(`Failed to parse configuration at ${this.path}: ${document.errors[0]!.message}`);
@@ -111,17 +112,25 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
     return this.validateDocument(this.readDocument());
   }
 
-  initializeCanonicalDefaultIfMissing(): Promise<void> {
-    return this.enqueue(async () => {
-      if (existsSync(this.path)) return;
-      mkdirSync(dirname(this.path), { recursive: true });
-      this.cleanupInterruptedReplacement();
-      durablyReplaceFile(this.path, Buffer.from(CANONICAL_DEFAULT));
+  restabilize(authority: CompositionMutationAuthority): void {
+    const result = this.lane.apply(authority, 'configuration restabilization', () => {
+      const directory = dirname(this.path);
+      if (existsSync(directory)) cleanupDurableReplacementTemporaries(directory, [basename(this.path)]);
     });
+    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
   }
 
-  mutate(mutation: ConfigMutation): Promise<ConfigMutationResult> {
-    return this.enqueue(async () => {
+  initializeCanonicalDefaultIfMissing(authority: CompositionMutationAuthority): void {
+    const result = this.lane.apply(authority, 'configuration initialization', () => {
+      if (existsSync(this.path)) return;
+      mkdirSync(dirname(this.path), { recursive: true });
+      durablyReplaceFile(this.path, Buffer.from(CANONICAL_DEFAULT));
+    });
+    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  }
+
+  mutate(authority: MutationAuthority, mutation: ConfigMutation): ConfigMutationResult {
+    const result = this.lane.apply(authority, 'configuration mutation', () => {
       try {
         const document = this.readDocument();
         const raw = documentObject(document);
@@ -130,27 +139,18 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
         const effective = this.validateDocument(document);
         durablyReplaceFile(this.path, Buffer.from(document.toString()));
         return {
-          success: true,
+          success: true as const,
           config: effective.config,
           warnings: effective.warnings,
           ...(mutation.kind === 'set_server_setting' ? { requires_restart: true } : {}),
         };
       } catch (error) {
         const failure = error as Error & { fieldPath?: string };
-        return { success: false, fieldPath: failure.fieldPath ?? '/', message: failure.message };
+        return { success: false as const, fieldPath: failure.fieldPath ?? '/', message: failure.message };
       }
     });
-  }
-
-  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.#writeQueue.then(operation);
-    this.#writeQueue = result.then(() => undefined, () => undefined);
-    return result;
-  }
-
-  private cleanupInterruptedReplacement(): void {
-    const directory = dirname(this.path);
-    if (existsSync(directory)) cleanupDurableReplacementTemporaries(directory, [basename(this.path)]);
+    if (!result.applied) throw new Error('Configuration mutation authority is stale.');
+    return result.value;
   }
 
   private applyMutation(document: ConfigDocument, raw: RawConfig, mutation: ConfigMutation): ConfigMutationResult | void {
@@ -200,6 +200,7 @@ export function createResolvedConfigAuthority(input: {
   path: string;
   source: ConfigSelectionSource;
   interpolationEnvironment: EnvironmentSource;
+  lane: MutationLane;
 }): ResolvedConfigAuthority {
-  return new ResolvedConfigAuthorityImpl(input.path, input.source, input.interpolationEnvironment);
+  return new ResolvedConfigAuthorityImpl(input.path, input.source, input.interpolationEnvironment, input.lane);
 }

@@ -16,6 +16,7 @@ import type { Candidate } from '../contracts/provider-candidate.js';
 import { ProviderRegistry, type Provider } from '../agents/provider.js';
 import { LlmProviderGateway } from '../agents/llm-provider-gateway.js';
 import { resolveLlmTransportConfig, transportAuthProfileDependency } from '../agents/llm-transport.js';
+import { createMutationLane } from '../application/mutation-lane.js';
 import { buildLlmOptions } from '../agents/llm-options-factory.js';
 import { createPlannerContract } from '../contracts/planner-contract.js';
 import { createExecutorContract } from '../contracts/executor-contract.js';
@@ -143,7 +144,8 @@ async function probeOne(
 
 async function main(): Promise<number> {
   const projectRoot = process.argv[2] ?? process.cwd();
-  const { config } = await loadEnvironment(['node', 'probe-llm-contract', '--project-root', projectRoot], process.env);
+  const mutation = createMutationLane();
+  const { config } = await loadEnvironment(['node', 'probe-llm-contract', '--project-root', projectRoot], process.env, mutation);
   const registry = new ProviderRegistry(config);
   const providers = registry.getAll();
   let allOk = providers.length > 0;

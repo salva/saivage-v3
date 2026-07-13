@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnvironment } from '../../src/config/environment.js';
+import { createTestMutationComposition } from '../helpers/mutation-composition.js';
 
 const workspaceRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 
@@ -17,6 +18,6 @@ describe('v3 runtime target configs', () => {
     const configPath = resolve(root, '.saivage/saivage.yaml');
     if (!existsSync(configPath)) return;
 
-    await expect(loadEnvironment(['node', 'test', '--project-root', root], process.env)).resolves.toBeDefined();
+    await expect(loadEnvironment(['node', 'test', '--project-root', root], process.env, createTestMutationComposition())).resolves.toBeDefined();
   });
 });

@@ -210,7 +210,7 @@ describe('queueNotification recipient resolution', () => {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
     const deps = createTestAnalystRuntime({ projectRoot, cardStore: store });
-    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), processRunner: deps.processRunner, processScope: deps.processRunner.createDirectScope(deps.processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false };
+    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner: deps.processRunner, processScope: deps.processRunner.createDirectScope(deps.processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false };
 
     const result = await queue_notification(ctx, { recipient: goal.id, kind: 'review_update', body: 'reviewer left actionable feedback' });
 

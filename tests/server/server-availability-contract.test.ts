@@ -1,4 +1,4 @@
-import { initProjectTree, testCompositionAuthority, testProjectAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, testCompositionAuthority, testMutationComposition, testProjectAuthority } from '../helpers/canonical-project.js';
 import { describe, expect, it, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,7 +27,7 @@ describe('server availability contract', () => {
   let originalToken: string | undefined;
 
   async function createTestServer(root: string) {
-    return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root), compositionAuthority: testCompositionAuthority(root), restartPort: createTestRestartPort() });
+    return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), compositionAuthority: testCompositionAuthority(root), restartPort: createTestRestartPort() });
   }
 
   beforeEach(() => {

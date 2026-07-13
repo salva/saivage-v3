@@ -159,7 +159,7 @@ The only user-visible controls permitted outside the Analyst are the minimum con
 
 Once an Analyst-capable profile exists, additional provider/profile/model/configuration management is Analyst-owned.
 
-The configuration projection and every Analyst configuration mutation address the exact file selected when the active server started, including a custom `--config` or `SAIVAGE_CONFIG` path. The UI does not derive `.saivage/saivage.yaml`, choose another file, or expose a write-in-progress retry state; overlapping mutations wait in the backend authority's FIFO queue. No UI shape change is required.
+The configuration projection and every Analyst configuration mutation address the exact file selected when the active server started, including a custom `--config` or `SAIVAGE_CONFIG` path. The UI does not derive `.saivage/saivage.yaml`, choose another file, or expose a write-in-progress retry state; accepted mutations apply synchronously through the shared lane under the current Analyst turn. Analyst MCP desired-config mutation and explicit reconciliation remain unavailable until the final quiescent-Pause lifecycle cutover. No UI shape change is required.
 
 An MCP mutation response distinguishes persisted desired configuration from active runtime convergence. A pending activation is reported as persisted but not reconciled, includes the desired/active/pending reconciliation projection, and names `mcp_reconcile` as the explicit mutation-free retry. The Analyst must retry that action rather than replaying add/edit/remove; Saivage does not roll desired config back. No graphical MCP control panel is added.
 

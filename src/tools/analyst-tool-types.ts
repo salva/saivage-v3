@@ -7,6 +7,7 @@ import type { EventBus } from '../events/index.js';
 import type { ToolResult } from './invocation.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 export type { ToolResult };
 
@@ -19,6 +20,7 @@ export interface SafeToolData {
 export interface ToolContext {
   projectRoot: string;
   configAuthority: ResolvedConfigAuthority;
+  mutationAuthority(): MutationAuthority;
   processRunner: ProcessRunner;
   processScope: ManagedProcessScope;
   store: CardStore;

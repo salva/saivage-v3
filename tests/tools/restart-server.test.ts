@@ -14,7 +14,8 @@ import { createAnalystControlProvider } from '../../src/tools/analyst-control-pr
 
 function context(projectRoot: string, restartServerAvailable: boolean): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(projectRoot), actor: 'analyst', surface: 'web-chat', restartServerAvailable };
+  const store = new CardStore(projectRoot);
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable };
 }
 
 describe('restart_server', () => {

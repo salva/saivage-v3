@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { queueNotification, resolveRecipient } from '../notifications/index.js';
 import { redactAnalystSecretValue } from '../workspace/file-access-security.js';
 import type { ConfigMutation } from '../config/index.js';
-import type { McpReconciliationReport } from '../mcp/mcp-manager.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../agents/session-ids.js';
 import { AgentOperatorReadModelService } from '../application/read-models/index.js';
@@ -59,8 +58,9 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
       default: return invalid('action', 'Unknown reconfigure action.');
     }
     const mcpMutation = params.action === 'mcp_add' || params.action === 'mcp_edit' || params.action === 'mcp_remove';
+    if (mcpMutation) return toolFailure('MCP desired-config mutation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
     let result;
-    try { result = await ctx.configAuthority.mutate(mutation); }
+    try { result = ctx.configAuthority.mutate(ctx.mutationAuthority(), mutation); }
     catch (error) {
       if (mcpMutation) return toolFailure('MCP desired state was not persisted.', { persisted: false, reconciled: false });
       throw error;
@@ -69,40 +69,14 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
       if (mcpMutation) return toolFailure(result.message, { persisted: false, reconciled: false, reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message });
       return invalid(result.fieldPath, result.message);
     }
-    if (params.action === 'mcp_add' || params.action === 'mcp_edit' || params.action === 'mcp_remove') {
-      if (!ctx.mcpManager) return toolFailure('MCP desired state was persisted but runtime reconciliation is unavailable.', { persisted: true, reconciled: false, retry_action: 'mcp_reconcile' });
-      let reconciliation: McpReconciliationReport;
-      try { reconciliation = await ctx.mcpManager.reconcilePersistedConfig(); }
-      catch { return toolFailure('MCP desired state was persisted but runtime reconciliation failed.', { persisted: true, reconciled: false, retry_action: 'mcp_reconcile' }); }
-      if (!reconciliation.converged) return pendingMcpResult(reconciliation);
-      return { success: true, data: { persisted: true, reconciled: true, reconciliation: safeReconciliation(reconciliation) } };
-    }
     if (params.action === 'set_server_setting' && result.requires_restart) return { success: true, data: { applied: true, requires_restart: true, key: params.key } };
     return { success: true, data: { applied: true, action: params.action } };
   } });
 }
 
-function pendingMcpResult(reconciliation: McpReconciliationReport): ToolResult {
-  return toolFailure('MCP desired state was persisted but runtime convergence is pending.', { persisted: true, reconciled: false, retry_action: 'mcp_reconcile', reconciliation: safeReconciliation(reconciliation) });
-}
-
-function safeReconciliation(reconciliation: McpReconciliationReport) {
-  return {
-    converged: reconciliation.converged,
-    desired: reconciliation.desired.map((entry) => ({ ...entry })),
-    active: reconciliation.active.map((entry) => ({ ...entry })),
-    pending: reconciliation.pending.map((entry) => ({ ...entry })),
-  };
-}
-
 export async function mcp_reconcile(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, {}, { action: 'mcp.reconcile', safety_class: 'low', target_kind: 'config', getTargetId: () => 'mcp', run: async () => {
-    if (!ctx.mcpManager) return toolFailure('MCP runtime reconciliation is unavailable.', { persisted: false, reconciled: false });
-    let reconciliation: McpReconciliationReport;
-    try { reconciliation = await ctx.mcpManager.reconcilePersistedConfig(); }
-    catch { return toolFailure('MCP runtime reconciliation failed.', { persisted: false, reconciled: false }); }
-    if (!reconciliation.converged) return toolFailure('MCP runtime convergence is pending.', { persisted: false, reconciled: false, reconciliation: safeReconciliation(reconciliation) });
-    return { success: true, data: { persisted: false, reconciled: true, reconciliation: safeReconciliation(reconciliation) } };
+    return toolFailure('MCP reconciliation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
   } });
 }
 

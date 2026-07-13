@@ -9,6 +9,7 @@ import type { EventBus } from '../../src/events/index.js';
 import type { ReadModelChanges } from '../../src/application/read-model-changes.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
 import { createMutationLane } from '../../src/application/mutation-lane.js';
+import type { MutationLane } from '../../src/application/mutation-lane.js';
 import { ProjectIdentityStore, projectIdentityDigest } from '../../src/persistence/project-identity-store.js';
 
 interface TestProjectComposition {
@@ -16,6 +17,7 @@ interface TestProjectComposition {
   lock: RuntimeLifecycleLockHandle;
   repository: CardStoreRepository;
   mutationAuthority: import('../../src/application/mutation-authority.js').CompositionMutationAuthority;
+  lane: MutationLane;
 }
 
 const projects = new Map<string, TestProjectComposition>();
@@ -33,7 +35,7 @@ function composition(projectRoot: string): TestProjectComposition {
   const mode = classifyPersistenceOpenMode(projectRoot, mutationAuthority, newProjectRootInput(projectRoot));
   const authority = createProjectPersistenceAuthority({ projectRoot, lane, compositionAuthority: mutationAuthority, mode });
   const repository = new CardStoreRepository({ projectRoot, reader: authority.reader, writer: authority.writer });
-  const created = { authority, lock, repository, mutationAuthority };
+  const created = { authority, lock, repository, mutationAuthority, lane };
   projects.set(projectRoot, created);
   return created;
 }
@@ -50,7 +52,7 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
 }
 
 export function testConfigAuthority(projectRoot: string, env: Readonly<Record<string, string | undefined>> = process.env): ResolvedConfigAuthority {
-  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: env });
+  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: env, lane: composition(projectRoot).lane });
 }
 
 export class CardStore extends ProductionCardStore {
@@ -73,6 +75,11 @@ export function testCardRepository(projectRoot: string): CardStoreRepository {
 
 export function testCompositionAuthority(projectRoot: string): import('../../src/application/mutation-authority.js').CompositionMutationAuthority {
   return composition(projectRoot).mutationAuthority;
+}
+
+export function testMutationComposition(projectRoot: string): { lane: MutationLane; authority: import('../../src/application/mutation-authority.js').CompositionMutationAuthority } {
+  const opened = composition(projectRoot);
+  return { lane: opened.lane, authority: opened.mutationAuthority };
 }
 
 export function closeTestProject(projectRoot: string): void {

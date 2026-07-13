@@ -72,7 +72,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       ? classifyPersistenceOpenMode(prelock.projectRoot, mutationComposition.authority, newProjectRootInput(prelock.projectRoot))
       : { kind: 'normal' } as const;
     authority = createProjectPersistenceAuthority({ projectRoot: prelock.projectRoot, lane: mutationComposition.lane, compositionAuthority: mutationComposition.authority, mode });
-    environment = await loadEnvironment(options.argv, env);
+    environment = await loadEnvironment(options.argv, env, mutationComposition);
     server = await startServer({ environment, authority, compositionAuthority: mutationComposition.authority, scope: scope.child('server'), restartPort });
     const address = server.fastify.server.address();
     if (address === null || typeof address === 'string') throw new Error('Server did not publish a TCP control address.');

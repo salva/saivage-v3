@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EnvironmentLoadError, loadEnvironment } from '../../src/config/environment.js';
 import { writeSaivageConfig } from '../helpers/project-config.js';
+import { createTestMutationComposition } from '../helpers/mutation-composition.js';
 
 const roots: string[] = [];
 
@@ -34,7 +35,7 @@ describe('loadEnvironment', () => {
       TEST_PROVIDER_KEY: 'secret-provider-key',
       NODE_ENV: 'test',
       LOG_LEVEL: 'debug',
-    });
+    }, createTestMutationComposition());
 
     expect(env.projectRoot).toBe(root);
     expect(env.server.host).toBe('localhost');
@@ -50,7 +51,7 @@ describe('loadEnvironment', () => {
 
   it('fails closed on malformed env port', async () => {
     const root = makeProject({ models: { default: ['test-model'] } });
-    await expect(loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_PORT: 'not-a-port' })).rejects.toThrow(EnvironmentLoadError);
+    await expect(loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_PORT: 'not-a-port' }, createTestMutationComposition())).rejects.toThrow(EnvironmentLoadError);
   });
 
   it('fails closed on malformed config without logging secret values in the message', async () => {
@@ -60,9 +61,9 @@ describe('loadEnvironment', () => {
       providers: { test: { apiKey: 'super-secret-value', models: ['test-model'] } },
     });
 
-    await expect(loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root })).rejects.toThrow(/Configuration validation failed/);
+    await expect(loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root }, createTestMutationComposition())).rejects.toThrow(/Configuration validation failed/);
     try {
-      await loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root });
+      await loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root }, createTestMutationComposition());
     } catch (err) {
       expect(String((err as Error).message)).not.toContain('super-secret-value');
     }
@@ -75,7 +76,7 @@ describe('loadEnvironment', () => {
       { notifications: { channels: ['web'], filters: { min_severity: 'warning' } } },
     ]) {
       const root = makeProject({ models: { default: ['test-model'] }, ...removed });
-      await expect(loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root })).rejects.toThrow(/Configuration validation failed/);
+      await expect(loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root }, createTestMutationComposition())).rejects.toThrow(/Configuration validation failed/);
     }
   });
 });

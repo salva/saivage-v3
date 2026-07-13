@@ -26,7 +26,8 @@ function readAudit(root: string): Array<Record<string, unknown>> {
 describe('Audited analyst tool runner', () => {
   function ctx(root: string): ToolContext {
     const processRunner = createTestProcessRunner(root);
-    return { projectRoot: root, configAuthority: testConfigAuthority(root), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+    const store = new CardStore(root);
+    return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
   }
 
   it('records schema-safe audit entries for allowed mutations', async () => {

@@ -4,6 +4,8 @@ import { parseArgs } from 'node:util';
 import type { EnvironmentSource } from './env-interpolation.js';
 import type { SaivageConfig } from '../agents/config-api.js';
 import { createResolvedConfigAuthority, type ConfigSelectionSource, type ResolvedConfigAuthority } from './resolved-config-authority.js';
+import type { CompositionMutationAuthority } from '../application/mutation-authority.js';
+import type { MutationLane } from '../application/mutation-lane.js';
 import { realpathSync } from 'node:fs';
 
 export type NodeEnvironment = 'development' | 'production' | 'test';
@@ -156,7 +158,7 @@ function parseLogLevel(raw: string | undefined): LogLevel | undefined {
   return parsed.data;
 }
 
-export async function loadEnvironment(argv: readonly string[], env: EnvironmentSource): Promise<Environment> {
+export async function loadEnvironment(argv: readonly string[], env: EnvironmentSource, mutation: { lane: MutationLane; authority: CompositionMutationAuthority }): Promise<Environment> {
   const cli = parseCli(argv);
   const projectRoot = realpathSync(resolve(cli.projectRoot ?? env['SAIVAGE_PROJECT_ROOT'] ?? process.cwd()));
   const source: ConfigSelectionSource = cli.config !== undefined
@@ -165,8 +167,9 @@ export async function loadEnvironment(argv: readonly string[], env: EnvironmentS
       ? { kind: 'environment', variable: 'SAIVAGE_CONFIG' }
       : { kind: 'default' };
   const configPath = resolve(cli.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`);
-  const configAuthority = createResolvedConfigAuthority({ path: configPath, source, interpolationEnvironment: env });
-  if (cli.createRuntime) await configAuthority.initializeCanonicalDefaultIfMissing();
+  const configAuthority = createResolvedConfigAuthority({ path: configPath, source, interpolationEnvironment: env, lane: mutation.lane });
+  configAuthority.restabilize(mutation.authority);
+  if (cli.createRuntime) configAuthority.initializeCanonicalDefaultIfMissing(mutation.authority);
   let config: SaivageConfig;
   let warnings: readonly string[];
   try {
