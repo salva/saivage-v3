@@ -10,6 +10,7 @@ import { registerOperatorContractRoutes } from '../routes/operator-contracts.js'
 import { registerInternalDebugRoutes } from '../routes/chats-files-debug.js';
 import { registerWebSocket } from '../websocket.js';
 import type { AuthPolicy } from '../auth-policy.js';
+import type { ResolvedConfigAuthority } from '../../config/index.js';
 
 export function registerServerRoutes(options: {
   fastify: FastifyInstance;
@@ -18,7 +19,7 @@ export function registerServerRoutes(options: {
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
   saivageConfig: SaivageConfig;
-  configWarnings: readonly string[];
+  configAuthority: ResolvedConfigAuthority;
   liveSyncSocket: LiveSyncSocket;
   restartPort?: RestartPort;
   authPolicy: AuthPolicy;
@@ -32,8 +33,8 @@ export function registerServerRoutes(options: {
     runtimeApplication: options.runtimeApplication,
     mcpManager: options.mcpManager,
     serverAvailabilityProvider,
+    configAuthority: options.configAuthority,
     saivageConfig: options.saivageConfig,
-    configWarnings: options.configWarnings,
     restartPort: options.restartPort,
     authPolicy: options.authPolicy,
   });

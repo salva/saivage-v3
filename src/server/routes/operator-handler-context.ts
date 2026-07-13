@@ -9,6 +9,7 @@ import type { buildServerAvailability } from '../availability.js';
 import type { ContractHandler } from '../contract-runtime.js';
 import type { ProcessRunner } from '../../runtime/process-runner.js';
 import type { RestartPort } from '../../boot/restart-port.js';
+import type { ResolvedConfigAuthority } from '../../config/index.js';
 
 export type OperatorContractHandlerMap = Partial<Record<keyof typeof operatorApiContracts, ContractHandler>>;
 export type OperatorServerAvailabilityProvider = () => ReturnType<typeof buildServerAvailability>;
@@ -37,7 +38,7 @@ export interface OperatorMcpProviderContext {
 }
 
 export interface OperatorConfigContext {
+  configAuthority: ResolvedConfigAuthority;
   saivageConfig?: SaivageConfig;
-  configWarnings?: readonly string[];
   providerRoutingReadModelProvider?: () => ProviderRoutingReadModel | undefined;
 }

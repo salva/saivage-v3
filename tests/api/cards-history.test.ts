@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
@@ -37,7 +37,7 @@ beforeAll(async () => {
   await app.register(cors);
   await app.register(websocket);
   const store = new CardStore(TEST_ROOT);
-  registerOperatorContractRoutes({ fastify: app, projectRoot: TEST_ROOT, cardStore: store, authPolicy: new AuthPolicy({ apiToken: authToken }) });
+  registerOperatorContractRoutes({ fastify: app, projectRoot: TEST_ROOT, configAuthority: testConfigAuthority(TEST_ROOT), cardStore: store, authPolicy: new AuthPolicy({ apiToken: authToken }) });
   await app.listen({ port: 0, host: '127.0.0.1' });
   port = (app.server.address() as { port: number }).port;
   const created = store.create({

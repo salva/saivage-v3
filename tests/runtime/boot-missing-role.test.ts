@@ -35,10 +35,10 @@ afterEach(async () => {
 });
 
 describe('boot fail-fast on missing dispatched model roles', () => {
-  it('loadEnvironment throws EnvironmentLoadError naming every missing role', () => {
+  it('loadEnvironment throws EnvironmentLoadError naming every missing role', async () => {
     const root = makeProject({});
     let thrown: unknown;
-    try { loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root }); }
+    try { await loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root }); }
     catch (err) { thrown = err; }
     expect(thrown).toBeInstanceOf(EnvironmentLoadError);
     const error = thrown as EnvironmentLoadError;
@@ -47,11 +47,8 @@ describe('boot fail-fast on missing dispatched model roles', () => {
     expect(error.message).toContain('models.routing[');
     expect(error.message).toContain('models.profiles[');
     expect(error.message).toContain('models.default');
-    expect(error.message).toContain('.saivage/saivage.yaml');
-    expect(error.message).not.toContain('.saivage/saivage.json');
-    expect(error.expected).toContain('model name or non-empty array');
-    expect(error.expected).toContain('models.routing');
-    expect(error.expected).toContain('models.default');
+    expect(error.message).toContain('selected configuration');
+    expect(error.expected).toContain('valid canonical configuration');
   });
 
   it('plain start rejects a missing canonical root before config loading or runtime initialization', async () => {

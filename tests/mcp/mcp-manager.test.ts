@@ -20,7 +20,7 @@ import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as YAML from 'yaml';
-import { loadEnvironment } from '../../src/config/environment.js';
+import { testConfigAuthority } from '../helpers/canonical-project.js';
 import { ManagedProcessGroupRegistry, type ManagedProcessPlatform } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
@@ -127,7 +127,7 @@ function writeSaivageJson(projectRoot: string, overrides: Record<string, unknown
 }
 
 function loadTestConfig(projectRoot: string) {
-  return loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config;
+  return testConfigAuthority(projectRoot).loadEffective().config;
 }
 
 function createMcpManager(McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'], projectRoot: string, options: { scope?: import('../../src/lifecycle/index.js').ResourceScope } = {}) {
@@ -145,7 +145,7 @@ function createMcpManager(McpManager: Awaited<ReturnType<typeof importMcpManager
     signal: (pgid, signal) => { processes.get(pgid)!.kill(signal); },
   };
   const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry(platform));
-  return new McpManager(projectRoot, { ...options, config: loadTestConfig(projectRoot), processRunner });
+  return new McpManager({ ...options, configAuthority: testConfigAuthority(projectRoot), processRunner });
 }
 
 function stdioConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {

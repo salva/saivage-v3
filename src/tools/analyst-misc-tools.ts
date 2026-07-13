@@ -1,9 +1,7 @@
 import { z } from 'zod';
-import { join } from 'node:path';
-
 import { queueNotification, resolveRecipient } from '../notifications/index.js';
-import { assertAnalystInspectionTarget, redactAnalystSecretValue } from '../workspace/file-access-security.js';
-import { getRedactedConfig, mcpAdd, mcpEdit, mcpRemove, setFailoverChain, setRoleRouting, setRuntimeSetting, setServerSetting } from '../agents/analyst-config-writer.js';
+import { redactAnalystSecretValue } from '../workspace/file-access-security.js';
+import type { ConfigMutation } from '../config/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../agents/session-ids.js';
 import { AgentOperatorReadModelService } from '../application/read-models/index.js';
@@ -38,7 +36,7 @@ export async function queue_notification(ctx: ToolContext, params: { recipient: 
 }
 
 export async function show_config(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  try { const path = join(ctx.projectRoot, '.saivage', 'saivage.yaml'); assertAnalystInspectionTarget(path); const result = getRedactedConfig(ctx.projectRoot); if (!result.success) return toolFailure(result.message, { reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message }); return { success: true, data: { config: redactAnalystSecretValue(result.config) } }; }
+  try { const result = ctx.configAuthority.loadEffective(); return { success: true, data: { config: redactAnalystSecretValue(result.config) } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 
@@ -48,18 +46,22 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
   const actionName = `reconfigure.${params.action.replace(/^set_/, 'set_')}`;
   return runAuditedAnalystTool(ctx, params as ReconfigureParams & Record<string, unknown>, { action: actionName, safety_class: 'low', target_kind: 'config', getTargetId: () => params.name ?? params.role ?? params.key ?? params.action, run: async () => {
     const invalid = (fieldPath: string, detail: string): ToolResult => toolFailure(detail, { reason: 'invalid_argument', fieldPath, detail });
-    let result;
+    let mutation: ConfigMutation;
     switch (params.action) {
-      case 'set_role_routing': result = setRoleRouting(ctx.projectRoot, params.role!, params.model_candidate!); break;
-      case 'set_failover_chain': result = setFailoverChain(ctx.projectRoot, params.for_model!, params.ordered_failover_models!); break;
-      case 'mcp_add': result = mcpAdd(ctx.projectRoot, params.name!, params.command!, params.args, params.env); if (result.success) { ctx.mcpManager?.reloadServersFromConfig(result.config); await ctx.mcpManager?.startServer(params.name!); } break;
-      case 'mcp_edit': result = mcpEdit(ctx.projectRoot, params.name!, { command: params.command, args: params.args, env: params.env }); if (result.success) { ctx.mcpManager?.reloadServersFromConfig(result.config); await ctx.mcpManager?.restartServer(params.name!); } break;
-      case 'mcp_remove': await ctx.mcpManager?.stopServer(params.name!); result = mcpRemove(ctx.projectRoot, params.name!); if (result.success) ctx.mcpManager?.reloadServersFromConfig(result.config); break;
-      case 'set_runtime_setting': result = setRuntimeSetting(ctx.projectRoot, params.key!, params.value); break;
-      case 'set_server_setting': result = setServerSetting(ctx.projectRoot, params.key!, params.value); break;
+      case 'set_role_routing': mutation = { kind: 'set_role_routing', role: params.role!, modelCandidate: params.model_candidate! }; break;
+      case 'set_failover_chain': mutation = { kind: 'set_failover_chain', forModel: params.for_model!, orderedFailoverModels: params.ordered_failover_models! }; break;
+      case 'mcp_add': mutation = { kind: 'mcp_add', name: params.name!, command: params.command!, args: params.args, env: params.env }; break;
+      case 'mcp_edit': mutation = { kind: 'mcp_edit', name: params.name!, patch: { command: params.command, args: params.args, env: params.env } }; break;
+      case 'mcp_remove': await ctx.mcpManager?.stopServer(params.name!); mutation = { kind: 'mcp_remove', name: params.name! }; break;
+      case 'set_runtime_setting': mutation = { kind: 'set_runtime_setting', key: params.key!, value: params.value }; break;
+      case 'set_server_setting': mutation = { kind: 'set_server_setting', key: params.key!, value: params.value }; break;
       default: return invalid('action', 'Unknown reconfigure action.');
     }
+    const result = await ctx.configAuthority.mutate(mutation);
     if (!result.success) return invalid(result.fieldPath, result.message);
+    if (params.action === 'mcp_add') { ctx.mcpManager?.reloadServersFromConfig(); await ctx.mcpManager?.startServer(params.name!); }
+    if (params.action === 'mcp_edit') { ctx.mcpManager?.reloadServersFromConfig(); await ctx.mcpManager?.restartServer(params.name!); }
+    if (params.action === 'mcp_remove') ctx.mcpManager?.reloadServersFromConfig();
     if (params.action === 'set_server_setting' && result.requires_restart) return { success: true, data: { applied: true, requires_restart: true, key: params.key } };
     return { success: true, data: { applied: true, action: params.action } };
   } });

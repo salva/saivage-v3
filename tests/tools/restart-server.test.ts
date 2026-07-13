@@ -1,4 +1,4 @@
-import { CardStore } from '../helpers/canonical-project.js';
+import { CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,7 +14,7 @@ import { createAnalystControlProvider } from '../../src/tools/analyst-control-pr
 
 function context(projectRoot: string, restartServerAvailable: boolean): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(projectRoot), actor: 'analyst', surface: 'web-chat', restartServerAvailable };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(projectRoot), actor: 'analyst', surface: 'web-chat', restartServerAvailable };
 }
 
 describe('restart_server', () => {

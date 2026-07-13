@@ -100,11 +100,11 @@ export async function createServerServices(input: {
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, eventBus, eventLogger, errorLogger, cardStore, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, cardStore, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
 
-  const mcpManager = new McpManager(projectRoot, { config, processRunner: runtimeApplication.processRunner, scope: scope.child('mcp') });
+  const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner: runtimeApplication.processRunner, scope: scope.child('mcp') });
   await mcpManager.startAll();
   fastify.log.info('MCP manager started');
   runtimeApplication.setMcpManager(mcpManager);

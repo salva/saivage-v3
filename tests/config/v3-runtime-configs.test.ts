@@ -13,12 +13,10 @@ const v3RuntimeTargets = [
 ];
 
 describe('v3 runtime target configs', () => {
-  it.each(v3RuntimeTargets)('$name loads through loadEnvironment when present', ({ root }) => {
+  it.each(v3RuntimeTargets)('$name loads through loadEnvironment when present', async ({ root }) => {
     const configPath = resolve(root, '.saivage/saivage.yaml');
     if (!existsSync(configPath)) return;
 
-    expect(() => {
-      loadEnvironment(['node', 'test', '--project-root', root], process.env);
-    }).not.toThrow();
+    await expect(loadEnvironment(['node', 'test', '--project-root', root], process.env)).resolves.toBeDefined();
   });
 });

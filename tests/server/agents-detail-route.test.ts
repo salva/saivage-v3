@@ -1,4 +1,4 @@
-import { CardStore, initProjectTree } from '../helpers/canonical-project.js';
+import { CardStore, initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -52,7 +52,7 @@ describe('GET /api/agents/:id', () => {
     app = Fastify({ logger: false });
     await app.register(cors);
     const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
-    registerOperatorContractRoutes({ fastify: app, projectRoot, authPolicy: new AuthPolicy({ apiToken: AUTH_TOKEN }), cardStore });
+    registerOperatorContractRoutes({ fastify: app, projectRoot, configAuthority: testConfigAuthority(projectRoot), authPolicy: new AuthPolicy({ apiToken: AUTH_TOKEN }), cardStore });
     await app.ready();
   });
 

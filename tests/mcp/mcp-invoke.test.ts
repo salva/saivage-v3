@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn as realSpawn } from 'node:child_process';
 import * as YAML from 'yaml';
-import { loadEnvironment } from '../../src/config/environment.js';
+import { testConfigAuthority } from '../helpers/canonical-project.js';
 import { ManagedProcessGroupRegistry, type ManagedProcessPlatform } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
@@ -78,10 +78,10 @@ function writeSaivageJson(root: string, overrides: Record<string, unknown>): voi
 }
 
 function loadTestConfig(projectRoot: string) {
-  return loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config;
+  return testConfigAuthority(projectRoot).loadEffective().config;
 }
 
-function createMcpManager<T extends new (projectRoot: string, options: { config: ReturnType<typeof loadTestConfig>; processRunner: ProcessRunner }) => unknown>(McpManager: T, projectRoot: string): InstanceType<T> {
+function createMcpManager<T extends new (options: { configAuthority: ReturnType<typeof testConfigAuthority>; processRunner: ProcessRunner }) => unknown>(McpManager: T, projectRoot: string): InstanceType<T> {
   const processes = new Map<number, ReturnType<typeof createMockProc>>();
   const realPids = new Set<number>();
   const platform: ManagedProcessPlatform = {
@@ -106,7 +106,7 @@ function createMcpManager<T extends new (projectRoot: string, options: { config:
     },
   };
   const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry(platform));
-  return new McpManager(projectRoot, { config: loadTestConfig(projectRoot), processRunner }) as InstanceType<T>;
+  return new McpManager({ configAuthority: testConfigAuthority(projectRoot), processRunner }) as InstanceType<T>;
 }
 
 function stdioCfg(overrides: Record<string, unknown> = {}) {

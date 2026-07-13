@@ -195,6 +195,7 @@ describe('saivage reset', () => {
     const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       initProjectTree(root);
+      writeFileSync(join(root, '.saivage', 'saivage.yaml'), 'models:\n  default: [test-model]\n');
       const promptPath = join(root, '.saivage', 'config', 'prompts', 'project', 'planner.md');
       mkdirSync(join(promptPath, '..'), { recursive: true });
       writeFileSync(promptPath, '# Preserve me\n');

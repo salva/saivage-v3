@@ -6,6 +6,7 @@ import type { ActorRole } from '../agents/authz.js';
 import type { EventBus } from '../events/index.js';
 import type { ToolResult } from './invocation.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
+import type { ResolvedConfigAuthority } from '../config/index.js';
 
 export type { ToolResult };
 
@@ -17,6 +18,7 @@ export interface SafeToolData {
 
 export interface ToolContext {
   projectRoot: string;
+  configAuthority: ResolvedConfigAuthority;
   processRunner: ProcessRunner;
   processScope: ManagedProcessScope;
   store: CardStore;

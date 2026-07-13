@@ -39,7 +39,7 @@ beforeEach(async () => {
   initProjectTree(root);
   ensureTestSaivageConfig(root);
   initRuntimeState(root);
-  server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
+  server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
 });
 
 afterEach(async () => {

@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -83,7 +83,7 @@ describe('role invocation surfaces', () => {
     const store = new CardStore(projectRoot);
     const processRunner = createTestProcessRunner(projectRoot);
     const processScope = processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session');
-    const ctx: ToolContext = { projectRoot, processRunner, processScope, store, sessionId: 'analyst:test', actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), processRunner, processScope, store, sessionId: 'analyst:test', actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
     const surface = buildRoleSurface('analyst', {
       projectRoot,
       toolContext: ctx,

@@ -7,6 +7,7 @@ import { classifyPersistenceOpenMode, openProjectPersistenceAuthority, type Proj
 import { acquireLock, releaseLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import type { EventBus } from '../../src/events/index.js';
 import type { ReadModelChanges } from '../../src/application/read-model-changes.js';
+import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
 
 interface TestProjectComposition {
   authority: ProjectPersistenceAuthority;
@@ -33,12 +34,14 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
   for (const relative of ['skills', 'config/prompts', 'agents/conversations', 'instructions', 'work/cards', 'work/processes', 'work/tmp/stash']) mkdirSync(join(projectRoot, '.saivage', relative), { recursive: true });
   const projectJson = join(projectRoot, '.saivage', 'project.json');
   if (!existsSync(projectJson)) { const stamp = new Date().toISOString(); writeFileSync(projectJson, `${JSON.stringify({ id: 'project', name: projectRoot.split('/').at(-1) || 'saivage-project', context: '', goals_summary: '', constraints: [], planner_enabled: true, created_at: stamp, updated_at: stamp }, null, 2)}\n`); }
-  const config = join(projectRoot, '.saivage', 'saivage.yaml');
-  if (!existsSync(config)) writeFileSync(config, 'server:\n  host: "0.0.0.0"\n  port: 8080\nruntime: {}\n');
   const skills = join(projectRoot, '.saivage', 'skills', 'index.json');
   if (!existsSync(skills)) { mkdirSync(dirname(skills), { recursive: true }); writeFileSync(skills, '[]\n'); }
   if (!alreadyOpen) { opened.authority.close(); releaseLock(opened.lock); projects.delete(projectRoot); }
   return { projectRoot };
+}
+
+export function testConfigAuthority(projectRoot: string, env: Readonly<Record<string, string | undefined>> = process.env): ResolvedConfigAuthority {
+  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: env });
 }
 
 export class CardStore extends ProductionCardStore {

@@ -327,6 +327,10 @@ This appendix is maintained as source-derived reference data for documentation d
 
 ### Config schema
 
+Server composition injects one `ResolvedConfigAuthority` created by `loadEnvironment()` into the runtime/Analyst tool context, operator config handlers, and `McpManager`. The authority immutably owns the startup-selected absolute path, selection source, and interpolation-environment snapshot. It is the sole initializer and selected-config writer. Its private FIFO promise queue is the only config write serialization mechanism: each turn reads the latest raw YAML, applies one closed-union mutation, validates the effective document with canonical schema and model-role checks, and performs one durable same-file replacement. Reads and MCP reloads return to the authority rather than deriving a path, accepting a preloaded config, or consulting current `process.env`. There is no global or path-keyed config lock and no second per-operation writer. Raw-document mutation keeps placeholders in durable YAML while effective consumers receive interpolated values.
+
+Project persistence bootstrap creates generated directories and canonical card/runtime artifacts but not configuration. With `--create-runtime`, configuration initialization is queued through the same authority after directory scaffolding; it creates only a missing selected file and preserves an existing one.
+
 <!-- saivage:config-schema:start -->
 | Section | Fields | Source |
 |---|---|---|

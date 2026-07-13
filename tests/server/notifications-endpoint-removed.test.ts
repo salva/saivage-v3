@@ -29,7 +29,7 @@ afterEach(async () => {
 
 describe('removed notification and note list endpoints', () => {
   it('does not register notification or note list routes', async () => {
-    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
+    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
 
     const notificationResponse = await server.fastify.inject({ method: 'GET', url: '/api/notifications' });
     const notesResponse = await server.fastify.inject({ method: 'GET', url: '/api/notes' });

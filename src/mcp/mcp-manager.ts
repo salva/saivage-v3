@@ -1,7 +1,7 @@
 /** MCP Server Lifecycle Manager facade. */
 
 import { EventLogger } from '../observability/index.js';
-import type { SaivageConfig } from '../agents/config-api.js';
+import type { ResolvedConfigAuthority } from '../config/index.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 import { ServerNotRunningError } from './errors.js';
 import { MCP_INVOKE_TIMEOUT_MS, type McpServerStatus, type McpToolDefinition } from './protocol.js';
@@ -21,11 +21,9 @@ export interface McpToolsReadModelProvider { getToolsReadModel(): ReturnType<typ
 export type McpToolCapability = ReturnType<typeof buildMcpToolsReadModel>['serverDetails'][number]['tools'][number] & { serverName: string };
 export interface McpToolInvocationPort { getServerTools(name: string): McpToolDefinition[] | undefined; findToolCapability(serverName: string, toolName: string): McpToolCapability | null; invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> }
 
-export interface McpManagerOptions { config: SaivageConfig; processRunner: ProcessRunner; scope?: ResourceScope; }
+export interface McpManagerOptions { configAuthority: ResolvedConfigAuthority; processRunner: ProcessRunner; scope?: ResourceScope; }
 
 export class McpManager {
-  private projectRoot: string;
-  private config: SaivageConfig;
   private readonly scope: ResourceScope;
   /** All configured MCP servers, loaded at construction time. */
   private servers: Record<string, McpServerConfig>;
@@ -34,11 +32,9 @@ export class McpManager {
   private nextMsgId = 1;
   private readonly invocationStats = new McpInvocationStatsRecorder();
 
-  constructor(projectRoot: string, private readonly options: McpManagerOptions) {
-    this.projectRoot = projectRoot;
-    this.config = options.config;
+  constructor(private readonly options: McpManagerOptions) {
     this.scope = options.scope ?? createResourceScope('mcp-manager');
-    this.servers = loadMcpServersFromConfig(this.config);
+    this.servers = loadMcpServersFromConfig(options.configAuthority.loadEffective().config);
     this.rebuildRuntimes(this.servers);
     this.scope.add({ dispose: () => { for (const runtime of this.runtimes.values()) void runtime.dispose(); this.runtimes.clear(); } }, { name: 'mcp-manager-runtimes' });
   }
@@ -58,9 +54,8 @@ export class McpManager {
   /**
    * Start all autostart servers. Disabled servers are skipped.
    */
-  reloadServersFromConfig(config: SaivageConfig = this.config): void {
-    this.config = config;
-    const nextServers = loadMcpServersFromConfig(this.config);
+  reloadServersFromConfig(): void {
+    const nextServers = loadMcpServersFromConfig(this.options.configAuthority.loadEffective().config);
     this.rebuildRuntimes(nextServers);
     this.servers = nextServers;
   }

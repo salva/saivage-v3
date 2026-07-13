@@ -1,4 +1,4 @@
-import { CardStore } from '../helpers/canonical-project.js';
+import { CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import Fastify from 'fastify';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -51,7 +51,7 @@ describe('contract-backed runtime control routes', () => {
     const fastify = Fastify({ logger: false });
     const calls = { pause: 0, resume: 0 };
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: createRuntimeApplication(projectRoot, calls), cardStore: new CardStore(projectRoot), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: createRuntimeApplication(projectRoot, calls), cardStore: new CardStore(projectRoot), authPolicy: new AuthPolicy() });
 
       const pause = await fastify.inject({ method: 'POST', url: '/api/runtime/pause' });
       expect(pause.statusCode).toBe(200);

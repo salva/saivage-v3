@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as YAML from 'yaml';
+import { createResolvedConfigAuthority } from '../../src/config/index.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-config-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
@@ -24,14 +25,12 @@ function cleanup() {
 }
 
 // We need to import after setup since it's ESM
-let loadEnvironment: typeof import('../../src/config/environment.js').loadEnvironment;
 let getModelListForRole: typeof import('../../src/config/model-role-resolution.js').getModelListForRole;
 let saivageConfigSchema: typeof import('../../src/agents/config-schema.js').saivageConfigSchema;
 
 beforeAll(async () => {
   const mod = await import('../../src/agents/config-schema.js');
   const modelRoleResolution = await import('../../src/config/model-role-resolution.js');
-  loadEnvironment = (await import('../../src/config/environment.js')).loadEnvironment;
   getModelListForRole = modelRoleResolution.getModelListForRole;
   saivageConfigSchema = mod.saivageConfigSchema;
 });
@@ -40,8 +39,7 @@ beforeEach(() => cleanup());
 afterEach(() => cleanup());
 
 function loadConfig(projectRoot: string) {
-  const environment = loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env);
-  return { config: environment.config, warnings: environment.configWarnings };
+  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: process.env }).loadEffective();
 }
 
 describe('config-schema', () => {
@@ -80,7 +78,7 @@ describe('config-schema', () => {
       setupConfig({
         models: { default: 123 },
       });
-      expect(() => loadConfig(TEST_ROOT)).toThrow(/Configuration validation failed/);
+      expect(() => loadConfig(TEST_ROOT)).toThrow(/expected|model/i);
     });
 
 

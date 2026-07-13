@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +17,6 @@ import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
-import { loadEnvironment } from '../../src/config/environment.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
@@ -99,7 +98,7 @@ function pauseRuntime(root: string): void {
 }
 
 function loadTestConfig(root: string) {
-  return loadEnvironment(['node', 'test', '--project-root', root], process.env).config;
+  return testConfigAuthority(root).loadEffective().config;
 }
 
 function lifecycleForStatus(status: CardStatus): CardLifecycleState {
@@ -121,7 +120,7 @@ function setCardStatusForTest(store: CardStore, cardId: string, status: CardStat
 
 function toolCtx(root: string, store: CardStore, overrides: Partial<ToolContext> = {}): ToolContext {
   const processRunner = overrides.processRunner ?? createTestProcessRunner(root);
-  return { projectRoot: root, processRunner, processScope: overrides.processScope ?? processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, ...overrides };
+  return { projectRoot: root, configAuthority: overrides.configAuthority ?? testConfigAuthority(root), processRunner, processScope: overrides.processScope ?? processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, ...overrides };
 }
 
 function toolResponse(tool: string, args: Record<string, unknown>): Response {
@@ -390,8 +389,8 @@ describe('Reconfigure MCP live manager refresh', () => {
       try {
         const config = loadTestConfig(root);
       const eventBus = new EventBus();
-      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
-      const mcpManager = new McpManager(root, { config, processRunner: runtimeApplication.processRunner });
+      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
+      const mcpManager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runtimeApplication.processRunner });
       const depsBeforeMcp = runtimeApplication.analystDeps;
       expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);
       runtimeApplication.setMcpManager(mcpManager);
@@ -422,7 +421,7 @@ describe('internal runtime shutdown', () => {
   it('cleans runtime-owned processes during application disposal without an Analyst tool', async () => {
     const root = setupRoot();
     const eventBus = new EventBus();
-    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
+    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
     try {
       await runtimeApplication.runtimeApi.start();
       const processScope = runtimeApplication.processRunner.createDirectScope(runtimeApplication.processRunner.runtimeRootScope, 'test-runtime', 'runtime_card');

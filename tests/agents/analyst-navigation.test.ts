@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +25,7 @@ function readAudit(root: string): Array<Record<string, unknown>> {
 describe('analyst navigation tools', () => {
   function ctx(root: string, actor: ToolContext['actor'] = 'analyst'): ToolContext {
     const processRunner = createTestProcessRunner(root);
-    return { projectRoot: root, processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor, surface: 'web-chat', restartServerAvailable: false };
+    return { projectRoot: root, configAuthority: testConfigAuthority(root), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor, surface: 'web-chat', restartServerAvailable: false };
   }
 
   it('returns a structured navigate_workspace intent for analyst callers', async () => {

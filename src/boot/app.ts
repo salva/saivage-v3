@@ -70,7 +70,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       : { kind: 'normal' } as const;
     authority = openProjectPersistenceAuthority({ projectRoot: prelock.projectRoot, lifecycleLock, mode });
     scope.add({ dispose: () => authority.close() }, { name: 'project-persistence-authority' });
-    environment = loadEnvironment(options.argv, env);
+    environment = await loadEnvironment(options.argv, env);
     server = await startServer({ environment, authority, scope: scope.child('server'), restartPort });
   } catch (error) {
     await scope.dispose();

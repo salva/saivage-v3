@@ -28,7 +28,7 @@ function validateWorkspaceContext(value: unknown): { ok: true; value: ChatWorksp
   return { ok: true, value: { view: ctx.view, entityId: ctx.entityId, refinement: ctx.refinement } as ChatWorkspaceContext };
 }
 
-type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorConfigContext;
+type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & Pick<OperatorConfigContext, 'saivageConfig'>;
 
 export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;

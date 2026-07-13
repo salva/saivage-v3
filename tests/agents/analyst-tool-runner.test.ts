@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,7 +26,7 @@ function readAudit(root: string): Array<Record<string, unknown>> {
 describe('Audited analyst tool runner', () => {
   function ctx(root: string): ToolContext {
     const processRunner = createTestProcessRunner(root);
-    return { projectRoot: root, processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+    return { projectRoot: root, configAuthority: testConfigAuthority(root), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
   }
 
   it('records schema-safe audit entries for allowed mutations', async () => {

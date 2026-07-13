@@ -1,5 +1,6 @@
 import type { AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
+import type { ResolvedConfigAuthority } from '../config/index.js';
 import {
   ANALYST_NO_MODEL_REPLY,
   AnalystOfflineError,
@@ -82,6 +83,7 @@ export interface AnalystResponse {
 }
 
 export interface AnalystRuntimeDeps {
+  configAuthority: ResolvedConfigAuthority;
   cardStore: CardStore;
   runtime: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
   candidateAvailability?: CandidateAvailability;
@@ -153,7 +155,7 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
 }
 
 function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
-  return { projectRoot: args.projectRoot, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.runtimeDeps.cardStore, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
+  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.runtimeDeps.cardStore, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
 }
 
 type PendingAnalystTurn = {

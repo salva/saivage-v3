@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
+import { testConfigAuthority } from '../helpers/canonical-project.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 
@@ -18,7 +19,7 @@ describe('contract-backed process routes', () => {
       const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'route-test', 'runtime_card');
       const record = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: 'card-1', ownerId: 'runtime-owner', ownerKind: 'runtime' });
       await processRunner.waitForSettlement(record.id);
-      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
 
       const list = await fastify.inject({ method: 'GET', url: '/api/processes' });
       expect(list.statusCode).toBe(200);
@@ -52,7 +53,7 @@ describe('contract-backed process routes', () => {
     const fastify = Fastify({ logger: false });
     try {
       const processRunner = createTestProcessRunner(projectRoot);
-      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });
       expect(response.statusCode).toBe(404);

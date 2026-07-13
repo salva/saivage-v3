@@ -36,17 +36,23 @@ function configProviderProjection(config: unknown): ProviderRoutingReadModel | n
 export function buildConfigOperatorContractHandlers(options: OperatorProjectContext & OperatorConfigContext): OperatorContractHandlerMap {
   return {
     'config.get': () => {
-      if (!options.saivageConfig) {
+      try {
+        const effective = options.configAuthority.loadEffective();
+        const config = redactForOutbound(effective.config, 'operator.api', { source: 'runtime-config-notes.config' });
+        return { body: { config, warnings: [...effective.warnings] } };
+      } catch (error) {
         return {
           statusCode: 500,
-          body: { error: 'Configuration unavailable', message: CONFIG_UNAVAILABLE_MESSAGE },
+          body: { error: 'Configuration unavailable', message: error instanceof Error ? error.message : CONFIG_UNAVAILABLE_MESSAGE },
         };
       }
-      const config = redactForOutbound(options.saivageConfig, 'operator.api', { source: 'runtime-config-notes.config' });
-      return { body: { config, warnings: [...(options.configWarnings ?? [])] } };
     },
     'providers.list': () => {
-      const readModel = options.providerRoutingReadModelProvider?.() ?? configProviderProjection(options.saivageConfig);
+      let readModel = options.providerRoutingReadModelProvider?.();
+      if (!readModel) {
+        try { readModel = configProviderProjection(options.configAuthority.loadEffective().config) ?? undefined; }
+        catch { readModel = undefined; }
+      }
       if (!readModel) {
         return {
           statusCode: 500,

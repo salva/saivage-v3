@@ -159,6 +159,8 @@ The only user-visible controls permitted outside the Analyst are the minimum con
 
 Once an Analyst-capable profile exists, additional provider/profile/model/configuration management is Analyst-owned.
 
+The configuration projection and every Analyst configuration mutation address the exact file selected when the active server started, including a custom `--config` or `SAIVAGE_CONFIG` path. The UI does not derive `.saivage/saivage.yaml`, choose another file, or expose a write-in-progress retry state; overlapping mutations wait in the backend authority's FIFO queue. No UI shape change is required.
+
 ## 9. Secret Display
 
 The Analyst may inspect secrets when authorized and necessary. The UI may still redact secret values by default in projections, previews, logs, and transcript chips.

@@ -26,8 +26,8 @@ describe('server availability contract', () => {
   let server: ServerInstance | undefined;
   let originalToken: string | undefined;
 
-  function createTestServer(root: string) {
-    return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root), restartPort: createTestRestartPort() });
+  async function createTestServer(root: string) {
+    return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root), restartPort: createTestRestartPort() });
   }
 
   beforeEach(() => {

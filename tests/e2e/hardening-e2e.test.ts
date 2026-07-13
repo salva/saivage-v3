@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 /**
  * Stage 10 — Hardening End-to-End and Security Integration Tests
  *
@@ -74,7 +74,7 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     const { createTestRuntimeApplication, createTestSaivageConfig } = await import('../helpers/test-runtime-application.js');
 
     authPolicy = new AuthPolicy({ apiToken: authToken });
-    registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, cardStore, authPolicy });
+    registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, configAuthority: testConfigAuthority(tmpDir), cardStore, authPolicy });
     registerInternalDebugRoutes(app, tmpDir, cardStore, authPolicy);
     registerWebSocket(app, tmpDir, { authPolicy, liveSyncSocket: new LiveSyncSocket(), saivageConfig: createTestSaivageConfig(), runtimeApplication: createTestRuntimeApplication({ cardStore }) });
 

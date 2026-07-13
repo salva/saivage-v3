@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,7 +18,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'saivage-analyst-tools-'));
   initProjectTree(root);
   const processRunner = createTestProcessRunner(root);
-  ctx = { projectRoot: root, processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+  ctx = { projectRoot: root, configAuthority: testConfigAuthority(root), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
 });
 
 afterEach(() => {

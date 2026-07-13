@@ -1,4 +1,4 @@
-import { CardStore } from './canonical-project.js';
+import { CardStore, testConfigAuthority } from './canonical-project.js';
 import { testActorSnapshots } from './actor-snapshots.js';
 import { EventBus } from '../../src/events/bus.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -15,7 +15,6 @@ import { InvocationService } from '../../src/agents/invocation-service.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
-import { loadEnvironment } from '../../src/config/environment.js';
 import { cardActorId } from '../../src/runtime/actors/index.js';
 import type { CardNotification } from '../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -37,7 +36,7 @@ export function ensureTestSaivageConfig(projectRoot: string): void {
 }
 
 export function loadTestConfig(projectRoot: string) {
-  return loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config;
+  return testConfigAuthority(projectRoot).loadEffective().config;
 }
 
 export function createTestSaivageConfig(): SaivageConfig {
@@ -120,6 +119,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     candidateAvailability: availability,
   });
   return {
+    configAuthority: testConfigAuthority(projectRoot),
     runtime: analystRuntime,
     cardStore,
     candidateAvailability: analystRuntime.candidateAvailability,
@@ -169,6 +169,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         candidateAvailability: availability,
       });
       return {
+        configAuthority: testConfigAuthority(projectRoot),
         runtime: analystRuntime,
         cardStore,
         candidateAvailability: analystRuntime.candidateAvailability,

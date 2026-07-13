@@ -143,7 +143,7 @@ async function probeOne(
 
 async function main(): Promise<number> {
   const projectRoot = process.argv[2] ?? process.cwd();
-  const { config } = loadEnvironment(['node', 'probe-llm-contract', '--project-root', projectRoot], process.env);
+  const { config } = await loadEnvironment(['node', 'probe-llm-contract', '--project-root', projectRoot], process.env);
   const registry = new ProviderRegistry(config);
   const providers = registry.getAll();
   let allOk = providers.length > 0;

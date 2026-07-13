@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
 import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,7 +16,7 @@ function setup(root: string): CardStore {
   return new CardStore(root);
 }
 
-function ctx(root: string, store: CardStore): ToolContext { const processRunner = createTestProcessRunner(root); return { projectRoot: root, processRunner, processScope: processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-executor', 'runtime_card'), store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1', restartServerAvailable: false }; }
+function ctx(root: string, store: CardStore): ToolContext { const processRunner = createTestProcessRunner(root); return { projectRoot: root, configAuthority: testConfigAuthority(root), processRunner, processScope: processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-executor', 'runtime_card'), store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1', restartServerAvailable: false }; }
 
 describe('card history and notes tools', () => {
   it('lists history, gets an entry, diffs versions, without audit writes', async () => {

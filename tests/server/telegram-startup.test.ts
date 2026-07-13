@@ -41,8 +41,8 @@ function operatorLog(root: string): string {
   return existsSync(path) ? readFileSync(path, 'utf-8') : '';
 }
 
-function createTestServer(root: string) {
-  return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
+async function createTestServer(root: string) {
+  return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
 }
 
 

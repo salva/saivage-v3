@@ -22,6 +22,7 @@ import { ManagedProcessGroupRegistry } from '../runtime/managed-process-group-re
 import { RuntimeGate } from '../runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
+import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { ReadModelChanges } from './read-model-changes.js';
 import { createProviderExchangeMutationPort } from '../persistence/provider-exchange-mutation-port.js';
 import { createConversationMutationPort, type ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
@@ -54,6 +55,7 @@ export interface RuntimeApplication {
 export interface RuntimeApplicationServices {
   projectRoot: string;
   config: SaivageConfig;
+  configAuthority: ResolvedConfigAuthority;
   eventBus: EventBus;
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
@@ -75,8 +77,10 @@ function buildAnalystDeps(input: {
   processRunner: ProcessRunner;
   mcpManager?: McpManager;
   conversations: ConversationMutationPort;
+  configAuthority: ResolvedConfigAuthority;
 }): AnalystRuntimeDeps {
   return {
+    configAuthority: input.configAuthority,
     runtime: input.runtimeApi,
     cardStore: input.cardStore,
     candidateAvailability: input.candidateAvailability,
@@ -153,6 +157,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       processRunner,
       mcpManager,
       conversations,
+      configAuthority: services.configAuthority,
     });
     return analystDepsCache;
   };

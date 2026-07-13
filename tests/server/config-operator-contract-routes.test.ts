@@ -8,6 +8,8 @@ import { recordControlAction } from '../../src/persistence/index.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
+import { testConfigAuthority } from '../helpers/canonical-project.js';
+import { writeSaivageConfig } from '../helpers/project-config.js';
 
 function testConfig(): SaivageConfig {
   return {
@@ -31,17 +33,22 @@ function testConfig(): SaivageConfig {
 }
 
 describe('contract-backed config/providers/control-actions routes', () => {
-  it('returns redacted config and warnings through the operator contract runtime', async () => {
+  it('returns the latest redacted startup-selected config through the operator contract runtime', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-config-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot, saivageConfig: testConfig(), configWarnings: ['warning-one'], authPolicy: new AuthPolicy() });
+      writeSaivageConfig(projectRoot, {
+        models: { default: ['test-model'] },
+        providers: testConfig().providers,
+        server: { host: '127.0.0.1', port: 8080 },
+      });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/config' });
 
       expect(response.statusCode).toBe(200);
       const body = response.json() as { config: { providers: Record<string, { apiKey?: string; accounts?: Record<string, { apiKey?: string }> }> }; warnings: string[] };
-      expect(body.warnings).toEqual(['warning-one']);
+      expect(body.warnings).toEqual([]);
       expect(JSON.stringify(body.config)).not.toContain('secret-provider-key');
       expect(body.config.providers.test.apiKey).toBe('[REDACTED]');
       expect(body.config.providers.test.accounts?.primary.apiKey).toBe('[REDACTED]');
@@ -55,7 +62,11 @@ describe('contract-backed config/providers/control-actions routes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-providers-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot, saivageConfig: testConfig(), authPolicy: new AuthPolicy() });
+      writeSaivageConfig(projectRoot, {
+        models: { default: ['test-model'] },
+        providers: testConfig().providers,
+      });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/providers' });
 
@@ -115,7 +126,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         outcome: 'ok',
         outcome_summary: 'updated',
       });
-      registerOperatorContractRoutes({ fastify, projectRoot, authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/control-actions?card_id=card-1&since=2026-01-01T12:00:00.000Z' });
 
@@ -130,17 +141,17 @@ describe('contract-backed config/providers/control-actions routes', () => {
     }
   });
 
-  it('preserves legacy unavailable configuration error bodies', async () => {
+  it('reports a selected-file read failure without probing another config', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-config-error-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot, authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), authPolicy: new AuthPolicy() });
 
       const configResponse = await fastify.inject({ method: 'GET', url: '/api/config' });
       const providersResponse = await fastify.inject({ method: 'GET', url: '/api/providers' });
 
       expect(configResponse.statusCode).toBe(500);
-      expect(configResponse.json()).toEqual({ error: 'Configuration unavailable', message: 'Server was not started with a validated Environment config.' });
+      expect(configResponse.json()).toEqual({ error: 'Configuration unavailable', message: expect.stringContaining('Configuration not found') });
       expect(providersResponse.statusCode).toBe(500);
       expect(providersResponse.json()).toEqual({ error: 'Providers unavailable', message: 'Server was not started with a validated Environment config.' });
     } finally {

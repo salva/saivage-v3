@@ -19,14 +19,14 @@ afterEach(() => {
 });
 
 describe('loadEnvironment', () => {
-  it('loads validated config once with explicit precedence and deep-freezes the result', () => {
+  it('loads validated config once with explicit precedence and deep-freezes the result', async () => {
     const root = makeProject({
       server: { host: '127.0.0.1', port: 1111 },
       models: { default: ['test-model'] },
       providers: { test: { models: ['test-model'], apiKey: '${TEST_PROVIDER_KEY}' } },
     });
 
-    const env = loadEnvironment(['node', 'saivage', 'start', '--host', 'localhost', '--port', '3333'], {
+    const env = await loadEnvironment(['node', 'saivage', 'start', '--host', 'localhost', '--port', '3333'], {
       SAIVAGE_PROJECT_ROOT: root,
       SAIVAGE_HOST: '0.0.0.0',
       SAIVAGE_PORT: '2222',
@@ -48,34 +48,34 @@ describe('loadEnvironment', () => {
     expect(() => { (env.server as { port: number }).port = 9999; }).toThrow();
   });
 
-  it('fails closed on malformed env port', () => {
+  it('fails closed on malformed env port', async () => {
     const root = makeProject({ models: { default: ['test-model'] } });
-    expect(() => loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_PORT: 'not-a-port' })).toThrow(EnvironmentLoadError);
+    await expect(loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_PORT: 'not-a-port' })).rejects.toThrow(EnvironmentLoadError);
   });
 
-  it('fails closed on malformed config without logging secret values in the message', () => {
+  it('fails closed on malformed config without logging secret values in the message', async () => {
     const root = makeProject({
       models: { default: ['test-model'] },
       notifications: { channels: ['email'] },
       providers: { test: { apiKey: 'super-secret-value', models: ['test-model'] } },
     });
 
-    expect(() => loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root })).toThrow(/Configuration validation failed/);
+    await expect(loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root })).rejects.toThrow(/Configuration validation failed/);
     try {
-      loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root });
+      await loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root });
     } catch (err) {
       expect(String((err as Error).message)).not.toContain('super-secret-value');
     }
   });
 
-  it('fails closed on removed config keys', () => {
+  it('fails closed on removed config keys', async () => {
     for (const removed of [
       { supervisor: { enabled: false } },
       { rag: {} },
       { notifications: { channels: ['web'], filters: { min_severity: 'warning' } } },
     ]) {
       const root = makeProject({ models: { default: ['test-model'] }, ...removed });
-      expect(() => loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root })).toThrow(/Configuration validation failed/);
+      await expect(loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root })).rejects.toThrow(/Configuration validation failed/);
     }
   });
 });

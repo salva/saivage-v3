@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { ChatSendResponseSchema } from '../../src/contracts/operator-api-chats.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { createTestRuntimeApplication, ensureTestSaivageConfig, loadTestConfig } from '../helpers/test-runtime-application.js';
+import { testConfigAuthority } from '../helpers/canonical-project.js';
 
 const submit = jest.fn<(sessionId: string, input: { userContent: string; workspaceContext?: unknown }) => Promise<unknown>>();
 const resolveAnalystSessionId = jest.fn<(id?: string) => string>();
@@ -51,7 +52,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     const fastify = Fastify();
     const runtimeApplication = createTestRuntimeApplication();
     Object.defineProperty(runtimeApplication, 'analystRuntime', { value: { submit, setRequestServerRestart: jest.fn() } });
-    registerOperatorContractRoutes({ fastify, projectRoot: root, runtimeApplication, saivageConfig: loadTestConfig(root), authPolicy: new AuthPolicy() });
+    registerOperatorContractRoutes({ fastify, projectRoot: root, configAuthority: testConfigAuthority(root), runtimeApplication, saivageConfig: loadTestConfig(root), authPolicy: new AuthPolicy() });
     await fastify.ready();
     return fastify;
   }
@@ -116,6 +117,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     registerOperatorContractRoutes({
       fastify,
       projectRoot: root,
+      configAuthority: testConfigAuthority(root),
       runtimeApplication,
       restartPort: { schedule: jest.fn(), acknowledge },
       saivageConfig: loadTestConfig(root),
