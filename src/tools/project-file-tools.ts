@@ -25,7 +25,7 @@ export const READ_HEAD_SAMPLE_BYTES = 4096;
 const GREP_HEAD_SAMPLE_BYTES = 1024;
 const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
-export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read' | 'getAncestors' | 'setStatus' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord' | 'runPersistenceRequest'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
+export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read' | 'getAncestors' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord' | 'runPersistenceRequest'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
 type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
 
 export class WorkspaceToolInputError extends Error {
@@ -303,7 +303,7 @@ function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; 
     ctx.store!.editRecord(target.cardId, 'brief.md', open.version, params.content);
     const closed = ctx.store!.closeRecord(target.cardId, 'brief.md', open.version, 'analyst', card.version_seq);
     try {
-      propagateAnalystBriefEdit(ctx.store!, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, ctx.notifyCard!);
+      propagateAnalystBriefEdit(ctx.store! as CardStore, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, ctx.notifyCard!);
       return { card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true, propagation: { ok: true } };
     } catch (error) {
       return { card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } };

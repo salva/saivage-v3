@@ -25,6 +25,7 @@ import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/p
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
 import type { ActorSnapshotStore } from './snapshots.js';
+import type { CardStore } from '../../cards/card-store.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -49,14 +50,14 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     },
   };
 
-  readonly store: CardActorStorePort;
+  readonly store: CardStore;
   readonly children: PlannerChildActorPort;
   readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly promptTemplates: PromptTemplateRegistry;
 
-  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; conversations: ConversationMutationPort; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; store: CardStore; children: PlannerChildActorPort; provider: LLMProviderPort; conversations: ConversationMutationPort; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
@@ -439,7 +440,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private reviewerInvocationSurface(cardId: string, sessionId: string) {
-    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store, mcpManagerProvider: this.mcpManagerProvider });
+    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store.records(), mcpManagerProvider: this.mcpManagerProvider });
   }
 
   protected get processorLabel(): string {

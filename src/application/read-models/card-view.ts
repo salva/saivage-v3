@@ -1,13 +1,13 @@
-import { PROJECT_CARD_ID, type CardStore } from '../../cards/store-api.js';
+import { PROJECT_CARD_ID, type CardStore, type CardStoreRepository } from '../../cards/store-api.js';
 import { TERMINAL_STATUSES } from '../../permissions/index.js';
 import type { CardOperatorSummary, CardRecord, CardRefView, CardView } from '../../schemas/index.js';
 
-export function computeCardDisplayPath(store: CardStore, card: CardRecord): string | null {
+export function computeCardDisplayPath(store: CardStore | CardStoreRepository, card: CardRecord): string | null {
   if (card.parent === null || card.id === PROJECT_CARD_ID) return null;
   const segments = [String(siblingDisplayRank(store, card))];
   let parentId: string | null = card.parent;
   while (parentId && parentId !== PROJECT_CARD_ID) {
-    const parent = store.read(parentId);
+    const parent: CardRecord | null = store.read(parentId);
     if (!parent) throw new Error(`Card topology corruption: missing parent ${parentId} for card ${card.id}`);
     segments.unshift(String(siblingDisplayRank(store, parent)));
     parentId = parent.parent;
@@ -15,7 +15,7 @@ export function computeCardDisplayPath(store: CardStore, card: CardRecord): stri
   return segments.join('.');
 }
 
-function siblingDisplayRank(store: CardStore, card: CardRecord): number {
+function siblingDisplayRank(store: CardStore | CardStoreRepository, card: CardRecord): number {
   if (!card.parent) throw new Error(`Card topology corruption: card ${card.id} has no parent display rank`);
   const siblings = store.listChildren(card.parent);
   const index = siblings.indexOf(card.id);
@@ -23,7 +23,7 @@ function siblingDisplayRank(store: CardStore, card: CardRecord): number {
   return index + 1;
 }
 
-export function orderedCardsForTree(store: CardStore): CardRecord[] {
+export function orderedCardsForTree(store: CardStore | CardStoreRepository): CardRecord[] {
   const all = store.list();
   const byId = new Map(all.map((card) => [card.id, card]));
   const result: CardRecord[] = [];
@@ -49,11 +49,11 @@ export function orderedCardsForTree(store: CardStore): CardRecord[] {
   return result;
 }
 
-export function toCardView(store: CardStore, card: CardRecord): CardView {
+export function toCardView(store: CardStore | CardStoreRepository, card: CardRecord): CardView {
   return { ...card, display_path: computeCardDisplayPath(store, card), operator_summary: toCardOperatorSummary(card) };
 }
 
-export function toCardRefView(store: CardStore, id: string): CardRefView {
+export function toCardRefView(store: CardStore | CardStoreRepository, id: string): CardRefView {
   const card = store.read(id);
   if (!card) return { id, display_path: null, title: null, missing: true };
   return { id, display_path: computeCardDisplayPath(store, card), title: card.title };

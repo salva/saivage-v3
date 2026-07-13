@@ -7,13 +7,14 @@ import { recordControlAction, stableStringify } from '../persistence/control-act
 import { cardTypeValues, urgencyValues, type CardRecord, type CardType, type Urgency } from '../schemas/index.js';
 import type { CardNotification } from '../runtime/actors/card-actor.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
+import { cardActivationOutcomePatch, type CardActivationOutcome } from '../runtime/actors/card-actor.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
 interface PlannerChildActor {
-  activate(input: { kind: 'parent'; cardId: string; sessionId: string }): Promise<{ status: string; summary: string; result?: unknown }>;
+  activate(input: { kind: 'parent'; cardId: string; sessionId: string }, parentAdmit: () => void): Promise<CardActivationOutcome>;
   recoverCurrentCardState(): void;
-  awaitSettlement(): Promise<{ status: string; summary: string; result?: unknown }>;
-  cancel(input: { reason: string; cancelled_at: string }): void;
+  awaitSettlement(caller?: { kind: 'parent'; cardId: string; sessionId: string }): Promise<CardActivationOutcome>;
+  cancel(input: { reason: string; cancelled_at: string }, mutationStore?: PlannerControlStore): void;
   markChanged?(): void;
 }
 
@@ -21,8 +22,9 @@ interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
   create?(input: NewCardInput): CardRecord;
   mutateCard?(cardId: string, changes: Partial<CardRecord>, ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): CardRecord;
-  setStatus(cardId: string, status: 'changed'): CardRecord;
+  setStatus(cardId: string, status: 'changed' | 'running'): CardRecord;
   reorderChildren?(parentId: string, orderedChildIds: string[], ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): ReorderChildrenResult;
+  commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
 }
 
 export interface PlannerControlProviderContext {
@@ -163,7 +165,7 @@ function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<typeof c
   if (['done', 'cancelled'].includes(child.card.status)) return failure(`cancel_card cannot cancel ${child.card.status === 'cancelled' ? 'already-cancelled' : child.card.status} child '${record.card_id}'.`);
   const actor = ctx.children.get(record.card_id);
   if (!actor) return failure(`No CardActor is registered for child '${record.card_id}'.`);
-  actor.cancel({ reason: record.reason ?? 'planner_cancel_card', cancelled_at: new Date().toISOString() });
+  actor.cancel({ reason: record.reason ?? 'planner_cancel_card', cancelled_at: new Date().toISOString() }, ctx.store);
   const updated = ctx.store.read(record.card_id);
   if (!updated) return failure(`Child card '${record.card_id}' not found after cancellation.`);
   return { success: true, data: { card_id: record.card_id, status: updated.status, summary: updated.status === 'running' ? 'Cancellation requested.' : 'Cancelled.' } };
@@ -180,11 +182,15 @@ async function activateCard(ctx: PlannerControlProviderContext, record: z.infer<
     let activation;
     if (child.status === 'running') {
       actor.recoverCurrentCardState();
-      activation = await actor.awaitSettlement();
+      activation = await actor.awaitSettlement({ kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId });
     } else {
-      activation = await actor.activate({ kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId });
+      activation = await actor.activate(
+        { kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId },
+        () => { ctx.store.setStatus(record.card_id, 'running'); },
+      );
     }
     if (activation.status === 'cancelled') return failure(`Child card '${record.card_id}' activation was cancelled.`);
+    ctx.store.commitTerminalLifecyclePatch(record.card_id, cardActivationOutcomePatch(activation, new Date().toISOString()));
     return { success: true, data: { card_id: record.card_id, outcome: activation.status, summary: activation.summary, result: activation.result ?? null } };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };

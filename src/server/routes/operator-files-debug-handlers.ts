@@ -1,9 +1,9 @@
 import { DebugReadModelService, WorkspaceFileReadModelService } from '../../application/read-models/index.js';
-import type { CardStore } from '../../cards/store-api.js';
+import type { CardStoreRepository } from '../../cards/store-api.js';
 import type { OperatorContractHandlerMap, OperatorProjectContext } from './operator-handler-context.js';
 
-export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardStoreProvider: () => CardStore | undefined }): OperatorContractHandlerMap {
-  const requireCardStore = (): CardStore => {
+export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardStoreProvider: () => CardStoreRepository | undefined }): OperatorContractHandlerMap {
+  const requireCardStore = (): CardStoreRepository => {
     const store = options.cardStoreProvider();
     if (!store) throw new Error('CardStore is unavailable. Start runtime or provide a server-owned CardStore.');
     return store;

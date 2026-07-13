@@ -113,7 +113,6 @@ describe('application read models', () => {
 
   it('exposes canonical lifecycle in operator read models', () => {
     const store = new CardStore(root);
-    store.invalidate();
     const lifecycle = {
       status: 'done',
       result: { kind: 'done' as const, summary: 'complete' },

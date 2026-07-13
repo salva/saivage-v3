@@ -10,10 +10,8 @@ import { basename, dirname, join } from 'node:path';
 
 import type { AgentRole, CardHistoryEntry, CardRecord } from '../schemas/index.js';
 import { runtimeStateSchema } from '../schemas/index.js';
-import {
-  assertRuntimeLifecycleLock,
-  type RuntimeLifecycleLockHandle,
-} from '../runtime/lock.js';
+import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
+import type { MutationLane, NotPromise } from '../application/mutation-lane.js';
 import { parseCardVersionArtifact } from './canonical-card-artifacts.js';
 import { authoredRecordSlotValues, parseRecordVersionArtifact, type AuthoredRecordSlot, type RecordVersionArtifact } from './canonical-record-artifacts.js';
 import { observeCanonicalProjectRoot } from './canonical-root-observation.js';
@@ -31,6 +29,8 @@ import {
   publishDirectory,
 } from './durable-file-replacement.js';
 import { IndeterminatePublicationError } from './errors.js';
+import { readDeletedCardIds } from './deleted-card-ids.js';
+import { deletedCardIdsFile } from './layout.js';
 
 const GENERATED_ROOTS = new Set(['cards', 'agents', 'state', 'logs', 'work', 'stages', 'locks']);
 const PRESERVED_SAIVAGE_ENTRIES = new Set([
@@ -83,28 +83,23 @@ function canonicalRootPublicationState(projectRoot: string): 'unpublished' | 'pu
 /** Read-only startup classifier for commands that are explicitly allowed to bootstrap. */
 export function classifyPersistenceOpenMode(
   projectRoot: string,
-  lifecycleLock: RuntimeLifecycleLockHandle,
+  _compositionAuthority: CompositionMutationAuthority,
   root: NewProjectRootInput,
 ): PersistenceOpenMode {
-  assertRuntimeLifecycleLock(lifecycleLock, projectRoot);
   if (canonicalRootPublicationState(projectRoot) === 'published-or-malformed') return { kind: 'normal' };
   try {
-    verifyBootstrapEligibleLayout(projectRoot, lifecycleLock);
+    verifyBootstrapEligibleLayout(projectRoot);
     return { kind: 'bootstrap', root };
   } catch {
     return { kind: 'normal' };
   }
 }
 
-export type PersistenceAuthorityState = 'closed' | 'exclusive-restabilization' | 'open' | 'failed';
-
 export interface ProjectPersistenceAuthority {
   readonly projectRoot: string;
-  readonly state: PersistenceAuthorityState;
   readonly generation: CanonicalStoreGeneration;
   readonly reader: ProjectCardRecordReader;
   readonly writer: ProjectCardRecordWriter;
-  close(): void;
 }
 
 export interface RecordProjection {
@@ -132,7 +127,7 @@ export interface ProjectMutationSession {
 }
 
 export interface ProjectCardRecordWriter {
-  request<T>(operation: (session: ProjectMutationSession) => T): T;
+  request<T>(authority: MutationAuthority, operation: (session: ProjectMutationSession) => NotPromise<T>): T;
 }
 
 function readJson(path: string): unknown {
@@ -212,9 +207,7 @@ function verifyCardsRoot(cardsPath: string): void {
 /** Strict read-only proof that bootstrap cannot overwrite established generated state. */
 export function verifyBootstrapEligibleLayout(
   projectRoot: string,
-  lifecycleLock: RuntimeLifecycleLockHandle,
 ): BootstrapEligibility {
-  assertRuntimeLifecycleLock(lifecycleLock, projectRoot);
   const canonicalProjectRoot = realpathSync(projectRoot);
   const externalGeneratedRoot = join(canonicalProjectRoot, '.saivage-work');
   if (existsSync(externalGeneratedRoot)) throw new Error(`Obsolete generated work root blocks bootstrap: '${externalGeneratedRoot}'.`);
@@ -342,8 +335,8 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter, ProjectMut
   private cardGenerationDirty = false;
   constructor(private readonly authority: ProjectPersistenceAuthorityImpl) {}
 
-  request<T>(operation: (session: ProjectMutationSession) => T): T {
-    return this.authority.admitAuthorizedMutation(() => {
+  request<T>(mutationAuthority: MutationAuthority, operation: (session: ProjectMutationSession) => NotPromise<T>): T {
+    return this.authority.admitAuthorizedMutation(mutationAuthority, () => {
       try {
         const result = operation(this);
         if (this.cardGenerationDirty) { this.cardGenerationDirty = false; this.authority.refreshGeneration(); }
@@ -396,6 +389,8 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter, ProjectMut
     if (cardId === 'project') throw new Error('Cannot delete the project card.');
     const path = join(this.authority.projectRoot, '.saivage', 'cards', cardId);
     if (!this.authority.hasCard(cardId)) throw new Error(`Cannot delete missing card '${cardId}'.`);
+    const reserved = [...new Set([...readDeletedCardIds(this.authority.projectRoot), cardId])].sort();
+    durablyReplaceFile(deletedCardIdsFile(this.authority.projectRoot), Buffer.from(`${JSON.stringify(reserved, null, 2)}\n`));
     // Deletion durability remains the existing best-effort namespace removal contract.
     rmSync(path, { recursive: true });
     this.cardGenerationDirty = true;
@@ -464,15 +459,13 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter, ProjectMut
 }
 
 class ProjectPersistenceAuthorityImpl implements ProjectPersistenceAuthority {
-  private admissionState: PersistenceAuthorityState = 'closed';
   private currentGeneration: CanonicalStoreGeneration | null = null;
-  private executing = false;
   readonly #writer: ProjectCardRecordWriterImpl;
   readonly reader: ProjectCardRecordReader;
 
   constructor(
     readonly projectRoot: string,
-    private readonly lifecycleLock: RuntimeLifecycleLockHandle,
+    private readonly lane: MutationLane,
   ) {
     this.#writer = new ProjectCardRecordWriterImpl(this);
     this.reader = Object.freeze({
@@ -492,33 +485,20 @@ class ProjectPersistenceAuthorityImpl implements ProjectPersistenceAuthority {
 
   hasCard(cardId: string): boolean { return this.currentGeneration?.cards.has(cardId) ?? false; }
 
-  get state(): PersistenceAuthorityState {
-    return this.admissionState;
-  }
-
   get generation(): CanonicalStoreGeneration {
-    if (this.admissionState !== 'open' || this.currentGeneration === null) throw new Error('Persistence authority has no published generation.');
+    if (this.currentGeneration === null) throw new Error('Persistence authority has no published generation.');
     return this.currentGeneration;
   }
 
-  beginExclusive(): void {
-    if (this.admissionState !== 'closed') throw new Error(`Cannot begin restabilization from '${this.admissionState}'.`);
-    this.admissionState = 'exclusive-restabilization';
-  }
-
   publish(generation: CanonicalStoreGeneration): void {
-    if (this.admissionState !== 'exclusive-restabilization') throw new Error('Persistence authority is not exclusively restabilizing.');
     this.currentGeneration = generation;
-    this.admissionState = 'open';
   }
 
   createBootstrapRoot(input: NewProjectRootInput): void {
-    if (this.admissionState !== 'exclusive-restabilization') throw new Error('Bootstrap root creation requires exclusive authority ownership.');
     this.#writer.createBootstrapRoot(input);
   }
 
   refreshGeneration(): void {
-    if (this.admissionState !== 'open' && this.admissionState !== 'exclusive-restabilization') throw new Error(`Cannot refresh persistence generation while '${this.admissionState}'.`);
     try {
       const observation = observeCanonicalProjectRoot(join(this.projectRoot, '.saivage', 'cards'));
       this.currentGeneration = restabilizeCanonicalStore(this.projectRoot, join(this.projectRoot, '.saivage', 'cards'), observation);
@@ -527,59 +507,44 @@ class ProjectPersistenceAuthorityImpl implements ProjectPersistenceAuthority {
 
   fail(): void {
     this.currentGeneration = null;
-    this.admissionState = 'failed';
   }
 
-  admitAuthorizedMutation<T>(operation: () => T): T {
-    try {
-      assertRuntimeLifecycleLock(this.lifecycleLock, this.projectRoot);
-    } catch (error) {
-      this.fail();
-      throw error;
-    }
-    if (this.admissionState !== 'open') throw new Error(`Persistence mutation admission is '${this.admissionState}'.`);
-    if (this.executing) throw new Error('Recursive persistence mutation admission is forbidden.');
-    this.executing = true;
-    try {
-      return operation();
-    } finally {
-      this.executing = false;
-    }
-  }
-
-  close(): void {
-    if (this.executing) throw new Error('Cannot close persistence authority during a mutation.');
-    if (this.admissionState !== 'failed') this.admissionState = 'closed';
-    this.currentGeneration = null;
+  admitAuthorizedMutation<T>(authority: MutationAuthority, operation: () => T): T {
+    if (this.currentGeneration === null) throw new Error('Persistence authority has failed.');
+    const result = this.lane.apply<T>(authority, 'card and authored-record mutation', operation as () => NotPromise<T>);
+    if (!result.applied) throw new Error('Card mutation authority is stale.');
+    return result.value;
   }
 }
 
-export function openProjectPersistenceAuthority(input: {
+export function createProjectPersistenceAuthority(input: {
   projectRoot: string;
-  lifecycleLock: RuntimeLifecycleLockHandle;
+  lane: MutationLane;
+  compositionAuthority: CompositionMutationAuthority;
   mode: PersistenceOpenMode;
 }): ProjectPersistenceAuthority {
-  assertRuntimeLifecycleLock(input.lifecycleLock, input.projectRoot);
   const projectRoot = realpathSync(input.projectRoot);
-  const authority = new ProjectPersistenceAuthorityImpl(projectRoot, input.lifecycleLock);
-  authority.beginExclusive();
+  const authority = new ProjectPersistenceAuthorityImpl(projectRoot, input.lane);
   try {
-    if (input.mode.kind === 'bootstrap') {
-      validateBootstrapRootInput(input.mode.root);
-      const eligibility = verifyBootstrapEligibleLayout(projectRoot, input.lifecycleLock);
-      if (!issuedEligibility.has(eligibility) || eligibility.canonicalProjectRoot !== projectRoot) {
-        throw new Error('Bootstrap eligibility proof is invalid or belongs to another project.');
+    const initialized = input.lane.apply(input.compositionAuthority, 'card store restabilization', () => {
+      if (input.mode.kind === 'bootstrap') {
+        validateBootstrapRootInput(input.mode.root);
+        const eligibility = verifyBootstrapEligibleLayout(projectRoot);
+        if (!issuedEligibility.has(eligibility) || eligibility.canonicalProjectRoot !== projectRoot) {
+          throw new Error('Bootstrap eligibility proof is invalid or belongs to another project.');
+        }
+        establishBootstrapDefaults(projectRoot);
+        const cardsPath = join(projectRoot, '.saivage', 'cards');
+        const projectNamespace = join(cardsPath, 'project');
+        if (existsSync(projectNamespace)) discardIncompleteCardNamespace(cardsPath, 'project');
+        authority.createBootstrapRoot(input.mode.root);
       }
-      establishBootstrapDefaults(projectRoot);
       const cardsPath = join(projectRoot, '.saivage', 'cards');
-      const projectNamespace = join(cardsPath, 'project');
-      if (existsSync(projectNamespace)) discardIncompleteCardNamespace(cardsPath, 'project');
-      authority.createBootstrapRoot(input.mode.root);
-    }
-    const cardsPath = join(projectRoot, '.saivage', 'cards');
-    const observation = observeCanonicalProjectRoot(cardsPath);
-    const generation = restabilizeCanonicalStore(projectRoot, cardsPath, observation);
-    authority.publish(generation);
+      const observation = observeCanonicalProjectRoot(cardsPath);
+      return restabilizeCanonicalStore(projectRoot, cardsPath, observation);
+    });
+    if (!initialized.applied) throw new Error('Composition authority unexpectedly became stale.');
+    authority.publish(initialized.value);
     return authority;
   } catch (error) {
     authority.fail();

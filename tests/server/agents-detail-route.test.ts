@@ -52,7 +52,7 @@ describe('GET /api/agents/:id', () => {
     app = Fastify({ logger: false });
     await app.register(cors);
     const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
-    registerOperatorContractRoutes({ fastify: app, projectRoot, configAuthority: testConfigAuthority(projectRoot), authPolicy: new AuthPolicy({ apiToken: AUTH_TOKEN }), cardStore });
+    registerOperatorContractRoutes({ fastify: app, projectRoot, configAuthority: testConfigAuthority(projectRoot), authPolicy: new AuthPolicy({ apiToken: AUTH_TOKEN }), cardStore: cardStore.repository });
     await app.ready();
   });
 

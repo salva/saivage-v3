@@ -1,4 +1,4 @@
-import { initProjectTree, testProjectAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, testCompositionAuthority, testProjectAuthority } from '../helpers/canonical-project.js';
 import { describe, expect, it, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -26,7 +26,7 @@ describe('operator runtime.getState identity', () => {
   let originalToken: string | undefined;
 
   async function createTestServer(root: string) {
-    return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root), restartPort: createTestRestartPort() });
+    return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root), compositionAuthority: testCompositionAuthority(root), restartPort: createTestRestartPort() });
   }
 
   beforeEach(() => {

@@ -14,7 +14,7 @@ import type { McpManager } from '../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../observability/index.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 
-import { CardStore } from '../cards/card-store.js';
+import { CardStoreRepository } from '../cards/card-store.js';
 import { InvocationService } from '../agents/invocation-service.js';
 import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
@@ -26,11 +26,13 @@ import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { ReadModelChanges } from './read-model-changes.js';
 import { createProviderExchangeMutationPort } from '../persistence/provider-exchange-mutation-port.js';
 import { createConversationMutationPort, type ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
+import type { CompositionMutationAuthority } from './mutation-authority.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
   eventBus: EventBus;
-  cardStore: CardStore;
+  cardStore: CardStoreRepository;
+  compositionAuthority: CompositionMutationAuthority;
   invocationService: InvocationService;
   config?: SaivageConfig;
   processRunner: ProcessRunner;
@@ -44,7 +46,7 @@ type DisposableCandidateAvailability = CandidateAvailability & { dispose(): void
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
-  readonly cardStore: CardStore;
+  readonly cardStore: CardStoreRepository;
   readonly processRunner: ProcessRunner;
   readonly analystDeps: AnalystRuntimeDeps;
   readonly analystRuntime: AnalystRuntime;
@@ -59,7 +61,8 @@ export interface RuntimeApplicationServices {
   eventBus: EventBus;
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
-  cardStore: CardStore;
+  cardStore: CardStoreRepository;
+  compositionAuthority: CompositionMutationAuthority;
   runtimeApiFactory?: (deps: RuntimeApiFactoryDeps) => RuntimeApi;
   restartServerAvailable?: boolean;
   restartPort?: RestartPort;
@@ -68,7 +71,7 @@ export interface RuntimeApplicationServices {
 
 function buildAnalystDeps(input: {
   runtimeApi: RuntimeApi;
-  cardStore: CardStore;
+  cardStore: CardStoreRepository;
   candidateAvailability: DisposableCandidateAvailability;
   eventLogger: EventLogger;
   eventBus: EventBus;
@@ -134,7 +137,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, readModelChanges: services.readModelChanges }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, compositionAuthority: services.compositionAuthority, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, readModelChanges: services.readModelChanges }),
     candidateAvailability,
     eventLogger,
     errorLogger,

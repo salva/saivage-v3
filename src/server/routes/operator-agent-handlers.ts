@@ -4,9 +4,9 @@ import type {
   OperatorContractHandlerMap,
   OperatorProjectContext,
 } from './operator-handler-context.js';
-import type { CardStore } from '../../cards/store-api.js';
+import type { CardStoreRepository } from '../../cards/store-api.js';
 
-type AgentOperatorHandlerOptions = OperatorProjectContext & { cardStore?: CardStore };
+type AgentOperatorHandlerOptions = OperatorProjectContext & { cardStore?: CardStoreRepository };
 
 export function buildAgentOperatorContractHandlers(options: AgentOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;

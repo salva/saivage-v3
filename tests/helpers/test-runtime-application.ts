@@ -1,4 +1,4 @@
-import { CardStore, testConfigAuthority } from './canonical-project.js';
+import { CardStore, testCardRepository, testConfigAuthority } from './canonical-project.js';
 import { testActorSnapshots } from './actor-snapshots.js';
 import { EventBus } from '../../src/events/bus.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -121,7 +121,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
   return {
     configAuthority: testConfigAuthority(projectRoot),
     runtime: analystRuntime,
-    cardStore,
+    cardStore: cardStore.repository,
     candidateAvailability: analystRuntime.candidateAvailability,
     eventLogger: analystRuntime.eventLogger,
     eventBus,
@@ -143,7 +143,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
   const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus, cardStore, projectRoot });
   let analystRuntimeService: AnalystRuntime | null = null;
   const runtimeApplication: RuntimeApplication = {
-    cardStore,
+    cardStore: cardStore.repository,
     processRunner,
     runtimeApi: {
       start: () => analystRuntime.start(),
@@ -171,7 +171,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       return {
         configAuthority: testConfigAuthority(projectRoot),
         runtime: analystRuntime,
-        cardStore,
+        cardStore: cardStore.repository,
         candidateAvailability: analystRuntime.candidateAvailability,
         eventLogger: analystRuntime.eventLogger,
         eventBus,

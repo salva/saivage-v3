@@ -194,7 +194,7 @@ The runtime persists card, processor, LLM, active conversation, and current-work
 - `blocked`
 - `cancelled` (runtime-produced only; never emitted by a main agent)
 
-The main agent for every card type may report `done`, `failed`, or `blocked`. Before the parent planner receives a main-agent activation outcome, the child card first transitions to the matching card status. Runtime-produced `cancelled` is not emitted by a main agent.
+The main agent for every card type may report `done`, `failed`, or `blocked`. Executors and reviewers return outcomes and authored records; they do not receive a card-tree mutation capability. A child processor likewise does not terminally mutate its own card. After the sole active-leaf authority transfers back from child to parent, the exact responsible parent planner applies the returned outcome to its direct child before receiving the `activate_card` tool result. The runtime coordinator performs the corresponding narrow application only for the parentless project root. Runtime-produced `cancelled` is not emitted by a main agent.
 
 The Analyst does not directly set cards to `blocked`. `blocked` is reported by a card's main agent as an activation outcome. Analyst intervention uses supported objective/instruction edits or card-addressed notifications.
 

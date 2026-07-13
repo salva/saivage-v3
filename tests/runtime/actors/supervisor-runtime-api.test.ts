@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testCompositionAuthority } from '../../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -37,7 +37,8 @@ describe('SupervisorRuntimeApi shutdown', () => {
         projectRoot: root,
         conversations: testConversationMutations(root),
         readModelChanges: changes,
-        actorStore: new CardStore(root),
+        actorStore: new CardStore(root).repository,
+        compositionAuthority: testCompositionAuthority(root),
         provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },
         processRunner: runner,
         promptTemplates: createTestPromptTemplateRegistry(),
@@ -69,7 +70,8 @@ describe('SupervisorRuntimeApi shutdown', () => {
         projectRoot: root,
         conversations: testConversationMutations(root),
         readModelChanges: new ReadModelChangeBroadcaster(),
-        actorStore: store,
+        actorStore: store.repository,
+        compositionAuthority: testCompositionAuthority(root),
         provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },
         processRunner: runner,
         promptTemplates: createTestPromptTemplateRegistry(),
@@ -112,7 +114,8 @@ describe('SupervisorRuntimeApi shutdown', () => {
         projectRoot: root,
         conversations: testConversationMutations(root),
         readModelChanges: new ReadModelChangeBroadcaster(),
-        actorStore: store,
+        actorStore: store.repository,
+        compositionAuthority: testCompositionAuthority(root),
         provider: { completeTurn: async () => { throw new Error('provider must not be called'); } },
         processRunner: runner,
         promptTemplates: createTestPromptTemplateRegistry(),

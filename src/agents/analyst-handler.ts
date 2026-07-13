@@ -6,7 +6,7 @@ import {
   AnalystOfflineError,
   formatVocabularySnippet,
 } from './analyst-prompt.js';
-import { CardStore } from '../cards/store-api.js';
+import { CardStore, CardStoreRepository } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventBus, EventPayload } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
@@ -40,6 +40,7 @@ import type { RestartPort } from '../boot/restart-port.js';
 import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
 import { recordControlAction } from '../persistence/index.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from '../runtime/actors/invocation-lifecycle.js';
+import { AnalystTurnCurrentness, type AnalystTurnAuthority } from '../application/mutation-authority.js';
 
 
 export interface WorkspaceContext {
@@ -85,7 +86,7 @@ export interface AnalystResponse {
 
 export interface AnalystRuntimeDeps {
   configAuthority: ResolvedConfigAuthority;
-  cardStore: CardStore;
+  cardStore: CardStoreRepository;
   runtime: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
   candidateAvailability?: CandidateAvailability;
   eventLogger?: EventLogger;
@@ -155,8 +156,8 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
   deps.emitAnalystToolInvoked({ sessionId, tool, success: result.success, ...payload });
 }
 
-function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
-  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.runtimeDeps.cardStore, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
+function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardStore; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
+  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
 }
 
 type PendingAnalystTurn = {
@@ -185,6 +186,8 @@ export class AnalystSessionActor extends BaseActor {
   private readonly processScope: ManagedProcessScope;
   private operationTracker: ActivationOperationTracker | null = null;
   private readonly retiredOperationTrackers: ActivationOperationTracker[] = [];
+  private readonly turnCurrentness = new AnalystTurnCurrentness();
+  private turnAuthority: AnalystTurnAuthority | null = null;
 
   constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
     super();
@@ -208,6 +211,7 @@ export class AnalystSessionActor extends BaseActor {
     this.pendingTurn = { input, onActivity };
     this.result = deferred<AnalystTurnResult>();
     this.operationTracker = new ActivationOperationTracker();
+    this.turnAuthority = this.turnCurrentness.begin();
     this.parkedSendEvent('submit');
     return this.result.promise;
   }
@@ -217,6 +221,8 @@ export class AnalystSessionActor extends BaseActor {
     if (this.state() !== 'conversing' || !result) return false;
     this.cancellationReason = reason;
     this.operationTracker?.revoke(new Error(reason));
+    if (this.turnAuthority) this.turnCurrentness.clear(this.turnAuthority);
+    this.turnAuthority = null;
     this.turnAbort?.abort(new Error(reason));
     this.pendingTurn = null;
     this.result = null;
@@ -284,7 +290,11 @@ export class AnalystSessionActor extends BaseActor {
       this.pendingRestartConfirmation = false;
       if (input.userContent === 'RESTART SERVER') return this.scheduleConfirmedRestart(input);
     }
-    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
+    const store = this.args.runtimeDeps.cardStore.authorize(() => {
+      if (this.turnAuthority === null) throw new Error('Analyst turn authority is not current.');
+      return this.turnAuthority;
+    });
+    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
     const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
     const previousToolCallFingerprints = new Set<string>();
     let noProgressDirectiveSent = false;
@@ -509,6 +519,8 @@ export class AnalystSessionActor extends BaseActor {
     this.toolInFlight = null;
     this.turnAbort = null;
     if (this.llm.state() === 'waiting_tool') this.llm.abandonParkedTurn();
+    if (this.turnAuthority) this.turnCurrentness.clear(this.turnAuthority);
+    this.turnAuthority = null;
   }
 
   private resetCancellationState(): void {
@@ -579,7 +591,8 @@ export class AnalystRuntime {
   getAvailableToolNames(actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat'): string[] {
     const processScope = this.args.runtimeDeps.processRunner.createDirectScope(this.args.runtimeDeps.analystProcessRootScope, 'analyst-tool-catalog', 'operator_session');
     try {
-      const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
+      const catalogStore = this.args.runtimeDeps.cardStore.authorize(() => { throw new Error('Tool catalog has no mutation authority.'); });
+      const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store: catalogStore, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
       return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
     } finally {
       this.args.runtimeDeps.processRunner.closeScope(processScope);

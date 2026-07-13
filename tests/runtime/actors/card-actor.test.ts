@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testCompositionAuthority } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
@@ -40,7 +40,7 @@ function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled'
 const processorLifecycle = () => ({ disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []), pendingJoinTaskCount: jest.fn(() => 0) });
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function cardActive(cardId: string): Record<string, unknown> {
@@ -92,7 +92,7 @@ describe('CardActor', () => {
     expect(store.read(goal.id)?.status).toBe('backlog');
   }));
 
-  it('transitions to running, invokes the processor, and commits done before resolving', async () => withTempProject(async (projectRoot) => {
+  it('returns the processor outcome without committing its own terminal card state', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -103,7 +103,7 @@ describe('CardActor', () => {
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'project done' });
     expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({ card: expect.objectContaining({ id: 'project' }) }), expect.any(AbortSignal));
-    expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project done' });
+    expect(store.read('project')).toMatchObject({ status: 'running', status_text: null });
     await eventually(() => expect(actor.state()).toBe('parked'));
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id)).toContain('card:project');
   }));
@@ -334,7 +334,7 @@ describe('CardActor', () => {
     expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'restored', message: 'from snapshot' })]);
   }));
 
-  it('runtime notifyCard persists inactive card notifications and reopens done cards', () => withTempProject((projectRoot) => {
+  it('runtime notifyCard persists inactive card notifications without mutating lifecycle', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
@@ -350,7 +350,8 @@ describe('CardActor', () => {
       readModelChanges,
       projectRoot, conversations: testConversationMutations(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
-      actorStore: store,
+      actorStore: store.repository,
+      compositionAuthority: testCompositionAuthority(projectRoot),
       provider: { completeTurn: jest.fn() as never },
       processRunner: createTestProcessRunner(projectRoot),
     });
@@ -358,7 +359,7 @@ describe('CardActor', () => {
     const result = runtime.notifyCard(goal.id, { id: 'inactive', message: 'wake up', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
 
     expect(result).toEqual({ ok: true });
-    expect(store.read(goal.id)?.status).toBe('changed');
+    expect(store.read(goal.id)?.status).toBe('done');
     expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === cardActorId(goal.id))?.context.notifications).toEqual([
       expect.objectContaining({ id: 'inactive', message: 'wake up' }),
     ]);
@@ -373,7 +374,8 @@ describe('CardActor', () => {
       readModelChanges: new ReadModelChangeBroadcaster(),
       projectRoot, conversations: testConversationMutations(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
-      actorStore: store,
+      actorStore: store.repository,
+      compositionAuthority: testCompositionAuthority(projectRoot),
       provider: { completeTurn: jest.fn() as never },
       processRunner: createTestProcessRunner(projectRoot),
     });
@@ -437,7 +439,7 @@ describe('CardActor', () => {
       activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = resolve; })),
     };
     const actor = actorFromCard(projectRoot, store, goal, runningProcessor);
-    const activation = actor.activate({ kind: 'parent', cardId: 'project' });
+    const activation = actor.activate({ kind: 'parent', cardId: 'project' }, () => { store.setStatus(goal.id, 'running'); });
     await eventually(() => expect(store.read(goal.id)?.status).toBe('running'));
 
     actor.enqueueNotification({ id: 'n-running', message: 'running context', created_at: '2026-06-12T00:00:00.000Z' });
@@ -472,7 +474,7 @@ describe('CardActor', () => {
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'done' });
     await eventually(() => expect(actor.state()).toBe('parked'));
-    expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'done' } } });
+    expect(store.read(project.id)).toMatchObject({ status: 'running', lifecycle: { result: null } });
     expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'n-late' })]);
   }));
 
@@ -498,7 +500,7 @@ describe('CardActor', () => {
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'done' });
     await eventually(() => expect(actor.state()).toBe('parked'));
-    expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'done' } } });
+    expect(store.read(project.id)).toMatchObject({ status: 'running', lifecycle: { result: null } });
     expect(actor.listPendingNotifications()).toEqual([]);
   }));
 
@@ -564,7 +566,7 @@ describe('CardActor', () => {
     };
     const actor = CardActor.fromCard({ card: runningGoal, deps: { ...deps(projectRoot, store), processRunner: runner } });
     Object.defineProperty(actor, 'processor', { value: runningProcessor });
-    const activation = actor.activate({ kind: 'parent', cardId: 'project' });
+    const activation = actor.activate({ kind: 'parent', cardId: 'project' }, () => { store.setStatus(runningGoal.id, 'running'); });
     await eventually(() => expect(store.read(runningGoal.id)?.status).toBe('running'));
 
     actor.cancel({ reason: 'operator requested stop', cancelled_at: '2026-06-12T00:00:00.000Z' });

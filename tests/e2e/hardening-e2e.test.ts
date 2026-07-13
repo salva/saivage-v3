@@ -74,8 +74,8 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     const { createTestRuntimeApplication, createTestSaivageConfig } = await import('../helpers/test-runtime-application.js');
 
     authPolicy = new AuthPolicy({ apiToken: authToken });
-    registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, configAuthority: testConfigAuthority(tmpDir), cardStore, authPolicy });
-    registerInternalDebugRoutes(app, tmpDir, cardStore, authPolicy);
+    registerOperatorContractRoutes({ fastify: app, projectRoot: tmpDir, configAuthority: testConfigAuthority(tmpDir), cardStore: cardStore.repository, authPolicy });
+    registerInternalDebugRoutes(app, tmpDir, cardStore.repository, authPolicy);
     registerWebSocket(app, tmpDir, { authPolicy, liveSyncSocket: new LiveSyncSocket(), saivageConfig: createTestSaivageConfig(), runtimeApplication: createTestRuntimeApplication({ cardStore }) });
 
     await app.listen({ port: 0, host: '127.0.0.1' });

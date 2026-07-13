@@ -1,4 +1,4 @@
-import { initProjectTree, testProjectAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, testCompositionAuthority, testProjectAuthority } from '../helpers/canonical-project.js';
 import { describe, it, expect, afterEach, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -42,7 +42,7 @@ function operatorLog(root: string): string {
 }
 
 async function createTestServer(root: string) {
-  return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
+  return createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root), compositionAuthority: testCompositionAuthority(root) });
 }
 
 

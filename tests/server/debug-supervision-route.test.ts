@@ -18,7 +18,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'saivage-debug-supervision-route-'));
   initProjectTree(root);
   app = Fastify();
-  registerInternalDebugRoutes(app, root, new CardStore(root), new AuthPolicy());
+  registerInternalDebugRoutes(app, root, new CardStore(root).repository, new AuthPolicy());
 });
 
 afterEach(async () => {
@@ -33,7 +33,7 @@ describe('GET /api/debug/supervision', () => {
     registerInternalDebugRoutes(
       protectedApp,
       root,
-      new CardStore(root),
+      new CardStore(root).repository,
       new AuthPolicy({ apiToken: 'debug-test-token' }),
       { runtimeApi: { startProject } } as any,
     );

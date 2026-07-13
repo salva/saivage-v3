@@ -1,5 +1,5 @@
 import type { ActiveCardRun, CardRecord, CardStatus } from '../../schemas/index.js';
-import type { CardStore } from '../../cards/store-api.js';
+import type { CardStore, CardStoreRepository } from '../../cards/store-api.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { listConversationSessionIds } from '../../runtime/actors/conversation-store.js';
 
@@ -12,7 +12,7 @@ function plannerGoalFromSessionId(sessionId: string): string | null {
   return sessionId.startsWith('planner:') ? sessionId.slice('planner:'.length) : null;
 }
 
-export function buildCardRunsResponse(projectRoot: string, store: CardStore): CardRunsResponse {
+export function buildCardRunsResponse(projectRoot: string, store: CardStore | CardStoreRepository): CardRunsResponse {
   const state = readRuntimeState(projectRoot);
   const active = state?.active_card_run ?? null;
   const active_breadcrumb = active ? [active.card_id, ...store.getAncestors(active.card_id)].reverse().flatMap((id) => {

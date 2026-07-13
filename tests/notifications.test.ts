@@ -35,7 +35,7 @@ function notificationIdFromCall(call: unknown): string {
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeCard(overrides: Partial<NewCardInput> & { id?: string; type: NewCardInput['type']; title: string }): NewCardInput & { id?: string } {

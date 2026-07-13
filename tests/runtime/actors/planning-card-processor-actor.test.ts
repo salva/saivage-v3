@@ -62,7 +62,7 @@ function terminalProcessor(outcome: Exclude<CardActivationOutcome, { status: 'ca
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeChildActor(projectRoot: string, store: CardStore, card: CardRecord, processor: CardProcessorActor): CardActor {
@@ -579,7 +579,7 @@ describe('PlanningCardProcessorActor', () => {
     const child = createGoal(store);
     let finish!: () => void;
     const childActor = makeChildActor(projectRoot, store, child, { activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = () => resolve({ status: 'blocked', summary: 'still blocked', result: { kind: 'blocked', summary: 'still blocked', resume_reason: 'test' } }); })), disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []), pendingJoinTaskCount: jest.fn(() => 0) });
-    const childActivation = childActor.activate({ kind: 'parent', cardId: project.id });
+    const childActivation = childActor.activate({ kind: 'parent', cardId: project.id }, () => { store.setStatus(child.id, 'running'); });
     await eventually(() => expect(store.read(child.id)?.status).toBe('running'));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'running cancel requested')

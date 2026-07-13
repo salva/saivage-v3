@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testCardRepository, testCompositionAuthority, testConfigAuthority } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -389,14 +389,14 @@ describe('Reconfigure MCP live manager refresh', () => {
       try {
         const config = loadTestConfig(root);
       const eventBus = new EventBus();
-      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
+      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: testCardRepository(root), compositionAuthority: testCompositionAuthority(root), readModelChanges: new ReadModelChangeBroadcaster() });
       const mcpManager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runtimeApplication.processRunner });
       const depsBeforeMcp = runtimeApplication.analystDeps;
       expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);
       runtimeApplication.setMcpManager(mcpManager);
       expect(runtimeApplication.analystDeps).not.toBe(depsBeforeMcp);
       expect(runtimeApplication.analystDeps.mcpManager).toBe(mcpManager);
-      const ctx: ToolContext = toolCtx(root, runtimeApplication.analystDeps.cardStore, { runtime: runtimeApplication.analystDeps.runtime, mcpManager });
+      const ctx: ToolContext = toolCtx(root, new CardStore(root), { runtime: runtimeApplication.analystDeps.runtime, mcpManager });
 
       const added = await reconfigure(ctx, { action: 'mcp_add', name: 'test-server', command: '/bin/true', args: [] });
       expect(added.success).toBe(false);
@@ -423,7 +423,7 @@ describe('internal runtime shutdown', () => {
   it('cleans runtime-owned processes during application disposal without an Analyst tool', async () => {
     const root = setupRoot();
     const eventBus = new EventBus();
-    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
+    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: testCardRepository(root), compositionAuthority: testCompositionAuthority(root), readModelChanges: new ReadModelChangeBroadcaster() });
     try {
       await runtimeApplication.runtimeApi.start();
       const processScope = runtimeApplication.processRunner.createDirectScope(runtimeApplication.processRunner.runtimeRootScope, 'test-runtime', 'runtime_card');

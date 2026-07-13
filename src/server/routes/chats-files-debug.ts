@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { CardStore } from '../../cards/store-api.js';
+import type { CardStoreRepository } from '../../cards/store-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import { listRecentReviews } from '../../workspace/index.js';
@@ -8,7 +8,7 @@ import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/ind
 import { cardRecordsRoot } from '../../persistence/card-loader.js';
 import type { AuthPolicy } from '../auth-policy.js';
 
-export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardStore, authPolicy: AuthPolicy, runtimeApplication?: RuntimeApplication): void {
+export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardStoreRepository, authPolicy: AuthPolicy, runtimeApplication?: RuntimeApplication): void {
   const requireOperator = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (authPolicy.validateHttpRequest(request).ok) return;
     await reply.status(401).send({ error: 'Unauthorized', statusCode: 401 });

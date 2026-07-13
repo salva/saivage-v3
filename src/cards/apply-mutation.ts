@@ -9,11 +9,10 @@ import type {
   CardRecord,
 } from '../schemas/index.js';
 import { cardHistoryEntrySchema } from '../schemas/index.js';
-import type { ProjectCardRecordWriter, ProjectMutationSession } from '../persistence/project-persistence-authority.js';
+import type { ProjectMutationSession } from '../persistence/project-persistence-authority.js';
 import { CardStoreState } from './state.js';
 import { CardStoreInvariantError } from './errors.js';
 import type { CardMutationContext } from './lifecycle.js';
-import { reserveDeletedCardIds } from '../persistence/deleted-card-ids.js';
 
 export type ApplyMutationOp =
   | {
@@ -41,7 +40,7 @@ export type ApplyMutationOp =
 export interface ApplyMutationDeps {
   projectRoot: string;
   state: CardStoreState;
-  writer: ProjectCardRecordWriter;
+  writer: { request<T>(operation: (session: ProjectMutationSession) => T): T };
   eventBus: EventBus;
 }
 
@@ -159,7 +158,6 @@ function applyMutationLocked(
     ['__deleted__'],
     op.changeSummary,
   );
-  reserveDeletedCardIds(deps.projectRoot, [op.cardId]);
   writer.deleteCard(op.cardId);
   state.remove(op.cardId);
   const event: CardHistoryAppendedPayload = {
@@ -174,7 +172,7 @@ function applyMutationLocked(
   return { card: null, historyEntry, event };
 }
 
-/** Apply a sequence of single-card ops under one lock cycle. */
+/** Apply a sequence of single-card operations inside one already-authorized lane callback. */
 export function applyMutationGroupSync(
   deps: ApplyMutationDeps,
   ops: ApplyMutationOp[],

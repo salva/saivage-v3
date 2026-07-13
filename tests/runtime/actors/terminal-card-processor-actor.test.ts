@@ -113,7 +113,7 @@ function providerTurnFailure(message: string): ProviderTurnFailure {
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort, runner = processRunner(projectRoot)): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: runner, notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: runner, notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function actorFromCard(projectRoot: string, store: CardStore, card: ReturnType<typeof setup>['card'], processor: TerminalCardProcessorActor, provider: LLMProviderPort, runner?: ProcessRunner): CardActor {
@@ -123,7 +123,7 @@ function actorFromCard(projectRoot: string, store: CardStore, card: ReturnType<t
 }
 
 function terminalProcessor(projectRoot: string, cardId: string, provider: LLMProviderPort, store: CardStore, runner = processRunner(projectRoot)): TerminalCardProcessorActor {
-  return new TerminalCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId, provider, processRunner: runner, store });
+  return new TerminalCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId, provider, processRunner: runner, store: store.records() });
 }
 
 async function eventually(assertion: () => void, attempts = 40): Promise<void> {
@@ -142,11 +142,11 @@ describe('TerminalCardProcessorActor', () => {
     processor.start();
     const actor = actorFromCard(projectRoot, store, card, processor, provider);
 
-    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' }, () => { store.setStatus(card.id, 'running'); });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'implemented' });
-    expect(store.read(card.id)).toMatchObject({ status: 'done', status_text: 'implemented' });
-    expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'done', summary: 'implemented' });
+    expect(store.read(card.id)).toMatchObject({ status: 'running', status_text: null });
+    expect(store.read(card.id)?.lifecycle.result).toBeNull();
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
       agentId: `executor:${card.id}`,
       role: 'executor',
@@ -215,10 +215,10 @@ describe('TerminalCardProcessorActor', () => {
     processor.start();
     const actor = actorFromCard(projectRoot, store, card, processor, provider);
 
-    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' }, () => { store.setStatus(card.id, 'running'); });
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'model unavailable' });
-    expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'failed', summary: 'model unavailable' });
+    expect(store.read(card.id)?.lifecycle.result).toBeNull();
   }));
 
   it('commits accepted blocked executor results as blocked outcomes', async () => withTempProject(async (projectRoot) => {
@@ -228,10 +228,10 @@ describe('TerminalCardProcessorActor', () => {
     processor.start();
     const actor = actorFromCard(projectRoot, store, card, processor, provider);
 
-    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' }, () => { store.setStatus(card.id, 'running'); });
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'waiting on operator', result: { kind: 'blocked', resume_reason: 'waiting on operator' } });
-    expect(store.read(card.id)).toMatchObject({ status: 'blocked', status_text: 'waiting on operator' });
+    expect(store.read(card.id)).toMatchObject({ status: 'running', status_text: null });
   }));
 
   it('persists active reconstruction during terminal processor activation and clears it on settlement', async () => withTempProject(async (projectRoot) => {
@@ -272,7 +272,7 @@ describe('TerminalCardProcessorActor', () => {
     processor.start();
     const actor = actorFromCard(projectRoot, store, card, processor, provider);
 
-    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' }, () => { store.setStatus(card.id, 'running'); });
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
     expect(outcome.summary).toContain('model stopped after repeated plain executor messages');
@@ -410,7 +410,7 @@ describe('TerminalCardProcessorActor', () => {
     processor.start();
     const actor = actorFromCard(projectRoot, store, card, processor, provider);
 
-    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' }, () => { store.setStatus(card.id, 'running'); });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'continued after malformed write' });
     expect(sawMalformedWriteResult).toBe(true);
@@ -435,7 +435,7 @@ describe('TerminalCardProcessorActor', () => {
     processor.start();
     const actor = actorFromCard(projectRoot, store, card, processor, provider);
 
-    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' }, () => { store.setStatus(card.id, 'running'); });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'continued after missing record read' });
     expect(sawMissingRecordResult).toBe(true);

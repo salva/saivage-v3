@@ -4,7 +4,7 @@ import type { Environment } from '../../config/index.js';
 import type { SaivageConfig } from '../../agents/config-api.js';
 import { createResourceScope, type ResourceScope } from '../../lifecycle/index.js';
 import { createRuntimeApplication, type RuntimeApplication } from '../../application/runtime-composition.js';
-import { CardStore } from '../../cards/store-api.js';
+import { CardStoreRepository } from '../../cards/store-api.js';
 import { EventBus } from '../../events/index.js';
 import { McpManager } from '../../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../../observability/index.js';
@@ -18,6 +18,7 @@ import { createFastifyApp } from './fastify-app.js';
 import { startTelegramNotifications } from './telegram-lifecycle.js';
 import { ReadModelChangeBroadcaster, type ReadModelChangeSubscription } from '../../application/read-model-changes.js';
 import type { ProjectPersistenceAuthority } from '../../persistence/project-persistence-authority.js';
+import type { CompositionMutationAuthority } from '../../application/mutation-authority.js';
 
 export interface ServerServices {
   projectRoot: string;
@@ -27,7 +28,7 @@ export interface ServerServices {
   eventBus: EventBus;
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
-  cardStore: CardStore;
+  cardStore: CardStoreRepository;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
   liveSyncSocket: LiveSyncSocket;
@@ -79,6 +80,7 @@ export async function createServerServices(input: {
   scope?: ResourceScope;
   restartPort?: RestartPort;
   authority: ProjectPersistenceAuthority;
+  compositionAuthority: CompositionMutationAuthority;
 }): Promise<ServerServices> {
   const { environment } = input;
   const projectRoot = environment.projectRoot;
@@ -96,11 +98,11 @@ export async function createServerServices(input: {
   const eventLogger = new EventLogger(saivageDir);
   const errorLogger = new ErrorLogger(saivageDir);
   const readModelChanges = new ReadModelChangeBroadcaster();
-  const cardStore = new CardStore({ projectRoot, reader: input.authority.reader, writer: input.authority.writer, eventBus, readModelChanges });
+  const cardStore = new CardStoreRepository({ projectRoot, reader: input.authority.reader, writer: input.authority.writer, eventBus, readModelChanges });
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, cardStore, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, cardStore, compositionAuthority: input.compositionAuthority, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
 

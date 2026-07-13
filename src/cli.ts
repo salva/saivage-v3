@@ -8,7 +8,7 @@ import { evaluateAuthz } from './agents/tool-api.js';
 import { startApp } from './boot/index.js';
 import { newProjectRootInput } from './boot/app.js';
 import { recordControlAction, stableStringify, isInitialized, findProjectRoot } from './persistence/index.js';
-import { classifyPersistenceOpenMode, openProjectPersistenceAuthority } from './persistence/project-persistence-authority.js';
+import { classifyPersistenceOpenMode, createProjectPersistenceAuthority } from './persistence/project-persistence-authority.js';
 import { isLocked, pauseRuntimeControl, resumeRuntimeControl } from './runtime/control-api.js';
 import { readRuntimeState } from './runtime/state-api.js';
 import { deriveCurrentCardId } from './runtime/current-run.js';
@@ -51,8 +51,8 @@ async function handleInit(options: CliOptions): Promise<void> {
     const canonicalProjectRoot = composition.projectRoot;
     if (!options.force && isInitialized(canonicalProjectRoot)) { console.log(`Project already initialized at ${canonicalProjectRoot}`); return; }
     if (composition.projectIdentity.read() === null) composition.createAndBindProjectIdentity();
-    const mode = classifyPersistenceOpenMode(canonicalProjectRoot, composition.lifecycleLock, newProjectRootInput(canonicalProjectRoot));
-    openProjectPersistenceAuthority({ projectRoot: canonicalProjectRoot, lifecycleLock: composition.lifecycleLock, mode }).close();
+    const mode = classifyPersistenceOpenMode(canonicalProjectRoot, composition.authority, newProjectRootInput(canonicalProjectRoot));
+    createProjectPersistenceAuthority({ projectRoot: canonicalProjectRoot, lane: composition.lane, compositionAuthority: composition.authority, mode });
     console.log(`Project initialized at ${canonicalProjectRoot}`);
   });
 }
@@ -103,7 +103,7 @@ async function handleReset(): Promise<void> {
       for (const target of externalGeneratedRoots) removeIfPresent(target);
     });
     if (!deletion.applied) throw new Error('Reset composition authority unexpectedly became stale.');
-    openProjectPersistenceAuthority({ projectRoot: canonicalProjectRoot, lifecycleLock: composition.lifecycleLock, mode: { kind: 'bootstrap', root: newProjectRootInput(canonicalProjectRoot) } }).close();
+    createProjectPersistenceAuthority({ projectRoot: canonicalProjectRoot, lane: composition.lane, compositionAuthority: composition.authority, mode: { kind: 'bootstrap', root: newProjectRootInput(canonicalProjectRoot) } });
     console.log('Project reset and reinitialized with an empty current layout and root project card. Durable credentials, config, prompt overrides, skills, instructions, and source/docs were preserved.');
   });
 }

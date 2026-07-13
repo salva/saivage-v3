@@ -34,11 +34,9 @@ describe('injected canonical CardStore façade', () => {
     expect(second.create({ type: 'goal', parent: 'project', title: 'Second', brief: 'Second', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 }).id).toBe('card-2');
   });
 
-  it('keeps ordinary reads in memory until explicit invalidation', () => {
+  it('shares one composition-owned in-memory generation across authorized capabilities', () => {
     const second = new CardStore(root);
     const card = create();
-    expect(second.read(card.id)).toBeNull();
-    second.invalidate();
     expect(second.read(card.id)?.id).toBe(card.id);
   });
 

@@ -1,5 +1,6 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
+import type { CardActivationInput, CardActivationOutcome, CardProcessorActor } from './card-actor.js';
+import type { CardRecordStore } from '../../cards/card-store.js';
 import { executorActorId } from './ids.js';
 import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
@@ -35,13 +36,13 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     },
   };
 
-  readonly store: CardActorStorePort;
+  readonly store: CardRecordStore;
   private activeProcessOwnerId: string | null = null;
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly processRunner: ProcessRunner;
   private readonly promptTemplates: PromptTemplateRegistry;
 
-  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationMutationPort; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationMutationPort; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardRecordStore; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.processRunner = args.processRunner;

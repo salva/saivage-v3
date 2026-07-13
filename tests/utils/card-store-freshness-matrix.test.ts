@@ -57,7 +57,6 @@ describe('CardStore semantic freshness matrix', () => {
       { method: 'setStatus', role: 'durable card mutation' },
       { method: 'delete', role: 'durable card mutation' },
       { method: 'archiveAndDeleteSubtree', role: 'durable card mutation' },
-      { method: 'invalidate', role: 'cache reload only' },
       { method: 'setNotifyCard', role: 'collaborator configuration only' },
     ];
     expect(mutationInventory.filter(({ method }) => typeof source[method as keyof CardStore] !== 'function')).toEqual([]);
@@ -67,7 +66,6 @@ describe('CardStore semantic freshness matrix', () => {
   it('publishes nothing for non-semantic public mutation helpers', () => {
     const card = create();
     resetTargets();
-    store.invalidate();
     store.setNotifyCard(undefined);
     expect(targets).toEqual({ cards: 0, runtime: 0, agents: 0 });
   });

@@ -24,7 +24,8 @@ function deps(projectRoot: string, store: CardStore, lookup = new Map<string, Ca
   const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })) };
   return {
     projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot),
-    store,
+    storeForCard: () => store,
+    currentness: { enterChild: () => ({}) as never, resumeParent() {} },
     provider,
     promptTemplates: createTestPromptTemplateRegistry(),
     processRunner: createTestProcessRunner(projectRoot),

@@ -3,7 +3,7 @@ import { cardRecordSchema, type CardRecord } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorRecoveryPlan, type ActorStartupRecoveryReport } from './actor-recovery.js';
 import { cardActorId, plannerActorId, parseLlmActorId } from './ids.js';
-import { CardActor, type CardActorDeps, type CardActorStorePort } from './card-actor.js';
+import { CardActor, cardActivationOutcomePatch, type CardActorDeps, type CardActorStorePort } from './card-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { toPublicAgentPhase, toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import { ActorSnapshotStore } from './snapshots.js';
@@ -24,6 +24,9 @@ import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from '../ru
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import { createConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
+import type { CardStore, CardStoreRepository } from '../../cards/card-store.js';
+import { AutonomousCardCurrentness } from '../card-currentness.js';
+import type { CompositionMutationAuthority } from '../../application/mutation-authority.js';
 
 export interface ProjectRootCardReader {
   read(cardId: string): { id: string; type: string } | null;
@@ -34,7 +37,8 @@ export interface SupervisorRuntimeApiOptions {
   eventBus?: EventBus;
   now?: () => string;
   rootCards?: ProjectRootCardReader;
-  actorStore: CardActorStorePort;
+  actorStore: CardStoreRepository;
+  compositionAuthority: CompositionMutationAuthority;
   provider: LLMProviderPort;
   conversations: ConversationMutationPort;
   readModelChanges: ReadModelChanges;
@@ -62,6 +66,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private currentCardId: string | null = null;
   private startupRecoveryReport: ActorStartupRecoveryReport | null = null;
   private readonly cardActors = new Map<string, CardActor>();
+  private readonly cardCurrentness = new AutonomousCardCurrentness();
+  private readonly compositionStore: CardStore;
 
   constructor(private readonly options: SupervisorRuntimeApiOptions) {
     this.eventBus = options.eventBus ?? new EventBus();
@@ -70,6 +76,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.servingRuntimeState = createServingRuntimeStateMutationPort(options.projectRoot, options.readModelChanges);
     this.runtimeGate = options.runtimeGate ?? new RuntimeGate();
     this.snapshots = new ActorSnapshotStore(options.projectRoot, options.readModelChanges);
+    this.compositionStore = options.actorStore.authorize(() => options.compositionAuthority);
   }
 
   async start(): Promise<void> {
@@ -82,15 +89,16 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     }
 
     this.runtimeGate.close();
-    const recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
+    const recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.compositionStore);
     this.startupRecoveryReport = runActorStartupRecovery(recoveryPlan, {
       projectRoot: this.options.projectRoot,
-      store: this.options.actorStore,
+      store: this.compositionStore,
       generatedAt: this.now(),
       conversations: this.options.conversations,
       snapshots: this.snapshots,
     });
     if (this.hasRunningRecoveryWork(recoveryPlan)) {
+      this.cardCurrentness.startRoot(PROJECT_CARD_ID);
       this.constructRunningCardActors(recoveryPlan);
       this.recoverRootCard();
       this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() } });
@@ -111,6 +119,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.lifecycle = 'shutting_down';
     this.runtimeGate.close();
     ++this.runGeneration;
+    this.cardCurrentness.clear();
     let resolveShutdown!: () => void;
     let rejectShutdown!: (error: unknown) => void;
     this.shutdownPromise = new Promise<void>((resolve, reject) => {
@@ -122,7 +131,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   private async shutdownOnce(): Promise<void> {
-    for (const actor of this.cardActors.values()) actor.cancel({ reason: 'runtime shutdown' });
+    for (const actor of this.cardActors.values()) actor.cancel({ reason: 'runtime shutdown' }, this.compositionStore);
     const processReport = await this.options.processRunner.terminateScopeTree({ rootScope: this.options.processRunner.runtimeRootScope, categories: ['runtime_card'], reason: 'runtime shutdown', graceMs: 5000 });
     if (processReport.failed.length > 0) throw new Error(processReport.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
     this.cardActors.clear();
@@ -164,10 +173,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (!card) return { ok: false, reason: 'missing_card', cardId };
     this.snapshots.appendNotification(cardActorId(cardId), notification);
     if (card.status === 'done' || card.status === 'failed') {
-      this.options.actorStore.commitTerminalLifecyclePatch(cardId, {
-        status: 'changed',
-        lifecycle: { status: 'changed', result: card.lifecycle.result, error: card.lifecycle.error, completed_at: null },
-      });
+      // Notifications do not mutate card lifecycle; the authorized caller owns any change propagation.
     }
     return { ok: true };
   }
@@ -180,6 +186,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (rejection) return rejection;
 
     const startedAt = this.now();
+    this.cardCurrentness.startRoot(PROJECT_CARD_ID);
     this.runtimeGate.open();
     this.currentCardId = PROJECT_CARD_ID;
     const runtime = this.servingRuntimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...(readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt)), status: 'running', active_card_run: this.activeCardRun(startedAt), updated_at: startedAt } });
@@ -262,9 +269,14 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     try {
       const actor = this.cardActor(PROJECT_CARD_ID);
       if (generation !== this.runGeneration || this.lifecycle !== 'running') return;
-      await actor.activate({ kind: 'root' });
+      const outcome = await actor.activate({ kind: 'root' });
+      if (outcome.status !== 'cancelled') {
+        const rootStore = this.options.actorStore.authorize(() => this.cardCurrentness.forCard(PROJECT_CARD_ID).current());
+        rootStore.commitTerminalLifecyclePatch(PROJECT_CARD_ID, cardActivationOutcomePatch(outcome, this.now()));
+      }
     } catch (err) {
       if (generation !== this.runGeneration || this.lifecycle !== 'running') return;
+      this.cardCurrentness.clear();
       const at = this.now();
       const current = readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt);
       this.servingRuntimeState.apply({ kind: 'mergeRuntimeStateSnapshot', state: { ...current, status: 'error', active_card_run: null, updated_at: at } });
@@ -330,7 +342,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private cardActorDeps(): CardActorDeps {
     return {
       projectRoot: this.options.projectRoot,
-      store: this.options.actorStore,
+      storeForCard: (cardId) => this.options.actorStore.authorize(() => this.cardCurrentness.forCard(cardId).current()),
+      currentness: this.cardCurrentness,
       provider: this.options.provider,
       compactor: this.options.compactor,
       compactionConfig: this.options.compactionConfig,

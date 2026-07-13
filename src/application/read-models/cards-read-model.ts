@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import type { CardStore } from '../../cards/store-api.js';
+import type { CardStore, CardStoreRepository } from '../../cards/store-api.js';
 import type { CardHistoryEntry, CardLifecycleState, CardRecord, CardView } from '../../schemas/index.js';
 import { allowedActions } from '../../permissions/index.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
@@ -11,7 +11,7 @@ export type ReadModelResult<T> = { statusCode?: number; body: T };
 
 type CardReadModel = CardView & { lifecycle: CardLifecycleState };
 
-function withOperatorAllowedActions(store: CardStore, card: CardRecord): CardReadModel {
+function withOperatorAllowedActions(store: CardStore | CardStoreRepository, card: CardRecord): CardReadModel {
   return toCardView(store, { ...card, allowedActions: allowedActions('operator', card.lifecycle.status) });
 }
 
@@ -35,7 +35,7 @@ function historyHeader(entry: CardHistoryEntry) {
 }
 
 export class CardsReadModelService {
-  constructor(private readonly projectRoot: string, private readonly store: CardStore) {}
+  constructor(private readonly projectRoot: string, private readonly store: CardStore | CardStoreRepository) {}
 
   getRuntimeState(serverAvailability?: ServerAvailability) {
     const projectId = basename(this.projectRoot);

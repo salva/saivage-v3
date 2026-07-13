@@ -49,4 +49,4 @@ export type { ObservedProjectRoot, RootIndexDiagnostic } from './canonical-root-
 export { listControlActions, recordControlAction, stableStringify } from './control-action-audit.js';
 export { appendAppLogEntry, appLogLedger, readAppLogEntries, appLogEntrySchema } from './app-log.js';
 export type { AppLogEntry, AppLogEntryType } from './app-log.js';
-export { readDeletedCardIds, reserveDeletedCardIds, writeDeletedCardIds } from './deleted-card-ids.js';
+export { readDeletedCardIds } from './deleted-card-ids.js';

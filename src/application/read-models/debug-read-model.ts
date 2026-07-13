@@ -1,4 +1,4 @@
-import type { CardStore } from '../../cards/store-api.js';
+import type { CardStore, CardStoreRepository } from '../../cards/store-api.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { runtimeStateSchema } from '../../schemas/index.js';
 import type { RuntimeState } from '../../schemas/index.js';
@@ -10,7 +10,7 @@ export interface DebugStateReadModel { runtime: DebugRuntimeReadModel | null; ca
 export interface DebugJsonlReadModel { errors?: unknown[]; events?: unknown[]; total: number; }
 
 export class DebugReadModelService {
-  constructor(private readonly projectRoot: string, private readonly store: CardStore) {}
+  constructor(private readonly projectRoot: string, private readonly store: CardStore | CardStoreRepository) {}
 
   getState(pid = process.pid): DebugStateReadModel {
     const state = readRuntimeState(this.projectRoot);

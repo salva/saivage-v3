@@ -43,9 +43,9 @@ describe('planner activate_card recovery dispatch', () => {
     const child = createChild(store, 'running');
     const calls: string[] = [];
     const childActor = {
-      activate: jest.fn(async () => { calls.push('activate'); return { status: 'done', summary: 'fresh' }; }),
+      activate: jest.fn(async () => { calls.push('activate'); return { status: 'done' as const, summary: 'fresh', result: { kind: 'done' as const, summary: 'fresh' } }; }),
       recoverCurrentCardState: jest.fn(() => { calls.push('recoverCurrentCardState'); }),
-      awaitSettlement: jest.fn(async () => { calls.push('awaitSettlement'); return { status: 'done', summary: 'recovered', result: { kind: 'done', summary: 'recovered' } }; }),
+      awaitSettlement: jest.fn(async () => { calls.push('awaitSettlement'); return { status: 'done' as const, summary: 'recovered', result: { kind: 'done' as const, summary: 'recovered' } }; }),
       cancel: jest.fn(),
     };
     const surface = buildInvocationSurface('planner', [createPlannerControlProvider({ projectRoot, parentCardId: 'project', sessionId: 'planner:project', store, children: { get: () => childActor } })]);
