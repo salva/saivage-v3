@@ -126,6 +126,47 @@ describe('SyncClient', () => {
     expect(conn.sendRaw).toHaveBeenCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'planner:g1', lease: subscribe.lease });
   });
 
+  it('shares one conversation lease and refetches every current consumer after acknowledgement', async () => {
+    const { conn, emitOpen, emitSync } = createConn();
+    const client = new SyncClient(conn);
+    const first = vi.fn(async () => undefined);
+    const second = vi.fn(async () => undefined);
+    client.openConversation('planner:g1', first);
+    client.openConversation('planner:g1', second);
+    client.start();
+    emitOpen();
+    await flush();
+
+    const subscriptions = vi.mocked(conn.sendRaw).mock.calls.map(([frame]) => frame).filter((frame: any) => frame.t === 'subscribe');
+    expect(subscriptions).toHaveLength(1);
+    const lease = (subscriptions[0] as any).lease;
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'planner:g1', lease });
+    await flush();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a stale acknowledgement and refetches only after the current lease is acknowledged', async () => {
+    const { conn, emitOpen, emitSync } = createConn();
+    const client = new SyncClient(conn);
+    const refetch = vi.fn(async () => undefined);
+    client.openConversation('planner:g1', refetch);
+    client.start();
+    emitOpen();
+    await flush();
+    const firstLease = (vi.mocked(conn.sendRaw).mock.calls.at(-1)![0] as any).lease;
+    emitOpen();
+    await flush();
+    const currentLease = (vi.mocked(conn.sendRaw).mock.calls.at(-1)![0] as any).lease;
+
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'planner:g1', lease: firstLease });
+    await flush();
+    expect(refetch).not.toHaveBeenCalled();
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'planner:g1', lease: currentLease });
+    await flush();
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
   it('refetches conversations only from canonical live-sync invalidate frames', async () => {
     const harness = createConn();
     const client = new SyncClient(harness.conn);

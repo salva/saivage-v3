@@ -2,7 +2,7 @@
 
 Status: current functional authority.
 
-Last updated: 2026-07-11.
+Last updated: 2026-07-13.
 
 ## 1. Vision
 
@@ -344,7 +344,13 @@ CLI initialization uses the same invariant as runtime startup: `.saivage/project
 
 Runtime events are read through paginated operator endpoints. Missing `limit` and `offset` use their defaults, but malformed present values such as negative numbers, decimals, or non-numeric strings fail request validation instead of being silently defaulted.
 
-Chat send responses and Analyst websocket responses are not transcript sources and do not carry assistant `message` rows. Operator transcripts are read through canonical conversation fetches and refreshed through live-sync invalidations. Every durable live conversation mutation, including appended rows and compaction active-version replacement, emits the canonical `conversation_changed` event after persistence; live sync maps it to `{ resource: 'conversation', id: <session id> }`. Canonical transcript reads return the active conversation version/current projection and do not merge inactive pre-compaction versions.
+Chat send responses and Analyst websocket responses are not transcript sources and do not carry assistant `message` rows. Operator transcripts are read through canonical conversation fetches and refreshed through direct semantic live-sync invalidations. Every changed durable live conversation mutation, including appended rows and compaction active-version replacement, publishes scoped conversation and `agents` freshness after persistence. The separate canonical `conversation_changed` event is timeline/debug metadata and does not produce core freshness. Canonical transcript reads return the active conversation version/current projection and do not merge inactive pre-compaction versions.
+
+Live freshness hints are process-local, lossy, and coalescible; they cause an authoritative REST refetch rather than carrying state. Successful changed conversation mutations target their scoped conversation and `agents`, and successful provider-exchange appends target `agents`. Card mutations always target `cards` when changed, adding `runtime` for creation, deletion, status, or mutable-type changes and adding `agents` for deletion or status changes. Actor snapshot changes target `runtime`; LLM snapshots additionally target `agents` and the actor conversation. Semantic no-ops, unsuccessful removal, and persistence failures publish nothing.
+
+Event metadata is independently useful for timeline and Debug projections, but `conversation_changed`, Analyst tool activity, control actions, notifications, and diagnostics do not infer core projection freshness. Core freshness comes only from the server-composed semantic mutation owners.
+
+While the server is ready, successful project start, REST/Analyst pause or resume, active-run transitions, and completion/failure settlement publish `runtime`. A lock-held `saivage pause` or `saivage resume` delegates to the canonical REST route and therefore uses that owner; it fails rather than falling back to direct persistence. Without a live lock, the CLI persists directly and performs no REST request. Startup recovery runs before live delivery is subscribed and shutdown writes after delivery closes, so startup, shutdown, and unlocked CLI changes are observed on authoritative initial load or reconnect rather than through guaranteed immediate hints.
 
 ## 18. Recovery
 

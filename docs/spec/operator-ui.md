@@ -2,7 +2,7 @@
 
 Status: current functional UI authority.
 
-Last updated: 2026-07-07.
+Last updated: 2026-07-13.
 
 ## 1. Purpose
 
