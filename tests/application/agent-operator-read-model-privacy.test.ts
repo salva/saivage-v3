@@ -1,8 +1,9 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { appendConversationMessage } from '../../src/runtime/actors/conversation-store.js';
 

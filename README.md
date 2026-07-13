@@ -56,6 +56,8 @@ providers:
 
 Agent prompts are customizable with file-level Markdown overrides in `.saivage/config/prompts/<cardType>/<role>.md`. Shipped defaults live in `src/prompts/` and are copied to `dist/prompts/`; omitted override files keep the built-in defaults. Prompt overrides are durable operator configuration: `saivage init`, `saivage reset`, and `start --create-runtime` preserve them while recreating generated state.
 
+Generated card state uses self-contained canonical JSON versions under `.saivage/cards/<cardId>/{card,brief,status,review}/versions/`; neighboring indexes are rebuildable projections and authored records have no separate Markdown body authority. Card and authored-record writes are owned by one lifecycle-lock-gated project persistence authority. Plain start requires a valid canonical root; init and `start --create-runtime` bootstrap only a verified fresh/reset-empty layout, while reset explicitly bootstraps after locked generated-root deletion. `.saivage/locks/runtime.lock` is the only cross-process card/record writer lock.
+
 MCP server entries in `.saivage/saivage.yaml` use `transport: stdio` or `transport: streamable-http`.
 
 Existing deployments must rename `.saivage/saivage.json` to `.saivage/saivage.yaml` with `mv`, not `cp`. If both files exist, startup fails and directs the operator to delete the obsolete JSON because it may still contain provider credentials. After the rename, operators may rewrite the file to idiomatic YAML and optionally add prompt override files under `.saivage/config/prompts/`.

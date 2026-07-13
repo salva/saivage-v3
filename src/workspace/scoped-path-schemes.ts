@@ -1,7 +1,8 @@
-import { join, relative, resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
-import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, type OpenRecordSlot } from '../runtime/records/record-slots.js';
+import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, type OpenRecordSlot } from '../runtime/records/record-slots.js';
+import type { ProjectCardRecordReader } from '../persistence/project-persistence-authority.js';
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
@@ -15,6 +16,7 @@ export interface ResolveScopedPathContext {
   projectRoot: string;
   agent?: ScopedAgentContext;
   fail: ScopedPathErrorFactory;
+  records?: ProjectCardRecordReader;
 }
 
 export function validRecordSegment(value: string, label: string, raw: string, fail: ScopedPathErrorFactory): string {
@@ -79,6 +81,7 @@ export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: str
 }
 
 export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): OpenRecordSlot {
+  if (!ctx.records) throw ctx.fail('Record reads require an injected persistence reader.');
   const agent = requireAgent(ctx, 'record:///');
   let parsed: ParsedScopedPathUrl;
   try {
@@ -98,16 +101,18 @@ export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: stri
   const cardId = validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail);
   const version = parsed.query?.get('v') ?? 'latest';
   if (version === 'next') {
-    const open = openRecordSlot(ctx.projectRoot, { cardId, filename });
+    const open = ctx.records.record(cardId, filename, 'open');
     if (!agent.cardId || cardId !== agent.cardId || !exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole!)) throw ctx.fail('Only the owning agent may read its current open record slot.');
     return open;
   }
-  if (version === 'latest') return latestClosedRecordSlot(ctx.projectRoot, { cardId, filename });
+  if (version === 'latest') {
+    try { return latestClosedRecordSlot(ctx.records, { cardId, filename }); } catch (error) { throw ctx.fail(toolFacingErrorMessage(error)); }
+  }
   const numeric = Number(version);
   if (!Number.isInteger(numeric) || numeric < 1) throw ctx.fail(`Invalid record version '${version}'.`);
-  const record = concreteRecordSlot(ctx.projectRoot, { cardId, filename, version: numeric });
-  const entry = readRecordSlotIndex(ctx.projectRoot, cardId, record.slot).versions[String(numeric)];
-  if (entry.status !== 'closed' && !(entry.status === 'open' && cardId === agent.cardId && exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole!))) throw ctx.fail('Only closed records are readable outside the owning open slot.');
+  let record: OpenRecordSlot;
+  try { record = concreteRecordSlot(ctx.records, { cardId, filename, version: numeric }); } catch (error) { throw ctx.fail(toolFacingErrorMessage(error)); }
+  if (record.artifact.state !== 'closed' && !(record.artifact.state === 'open' && cardId === agent.cardId && exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole!))) throw ctx.fail('Only closed records are readable outside the owning open slot.');
   return record;
 }
 
@@ -134,9 +139,7 @@ export const scopedPathResolvers = {
   },
   record(ctx: ResolveScopedPathContext, raw: string, mode: ScopedPathMode): ResolvedScopedPath {
     if (mode === 'write') {
-      const target = resolveRecordWriteTarget(ctx, raw);
-      assertRecordWrite(target.agent.agentRole, target.agent.cardId, target.cardId, target.filename, target.version, ctx.fail);
-      return { kind: 'record', ...openRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: target.filename }) };
+      throw ctx.fail('Record writes are logical mutations and cannot resolve to a filesystem path.');
     }
     return { kind: 'record', ...resolveRecordReadTarget(ctx, raw) };
   },

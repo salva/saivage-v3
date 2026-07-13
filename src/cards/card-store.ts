@@ -4,19 +4,12 @@
 // awaits in the mutation body); cross-process serialization is provided by
 // `withLockSync` inside `applyMutationSync`.
 
-import {
-  existsSync,
-  rmSync,
-} from 'node:fs';
-import { ProjectLock } from '../persistence/index.js';
 import type {
   CardHistoryEntry,
   CardRecord,
   CardStatus,
 } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
-import { repairSiblingPositions } from './position-repair.js';
-import { CardStoreInvariantError } from './errors.js';
 import { CardStoreState } from './state.js';
 import { CardReader } from './reader.js';
 import { CardPatchService } from './card-patch-service.js';
@@ -24,12 +17,8 @@ import { CardHierarchyCommands, type ReorderChildrenResult } from './hierarchy-c
 import { CardArchiveService } from './archive-service.js';
 import { CardHistoryReader, type CardDiffEntry } from './history-reader.js';
 import { CardLifecycleCommands } from './lifecycle-commands.js';
-import { cardHistoryPath, loadCardStoreState } from '../persistence/card-loader.js';
-import { projectMutationLockFile } from '../persistence/layout.js';
-import {
-  applyMutationSync,
-  type ApplyMutationDeps,
-} from './apply-mutation.js';
+import type { ProjectCardRecordReader, ProjectCardRecordWriter, ProjectMutationSession, RecordProjection } from '../persistence/project-persistence-authority.js';
+import type { ApplyMutationDeps } from './apply-mutation.js';
 import {
   validateTransition as validateLifecycleTransition,
   type CardMutationContext,
@@ -38,6 +27,7 @@ import {
 import type { CardNotification } from '../runtime/actors/card-actor.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { ReadModelChangeBroadcaster, type ReadModelChanges } from '../application/read-model-changes.js';
+import { readDeletedCardIds } from '../persistence/deleted-card-ids.js';
 
 export type { CardMutationContext };
 
@@ -48,7 +38,9 @@ export type { ReorderChildrenResult } from './hierarchy-commands.js';
 export class CardStore {
   readonly maxDepth: number;
   readonly projectRoot: string;
-  private readonly projectLock: ProjectLock;
+  private readonly persistenceReader: ProjectCardRecordReader;
+  private readonly persistenceWriter: ProjectCardRecordWriter;
+  private activeMutationSession: ProjectMutationSession | null = null;
   private state: CardStoreState;
   private readonly reader: CardReader;
   private readonly patchService: CardPatchService;
@@ -59,14 +51,14 @@ export class CardStore {
   private readonly eventBus: EventBus;
   private readonly readModelChanges: ReadModelChanges;
 
-  constructor(projectRoot: string, eventBus?: EventBus, readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster()) {
-    this.projectRoot = projectRoot;
-    this.eventBus = eventBus ?? new EventBus();
-    this.readModelChanges = readModelChanges;
+  constructor(input: { projectRoot: string; reader: ProjectCardRecordReader; writer: ProjectCardRecordWriter; eventBus?: EventBus; readModelChanges?: ReadModelChanges }) {
+    this.projectRoot = input.projectRoot;
+    this.persistenceReader = input.reader;
+    this.persistenceWriter = input.writer;
+    this.eventBus = input.eventBus ?? new EventBus();
+    this.readModelChanges = input.readModelChanges ?? new ReadModelChangeBroadcaster();
     this.maxDepth = 5;
-    this.projectLock = new ProjectLock(projectMutationLockFile(projectRoot));
-    repairSiblingPositions(projectRoot, this.maxDepth, this.projectLock, this.eventBus);
-    this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });
+    this.state = this.stateFromGeneration();
     this.reader = new CardReader(() => this.state);
     this.patchService = new CardPatchService({
       projectRoot: this.projectRoot,
@@ -88,13 +80,12 @@ export class CardStore {
       read: (id) => this.read(id),
     });
     this.historyReader = new CardHistoryReader({
-      projectRoot: this.projectRoot,
+      persistenceReader: this.persistenceReader,
       read: (id) => this.read(id),
     });
     this.lifecycleCommands = new CardLifecycleCommands({
       projectRoot: this.projectRoot,
       maxDepth: this.maxDepth,
-      projectLock: this.projectLock,
       state: () => this.state,
       setState: (state) => { this.state = state; },
       deps: () => this.deps(),
@@ -105,18 +96,48 @@ export class CardStore {
   }
 
   invalidate(): void {
-    this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth });
+    this.state = this.stateFromGeneration();
   }
 
   setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void {
     this.patchService.setNotifyCard(notifyCard);
   }
 
+  get recordReader(): ProjectCardRecordReader { return this.persistenceReader; }
+
+  readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest'): RecordProjection {
+    return this.persistenceReader.record(cardId, filename, version);
+  }
+
+  openRecord(cardId: string, filename: string): RecordProjection {
+    return this.activeMutationSession ? this.activeMutationSession.openRecord(cardId, filename) : this.persistenceWriter.request((writer) => writer.openRecord(cardId, filename));
+  }
+
+  editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection {
+    return this.activeMutationSession ? this.activeMutationSession.editRecord(cardId, filename, version, content) : this.persistenceWriter.request((writer) => writer.editRecord(cardId, filename, version, content));
+  }
+
+  closeRecord(cardId: string, filename: string, version: number, writerRole: import('../schemas/index.js').AgentRole, cardVersionSeq: number): RecordProjection {
+    return this.activeMutationSession ? this.activeMutationSession.closeRecord(cardId, filename, version, writerRole, cardVersionSeq) : this.persistenceWriter.request((writer) => writer.closeRecord(cardId, filename, version, writerRole, cardVersionSeq));
+  }
+
+  discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection {
+    return this.activeMutationSession ? this.activeMutationSession.discardRecord(cardId, filename, version, reason) : this.persistenceWriter.request((writer) => writer.discardRecord(cardId, filename, version, reason));
+  }
+
+  runPersistenceRequest<T>(operation: () => T): T {
+    if (this.activeMutationSession) throw new Error('Recursive card-store persistence request is forbidden.');
+    return this.persistenceWriter.request((session) => {
+      this.activeMutationSession = session;
+      try { return operation(); } finally { this.activeMutationSession = null; }
+    });
+  }
+
   private deps(): ApplyMutationDeps {
     return {
       projectRoot: this.projectRoot,
       state: this.state,
-      projectLock: this.projectLock,
+      writer: { request: (operation) => this.activeMutationSession ? operation(this.activeMutationSession) : this.persistenceWriter.request(operation) },
       eventBus: this.eventBus,
     };
   }
@@ -188,7 +209,10 @@ export class CardStore {
   // ── Mutations ────────────────────────────────────────────────
 
   create(input: NewCardInput): CardRecord {
-    const result = this.lifecycleCommands.create(input);
+    const result = this.runPersistenceRequest(() => {
+      this.state = this.stateFromGeneration();
+      return this.lifecycleCommands.create(input);
+    });
     this.readModelChanges.cardStateChanged();
     this.readModelChanges.runtimeChanged();
     return result;
@@ -278,11 +302,12 @@ export class CardStore {
     return result;
   }
 
-  // ── Test helpers ────────────────────────────────────────────
-
-  resetHistoryForTests(id: string): void {
-    const hp = cardHistoryPath(this.projectRoot, id);
-    if (existsSync(hp)) rmSync(hp, { force: true });
+  private stateFromGeneration(): CardStoreState {
+    const state = new CardStoreState(this.maxDepth);
+    const cards = [...this.persistenceReader.generation().cards.values()].map((entry) => entry.current.card).sort((left, right) => left.depth - right.depth);
+    for (const card of cards) state.upsert(card);
+    for (const id of readDeletedCardIds(this.projectRoot)) state.addReservedId(id);
+    return state;
   }
 }
 

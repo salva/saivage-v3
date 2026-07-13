@@ -11,6 +11,7 @@ export interface RecordSlotState {
   loading: boolean;
   error: string | null;
   version: number | null;
+  committedAt: string | null;
   content: string | null;
   exists: boolean;
 }
@@ -18,7 +19,7 @@ export interface RecordSlotState {
 export type CardRecordsState = Record<RecordSlot, RecordSlotState>;
 
 function emptySlot(slot: RecordSlot): RecordSlotState {
-  return { slot, loading: false, error: null, version: null, content: null, exists: false };
+  return { slot, loading: false, error: null, version: null, committedAt: null, content: null, exists: false };
 }
 
 function emptyState(): CardRecordsState {
@@ -26,36 +27,12 @@ function emptyState(): CardRecordsState {
 }
 
 const SLOTS: RecordSlot[] = ['brief', 'status', 'review'];
-const OUTPUTS_ROOT = '.saivage/cards';
-
-interface RecordSlotIndex {
-  slot: string;
-  latest: number | null;
-  open: number | null;
-  versions: Record<string, unknown>;
-}
-
-async function readJson(path: string): Promise<unknown | null> {
-  try {
-    const res = await getFileContent(path);
-    return JSON.parse(res.content) as unknown;
-  } catch (err) {
-    if (err instanceof ApiError && err.isNotFound) return null;
-    throw err;
-  }
-}
-
 async function fetchSlot(cardId: string, slot: RecordSlot): Promise<RecordSlotState> {
-  const base = `${OUTPUTS_ROOT}/${cardId}/${slot}`;
-  const state: RecordSlotState = { slot, loading: false, error: null, version: null, content: null, exists: false };
-  const parsed = await readJson(`${base}/index.json`);
-  if (!parsed) return state;
-  const index = parsed as RecordSlotIndex;
-  const version = index.latest ?? null;
-  if (version === null) return state;
+  const state: RecordSlotState = { slot, loading: false, error: null, version: null, committedAt: null, content: null, exists: false };
   try {
-    const res = await getFileContent(`${base}/${version}.md`);
-    state.version = version;
+    const res = await getFileContent(`record:///${slot}.md?card=${encodeURIComponent(cardId)}&v=latest`);
+    state.version = res.version ?? null;
+    state.committedAt = res.modifiedAt ?? null;
     state.content = res.content;
     state.exists = true;
   } catch (err) {
@@ -83,7 +60,7 @@ export function useCardRecords(cardId: Ref<string | null | undefined>): UseCardR
         try {
           next[slot] = await fetchSlot(id, slot);
         } catch (err) {
-          next[slot] = { slot, loading: false, error: err instanceof Error ? err.message : String(err), version: null, content: null, exists: false };
+          next[slot] = { slot, loading: false, error: err instanceof Error ? err.message : String(err), version: null, committedAt: null, content: null, exists: false };
           log.error('fetchSlot failed', slot, err);
         }
       }),

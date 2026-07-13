@@ -1,14 +1,15 @@
+import { initProjectTree, CardStore, readRecordSlotIndex } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardStore } from '../../../src/cards/card-store.js';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
+
+
 import { PlanningCardProcessorActor, type CardActivationInput, type LLMProviderPort, type LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
-import { readRecordSlotIndex } from '../../../src/runtime/records/record-slots.js';
+
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 

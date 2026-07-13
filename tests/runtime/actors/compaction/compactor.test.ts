@@ -1,9 +1,10 @@
+import { initProjectTree } from '../../../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../../helpers/conversation-mutations.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initProjectTree } from '../../../../src/persistence/file-tree.js';
+
 import { appendActivationMarker, appendConversationMessage, conversationMessagesForModel, readActiveVersionMessages } from '../../../../src/runtime/actors/conversation-store.js';
 import { readConversationIndex } from '../../../../src/runtime/actors/conversation-index.js';
 import { compact, shouldCompact, type BufferSizeEstimator, type CompactionConfig } from '../../../../src/runtime/actors/compaction/compactor.js';

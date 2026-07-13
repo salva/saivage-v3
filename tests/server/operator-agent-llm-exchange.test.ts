@@ -1,9 +1,10 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { appendProviderExchangeLogEntry } from '../../src/persistence/provider-exchange-log.js';
 import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
 

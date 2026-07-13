@@ -1,9 +1,10 @@
+import { CardStore, closeOpenRecordSlot, initProjectTree } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { closeOpenRecordSlot } from '../../src/runtime/records/record-slots.js';
+
 import { writeProject } from '../../src/tools/project-file-tools.js';
 import { globScopedPath, listScopedPath, resolveScopedPath, visitScopedFiles, walkFiles, type ScopedFileEntry } from '../../src/workspace/vfs.js';
 
@@ -20,6 +21,7 @@ function fail(message: string): Error {
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-vfs-'));
+  initProjectTree(projectRoot);
   const result = fn(projectRoot);
   if (result instanceof Promise) return result.finally(() => rmSync(projectRoot, { recursive: true, force: true }));
   rmSync(projectRoot, { recursive: true, force: true });
@@ -28,7 +30,7 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 
 async function collect(projectRoot: string, raw: string): Promise<ScopedFileEntry[]> {
   const entries: ScopedFileEntry[] = [];
-  await visitScopedFiles({ projectRoot, fail }, raw, async (entry) => {
+  await visitScopedFiles({ projectRoot, records: new CardStore(projectRoot).recordReader, fail }, raw, async (entry) => {
     entries.push(entry);
   });
   return entries;
@@ -106,40 +108,44 @@ describe('workspace VFS', () => {
   }));
 
   it('keeps record document and card-id namespaces distinct', async () => withTempProject(async (projectRoot) => {
-    await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: 'brief one' });
-    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
+    const store = new CardStore(projectRoot);
+    await writeProject({ projectRoot, cardId: 'project', agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: 'brief one' });
+    closeOpenRecordSlot(projectRoot, { cardId: 'project', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
 
-    const document = resolveScopedPath({ projectRoot, agent: { cardId: 'card-1', agentRole: 'planner' }, fail }, 'record:///brief.md?card=card-1&v=1', 'read');
-    const directory = resolveScopedPath({ projectRoot, agent: { cardId: 'card-1', agentRole: 'planner' }, fail }, 'record:///card-1', 'read');
-    const listing = await listScopedPath({ projectRoot, agent: { cardId: 'card-1', agentRole: 'planner' }, fail }, 'record:///card-1');
-    const glob = await globScopedPath({ projectRoot, agent: { cardId: 'card-1', agentRole: 'planner' }, fail }, 'record:///card-1', 'brief.*', 20);
+    const recordCtx = { projectRoot, records: store.recordReader, agent: { cardId: 'project', agentRole: 'planner' as const }, fail };
+    const document = resolveScopedPath(recordCtx, 'record:///brief.md?card=project&v=2', 'read');
+    const directory = resolveScopedPath(recordCtx, 'record:///project', 'read');
+    const listing = await listScopedPath(recordCtx, 'record:///project');
+    const glob = await globScopedPath(recordCtx, 'record:///project', 'brief.*', 20);
 
-    expect(document).toMatchObject({ kind: 'record', recordKind: 'document', recordUrl: 'record:///brief.md?card=card-1&v=1' });
-    expect(directory).toMatchObject({ kind: 'record', recordKind: 'directory', cardId: 'card-1' });
-    expect(listing).toMatchObject({ kind: 'records', records: expect.arrayContaining([expect.objectContaining({ filename: 'brief.md', url: 'record:///brief.md?card=card-1&v=1', latest: 1 })]) });
+    expect(document).toMatchObject({ kind: 'record', recordKind: 'document', recordUrl: 'record:///brief.md?card=project&v=2' });
+    expect(directory).toMatchObject({ kind: 'record', recordKind: 'directory', cardId: 'project' });
+    expect(listing).toMatchObject({ kind: 'records', records: expect.arrayContaining([expect.objectContaining({ filename: 'brief.md', latest: 2 })]) });
     expect(JSON.stringify(listing)).not.toContain('card.json');
     expect(JSON.stringify(listing)).not.toContain('index.json');
-    expect(glob).toEqual({ matches: ['record:///brief.md?card=card-1&v=1'], truncated: false });
-    await expect(listScopedPath({ projectRoot, agent: { cardId: 'card-1', agentRole: 'planner' }, fail }, 'record:///card-1/brief.md')).rejects.toThrow(TestInputError);
+    expect(glob).toEqual({ matches: ['record:///brief.md?card=project&v=2'], truncated: false });
+    await expect(listScopedPath(recordCtx, 'record:///project/brief.md')).rejects.toThrow(TestInputError);
   }));
 
   it('collects only latest closed exposed record slots', async () => withTempProject(async (projectRoot) => {
-    await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: 'brief one' });
-    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
-    await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: 'brief two open' });
+    const store = new CardStore(projectRoot);
+    await writeProject({ projectRoot, cardId: 'project', agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: 'brief one' });
+    closeOpenRecordSlot(projectRoot, { cardId: 'project', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
+    await writeProject({ projectRoot, cardId: 'project', agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: 'brief two open' });
 
-    const entries = await collect(projectRoot, 'record:///card-1');
+    const entries = await collect(projectRoot, 'record:///project');
 
-    expect(entries).toEqual([{ absolutePath: join(projectRoot, '.saivage', 'cards', 'card-1', 'brief', '1.md'), displayPath: 'record:///brief.md?card=card-1&v=1', matchPath: 'brief.md' }]);
+    expect(entries).toEqual([{ content: 'brief one', displayPath: 'record:///brief.md?card=project&v=2', matchPath: 'brief.md' }]);
     expect(JSON.stringify(entries)).not.toContain('card.json');
     expect(JSON.stringify(entries)).not.toContain('2.md');
   }));
 
   it('does not apply project hidden-path filtering to logical record entries', async () => withTempProject(async (projectRoot) => {
-    await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: 'brief one' });
-    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
+    const store = new CardStore(projectRoot);
+    await writeProject({ projectRoot, cardId: 'project', agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: 'brief one' });
+    closeOpenRecordSlot(projectRoot, { cardId: 'project', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
 
-    await expect(collect(projectRoot, 'record:///card-1')).resolves.toHaveLength(1);
+    await expect(collect(projectRoot, 'record:///project')).resolves.toHaveLength(1);
   }));
 
   it('short-circuits visitScopedFiles when the awaited visitor returns false', async () => withTempProject(async (projectRoot) => {

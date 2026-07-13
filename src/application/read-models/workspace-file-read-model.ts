@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
 import { getSafeFileForAgent, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
+import type { ProjectCardRecordReader } from '../../persistence/project-persistence-authority.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
@@ -31,7 +32,7 @@ function isBinaryBuffer(buffer: Buffer): boolean {
 }
 
 export class WorkspaceFileReadModelService {
-  constructor(private readonly projectRoot: string) {}
+  constructor(private readonly projectRoot: string, private readonly records?: () => ProjectCardRecordReader) {}
 
   private resolveRequestedPath(requestedPath: string): ResolvedRequestPath {
     if (requestedPath.startsWith('work:///')) {
@@ -74,6 +75,20 @@ export class WorkspaceFileReadModelService {
 
   readFileContent(requestedPath: string | undefined): WorkspaceFileResult {
     if (!requestedPath) return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
+    if (requestedPath.startsWith('record:///')) {
+      if (!this.records) return { statusCode: 503, body: { error: 'Record read model is unavailable.' } };
+      try {
+        const parsed = parseScopedPathUrl(requestedPath, 'record');
+        if (parsed.segments.length !== 1 || !parsed.query) return { statusCode: 400, body: { error: 'Invalid record URL.', path: requestedPath } };
+        const cardId = parsed.query.get('card'); const rawVersion = parsed.query.get('v') ?? 'latest';
+        if (!cardId) return { statusCode: 400, body: { error: 'Record URL requires card.', path: requestedPath } };
+        const version = rawVersion === 'latest' ? 'latest' : Number(rawVersion);
+        if (version !== 'latest' && (!Number.isSafeInteger(version) || version < 1)) return { statusCode: 400, body: { error: 'Invalid record version.', path: requestedPath } };
+        const record = this.records().record(cardId, parsed.segments[0]!, version);
+        if (record.artifact.state !== 'closed') return { statusCode: 404, body: { error: 'Closed record not found.', path: requestedPath } };
+        return { body: { path: record.recordUrl, size: Buffer.byteLength(record.artifact.content), contentType: 'text/markdown', content: record.artifact.content, redacted: false, sensitivity: 'normal', version: record.version, modifiedAt: record.artifact.committed_at } };
+      } catch (error) { return { statusCode: 404, body: { error: error instanceof Error ? error.message : String(error), path: requestedPath } }; }
+    }
     const { safe, absolutePath, reason, responsePath } = this.resolveRequestedPath(requestedPath);
     if (!safe) return { statusCode: 403, body: { error: reason } };
     if (!existsSync(absolutePath)) return { statusCode: 404, body: { error: 'File not found', path: responsePath } };

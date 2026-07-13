@@ -1,11 +1,12 @@
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
-import { CardStore } from '../../../src/cards/card-store.js';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
+
+
 import { CardActor, type CardActorDeps, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';

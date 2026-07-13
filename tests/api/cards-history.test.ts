@@ -1,12 +1,13 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { rmSync } from 'node:fs';
-import { CardStore } from '../../src/cards/card-store.js';
+
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 

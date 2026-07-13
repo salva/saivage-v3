@@ -1,9 +1,10 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { CardStore } from '../../src/cards/store-api.js';
+
+
 import { appendConversationMessage, buildContextTextMessage } from '../../src/runtime/actors/index.js';
 import { list_agent_sessions, read_agent_session } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';

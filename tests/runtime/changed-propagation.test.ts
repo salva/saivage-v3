@@ -1,10 +1,11 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
+
 import { propagateAnalystBriefEdit, propagateChange } from '../../src/runtime/changed-propagation.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';

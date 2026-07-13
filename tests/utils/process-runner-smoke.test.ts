@@ -1,9 +1,10 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { describe, it, expect, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

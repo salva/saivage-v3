@@ -1,3 +1,4 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 
@@ -7,7 +8,7 @@ import {
   type PauseResumeEffects,
 } from '../../src/runtime/runtime-control-commands.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../src/runtime/control.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { saveRuntimeState } from '../../src/runtime/state.js';
 import type { RuntimeState } from '../../src/schemas/index.js';
 import { mkdtempSync, rmSync } from 'node:fs';

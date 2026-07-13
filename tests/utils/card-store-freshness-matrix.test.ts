@@ -1,10 +1,11 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
+
 import type { CardRecord } from '../../src/schemas/types.js';
 
 type Targets = { cards: number; runtime: number; agents: number };
@@ -58,7 +59,6 @@ describe('CardStore semantic freshness matrix', () => {
       { method: 'archiveAndDeleteSubtree', role: 'durable card mutation' },
       { method: 'invalidate', role: 'cache reload only' },
       { method: 'setNotifyCard', role: 'collaborator configuration only' },
-      { method: 'resetHistoryForTests', role: 'test helper only' },
     ];
     expect(mutationInventory.filter(({ method }) => typeof source[method as keyof CardStore] !== 'function')).toEqual([]);
     expect(mutationInventory.filter(({ role }) => role === 'durable card mutation')).toHaveLength(10);
@@ -69,7 +69,6 @@ describe('CardStore semantic freshness matrix', () => {
     resetTargets();
     store.invalidate();
     store.setNotifyCard(undefined);
-    store.resetHistoryForTests(card.id);
     expect(targets).toEqual({ cards: 0, runtime: 0, agents: 0 });
   });
 

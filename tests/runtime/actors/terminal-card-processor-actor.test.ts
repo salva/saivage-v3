@@ -1,15 +1,16 @@
+import { initProjectTree, CardStore, closeOpenRecordSlot, openRecordSlot } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardStore } from '../../../src/cards/card-store.js';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
+
+
 import { CardActor, TerminalCardProcessorActor, readActorSnapshots, type CardActorDeps, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
-import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
+
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
@@ -120,7 +121,7 @@ function actorFromCard(projectRoot: string, store: CardStore, card: ReturnType<t
   return actor;
 }
 
-function terminalProcessor(projectRoot: string, cardId: string, provider: LLMProviderPort, store?: CardStore, runner = processRunner(projectRoot)): TerminalCardProcessorActor {
+function terminalProcessor(projectRoot: string, cardId: string, provider: LLMProviderPort, store: CardStore, runner = processRunner(projectRoot)): TerminalCardProcessorActor {
   return new TerminalCardProcessorActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), cardId, provider, processRunner: runner, store });
 }
 
@@ -189,7 +190,7 @@ describe('TerminalCardProcessorActor', () => {
   }));
 
   it('builds executor prompts from the latest brief record', async () => withTempProject(async (projectRoot) => {
-    const { card } = setup(projectRoot);
+    const { store, card } = setup(projectRoot);
     writeBrief(projectRoot, card.id, '# Goal\n\nUse the brief record only.\n\n# Acceptance Criteria\n\nBrief acceptance.\n', card.version_seq);
     const provider = withExecutorStatusRecord((input: LlmInvocationInput) => {
       expect(input.systemPrompt).toContain('Use the brief record only.');
@@ -198,7 +199,7 @@ describe('TerminalCardProcessorActor', () => {
       expect(input.systemPrompt).not.toContain('Works.');
       return executorResult(card.id, 'implemented');
     });
-    const processor = terminalProcessor(projectRoot, card.id, provider);
+    const processor = terminalProcessor(projectRoot, card.id, provider, store);
     processor.start();
 
     const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -233,10 +234,10 @@ describe('TerminalCardProcessorActor', () => {
   }));
 
   it('persists active reconstruction during terminal processor activation and clears it on settlement', async () => withTempProject(async (projectRoot) => {
-    const { card } = setup(projectRoot);
+    const { store, card } = setup(projectRoot);
     let finish!: () => void;
     const provider = withExecutorStatusRecord(() => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve(executorResult(card.id, 'implemented')); }));
-    const processor = terminalProcessor(projectRoot, card.id, provider);
+    const processor = terminalProcessor(projectRoot, card.id, provider, store);
     processor.start();
 
     const pending = processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -425,7 +426,7 @@ describe('TerminalCardProcessorActor', () => {
       sawMissingRecordResult = true;
       expect(input.episodeContext.lastToolResult).toMatchObject({
         toolName: 'read',
-        result: { success: false, error: expect.stringContaining(`No closed record exists for '${card.id}/status'`) },
+        result: { success: false, error: `Record '${card.id}/status/latest' does not exist.` },
       });
       return executorResult(card.id, 'continued after missing record read');
     });
@@ -441,7 +442,7 @@ describe('TerminalCardProcessorActor', () => {
   }));
 
   it('cleans up a timed-out owned process when the terminal card settles', async () => withTempProject(async (projectRoot) => {
-    const { card } = setup(projectRoot);
+    const { store, card } = setup(projectRoot);
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? providerCompletion(executorResult(card.id, 'saw running process'))
@@ -450,7 +451,7 @@ describe('TerminalCardProcessorActor', () => {
     const providerWithRecords = withExecutorStatusRecord(provider.completeTurn);
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-mid', message: 'executor mid-turn notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
     const runner = processRunner(projectRoot);
-    const processor = terminalProcessor(projectRoot, card.id, providerWithRecords, undefined, runner);
+    const processor = terminalProcessor(projectRoot, card.id, providerWithRecords, store, runner);
     processor.start();
 
     const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery }, new AbortController().signal);
@@ -472,7 +473,7 @@ describe('TerminalCardProcessorActor', () => {
   }));
 
   it('routes explicit process kill through ProcessProvider', async () => withTempProject(async (projectRoot) => {
-    const { card } = setup(projectRoot);
+    const { store, card } = setup(projectRoot);
     const provider = withExecutorStatusRecord(async (input: LlmInvocationInput) => {
       const last = input.episodeContext.lastToolResult as { result?: { success?: boolean; data?: { running?: boolean; process_id?: string; terminated?: boolean } } } | undefined;
       if (!last) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_command', arguments: JSON.stringify({ command: `${process.execPath} -e "setInterval(() => {}, 1000)"`, wait: false }) } }] };
@@ -480,7 +481,7 @@ describe('TerminalCardProcessorActor', () => {
       return executorResult(card.id, 'killed process');
     });
     const runner = processRunner(projectRoot);
-    const processor = terminalProcessor(projectRoot, card.id, provider, undefined, runner);
+    const processor = terminalProcessor(projectRoot, card.id, provider, store, runner);
     processor.start();
 
     const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -492,14 +493,14 @@ describe('TerminalCardProcessorActor', () => {
   }));
 
   it('keeps processing executor tool calls until a terminal result is produced', async () => withTempProject(async (projectRoot) => {
-    const { card } = setup(projectRoot);
+    const { store, card } = setup(projectRoot);
     let executorTurns = 0;
     const provider = withExecutorStatusRecord(async () => {
         executorTurns++;
         if (executorTurns <= 25) return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'wait_process', arguments: JSON.stringify({ process_id: 'missing', timeout_ms: 0 }) } }] };
         return executorResult(card.id, 'done after many tools');
     });
-    const processor = terminalProcessor(projectRoot, card.id, provider);
+    const processor = terminalProcessor(projectRoot, card.id, provider, store);
     processor.start();
 
     const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
@@ -511,8 +512,8 @@ describe('TerminalCardProcessorActor', () => {
   }));
 
   it('throws a clear impossible-state error when active recovery lacks activation input', () => withTempProject((projectRoot) => {
-    const { card } = setup(projectRoot);
-    const processor = terminalProcessor(projectRoot, card.id, { completeTurn: jest.fn(async () => providerCompletion(executorResult(card.id, 'unused'))) });
+    const { store, card } = setup(projectRoot);
+    const processor = terminalProcessor(projectRoot, card.id, { completeTurn: jest.fn(async () => providerCompletion(executorResult(card.id, 'unused'))) }, store);
 
     expect(() => processor.recover('executing')).toThrow(/entered executing without activation input/);
   }));

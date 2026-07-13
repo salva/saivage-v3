@@ -6,7 +6,9 @@ import { parseArgs } from 'node:util';
 import * as YAML from 'yaml';
 import { evaluateAuthz } from './agents/tool-api.js';
 import { startApp } from './boot/index.js';
-import { recordControlAction, stableStringify, initProjectTree, isInitialized, findProjectRoot } from './persistence/index.js';
+import { newProjectRootInput } from './boot/app.js';
+import { recordControlAction, stableStringify, isInitialized, findProjectRoot, observeCanonicalProjectRoot } from './persistence/index.js';
+import { openProjectPersistenceAuthority, verifyBootstrapEligibleLayout } from './persistence/project-persistence-authority.js';
 import { isLocked, pauseRuntimeControl, resumeRuntimeControl } from './runtime/control-api.js';
 import { readRuntimeState } from './runtime/state-api.js';
 import { readLiveLockHolder } from './runtime/control-api.js';
@@ -43,7 +45,21 @@ Usage:
   saivage help
 `;
 function parseCommand(rawArgs: string[]): { command: string; options: CliOptions } { const args = rawArgs.slice(2); if (args.length === 0) return { command: 'help', options: {} }; const command = args[0]!; const rest = args.slice(1); let options: CliOptions = {}; if (rest.length > 0) { const parsed = parseArgs({ args: rest, options: { force: { type: 'boolean' }, port: { type: 'string' }, host: { type: 'string' }, config: { type: 'string' }, 'project-root': { type: 'string' }, 'create-runtime': { type: 'boolean' } }, allowPositionals: false, strict: true }); options = parsed.values as CliOptions; } return { command, options }; }
-async function handleInit(options: CliOptions): Promise<void> { const projectRoot = process.cwd(); if (!options.force && isInitialized(projectRoot)) { console.log(`Project already initialized at ${projectRoot}`); return; } initProjectTree(projectRoot); console.log(`Project initialized at ${projectRoot}`); }
+async function handleInit(options: CliOptions): Promise<void> {
+  const projectRoot = process.cwd();
+  const lifecycleLock = acquireLock(projectRoot);
+  try {
+    if (!options.force && isInitialized(projectRoot)) { console.log(`Project already initialized at ${projectRoot}`); return; }
+    let mode: { kind: 'normal' } | { kind: 'bootstrap'; root: ReturnType<typeof newProjectRootInput> } = { kind: 'normal' };
+    try { observeCanonicalProjectRoot(join(projectRoot, '.saivage', 'cards')); }
+    catch {
+      try { verifyBootstrapEligibleLayout(projectRoot, lifecycleLock); mode = { kind: 'bootstrap', root: newProjectRootInput(projectRoot) }; }
+      catch { mode = { kind: 'normal' }; }
+    }
+    openProjectPersistenceAuthority({ projectRoot, lifecycleLock, mode }).close();
+    console.log(`Project initialized at ${projectRoot}`);
+  } finally { releaseLock(lifecycleLock); }
+}
 async function handleStart(_options: CliOptions, args: string[]): Promise<void> { const app = await startApp({ argv: args }); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
 async function handleStatus(): Promise<void> { const projectRoot = findProjectRoot(); if (projectRoot === null) { console.log('Not in a Saivage project'); return; } const state = readRuntimeState(projectRoot); if (state === null) { console.log(`Project root: ${projectRoot}`); console.log('Runtime state: not initialized (missing runtime state file .saivage/state/runtime.json)'); return; } const holder = readLiveLockHolder(projectRoot); console.log(`Project root: ${projectRoot}`); console.log(`Status:       ${state.status}`); console.log(`PID:          ${holder ? holder.pid : '(not running)'}`); console.log(`Current card: ${deriveCurrentCardId(state) ?? '(none)'}`); console.log(`Started at:   ${state.started_at}`); }
 async function restBaseUrl(projectRoot: string): Promise<string> { const cfgPath = join(projectRoot, '.saivage', 'saivage.yaml'); let host = '127.0.0.1'; let port = 8080; if (existsSync(cfgPath)) { try { const cfg = YAML.parse(readFileSync(cfgPath, 'utf-8')) as { server?: { host?: string; port?: number } }; host = cfg.server?.host === '0.0.0.0' ? '127.0.0.1' : (cfg.server?.host ?? host); port = cfg.server?.port ?? port; } catch { void 0; } } return `http://${host}:${port}`; }
@@ -88,7 +104,7 @@ async function handleReset(): Promise<void> {
     removeLockEntriesExceptHeldRuntime(projectRoot);
     for (const target of obsoleteRoots) removeIfPresent(target);
     for (const target of externalGeneratedRoots) removeIfPresent(target);
-    initProjectTree(projectRoot);
+    openProjectPersistenceAuthority({ projectRoot, lifecycleLock, mode: { kind: 'bootstrap', root: newProjectRootInput(projectRoot) } }).close();
     console.log('Project reset and reinitialized with an empty current layout and root project card. Durable credentials, config, prompt overrides, skills, instructions, and source/docs were preserved.');
   } finally {
     releaseLock(lifecycleLock);

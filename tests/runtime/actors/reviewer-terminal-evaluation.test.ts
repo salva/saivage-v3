@@ -1,9 +1,10 @@
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardStore } from '../../../src/cards/card-store.js';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
+
+
 import { evaluateReviewerTerminalOutcome } from '../../../src/runtime/actors/reviewer-terminal-evaluation.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/index.js';
 import type { CardRecord } from '../../../src/schemas/index.js';

@@ -1,9 +1,10 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run } from '../../src/cli.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { acquireLock, releaseLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import { readRuntimeState } from '../../src/runtime/state-api.js';
 import { updateRuntimeState } from '../../src/runtime/state.js';

@@ -1,3 +1,4 @@
+import { initProjectTree, CardStore, testProjectAuthority } from './helpers/canonical-project.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
@@ -9,8 +10,8 @@ import { existsSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CardStore } from '../src/cards/card-store.js';
-import { initProjectTree } from '../src/persistence/file-tree.js';
+
+
 import { materializeProjectCard } from './helpers/materialize-project-card.js';
 import { createTestRestartPort } from './helpers/restart-port.js';
 import { listControlActions } from '../src/persistence/index.js';
@@ -509,7 +510,7 @@ describe('API Chat and WebSocket Integration', () => {
     setupTestProject(projectRoot);
     authToken = process.env['SAIVAGE_API_TOKEN'] || 'test-token';
     process.env['SAIVAGE_API_TOKEN'] = authToken;
-    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env), restartPort: createTestRestartPort() });
+    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env), authority: testProjectAuthority(projectRoot), restartPort: createTestRestartPort() });
     await server.fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (server.fastify.server.address() as { port: number }).port;
     const ticketResponse = await fetch(`http://127.0.0.1:${port}/api/auth/ws-ticket`, { method: 'POST', headers: { authorization: `Bearer ${authToken}` } });

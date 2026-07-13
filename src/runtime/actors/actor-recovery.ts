@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { existsSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
 import { recoveryDiagnosticsFile as layoutRecoveryDiagnosticsFile, recoveryDiagnosticsLockFile } from '../../persistence/layout.js';
@@ -20,7 +19,6 @@ import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import { closeOpenRecordSlot, ExpectedRecordSlotCloseError } from '../records/record-slots.js';
 import { firstIncompleteDescendant, projectPlannerTerminalOutcome } from './planning-card-processor-actor.js';
 import { projectTerminalExecutorOutcome } from './terminal-card-processor-actor.js';
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
@@ -39,6 +37,8 @@ export interface ActorRecoveryOutcomeStore {
   listChildren?(cardId: string): string[];
   setStatus(cardId: string, status: CardStatus): CardRecord;
   commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
+  readRecord(cardId: string, filename: string, version?: number | 'latest' | 'open'): import('../../persistence/project-persistence-authority.js').RecordProjection;
+  closeRecord(cardId: string, filename: string, version: number, writer: import('../../schemas/index.js').AgentRole, cardVersionSeq: number): import('../../persistence/project-persistence-authority.js').RecordProjection;
 }
 
 export interface ActorRecoveryOutcomeConversion {
@@ -624,8 +624,8 @@ function projectReviewerRecoveryOutcome(
   if (reviewerLogged.tool_name !== reviewerWaiting.toolName || !createReviewerContract().isTerminalToolName(reviewerWaiting.toolName)) return null;
   const reviewerOutcome: Extract<LLMActorOutcome, { type: 'tool_call' }> = { type: 'tool_call', agentId: reviewer.actorId, inputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName, args: reviewerLogged.args };
   const projected = evaluateReviewerTerminalOutcome({ outcome: reviewerOutcome });
-  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md', 'planner', card.version_seq)) return null;
-  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'review.md', 'reviewer', card.version_seq)) return null;
+  if (!closeRecoveredRecordSlot(deps.store, card.id, 'status.md', 'planner', card.version_seq)) return null;
+  if (!closeRecoveredRecordSlot(deps.store, card.id, 'review.md', 'reviewer', card.version_seq)) return null;
   deps.store.commitTerminalLifecyclePatch(card.id, cardActivationOutcomePatch(projected, generatedAt));
   const plannerWaiting = planner.activeReconstruction!.waiting_tool_call!;
   appendTerminalProjectedToolResult(deps.conversations, { sessionId: planner.activeReconstruction!.input.sessionId, sourceInputId: plannerWaiting.sourceInputId, toolCallId: plannerWaiting.toolCallId, toolName: plannerWaiting.toolName });
@@ -649,22 +649,24 @@ function projectTerminalRecoveryOutcome(
     if (!createPlannerContract().isTerminalToolName(outcome.toolName)) return null;
     const projected = projectPlannerTerminalOutcome(outcome);
     if (!projected) return null;
-    if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md', 'planner', card.version_seq)) return null;
+    if (!closeRecoveredRecordSlot(deps.store, card.id, 'status.md', 'planner', card.version_seq)) return null;
     return projected;
   }
   if (!createExecutorContract().isTerminalToolName(outcome.toolName)) return null;
   const projected = projectTerminalExecutorOutcome(outcome);
   if (!projected) return null;
-  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md', 'executor', card.version_seq)) return null;
+  if (!closeRecoveredRecordSlot(deps.store, card.id, 'status.md', 'executor', card.version_seq)) return null;
   return projected;
 }
 
-function closeRecoveredRecordSlot(projectRoot: string, cardId: string, filename: 'status.md' | 'review.md', writer: 'planner' | 'executor' | 'reviewer', cardVersionSeq: number): boolean {
+function closeRecoveredRecordSlot(store: ActorRecoveryOutcomeStore, cardId: string, filename: 'status.md' | 'review.md', writer: 'planner' | 'executor' | 'reviewer', cardVersionSeq: number): boolean {
   try {
-    closeOpenRecordSlot(projectRoot, { cardId, filename, writer, cardVersionSeq });
+    const open = store.readRecord(cardId, filename, 'open');
+    if (open.artifact.content.trim().length === 0) return false;
+    store.closeRecord(cardId, filename, open.version, writer, cardVersionSeq);
     return true;
   } catch (error) {
-    if (error instanceof ExpectedRecordSlotCloseError) return false;
+    if (error instanceof Error && /does not exist|not open/.test(error.message)) return false;
     throw error;
   }
 }

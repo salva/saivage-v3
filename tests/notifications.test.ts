@@ -1,3 +1,4 @@
+import { initProjectTree, CardStore } from './helpers/canonical-project.js';
 import { testActorSnapshots } from './helpers/actor-snapshots.js';
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { testConversationMutations } from './helpers/conversation-mutations.js';
@@ -5,8 +6,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CardStore } from '../src/cards/card-store.js';
-import { initProjectTree } from '../src/persistence/file-tree.js';
+
+
 import { clearProjectNotificationDeliveryAdapters, clearProjectNotificationEventBus, NotificationDeliveryService, setProjectNotificationDeliveryAdapters, setProjectNotificationEventBus, type NotificationDeliveryContext, type NotificationQueueEntry } from '../src/notifications/index.js';
 import { queueNotification, resolveRecipient } from '../src/notifications/notification-triggers.js';
 import { EventBus } from '../src/events/index.js';

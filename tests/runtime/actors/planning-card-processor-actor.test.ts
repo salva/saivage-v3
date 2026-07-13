@@ -1,16 +1,17 @@
+import { initProjectTree, CardStore, closeOpenRecordSlot, openRecordSlot } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardStore } from '../../../src/cards/card-store.js';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
+
+
 import { CardActor, PlanningCardProcessorActor, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
-import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
+
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';

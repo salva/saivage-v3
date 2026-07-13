@@ -1,3 +1,4 @@
+import { CardStore } from './canonical-project.js';
 import { testActorSnapshots } from './actor-snapshots.js';
 import { EventBus } from '../../src/events/bus.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -8,7 +9,7 @@ import type { RuntimeApplication } from '../../src/application/runtime-compositi
 import { AnalystRuntime, type AnalystRuntimeDeps } from '../../src/agents/analyst-api.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
-import { CardStore } from '../../src/cards/card-store.js';
+
 import { createInvocationServiceProvider } from '../../src/application/micro-actor-runtime-api-factory.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';

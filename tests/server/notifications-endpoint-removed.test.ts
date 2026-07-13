@@ -1,8 +1,9 @@
+import { initProjectTree, testProjectAuthority } from '../helpers/canonical-project.js';
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { initRuntimeState } from '../../src/runtime/state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
@@ -28,7 +29,7 @@ afterEach(async () => {
 
 describe('removed notification and note list endpoints', () => {
   it('does not register notification or note list routes', async () => {
-    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
+    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
 
     const notificationResponse = await server.fastify.inject({ method: 'GET', url: '/api/notifications' });
     const notesResponse = await server.fastify.inject({ method: 'GET', url: '/api/notes' });

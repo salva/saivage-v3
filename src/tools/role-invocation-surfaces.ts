@@ -58,20 +58,21 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     projectRoot: ctx.projectRoot,
     cardId: ctx.cardId,
     agentRole: role,
-    store: role === 'analyst' ? ctx.store as WorkspaceProviderContext['store'] : undefined,
+    store: ctx.store as WorkspaceProviderContext['store'],
     notifyCard: role === 'analyst' ? ctx.notifyCard : undefined,
   }),
   patch: (ctx, role) => createPatchProvider({
     projectRoot: ctx.projectRoot,
     cardId: ctx.cardId,
     agentRole: role,
+    store: ctx.store as WorkspaceProviderContext['store'],
   }),
   process: (ctx, role) => role === 'analyst'
     ? createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })
     : createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId!, ownerKind: 'agent', cardId: ctx.cardId }),
   cardHistory: (ctx, role) => createCardHistoryProvider({
     projectRoot: ctx.projectRoot,
-    store: role === 'analyst' ? ctx.store as CardHistoryProviderContext['store'] : undefined,
+    store: ctx.store as CardHistoryProviderContext['store'],
     sessionId: ctx.sessionId,
     agentRole: role,
   }),
@@ -79,7 +80,7 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     projectRoot: ctx.projectRoot,
     cardId: ctx.cardId,
     agentRole: role,
-    store: role === 'analyst' ? ctx.store as WebProviderContext['store'] : undefined,
+    store: ctx.store as WebProviderContext['store'],
     notifyCard: role === 'analyst' ? ctx.notifyCard : undefined,
   }),
   skill: (ctx, role) => createSkillProvider({ projectRoot: ctx.projectRoot, agentRole: role as SkillMcpRole }),

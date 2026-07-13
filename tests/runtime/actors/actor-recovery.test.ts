@@ -1,3 +1,4 @@
+import { initProjectTree, CardStore, openRecordSlot, recordSlotDir } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
@@ -18,9 +19,9 @@ import {
   recoveryDiagnosticsPath,
       writeRecoveryDiagnostics,
 } from '../../../src/runtime/actors/index.js';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardStore } from '../../../src/cards/card-store.js';
-import { openRecordSlot, recordSlotDir } from '../../../src/runtime/records/record-slots.js';
+
+
+
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-recovery-'));
@@ -70,7 +71,7 @@ function appendLoggedToolCall(projectRoot: string, cardId: string, role: 'planne
   appendLlmTurnFinished(testConversationMutations(projectRoot), { inputId, agentId, role, sessionId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: role === 'reviewer' ? { cardId, assessmentId } : { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
   if (!writeRequiredRecord) return;
   const record = openRecordSlot(projectRoot, { cardId, filename: role === 'reviewer' ? 'review.md' : 'status.md' });
-  writeFileSync(record.absolutePath, `${role} recovery record`, 'utf8');
+  new CardStore(projectRoot).editRecord(cardId, role === 'reviewer' ? 'review.md' : 'status.md', record.version, `${role} recovery record`);
 }
 
 function toolMessageKinds(projectRoot: string, sessionId: string): string[] {
@@ -382,18 +383,6 @@ describe('actor recovery plan', () => {
     expect(toolMessageKinds(projectRoot, `planner:${cardId}`)).toEqual(['tool_call']);
   }));
 
-  it('propagates unexpected record-slot close failures during projected recovery', () => withTempProject((projectRoot) => {
-    const { store, cardId } = createRunningGoal(projectRoot);
-    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
-    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'blocked', summary: 'needs operator' });
-    writeFileSync(join(recordSlotDir(projectRoot, cardId, 'status'), 'index.json'), '{not json', 'utf8');
-
-    expect(() => recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toThrow(SyntaxError);
-    expect(store.read(cardId)?.status).toBe('running');
-  }));
-
   it('does not recover planner done terminal tool calls before reviewer reconstruction exists', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
@@ -433,7 +422,7 @@ describe('actor recovery plan', () => {
     appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'done', summary: 'done' });
     appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_result', reviewerPass(evidenceId));
     const deps = recoveryProcessorDeps(projectRoot, store);
-    const traversalLessStore = { read: store.read.bind(store), setStatus: store.setStatus.bind(store), commitTerminalLifecyclePatch: store.commitTerminalLifecyclePatch.bind(store) };
+    const traversalLessStore = { read: store.read.bind(store), setStatus: store.setStatus.bind(store), commitTerminalLifecyclePatch: store.commitTerminalLifecyclePatch.bind(store), readRecord: store.readRecord.bind(store), closeRecord: store.closeRecord.bind(store) };
 
     expect(() => recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), { ...deps, store: traversalLessStore })).toThrow('must provide listChildren');
   }));

@@ -1,15 +1,16 @@
+import { initProjectTree, CardStore, closeOpenRecordSlot, readRecordSlotIndex } from '../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
+
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
-import { closeOpenRecordSlot, readRecordSlotIndex } from '../../src/runtime/records/record-slots.js';
+
 import { writeProject } from '../../src/tools/project-file-tools.js';
 
 const VALID_BRIEF = '# Goal\n\nDo the work.\n\n# Instructions\n\nUse the records.\n\n# Acceptance Criteria\n\nDone.\n';
@@ -70,7 +71,7 @@ describe('workspace and patch providers', () => {
         const data = result.data as { path: string; record_url: string; card_id: string };
         expect(data.card_id).toBe(card.id);
         expect(data.record_url).toBe(`record:///brief.md?card=${card.id}&v=2`);
-        expect(readFileSync(join(root, data.path), 'utf8')).toBe(VALID_BRIEF);
+        expect(store.readRecord(card.id, 'brief.md', 2).artifact.content).toBe(VALID_BRIEF);
       }
       expect(store.read(card.id)?.status).toBe('changed');
       expect(notifyCard).toHaveBeenCalledWith(card.id, expect.objectContaining({ reason: 'card_changed' }));
@@ -130,7 +131,7 @@ describe('workspace and patch providers', () => {
       const latest = readRecordSlotIndex(root, card.id, 'brief').latest!;
       expect(latest).toBe(2);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latest}` });
-      expect(readFileSync(join(root, '.saivage', 'cards', card.id, 'brief', `${latest}.md`), 'utf8')).toBe(VALID_BRIEF);
+      expect(store.readRecord(card.id, 'brief.md', latest).artifact.content).toBe(VALID_BRIEF);
       expect(store.read(card.id)?.status).toBe('backlog');
       expect(store.read(parent.id)?.status).toBe('changed');
       expect(store.read('project')?.status).toBe('running');
@@ -287,7 +288,7 @@ describe('workspace and patch providers', () => {
     const { root, store } = setupProject();
     try {
       const card = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'old', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
-      await writeProject({ projectRoot: root, cardId: card.id, agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: VALID_BRIEF });
+      await writeProject({ projectRoot: root, cardId: card.id, agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: VALID_BRIEF });
       closeOpenRecordSlot(root, { cardId: card.id, filename: 'brief.md', writer: 'planner' });
       markDone(store, card.id);
       const latestBefore = readRecordSlotIndex(root, card.id, 'brief').latest!;
@@ -300,7 +301,7 @@ describe('workspace and patch providers', () => {
       const latestAfter = readRecordSlotIndex(root, card.id, 'brief').latest!;
       expect(latestAfter).toBe(latestBefore + 1);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latestAfter}` });
-      expect(readFileSync(join(root, '.saivage', 'cards', card.id, 'brief', `${latestAfter}.md`), 'utf8')).toContain('Do the updated work.');
+      expect(store.readRecord(card.id, 'brief.md', latestAfter).artifact.content).toContain('Do the updated work.');
       expect(store.read(card.id)?.status).toBe('changed');
       expect(notifyCard).toHaveBeenCalled();
     } finally {
@@ -313,7 +314,7 @@ describe('workspace and patch providers', () => {
     try {
       const parent = store.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'parent', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
       const card = store.create({ type: 'code', parent: parent.id, title: 'Backlog child', brief: 'old', status: 'backlog', depth: 2, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
-      await writeProject({ projectRoot: root, cardId: card.id, agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: VALID_BRIEF });
+      await writeProject({ projectRoot: root, cardId: card.id, agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: VALID_BRIEF });
       closeOpenRecordSlot(root, { cardId: card.id, filename: 'brief.md', writer: 'planner' });
       store.setStatus('project', 'running');
       markDone(store, parent.id);
@@ -327,7 +328,7 @@ describe('workspace and patch providers', () => {
       const latestAfter = readRecordSlotIndex(root, card.id, 'brief').latest!;
       expect(latestAfter).toBe(latestBefore + 1);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latestAfter}` });
-      expect(readFileSync(join(root, '.saivage', 'cards', card.id, 'brief', `${latestAfter}.md`), 'utf8')).toContain('Do the updated work.');
+      expect(store.readRecord(card.id, 'brief.md', latestAfter).artifact.content).toContain('Do the updated work.');
       expect(store.read(card.id)?.status).toBe('backlog');
       expect(store.read(parent.id)?.status).toBe('changed');
       expect(store.read('project')?.status).toBe('running');

@@ -1,16 +1,32 @@
 import { loadEnvironment, type Environment } from '../config/index.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
-import { initProjectTree } from '../persistence/index.js';
+import { observeCanonicalProjectRoot } from '../persistence/index.js';
+import { openProjectPersistenceAuthority, verifyBootstrapEligibleLayout, type NewProjectRootInput, type ProjectPersistenceAuthority } from '../persistence/project-persistence-authority.js';
 import { acquireLock, releaseLock } from '../runtime/lock.js';
 import { startServer, type ServerInstance } from '../server/server.js';
 import { createRestartPort } from './restart-port.js';
-import { resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import type { CardRecord } from '../schemas/index.js';
 
 export interface App {
   readonly environment: Environment;
   readonly scope: ResourceScope;
   readonly server: ServerInstance;
+  readonly authority: ProjectPersistenceAuthority;
   stop: () => Promise<void>;
+}
+
+export function newProjectRootInput(projectRoot: string): NewProjectRootInput {
+  const stamp = new Date().toISOString();
+  const title = basename(projectRoot) || 'saivage-project';
+  const card: CardRecord = {
+    id: 'project', type: 'project', parent: null, depth: 0, position: 0, title, status: 'backlog', subtype: null,
+    tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: stamp, updated_at: stamp,
+    assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+    metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null,
+    status_text_author_session_id: null, latest_self_report: null, retries: 0, version_seq: 1,
+  };
+  return { card, brief: `# Goal\n\nDefine and execute the ${title} project.\n\n# Instructions\n\nUse this root card as the canonical project objective and planning anchor.\n\n# Acceptance Criteria\n\n- The project objective is captured in the root card brief.\n- Child work is created under this project card.\n` };
 }
 
 export interface StartAppOptions {
@@ -47,11 +63,26 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   scope.add({ dispose: () => releaseLock(lifecycleLock) }, { name: 'runtime-process-lock' });
   let environment: Environment;
   let server: ServerInstance;
+  let authority: ProjectPersistenceAuthority;
   const restartPort = createRestartPort({ dispose: async () => { await scope.dispose(); }, exit: (code) => process.exit(code) });
   try {
-    if (prelock.createRuntime) initProjectTree(prelock.projectRoot);
+    let mode: { kind: 'normal' } | { kind: 'bootstrap'; root: NewProjectRootInput } = { kind: 'normal' };
+    if (prelock.createRuntime) {
+      try {
+        observeCanonicalProjectRoot(join(prelock.projectRoot, '.saivage', 'cards'));
+      } catch {
+        try {
+          verifyBootstrapEligibleLayout(prelock.projectRoot, lifecycleLock);
+          mode = { kind: 'bootstrap', root: newProjectRootInput(prelock.projectRoot) };
+        } catch {
+          mode = { kind: 'normal' };
+        }
+      }
+    }
+    authority = openProjectPersistenceAuthority({ projectRoot: prelock.projectRoot, lifecycleLock, mode });
+    scope.add({ dispose: () => authority.close() }, { name: 'project-persistence-authority' });
     environment = loadEnvironment(options.argv, env);
-    server = await startServer({ environment, scope: scope.child('server'), restartPort });
+    server = await startServer({ environment, authority, scope: scope.child('server'), restartPort });
   } catch (error) {
     await scope.dispose();
     throw error;
@@ -64,5 +95,5 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   scope.onSignal('SIGINT', () => { void stop().then(() => process.exit(0)); }, { name: 'process-sigint' });
   scope.onSignal('SIGTERM', () => { void stop().then(() => process.exit(0)); }, { name: 'process-sigterm' });
 
-  return { environment, scope, server, stop };
+  return { environment, authority, scope, server, stop };
 }

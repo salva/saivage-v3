@@ -1,13 +1,14 @@
+import { initProjectTree, CardStore, closeOpenRecordSlot, openRecordSlot } from '../helpers/canonical-project.js';
 import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
+
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { list_card_history, get_card_history_entry, diff_card, get_card } from '../../src/tools/analyst-card-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
-import { closeOpenRecordSlot, openRecordSlot } from '../../src/runtime/records/record-slots.js';
+
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 function setup(root: string): CardStore {

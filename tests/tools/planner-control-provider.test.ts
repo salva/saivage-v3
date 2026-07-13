@@ -1,10 +1,11 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
+
 import { buildInvocationSurface, invokeTool, replayToolForRecovery } from '../../src/tools/invocation.js';
 import { createPlannerControlProvider } from '../../src/tools/planner-control-provider.js';
 import type { CardRecord } from '../../src/schemas/index.js';

@@ -8,6 +8,7 @@
         :name="`${slot.key}.md`"
         :title="slot.label"
         :version="stateValue(slot.key).version"
+        :timestamp="stateValue(slot.key).committedAt"
       >
         <ViewState v-if="stateValue(slot.key).loading" state="loading" :title="`Loading ${slot.key}`" />
         <ViewState v-else-if="stateValue(slot.key).error" state="error" :title="`Could not load ${slot.key}`" :message="stateValue(slot.key).error || ''" />

@@ -1,11 +1,12 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as YAML from 'yaml';
 
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
+
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { ANALYST_CONTROL_TOOLS, ANALYST_SHARED_PROVIDER_TOOL_NAMES, ANALYST_TOOL_DEFINITIONS } from '../../src/tools/analyst-tool-registry.js';

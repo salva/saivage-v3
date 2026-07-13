@@ -17,6 +17,7 @@ import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
 import { startTelegramNotifications } from './telegram-lifecycle.js';
 import { ReadModelChangeBroadcaster, type ReadModelChangeSubscription } from '../../application/read-model-changes.js';
+import type { ProjectPersistenceAuthority } from '../../persistence/project-persistence-authority.js';
 
 export interface ServerServices {
   projectRoot: string;
@@ -77,6 +78,7 @@ export async function createServerServices(input: {
   environment: Environment;
   scope?: ResourceScope;
   restartPort?: RestartPort;
+  authority: ProjectPersistenceAuthority;
 }): Promise<ServerServices> {
   const { environment } = input;
   const projectRoot = environment.projectRoot;
@@ -94,7 +96,7 @@ export async function createServerServices(input: {
   const eventLogger = new EventLogger(saivageDir);
   const errorLogger = new ErrorLogger(saivageDir);
   const readModelChanges = new ReadModelChangeBroadcaster();
-  const cardStore = new CardStore(projectRoot, eventBus, readModelChanges);
+  const cardStore = new CardStore({ projectRoot, reader: input.authority.reader, writer: input.authority.writer, eventBus, readModelChanges });
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 

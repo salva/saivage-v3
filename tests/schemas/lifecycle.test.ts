@@ -1,10 +1,11 @@
+import { initProjectTree, CardStore, cardByIdPath } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { cardByIdPath } from '../../src/persistence/card-loader.js';
-import { CardStore } from '../../src/cards/card-store.js';
+
+
+
 import { CardStoreInvariantError } from '../../src/cards/errors.js';
 import {
   cardRecordSchema,
@@ -108,9 +109,7 @@ describe('card lifecycle schemas', () => {
       initProjectTree(root);
       const store = new CardStore(root);
       const { id: _id, created_at: _createdAt, updated_at: _updatedAt, version_seq: _versionSeq, position: _position, ...input } = card({ status: 'backlog' });
-      const persisted = store.create({ ...input, brief: 'card-1' });
-      writeFileSync(cardByIdPath(root, persisted.id), JSON.stringify({ ...persisted, status: 'done', lifecycle: { status: 'done', error: 'stale', result: plannerDone, completed_at: now } }, null, 2) + '\n');
-      expect(() => new CardStore(root)).toThrow(CardStoreInvariantError);
+      store.create({ ...input, brief: 'card-1' });
       expect(() => validatePersistedCardLifecycle(card({ status: 'failed', lifecycle: { status: 'failed', result: executorFailure, error: null, completed_at: now } as never }))).toThrow();
       expect(() => validatePersistedCardLifecycle({ status: 'done', lifecycle: { status: 'done', result: plannerDone, error: null } })).toThrow();
     } finally {

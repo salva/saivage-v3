@@ -23,7 +23,6 @@ export {
 } from './errors.js';
 export {
   explainStateValidationRejection,
-  initProjectTree,
   isInitialized,
   readProjectFileAtomic,
 } from './file-tree.js';

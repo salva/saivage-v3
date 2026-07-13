@@ -1,13 +1,14 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appendProviderExchangeLogEntry } from '../../src/persistence/provider-exchange-log.js';
 import { initRuntimeState, runtimeStatePath, updateRuntimeState } from '../../src/runtime/state.js';
-import { CardStore } from '../../src/cards/store-api.js';
+
 import { appendConversationMessage, buildContextTextMessage } from '../../src/runtime/actors/index.js';
 import {
   AgentOperatorReadModelService,

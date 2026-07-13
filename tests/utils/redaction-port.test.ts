@@ -1,3 +1,4 @@
+import { CardStore } from '../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,7 +19,7 @@ import { sendToClient } from '../../src/server/websocket.js';
 import type { WsEnvelope } from '../../src/contracts/operator-events.js';
 import { TelegramBot } from '../../src/telegram/bot.js';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
-import { CardStore } from '../../src/cards/card-store.js';
+
 
 const RAW_TOKEN = 'SYNTHETIC_PROVIDER_TOKEN';
 const RAW_ACCESS = 'SYNTHETIC_ACCESS';

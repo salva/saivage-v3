@@ -18,6 +18,7 @@ import type { BufferSizeEstimator, CompactionConfig } from './compaction/compact
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
+import type { RecordProjection } from '../../persistence/project-persistence-authority.js';
 
 export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
 
@@ -75,6 +76,9 @@ export interface CardActorStorePort {
   setStatus(cardId: string, status: CardStatus): CardRecord;
   commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
   listChildren?(cardId: string): string[];
+  readRecord(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection;
+  closeRecord(cardId: string, filename: string, version: number, writer: import('../../schemas/index.js').AgentRole, cardVersionSeq: number): RecordProjection;
+  discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection;
 }
 
 export interface CardActorDeps {
@@ -299,7 +303,6 @@ export class CardActor extends BaseActor {
       this.processor.start?.();
       this.#processorStarted = true;
     }
-    const card = this.requireCard();
     this.writeStoreStatus('running');
     if (!this.#result) throw new Error(`Card '${this.cardId}' entered running without pending activation.`);
     if (!this.#activationId) throw new Error(`Card '${this.cardId}' entered running without an activation id.`);

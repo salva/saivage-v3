@@ -28,6 +28,8 @@ export const WorkspaceFileContentResponseSchema = z.object({
   content: z.string(),
   redacted: z.boolean(),
   sensitivity: z.string(),
+  version: z.number().int().positive().optional(),
+  modifiedAt: z.string().nullable().optional(),
 });
 
 export const DebugRuntimeStateSchema = runtimeStateSchema.extend({ pid: z.number().int().positive() });

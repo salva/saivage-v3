@@ -14,7 +14,6 @@ import { invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type 
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { NotifyCardResult } from '../runtime-api.js';
-import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
@@ -85,7 +84,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
     const contract = createPlannerContract();
     const llm = this.createMainLlm(plannerActorId(this.cardId));
-    if (llm.state() === 'idle') discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'status.md', reason: 'new_activation' });
+    if (llm.state() === 'idle') this.discardOpenRecord(input.card.id, 'status.md', 'new_activation');
     const surface = this.plannerInvocationSurface(input.card.id);
     const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, surface, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.notificationContext(input, inputId));
     let reviewerReworkAttempts = 0;
@@ -203,7 +202,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private reviewerReworkPlannerMessage(cardId: string, summary: string): string {
-    const reviewUrl = latestClosedRecordSlot(this.projectRoot, { cardId, filename: 'review.md' }).recordUrl;
+    const reviewUrl = this.store.readRecord(cardId, 'review.md', 'latest').recordUrl;
     return `Reviewer requested rework at ${reviewUrl}. Read it for required changes, update or create the necessary child cards, activate the rework, write record:///status.md?v=next, then call emit_result again when ready for review. Reviewer summary: ${summary}`;
   }
 
@@ -213,9 +212,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const sessionId = reviewerSessionId(input.card.id, assessmentId);
     const llm = this.createMainLlm(reviewerActorId(input.card.id));
     const reviewerContract = createReviewerContract();
-    if (llm.state() === 'idle') discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'review.md', reason: 'new_reviewer_activation' });
+    if (llm.state() === 'idle') this.discardOpenRecord(input.card.id, 'review.md', 'new_reviewer_activation');
     let reviewerRelaunchAttempts = 0;
-    while (true) {
+    for (;;) {
       const currentness = this.captureReviewerCurrentness(input);
       const surface = this.reviewerInvocationSurface(input.card.id, sessionId);
       const outcome = await this.resolveInitialOutcome(llm, () => this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness, surface, reviewerContract), surface, (name) => reviewerContract.isTerminalToolName(name), signal);
@@ -238,7 +237,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           }
           const staleReason = this.reviewerCurrentnessStaleReason(input, currentness);
           if (staleReason) {
-            discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'review.md', reason: 'stale_review' });
+            this.discardOpenRecord(input.card.id, 'review.md', 'stale_review');
             llm.abandonParkedTurn();
             if (reviewerRelaunchAttempts >= 2) return control.done(this.plannerFailure(`Reviewer currentness relaunch budget exhausted: ${staleReason}`));
             reviewerRelaunchAttempts++;
@@ -325,24 +324,32 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private closeRequiredRecord(cardId: string, filename: 'status.md' | 'review.md', writer: 'planner' | 'reviewer', cardVersionSeq: number): string | null {
     try {
-      closeOpenRecordSlot(this.projectRoot, { cardId, filename, writer, cardVersionSeq });
+      const open = this.store.readRecord(cardId, filename, 'open');
+      this.store.closeRecord(cardId, filename, open.version, writer, cardVersionSeq);
       return null;
     } catch (error) {
+      if (error instanceof Error && error.message.includes(`'${cardId}/${filename.slice(0, -3)}/open'`)) return this.missingRequiredRecordMessage(cardId, filename);
       return error instanceof Error ? error.message : String(error);
     }
   }
 
   private validateRequiredOpenRecord(cardId: string, filename: 'status.md' | 'review.md'): string | null {
     try {
-      const slot = filename.slice(0, -'.md'.length);
-      const index = readRecordSlotIndex(this.projectRoot, cardId, slot);
-      if (index.open === null) return `Required record 'record:///${filename}?card=${cardId}&v=next' was not created.`;
-      const open = concreteRecordSlot(this.projectRoot, { cardId, filename, version: index.open });
-      if (!recordFileIsNonEmpty(open.absolutePath)) return `Required record '${open.recordUrl}' was not created or is empty.`;
+      const open = this.store.readRecord(cardId, filename, 'open');
+      if (open.artifact.content.trim().length === 0) return `Required record '${open.recordUrl}' was not created or is empty.`;
       return null;
     } catch (error) {
+      if (error instanceof Error && error.message.includes(`'${cardId}/${filename.slice(0, -3)}/open'`)) return this.missingRequiredRecordMessage(cardId, filename);
       return error instanceof Error ? error.message : String(error);
     }
+  }
+
+  private missingRequiredRecordMessage(cardId: string, filename: 'status.md' | 'review.md'): string {
+    return `Required record 'record:///${filename}?card=${encodeURIComponent(cardId)}&v=next' was not created.`;
+  }
+
+  private discardOpenRecord(cardId: string, filename: string, reason: string): void {
+    try { const open = this.store.readRecord(cardId, filename, 'open'); this.store.discardRecord(cardId, filename, open.version, reason); } catch { /* no open record */ }
   }
 
   private directChildren(cardId: string): CardRecord[] {
@@ -372,7 +379,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private captureReviewerCurrentness(input: CardActivationInput): ReviewerCurrentnessSnapshot {
     const cards = this.reviewedSubtree(input.card.id).map((card) => ({ id: card.id, status: card.status, versionSeq: card.version_seq }));
-    const includedRecordVersions = this.descendants(input.card.id).map((card) => ({ cardId: card.id, filename: 'status.md' as const, latest: latestClosedRecordVersion(this.projectRoot, card.id, 'status.md') }));
+    const includedRecordVersions = this.descendants(input.card.id).map((card) => ({ cardId: card.id, filename: 'status.md' as const, latest: latestClosedRecordVersion(this.store, card.id, 'status.md') }));
     return { cards, includedRecordVersions };
   }
 
@@ -406,7 +413,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return this.promptTemplates.render(card.type, 'planner', {
       cardId: card.id,
       cardTitle: card.title,
-      cardBrief: cardBriefForPrompt(this.projectRoot, card),
+      cardBrief: cardBriefForPrompt(this.store, card),
       contractDescription: contract.describe(),
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
     });
@@ -416,7 +423,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return this.promptTemplates.render(card.type, 'reviewer', {
       cardId: card.id,
       cardTitle: card.title,
-      cardBrief: cardBriefForPrompt(this.projectRoot, card),
+      cardBrief: cardBriefForPrompt(this.store, card),
       assessmentId,
       contractDescription: contract.describe(),
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
@@ -429,7 +436,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private reviewerInvocationSurface(cardId: string, sessionId: string) {
-    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, mcpManagerProvider: this.mcpManagerProvider });
+    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store, mcpManagerProvider: this.mcpManagerProvider });
   }
 
   protected get processorLabel(): string {
@@ -462,7 +469,7 @@ export function projectPlannerTerminalOutcome(outcome: Extract<LLMActorOutcome, 
   return { status: 'failed', summary: parsed.summary, result: { kind: 'failed', summary: parsed.summary } };
 }
 
-export function firstIncompleteDescendant(cardId: string, store: CardActorStorePort): { id: string; status: CardStatus } | null {
+export function firstIncompleteDescendant(cardId: string, store: Pick<CardActorStorePort, 'read' | 'listChildren'>): { id: string; status: CardStatus } | null {
   if (!store.listChildren) throw new Error(`Cannot evaluate completion gate for card '${cardId}': store must provide listChildren for descendant traversal.`);
   for (const childId of store.listChildren(cardId)) {
     const child = store.read(childId);
@@ -474,9 +481,9 @@ export function firstIncompleteDescendant(cardId: string, store: CardActorStoreP
   return null;
 }
 
-function latestClosedRecordVersion(projectRoot: string, cardId: string, filename: 'status.md'): number | null {
+function latestClosedRecordVersion(store: Pick<CardActorStorePort, 'readRecord'>, cardId: string, filename: 'status.md'): number | null {
   try {
-    return latestClosedRecordSlot(projectRoot, { cardId, filename }).version;
+    return store.readRecord(cardId, filename, 'latest').version;
   } catch {
     return null;
   }

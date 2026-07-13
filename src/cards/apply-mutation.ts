@@ -3,10 +3,6 @@
 // card.json records, updates `CardStoreState`, releases the lock, and emits a
 // `card_history_appended` event AFTER the lock drops.
 
-import {
-  rmSync,
-} from 'node:fs';
-import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EventBus } from '../events/index.js';
 import type {
@@ -16,12 +12,9 @@ import type {
   CardRecord,
 } from '../schemas/index.js';
 import { cardHistoryEntrySchema } from '../schemas/index.js';
-import { ProjectLock } from '../persistence/index.js';
-import type { LockHandle } from '../persistence/index.js';
-import { fsyncDir } from '../persistence/durable-write.js';
+import type { ProjectCardRecordWriter, ProjectMutationSession } from '../persistence/project-persistence-authority.js';
 import { CardStoreState } from './state.js';
 import { CardStoreInvariantError } from './errors.js';
-import { cardRecordNamespaceDir, writeBriefRecordVersion, writeCardRecordVersion } from '../persistence/card-loader.js';
 import type { CardMutationContext } from './lifecycle.js';
 import { reserveDeletedCardIds } from '../persistence/deleted-card-ids.js';
 
@@ -51,7 +44,7 @@ export type ApplyMutationOp =
 export interface ApplyMutationDeps {
   projectRoot: string;
   state: CardStoreState;
-  projectLock: ProjectLock;
+  writer: ProjectCardRecordWriter;
   eventBus: EventBus;
 }
 
@@ -86,13 +79,6 @@ function buildHistoryEntry(
   return entry;
 }
 
-function withLockOnly<T>(
-  deps: ApplyMutationDeps,
-  body: (lockHandle: LockHandle) => T,
-): T {
-  return deps.projectLock.withLockSync((handle) => body(handle));
-}
-
 /**
  * Per F13 r5 §"On-disk write sequence" steps 1–10 for a single-card mutation.
  * For `create`, no history row is written and no event is emitted.
@@ -104,10 +90,7 @@ export function applyMutationSync(
   deps: ApplyMutationDeps,
   op: ApplyMutationOp,
 ): ApplyMutationResult {
-  const outcome = withLockOnly(deps, (handle) => {
-    deps.projectLock.assertOwns(handle);
-    return applyMutationLocked(deps, op);
-  });
+  const outcome = deps.writer.request((session) => applyMutationLocked(deps, session, op));
   if (outcome.event !== null) deps.eventBus.emit('card_history_appended', outcome.event);
   return { card: outcome.card, historyEntry: outcome.historyEntry };
 }
@@ -118,20 +101,12 @@ export interface ApplyMutationLockedOutcome {
   event: CardHistoryAppendedPayload | null;
 }
 
-export function applyMutationWithOwnedLockSync(
-  deps: ApplyMutationDeps,
-  lockHandle: LockHandle,
-  op: ApplyMutationOp,
-): ApplyMutationLockedOutcome {
-  deps.projectLock.assertOwns(lockHandle);
-  return applyMutationLocked(deps, op);
-}
-
 function applyMutationLocked(
   deps: ApplyMutationDeps,
+  writer: ProjectMutationSession,
   op: ApplyMutationOp,
 ): ApplyMutationLockedOutcome {
-  const { projectRoot, state } = deps;
+  const { state } = deps;
   if (op.kind === 'create') {
     const card = op.card;
     if (state.has(card.id)) {
@@ -147,8 +122,7 @@ function applyMutationLocked(
         `New card '${card.id}' must have version_seq=1, got ${card.version_seq}.`,
       );
     }
-    writeCardRecordVersion(projectRoot, card);
-    writeBriefRecordVersion(projectRoot, card, op.briefContent, card.created_by === 'planner' ? 'planner' : 'analyst');
+    writer.createCard(card, op.briefContent, card.created_by === 'planner' ? 'planner' : 'analyst');
     state.upsert(card);
     return { card, historyEntry: null, event: null };
   }
@@ -170,7 +144,7 @@ function applyMutationLocked(
       op.changedFields,
       op.changeSummary,
     );
-    writeCardRecordVersion(projectRoot, nextValidated, historyEntry);
+    writer.writeCard(nextValidated, historyEntry);
     state.upsert(nextValidated);
     const event: CardHistoryAppendedPayload = {
       kind: 'card_history_appended',
@@ -195,10 +169,8 @@ function applyMutationLocked(
     ['__deleted__'],
     op.changeSummary,
   );
-  const liveDir = cardRecordNamespaceDir(deps.projectRoot, op.cardId);
   reserveDeletedCardIds(deps.projectRoot, [op.cardId]);
-  rmSync(liveDir, { recursive: true, force: true });
-  fsyncDir(dirname(liveDir));
+  writer.deleteCard(op.cardId);
   state.remove(op.cardId);
   const event: CardHistoryAppendedPayload = {
     kind: 'card_history_appended',
@@ -220,10 +192,9 @@ export function applyMutationGroupSync(
   if (ops.length === 0) return [];
   const events: CardHistoryAppendedPayload[] = [];
   const results: ApplyMutationResult[] = [];
-  withLockOnly(deps, (handle) => {
-    deps.projectLock.assertOwns(handle);
+  deps.writer.request((writer) => {
     for (const op of ops) {
-      const outcome = applyMutationLocked(deps, op);
+      const outcome = applyMutationLocked(deps, writer, op);
       results.push({ card: outcome.card, historyEntry: outcome.historyEntry });
       if (outcome.event !== null) events.push(outcome.event);
     }

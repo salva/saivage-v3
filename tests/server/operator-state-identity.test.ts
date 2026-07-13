@@ -1,3 +1,4 @@
+import { initProjectTree, testProjectAuthority } from '../helpers/canonical-project.js';
 import { describe, expect, it, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -7,7 +8,7 @@ import { createServer } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { parseOperatorResponse } from '../../src/contracts/operator-api.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { createTestRestartPort } from '../helpers/restart-port.js';
 
 const AUTH_TOKEN = 'identity-test-token';
@@ -25,7 +26,7 @@ describe('operator runtime.getState identity', () => {
   let originalToken: string | undefined;
 
   function createTestServer(root: string) {
-    return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), restartPort: createTestRestartPort() });
+    return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root), restartPort: createTestRestartPort() });
   }
 
   beforeEach(() => {

@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs';
-import { cardHistoryPath, cardRecordVersionPath, parseCard, readHistoryEntriesStrict, readJsonFile } from '../persistence/card-loader.js';
+import type { ProjectCardRecordReader } from '../persistence/project-persistence-authority.js';
 import type { CardHistoryEntry, CardRecord } from '../schemas/index.js';
 import { valuesEqual } from './value-equality.js';
 
@@ -10,7 +9,7 @@ export interface CardDiffEntry {
 }
 
 export interface CardHistoryReaderConfig {
-  projectRoot: string;
+  persistenceReader: ProjectCardRecordReader;
   read: (id: string) => CardRecord | null;
 }
 
@@ -22,15 +21,15 @@ export class CardHistoryReader {
   constructor(private readonly config: CardHistoryReaderConfig) {}
 
   listCardHistory(id: string): CardHistoryEntry[] {
-    const hp = cardHistoryPath(this.config.projectRoot, id);
-    if (!existsSync(hp)) return [];
-    return readHistoryEntriesStrict(hp).slice().reverse();
+    const card = this.config.persistenceReader.generation().cards.get(id);
+    if (!card) return [];
+    return card.artifacts.flatMap((artifact) => artifact.history ? [artifact.history] : []).reverse();
   }
 
   getCardAt(id: string, versionSeq: number): CardRecord {
-    const path = cardRecordVersionPath(this.config.projectRoot, id, versionSeq);
-    if (!existsSync(path)) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
-    return deepClone(parseCard(readJsonFile(path), path));
+    const artifact = this.config.persistenceReader.generation().cards.get(id)?.artifacts.find((candidate) => candidate.version === versionSeq);
+    if (!artifact) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
+    return deepClone(artifact.card);
   }
 
   diffCard(id: string, fromSeq: number, toSeq: number): CardDiffEntry[] {

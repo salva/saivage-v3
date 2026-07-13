@@ -1,9 +1,10 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { CardStore } from '../../src/cards/card-store.js';
+
+
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';
 

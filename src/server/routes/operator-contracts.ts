@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import { operatorApiContracts } from '../../contracts/index.js';
 import type { AuthPolicy } from '../auth-policy.js';
@@ -39,7 +38,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),
     ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
-    ...buildAgentOperatorContractHandlers({ projectRoot }),
+    ...buildAgentOperatorContractHandlers({ projectRoot, cardStore: options.cardStore }),
     ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication, restartPort: options.restartPort, saivageConfig: options.saivageConfig }),
     ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardStoreProvider: () => options.cardStore }),
     ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication?.processRunner }),

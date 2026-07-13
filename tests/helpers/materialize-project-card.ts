@@ -1,4 +1,5 @@
-import { CardStore } from '../../src/cards/card-store.js';
+import { CardStore } from './canonical-project.js';
+
 
 export function materializeProjectCard(projectRoot: string): void {
   const store = new CardStore(projectRoot);

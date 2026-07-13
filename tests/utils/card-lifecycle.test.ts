@@ -1,8 +1,9 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { CardStore } from '../../src/cards/card-store.js';
+
 import {
   buildNewCard,
   buildUpdatedCard,
@@ -16,7 +17,7 @@ import {
   validateMutablePatch,
   validateTransition,
 } from '../../src/cards/lifecycle.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import type { CardLifecycleState, CardRecord } from '../../src/schemas/index.js';
 
 function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {

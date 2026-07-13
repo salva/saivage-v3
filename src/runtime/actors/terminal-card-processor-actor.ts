@@ -11,7 +11,6 @@ import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, typ
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../process-runner.js';
-import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
@@ -36,13 +35,13 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     },
   };
 
-  readonly store?: CardActorStorePort;
+  readonly store: CardActorStorePort;
   private activeProcessOwnerId: string | null = null;
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly processRunner: ProcessRunner;
   private readonly promptTemplates: PromptTemplateRegistry;
 
-  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationMutationPort; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store?: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationMutationPort; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.processRunner = args.processRunner;
@@ -74,7 +73,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
     const contract = createExecutorContract();
     const llm = this.createMainLlm(executorActorId(this.cardId));
-    if (llm.state() === 'idle') discardOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', reason: 'new_activation' });
+    if (llm.state() === 'idle') this.discardOpenRecord('status.md', 'new_activation');
     const processOwnerId = input.activationId;
     const surface = this.executorInvocationSurface(processOwnerId);
     this.activeProcessOwnerId = processOwnerId;
@@ -136,7 +135,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       systemPrompt: this.promptTemplates.render(input.card.type, 'executor', {
         cardId: input.card.id,
         cardTitle: input.card.title,
-        cardBrief: cardBriefForPrompt(this.projectRoot, input.card),
+        cardBrief: cardBriefForPrompt(this.store!, input.card),
         contractDescription: contract.describe(),
         toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
         cardType: input.card.type,
@@ -158,7 +157,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private executorInvocationSurface(processOwnerId: string): InvocationSurface {
-    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, processRunner: this.processRunner, mcpManagerProvider: this.mcpManagerProvider });
+    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, store: this.store, processRunner: this.processRunner, mcpManagerProvider: this.mcpManagerProvider });
   }
 
   private validateExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): string | null {
@@ -166,6 +165,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       verifyTerminalToolOutcome(contract, outcome);
       return null;
     } catch (error) {
+      if (error instanceof Error && /\/status\/open.*does not exist/.test(error.message)) return `Required record 'record:///status.md?card=${this.cardId}&v=next' was not created.`;
       return error instanceof Error ? error.message : String(error);
     }
   }
@@ -194,11 +194,17 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private closeRequiredStatusRecord(cardVersionSeq: number): string | null {
     try {
-      closeOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', writer: 'executor', cardVersionSeq });
+      const open = this.store!.readRecord(this.cardId, 'status.md', 'open');
+      this.store!.closeRecord(this.cardId, 'status.md', open.version, 'executor', cardVersionSeq);
       return null;
     } catch (error) {
+      if (error instanceof Error && error.message.includes(`'${this.cardId}/status/open'`)) return `Required record 'record:///status.md?card=${this.cardId}&v=next' was not created.`;
       return error instanceof Error ? error.message : String(error);
     }
+  }
+
+  private discardOpenRecord(filename: string, reason: string): void {
+    try { const open = this.store!.readRecord(this.cardId, filename, 'open'); this.store!.discardRecord(this.cardId, filename, open.version, reason); } catch { /* no open record */ }
   }
 }
 

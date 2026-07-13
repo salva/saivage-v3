@@ -89,6 +89,8 @@ The chat composer must be reachable without opening a drawer or switching page m
 
 Card management is Analyst-owned and runtime-state-gated. When runtime status is `stopped` or `paused`, the Analyst may use supported semantic card operations such as creating cards, reordering direct children where supported, cancelling dormant work, and delete/archive removal with deleted-id reservation. The Analyst updates a card's goal/instructions/acceptance content by using `write`, `edit`, or `webfetch.save_as` for `record:///brief.md?card=<id>&v=next` when the target card is `backlog`, `done`, `failed`, or `running`; `changed`, `blocked`, and `cancelled` brief edits fail before writing. Scoped file URLs shown by the UI use canonical triple-slash form (`project:///`, `record:///`, `tmp:///`, `work:///`, `system:///`). The UI may show the relevant record URLs and metadata, but it must not perform these mutations directly.
 
+Files and card-record panels are logical projections of canonical artifacts and never expose writable physical body or artifact paths. Record panels display the slot-local version and commit timestamp. Timestamp, local version, and card/slot identity are the deterministic display-order facts; the UI has no project-wide record ordinal.
+
 ## 5. Contextual Awareness
 
 On every user turn, the Analyst receives enough workspace context to resolve phrases like:

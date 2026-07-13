@@ -1,12 +1,11 @@
-import { readdirSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { CardStore } from '../../cards/store-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import { listRecentReviews } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
-import { cardRecordVersionPath, cardRecordsRoot } from '../../persistence/card-loader.js';
-import { readRecordSlotIndex } from '../../runtime/records/record-slots.js';
+import { cardRecordsRoot } from '../../persistence/card-loader.js';
 import type { AuthPolicy } from '../auth-policy.js';
 
 export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardStore, authPolicy: AuthPolicy, runtimeApplication?: RuntimeApplication): void {
@@ -34,11 +33,7 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
       if (existsSync(cardRecordsDir)) {
         cardRecordsExist = true;
         try {
-          const dirs = readdirSync(cardRecordsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
-          diskCardIds = new Set(dirs.filter((entry) => {
-            const index = readRecordSlotIndex(projectRoot, entry.name, 'card');
-            return index.latest !== null && existsSync(cardRecordVersionPath(projectRoot, entry.name, index.latest));
-          }).map((entry) => entry.name));
+          diskCardIds = new Set(store.recordReader.generation().cards.keys());
         } catch (err) {
           if (!(err instanceof Error) || !('code' in err) || err.code !== 'ENOENT') throw err;
         }

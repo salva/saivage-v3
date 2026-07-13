@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { existsSync, readFileSync, statSync } from 'node:fs';
 
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
@@ -17,7 +16,6 @@ import {
   URGENCY_VALUES,
   cardIdArraySchema,
   cardStatusSchema,
-  cardTypeSchema,
   describe,
   emptyInput,
   enumSchema,
@@ -25,8 +23,8 @@ import {
   urgencySchema,
 } from './tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { cardSummary, defaultParentForCreate, getStore, humanizeToolError, normalizeParentValue, preflightEnum, saivageDir, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
-import { normalizeRecordUrl, readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';
+import { cardSummary, defaultParentForCreate, getStore, humanizeToolError, normalizeParentValue, preflightEnum, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
+import { recordSlotDefinitions } from '../runtime/records/record-slots.js';
 
 const createCardInput = z.object({
   type: enumSchema('The non-project card type.', CARD_TYPE_VALUES),
@@ -168,39 +166,26 @@ export async function list_cards(ctx: ToolContext, params: { status?: CardStatus
 export async function get_card(ctx: ToolContext, params: { id: string }): Promise<ToolResult> {
   try { const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure(`Card '${params.id}' not found.`, { id: params.id });
     const children = store.listChildren(params.id).map((cid) => store.read(cid)).filter((c): c is CardRecord => c !== null).map((child) => cardSummary(child, store));
-    const records = cardRecordSummaries(ctx.projectRoot, params.id);
-    return { success: true, data: { ...toCardView(store, card), effective_updated_at: effectiveUpdatedAt(ctx.projectRoot, params.id), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
+    const records = cardRecordSummaries(store, params.id);
+    return { success: true, data: { ...toCardView(store, card), effective_updated_at: effectiveUpdatedAt(store, params.id), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
   } catch (err) { return toolFailureFromError(err); }
 }
 
-function effectiveUpdatedAt(projectRoot: string, cardId: string): string | null {
-  const committedTimes: string[] = [];
-  for (const slot of ['card', ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => definition.slot)]) {
-    const index = readRecordSlotIndex(projectRoot, cardId, slot);
-    if (index.latest === null) continue;
-    const committedAt = index.versions[String(index.latest)]?.committed_at;
-    if (committedAt) committedTimes.push(committedAt);
-  }
+function effectiveUpdatedAt(store: ReturnType<typeof getStore>, cardId: string): string | null {
+  const committedTimes = [store.recordReader.generation().cards.get(cardId)?.current.committed_at, ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch { return null; } })].filter((value): value is string => value !== null && value !== undefined);
   if (committedTimes.length === 0) return null;
   return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
 }
 
-function cardRecordSummaries(projectRoot: string, cardId: string): Array<Record<string, unknown>> {
+function cardRecordSummaries(store: ReturnType<typeof getStore>, cardId: string): Array<Record<string, unknown>> {
   return recordSlotDefinitions()
     .filter((definition) => definition.exposed)
     .map((definition) => {
-      const index = readRecordSlotIndex(projectRoot, cardId, definition.slot);
-      if (index.latest === null) return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
-      const entry = index.versions[String(index.latest)];
-      const url = normalizeRecordUrl({ filename: definition.filename, cardId, version: index.latest });
-      const summary: Record<string, unknown> = { filename: definition.filename, path: `record:///${definition.filename}`, url, latest: index.latest, format: definition.format, schema: definition.schema, writers: definition.writers, size: entry?.size ?? null, modifiedAt: entry?.committed_at ?? null, writer: entry?.writer ?? null };
-      const path = recordPath(projectRoot, cardId, definition.slot, index.latest, definition.filename).absolutePath;
-      if (existsSync(path)) {
-        const max = 4000;
-        const content = readFileSync(path, 'utf-8');
-        summary.inline = { content: content.slice(0, max), truncated: statSync(path).size > Buffer.byteLength(content.slice(0, max), 'utf-8') };
-      }
-      return summary;
+      try {
+        const record = store.readRecord(cardId, definition.filename);
+        const content = record.artifact.content; const max = 4000;
+        return { filename: definition.filename, path: `record:///${definition.filename}`, url: record.recordUrl, latest: record.version, format: definition.format, schema: definition.schema, writers: definition.writers, size: Buffer.byteLength(content), modifiedAt: record.artifact.committed_at, writer: record.artifact.writer, inline: { content: content.slice(0, max), truncated: content.length > max } };
+      } catch { return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null }; }
     });
 }
 

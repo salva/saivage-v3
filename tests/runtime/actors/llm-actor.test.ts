@@ -1,10 +1,11 @@
+import { initProjectTree } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
+
 import { ActorSnapshotStore, appendActivationMarker, appendConversationMessage, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, ConversationLLMActor, createConversationChangePublisher, LLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 import { EventBus } from '../../../src/events/index.js';

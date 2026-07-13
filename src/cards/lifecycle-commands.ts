@@ -1,10 +1,7 @@
 import { cardRecordSchema, type CardRecord, type CardStatus } from '../schemas/index.js';
-import type { ProjectLock } from '../persistence/index.js';
 import { now } from '../utils/clock.js';
-import { loadCardStoreState } from '../persistence/card-loader.js';
-import { PROJECT_CARD_ID } from './project-card.js';
 import type { CardStoreState } from './state.js';
-import { applyMutationWithOwnedLockSync, type ApplyMutationDeps } from './apply-mutation.js';
+import { applyMutationSync, type ApplyMutationDeps } from './apply-mutation.js';
 import {
   assertCanCreateCard,
   briefContentForNewCard,
@@ -20,7 +17,6 @@ import {
 export interface CardLifecycleCommandsConfig {
   projectRoot: string;
   maxDepth: number;
-  projectLock: ProjectLock;
   state: () => CardStoreState;
   setState: (state: CardStoreState) => void;
   deps: () => ApplyMutationDeps;
@@ -56,10 +52,8 @@ export class CardLifecycleCommands {
   create(input: NewCardInput): CardRecord {
     assertCanCreateCard(input);
     let created: CardRecord | null = null;
-    this.config.projectLock.withLockSync((handle) => {
-      this.config.projectLock.assertOwns(handle);
-      const state = loadCardStoreState(this.config.projectRoot, { maxDepth: this.config.maxDepth });
-      this.config.setState(state);
+    {
+      const state = this.config.state();
       const nowStamp = now();
       const id = newCardId(input.type, () => generateId(state.allKnownIds()));
 
@@ -109,9 +103,9 @@ export class CardLifecycleCommands {
         const cycle = state.detectDependsOnCycle(card.id, card.depends_on);
         if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
       }
-      const result = applyMutationWithOwnedLockSync(this.config.deps(), handle, { kind: 'create', card: parsed.data, briefContent: briefContentForNewCard(input) });
+      const result = applyMutationSync(this.config.deps(), { kind: 'create', card: parsed.data, briefContent: briefContentForNewCard(input) });
       created = result.card;
-    });
+    }
     return deepClone(created!);
   }
 

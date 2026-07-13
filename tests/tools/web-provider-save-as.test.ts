@@ -7,13 +7,11 @@ jest.unstable_mockModule('node:dns/promises', () => ({
   lookup: jest.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
 }));
 
-const { CardStore } = await import('../../src/cards/card-store.js');
+const { CardStore, initProjectTree, readRecordSlotIndex } = await import('../helpers/canonical-project.js');
 const { buildInvocationSurface, invokeTool } = await import('../../src/tools/invocation.js');
 const { createWebProvider } = await import('../../src/tools/web-tools.js');
-const { initProjectTree } = await import('../../src/persistence/file-tree.js');
 const { initRuntimeState, updateRuntimeState } = await import('../../src/runtime/state.js');
 const { materializeProjectCard } = await import('../helpers/materialize-project-card.js');
-const { readRecordSlotIndex } = await import('../../src/runtime/records/record-slots.js');
 
 function mockFetch(text = 'fetched body'): jest.SpiedFunction<typeof fetch> {
   return jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(text, { status: 200, headers: { 'content-type': 'text/plain' } }));
@@ -21,9 +19,14 @@ function mockFetch(text = 'fetched body'): jest.SpiedFunction<typeof fetch> {
 
 describe('webfetch save_as scoped URLs', () => {
   let root: string;
+  let baseStore: InstanceType<typeof CardStore>;
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'saivage-web-save-as-'));
+    initProjectTree(root);
+    materializeProjectCard(root);
+    baseStore = new CardStore(root);
+    baseStore.create({ type: 'code', parent: 'project', title: 'Card 1', brief: 'Test card', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   });
 
   afterEach(() => {
@@ -44,7 +47,7 @@ describe('webfetch save_as scoped URLs', () => {
 
   it('denies planner project:// save_as before network fetch', async () => {
     const fetchSpy = mockFetch();
-    const surface = buildInvocationSurface('planner', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner' })]);
+    const surface = buildInvocationSurface('planner', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner', store: baseStore })]);
 
     const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/page.txt', save_as: 'project:///docs/page.txt' });
 
@@ -55,18 +58,18 @@ describe('webfetch save_as scoped URLs', () => {
 
   it('allows planner record://status.md save_as for the current card', async () => {
     mockFetch('planner status');
-    const surface = buildInvocationSurface('planner', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner' })]);
+    const surface = buildInvocationSurface('planner', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner', store: baseStore })]);
 
     const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/status.txt', save_as: 'record:///status.md?v=next' });
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toMatchObject({ saved_as: 'record:///status.md?card=card-1&v=1' });
-    expect(readFileSync(join(root, '.saivage', 'cards', 'card-1', 'status', '1.md'), 'utf8')).toBe('planner status');
+    expect(baseStore.readRecord('card-1', 'status.md', 'open').artifact.content).toBe('planner status');
   });
 
   it('denies planner record://review.md save_as through record-slot policy before network fetch', async () => {
     const fetchSpy = mockFetch();
-    const surface = buildInvocationSurface('planner', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner' })]);
+    const surface = buildInvocationSurface('planner', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner', store: baseStore })]);
 
     const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/review.txt', save_as: 'record:///review.md?v=next' });
 
@@ -77,13 +80,13 @@ describe('webfetch save_as scoped URLs', () => {
 
   it('allows reviewer record://review.md save_as', async () => {
     mockFetch('review text');
-    const surface = buildInvocationSurface('reviewer', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'reviewer' })]);
+    const surface = buildInvocationSurface('reviewer', [createWebProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'reviewer', store: baseStore })]);
 
     const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/review.txt', save_as: 'record:///review.md?v=next' });
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toMatchObject({ saved_as: 'record:///review.md?card=card-1&v=1' });
-    expect(readFileSync(join(root, '.saivage', 'cards', 'card-1', 'review', '1.md'), 'utf8')).toBe('review text');
+    expect(baseStore.readRecord('card-1', 'review.md', 'open').artifact.content).toBe('review text');
   });
 
   it('restricts tmp:// save_as writes to the current card before network fetch', async () => {
@@ -177,7 +180,7 @@ describe('webfetch save_as scoped URLs', () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toMatchObject({ saved_as: `record:///brief.md?card=${card.id}&v=2` });
-    expect(readFileSync(join(root, '.saivage', 'cards', card.id, 'brief', '2.md'), 'utf8')).toBe(fetchedBrief);
+    expect(store.readRecord(card.id, 'brief.md', 2).artifact.content).toBe(fetchedBrief);
     expect(store.read(card.id)?.status).toBe('backlog');
     expect(store.read(parent.id)?.status).toBe('changed');
     expect(store.read('project')?.status).toBe('running');

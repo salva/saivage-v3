@@ -1,8 +1,9 @@
+import { initProjectTree, testProjectAuthority } from '../helpers/canonical-project.js';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { initRuntimeState, readRuntimeState } from '../../src/runtime/state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
@@ -38,7 +39,7 @@ beforeEach(async () => {
   initProjectTree(root);
   ensureTestSaivageConfig(root);
   initRuntimeState(root);
-  server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
+  server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
 });
 
 afterEach(async () => {

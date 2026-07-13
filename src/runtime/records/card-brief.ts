@@ -1,17 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs';
+import type { CardStore } from '../../cards/card-store.js';
 import type { CardRecord } from '../../schemas/index.js';
-import { readRecordSlotIndex, recordPath } from './record-slots.js';
 
-export function readLatestBriefRecord(projectRoot: string, cardId: string): string | null {
-  const index = readRecordSlotIndex(projectRoot, cardId, 'brief');
-  if (index.latest === null) return null;
-  const path = recordPath(projectRoot, cardId, 'brief', index.latest, 'brief.md').absolutePath;
-  if (!existsSync(path)) return null;
-  return readFileSync(path, 'utf-8');
+export function readLatestBriefRecord(store: Pick<CardStore, 'readRecord'>, cardId: string): string | null {
+  try { return store.readRecord(cardId, 'brief.md', 'latest').artifact.content; } catch { return null; }
 }
 
-export function cardBriefForPrompt(projectRoot: string, card: CardRecord): string {
-  const brief = readLatestBriefRecord(projectRoot, card.id);
+export function cardBriefForPrompt(store: Pick<CardStore, 'readRecord'>, card: CardRecord): string {
+  const brief = readLatestBriefRecord(store, card.id);
   if (brief === null) throw new Error(`Card '${card.id}' is missing required brief.md record.`);
   return brief;
 }

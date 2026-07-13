@@ -1,3 +1,4 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 /**
  * Security Integration Tests
  *
@@ -22,7 +23,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as YAML from 'yaml';
 
-import { initProjectTree, readProjectFileAtomic } from '../../src/persistence/file-tree.js';
+import { readProjectFileAtomic } from '../../src/persistence/file-tree.js';
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
 import { quarantineContent, recordContentPass } from '../../src/workspace/quarantine.js';
 import {
@@ -237,7 +238,7 @@ describe('all modules import and work together', () => {
     expect(typeof isStashPathAllowed).toBe('function');
 
     // file-tree exports (original + new)
-    expect(typeof mod.initProjectTree).toBe('function');
+    expect('initProjectTree' in mod).toBe(false);
     expect(typeof mod.readProjectFileAtomic).toBe('function');
   });
 

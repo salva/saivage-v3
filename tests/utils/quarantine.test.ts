@@ -1,9 +1,10 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { quarantineContent, recordContentPass, listRecentReviews } from '../../src/workspace/quarantine.js';
 import type { ContentReview } from '../../src/schemas/types.js';
 

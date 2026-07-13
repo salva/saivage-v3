@@ -1,3 +1,4 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 /**
  * Stage 10 — Hardening End-to-End and Security Integration Tests
  *
@@ -24,8 +25,8 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { CardStore } from '../../src/cards/card-store.js';
+
+
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
 import { quarantineContent } from '../../src/workspace/quarantine.js';
 import { isStashPathAllowed, getSafeFileForAgent } from '../../src/workspace/file-access-security.js';

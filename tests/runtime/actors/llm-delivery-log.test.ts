@@ -1,9 +1,10 @@
+import { initProjectTree } from '../../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
+
 import { abandonStalePendingToolCalls, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalProjectedToolResult, appendToolErrorSettlementResults, loggedToolCallKey, readLoggedToolCall, sourceInputIdFromToolCallMessageId, sourceInputIdFromToolErrorMessageId, sourceInputIdFromToolResultMessageId } from '../../../src/runtime/actors/llm-delivery-log.js';
 import { appendConversationMessage, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { activeVersionPath, writeCompactedConversationVersion } from '../../../src/runtime/actors/conversation-index.js';

@@ -1,9 +1,10 @@
+import { CardStore } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import Fastify from 'fastify';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardStore } from '../../src/cards/card-store.js';
+
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';

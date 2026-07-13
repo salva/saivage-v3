@@ -1,11 +1,12 @@
+import { initProjectTree, CardStore, closeOpenRecordSlot, openRecordSlot } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { closeOpenRecordSlot, openRecordSlot } from '../../src/runtime/records/record-slots.js';
+
+
+
 import { buildInvocationSurface, invokeTool, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES } from '../../src/tools/tool-definition.js';
@@ -19,7 +20,8 @@ function setup(root: string): CardStore {
 
 describe('CardInspectionProvider', () => {
   it('exposes list/get/tree schemas with enum filters', () => {
-    const surface = buildInvocationSurface('analyst', [createCardInspectionProvider({ projectRoot: '/project', agentRole: 'analyst' })]);
+    const root = mkdtempSync(join(tmpdir(), 'card-inspection-schema-'));
+    const surface = buildInvocationSurface('analyst', [createCardInspectionProvider({ projectRoot: root, store: setup(root), agentRole: 'analyst' })]);
     expect([...surface.tools.keys()]).toEqual(['list_cards', 'get_card', 'get_tree']);
     const listDefinition = surfaceToolDefinitions(surface).find((tool) => tool.function.name === 'list_cards');
     const properties = listDefinition?.function.parameters.properties as Record<string, { anyOf?: Array<{ enum?: unknown; items?: { enum?: unknown } }>; enum?: unknown }>;
@@ -27,6 +29,7 @@ describe('CardInspectionProvider', () => {
     expect(properties.status.anyOf?.[1]?.items?.enum).toEqual([...CARD_STATUS_VALUES]);
     expect(properties.type.anyOf?.[0]?.enum).toEqual([...CARD_TYPE_VALUES]);
     expect(properties.type.anyOf?.[1]?.items?.enum).toEqual([...CARD_TYPE_VALUES]);
+    rmSync(root, { recursive: true, force: true });
     expect(properties.status.enum).toBeUndefined();
     expect(properties.type.enum).toBeUndefined();
   });

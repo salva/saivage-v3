@@ -1,10 +1,11 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
+
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createCardHistoryProvider } from '../../src/tools/card-history-provider.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';

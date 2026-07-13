@@ -130,7 +130,7 @@ describe('project persistence authority opening', () => {
     const lock = acquire(root);
     const authority = openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'bootstrap', root: rootInput() } });
     expect(authority.state).toBe('open');
-    expect('writer' in authority).toBe(false);
+    expect(authority.writer).toBeDefined();
     expect(authority.generation.cards.get('project')?.current.card.title).toBe('Project');
     expect(readFileSync(join(root, '.saivage', 'cards', 'project', 'brief', 'versions', '1.json'), 'utf8')).toContain('Build the project.');
     expect(existsSync(join(root, '.saivage', 'state', 'runtime.json'))).toBe(true);
@@ -212,35 +212,33 @@ describe('authority admission and failure behavior', () => {
   it('serializes admitted synchronous requests in call order and forbids recursive admission', () => {
     const { authority, lock } = opened();
     const order: string[] = [];
-    authority.admitAuthorizedMutation(() => order.push('first'));
-    authority.admitAuthorizedMutation(() => order.push('second'));
+    authority.writer.request(() => order.push('first'));
+    authority.writer.request(() => order.push('second'));
     expect(order).toEqual(['first', 'second']);
-    expect(() => authority.admitAuthorizedMutation(() => authority.admitAuthorizedMutation(() => undefined))).toThrow(/Recursive/);
-    expect(authority.state).toBe('failed');
-    expect(() => authority.admitAuthorizedMutation(() => undefined)).toThrow(/failed/);
+    expect(() => authority.writer.request(() => authority.writer.request(() => undefined))).toThrow(/Recursive/);
+    expect(authority.state).toBe('open');
     releaseLock(lock);
   });
 
   it('rejects admission after an orderly close rather than queueing it', () => {
     const { authority, lock } = opened();
     authority.close();
-    expect(() => authority.admitAuthorizedMutation(() => undefined)).toThrow(/closed/);
+    expect(() => authority.writer.request(() => undefined)).toThrow(/closed/);
     expect(authority.state).toBe('closed');
     releaseLock(lock);
   });
 
-  it('permanently invalidates admission after an indeterminate publication', () => {
+  it('does not mistake a caller error for a publication failure', () => {
     const { authority, lock } = opened();
-    expect(() => authority.admitAuthorizedMutation(() => { throw new IndeterminatePublicationError('/target'); })).toThrow(IndeterminatePublicationError);
-    expect(authority.state).toBe('failed');
-    expect(() => authority.admitAuthorizedMutation(() => undefined)).toThrow(/failed/);
+    expect(() => authority.writer.request(() => { throw new IndeterminatePublicationError('/target'); })).toThrow(IndeterminatePublicationError);
+    expect(authority.state).toBe('open');
     releaseLock(lock);
   });
 
   it('invalidates admission when its lifecycle-lock handle is released', () => {
     const { authority, lock } = opened();
     releaseLock(lock);
-    expect(() => authority.admitAuthorizedMutation(() => undefined)).toThrow(/live runtime lifecycle lock/);
+    expect(() => authority.writer.request(() => undefined)).toThrow(/live runtime lifecycle lock/);
     expect(authority.state).toBe('failed');
   });
 });

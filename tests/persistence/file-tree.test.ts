@@ -1,65 +1,23 @@
 import { describe, expect, it } from '@jest/globals';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
 
-const priorWorkRoot = `.saivage-${'work'}`;
-
-describe('initProjectTree legacy rejection', () => {
-  it('rejects legacy runtime process registry files', () => {
+describe('canonical initialization boundary', () => {
+  it('initializes a fresh project and is idempotent', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-file-tree-'));
-    try {
-      const runtimeDir = join(root, '.saivage', 'runtime');
-      mkdirSync(runtimeDir, { recursive: true });
-      writeFileSync(join(runtimeDir, 'processes.json'), '{"schema_version":1,"records":[]}\n');
-
-      initProjectTree(root);
-
-      expect(existsSync(join(root, '.saivage', 'runtime', 'processes.json'))).toBe(false);
-      expect(readdirSync(root).some((entry) => entry.startsWith('.saivage.discarded-'))).toBe(true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    try { expect(initProjectTree(root)).toEqual({ projectRoot: root }); expect(initProjectTree(root)).toEqual({ projectRoot: root }); }
+    finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('discards prior card metadata and external work roots before creating the current layout', () => {
+  it('refuses a missing root in a nonfresh generated layout without discarding evidence', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-file-tree-'));
     try {
-      mkdirSync(join(root, '.saivage', 'outputs', 'cards', 'card-1'), { recursive: true });
-      mkdirSync(join(root, priorWorkRoot, 'processes', 'proc-1'), { recursive: true });
-
-      initProjectTree(root);
-
-      expect(existsSync(join(root, '.saivage', 'cards'))).toBe(true);
-      expect(existsSync(join(root, '.saivage', 'work', 'processes'))).toBe(true);
-      expect(existsSync(join(root, '.saivage', 'outputs', 'cards'))).toBe(false);
-      expect(existsSync(join(root, priorWorkRoot))).toBe(false);
-      expect(readdirSync(root).some((entry) => entry.startsWith('.saivage.discarded-'))).toBe(true);
-      expect(readdirSync(root).some((entry) => entry.startsWith(`${priorWorkRoot}.discarded-`))).toBe(true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it('recreates disposable work directories for current durable state', () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-file-tree-'));
-    try {
-      initProjectTree(root);
-      rmSync(join(root, '.saivage', 'work'), { recursive: true, force: true });
-
-      initProjectTree(root);
-
-      expect(existsSync(join(root, '.saivage', 'project.json'))).toBe(true);
-      expect(existsSync(join(root, '.saivage', 'cards'))).toBe(true);
-      expect(existsSync(join(root, '.saivage', 'work', 'cards'))).toBe(true);
-      expect(existsSync(join(root, '.saivage', 'work', 'processes'))).toBe(true);
-      expect(existsSync(join(root, '.saivage', 'work', 'tmp', 'stash'))).toBe(true);
-      expect(existsSync(join(root, '.saivage', 'work', 'tmp', 'runtime'))).toBe(false);
-      expect(existsSync(join(root, priorWorkRoot))).toBe(false);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+      mkdirSync(join(root, '.saivage', 'agents'), { recursive: true });
+      const evidence = join(root, '.saivage', 'agents', 'evidence.json'); writeFileSync(evidence, '{}');
+      expect(() => initProjectTree(root)).toThrow(/non-bootstrap evidence|not empty|Unknown bootstrap/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -1,9 +1,10 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';

@@ -1,10 +1,11 @@
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardStore } from '../../../src/cards/card-store.js';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
+
+
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { readRuntimeState } from '../../../src/runtime/state-api.js';

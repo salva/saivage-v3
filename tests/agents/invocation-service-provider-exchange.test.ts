@@ -1,3 +1,4 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { testConversationMutations } from '../helpers/conversation-mutations.js';
@@ -11,7 +12,7 @@ import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { createInvocationServiceProvider } from '../../src/application/micro-actor-runtime-api-factory.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { LLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { readActorSnapshots } from '../../src/runtime/actors/snapshots.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';

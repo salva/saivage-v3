@@ -1,8 +1,9 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { createServingRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
 import { readRuntimeState } from '../../src/runtime/state-api.js';

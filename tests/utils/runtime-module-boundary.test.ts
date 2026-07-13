@@ -1,3 +1,4 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { describe, it, expect } from '@jest/globals';
 
 import {
@@ -13,7 +14,7 @@ import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl 
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 
 describe('runtime module ownership boundary', () => {
   function listTypeScriptFiles(dir: string): string[] {

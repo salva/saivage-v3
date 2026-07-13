@@ -1,3 +1,4 @@
+import { initProjectTree, testProjectAuthority } from '../helpers/canonical-project.js';
 import { describe, it, expect, afterEach, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import * as YAML from 'yaml';
 import { createServer } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { getProjectNotificationDeliveryAdapters } from '../../src/notifications/notification-delivery.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 
 const roots: string[] = [];
 
@@ -41,7 +42,7 @@ function operatorLog(root: string): string {
 }
 
 function createTestServer(root: string) {
-  return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
+  return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
 }
 
 

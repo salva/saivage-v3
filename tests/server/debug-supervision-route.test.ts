@@ -1,11 +1,12 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
+
 import { registerInternalDebugRoutes } from '../../src/server/routes/chats-files-debug.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { quarantineContent, recordContentPass } from '../../src/workspace/quarantine.js';

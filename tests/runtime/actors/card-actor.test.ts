@@ -1,11 +1,12 @@
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardStore } from '../../../src/cards/card-store.js';
-import { initProjectTree } from '../../../src/persistence/file-tree.js';
+
+
 import { CardActor, LLMActor, MAX_NOTIFICATION_DELIVERY_MARKERS, cardActorId, createSupervisorRuntimeApi, isActivatable, processorActorId, readActorSnapshot, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';

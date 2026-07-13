@@ -44,10 +44,10 @@ This is a brave refactor, but it removes duplicate persistence models and makes 
 Each card has a record namespace:
 
 ```text
-.saivage/cards/<card-id>/card/<version>.json
-.saivage/cards/<card-id>/brief/<version>.md
-.saivage/cards/<card-id>/status/<version>.md
-.saivage/cards/<card-id>/review/<version>.md
+.saivage/cards/<card-id>/card/versions/<version>.json
+.saivage/cards/<card-id>/brief/versions/<version>.json
+.saivage/cards/<card-id>/status/versions/<version>.json
+.saivage/cards/<card-id>/review/versions/<version>.json
 ```
 
 The exact directory layout can reuse the existing record-slot layout. The important model is:
@@ -196,7 +196,6 @@ interface RecordMetadataView {
     committedAt: string | null;
     writer: AgentRole | null;
     cardVersionSeq: number | null;
-    globalSeq: number | null;
     url: string;
   }>;
   format: 'json' | 'markdown' | 'text';
@@ -211,13 +210,12 @@ Record slot versions are consecutive per slot. Each closed version metadata entr
 
 - slot-local version number,
 - the current `card.json` `version_seq` when the record was committed,
-- a project-wide monotone `globalSeq`,
 - writer,
 - committed timestamp,
 - size,
 - format and schema.
 
-The project-wide `globalSeq` is used only to reconstruct cross-card/project history. It is not a replacement for slot-local versions or `card.json` `version_seq`.
+There is no project-wide record ordinal. Cross-card displays use committed timestamps, slot-local versions, and card/slot identity as a deterministic tie-break.
 
 ## `get_card` Read Model
 
@@ -285,13 +283,12 @@ interface CommittedRecord {
 4. Validate basic format.
 5. Validate schema if configured.
 6. Fail if the slot has an open latest version owned by an active terminal-tool flow.
-7. Allocate the next version from the slot index.
-8. Write the new version file durably.
-9. Write a complete new index file beside the current index.
-10. Atomically rename the new index over the current index.
-11. Store writer, committed timestamp, size, schema, format, `cardVersionSeq`, and `globalSeq` metadata in the slot index.
-12. Record a control action/audit entry when the caller is an operator-facing tool.
-13. Return the committed record descriptor.
+7. Allocate the next version from canonical artifact filenames and current scan facts.
+8. Durably replace the self-contained canonical artifact.
+9. Rebuild and durably replace the derived slot index independently.
+10. Store writer, committed timestamp, size, schema, format, and `cardVersionSeq` projection metadata in the slot index.
+11. Record a control action/audit entry when the caller is an operator-facing tool.
+12. Return the committed record descriptor.
 
 No version is committed if authorization, format validation, or schema validation fails.
 
@@ -429,8 +426,8 @@ Rules:
 
 - Add `RecordSlotDefinition` registry keyed by card type and slot path.
 - Add `card.json` and `brief.md` schemas.
-- Extend slot indexes to persist writer, committed timestamp, size, format, schema, `cardVersionSeq`, and `globalSeq` for closed versions.
-- Add project-wide monotone `globalSeq` allocation for committed record metadata.
+- Persist writer, committed timestamp, size, format, schema, and `cardVersionSeq` as derived index projections for closed versions.
+- Keep ordering facts local to each card or authored-record slot.
 
 ### Phase 2: Commit Primitives
 

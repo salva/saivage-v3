@@ -1,8 +1,9 @@
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { describe, it, expect, jest } from '@jest/globals';
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree, isInitialized } from '../../src/persistence/file-tree.js';
+import { isInitialized } from '../../src/persistence/file-tree.js';
 import { run } from '../../src/cli.js';
 import { acquireLock, releaseLock } from '../../src/runtime/lock.js';
 
@@ -101,7 +102,7 @@ describe('saivage reset', () => {
       expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
       for (const oldRoot of ['runtime', 'tmp', 'archive', 'supervision', 'notes', 'outputs', 'views']) expect(existsSync(join(root, '.saivage', oldRoot))).toBe(false);
       expect(existsSync(join(root, '.saivage-work'))).toBe(false);
-      expect(existsSync(join(root, '.saivage', 'stages'))).toBe(false);
+      expect(existsSync(join(root, '.saivage', 'stages'))).toBe(true);
       for (const removedWork of ['downloads', 'quarantine', 'tmp/runtime', 'tmp/uploads', 'tmp/previews']) expect(existsSync(join(root, '.saivage', 'work', removedWork))).toBe(false);
       expect(existsSync(join(root, '.saivage', 'auth-profiles.json'))).toBe(true);
       expect(existsSync(join(root, '.saivage', 'project.json'))).toBe(true);

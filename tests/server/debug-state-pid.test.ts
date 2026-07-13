@@ -1,10 +1,11 @@
+import { initProjectTree, testProjectAuthority } from '../helpers/canonical-project.js';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { ensureTestSaivageConfig } from '../helpers/test-runtime-application.js';
 
@@ -29,7 +30,7 @@ afterEach(async () => {
 describe('GET /api/debug/state pid overlay', () => {
   it('surfaces process.pid on body.runtime.pid', async () => {
     updateRuntimeState(root, { status: 'running' });
-    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
+    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env), authority: testProjectAuthority(root) });
     const res = await server.fastify.inject({ method: 'GET', url: '/api/debug/state' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ runtime: { pid: number; status: string } | null }>();

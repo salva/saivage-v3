@@ -44,10 +44,6 @@ export function runtimeStateLockFile(projectRoot: string): string {
   return join(saivageLocksRoot(projectRoot), 'state.lock');
 }
 
-export function projectMutationLockFile(projectRoot: string): string {
-  return join(saivageLocksRoot(projectRoot), 'project.lock');
-}
-
 export function appLogLockFile(projectRoot: string): string {
   return join(saivageLocksRoot(projectRoot), 'app-log.lock');
 }

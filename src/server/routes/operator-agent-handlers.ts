@@ -4,12 +4,13 @@ import type {
   OperatorContractHandlerMap,
   OperatorProjectContext,
 } from './operator-handler-context.js';
+import type { CardStore } from '../../cards/store-api.js';
 
-type AgentOperatorHandlerOptions = OperatorProjectContext;
+type AgentOperatorHandlerOptions = OperatorProjectContext & { cardStore?: CardStore };
 
 export function buildAgentOperatorContractHandlers(options: AgentOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
-  const agentReadModel = new AgentOperatorReadModelService(projectRoot);
+  const agentReadModel = new AgentOperatorReadModelService(projectRoot, options.cardStore);
 
   return {
     'agents.list': () => ({ body: agentReadModel.listSessions() }),

@@ -41,7 +41,7 @@ const PACKAGE_SCRIPTS = {
   'web:test:analyst-ui': 'cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts',
   'test:web:analyst-ui': 'npm run web:test:analyst-ui',
   'validate:docs': 'npm run docs:verify',
-  'validate:routine': 'npm run typecheck && npm run docs:verify',
+  'validate:routine': 'npm run typecheck && npm run check:canonical-persistence-drift && npm run docs:verify',
   'validate:ui-smoke': 'npm run web:test:operator-smoke',
   'validate:ui': 'npm run web:typecheck && npm run web:test:sweep && npm run web:test:operator-smoke',
   'validate:release': 'npm run typecheck && npm run build && npm test && npm run web:test:operator-smoke && npm run docs:verify',

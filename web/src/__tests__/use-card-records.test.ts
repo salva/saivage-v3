@@ -25,10 +25,6 @@ vi.mock('../api/client', () => ({
 
 import { ApiError } from '../api/client';
 
-function jsonBody(content: unknown): { content: string } {
-  return { content: JSON.stringify(content) };
-}
-
 describe('useCardRecords', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -37,12 +33,9 @@ describe('useCardRecords', () => {
 
   it('loads the latest brief, status, and review records for a card', async () => {
     getFileContent.mockImplementation(async (path: string) => {
-      if (path.endsWith('/brief/index.json')) return jsonBody({ slot: 'brief', latest: 3, open: null, versions: {} });
-      if (path.endsWith('/brief/3.md')) return { content: '# Goal: ship the feature' };
-      if (path.endsWith('/status/index.json')) return jsonBody({ slot: 'status', latest: 1, open: null, versions: {} });
-      if (path.endsWith('/status/1.md')) return { content: 'Implementation in progress.' };
-      if (path.endsWith('/review/index.json')) return jsonBody({ slot: 'review', latest: 2, open: null, versions: {} });
-      if (path.endsWith('/review/2.md')) return { content: 'Accepted with evidence.' };
+      if (path.startsWith('record:///brief.md')) return { content: '# Goal: ship the feature', version: 3, modifiedAt: '2026-07-13T10:00:00.000Z' };
+      if (path.startsWith('record:///status.md')) return { content: 'Implementation in progress.', version: 1, modifiedAt: '2026-07-13T10:01:00.000Z' };
+      if (path.startsWith('record:///review.md')) return { content: 'Accepted with evidence.', version: 2, modifiedAt: '2026-07-13T10:02:00.000Z' };
       throw new ApiError(404, 'not found', {});
     });
 
@@ -54,6 +47,7 @@ describe('useCardRecords', () => {
 
     expect(state.value.brief.exists).toBe(true);
     expect(state.value.brief.version).toBe(3);
+    expect(state.value.brief.committedAt).toBe('2026-07-13T10:00:00.000Z');
     expect(state.value.brief.content).toBe('# Goal: ship the feature');
     expect(state.value.status.exists).toBe(true);
     expect(state.value.status.content).toBe('Implementation in progress.');
@@ -61,7 +55,7 @@ describe('useCardRecords', () => {
     expect(state.value.review.content).toBe('Accepted with evidence.');
   });
 
-  it('treats a missing slot index as a non-existent record rather than an error', async () => {
+  it('treats a missing logical record as non-existent rather than an error', async () => {
     getFileContent.mockRejectedValue(new ApiError(404, 'File not found', {}));
 
     const cardId = ref<string | null | undefined>('card-7');

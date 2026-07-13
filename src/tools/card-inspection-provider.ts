@@ -1,11 +1,10 @@
 import { z } from 'zod';
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
+import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
 import { cardStatusValues, cardTypeValues, type AgentRole, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardDisplayPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
-import { normalizeRecordUrl, readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';
+import { recordSlotDefinitions } from '../runtime/records/record-slots.js';
 
 interface CardInspectionStore {
   read(cardId: string): CardRecord | null;
@@ -30,7 +29,8 @@ const getCardSchema = z.object({ id: z.string() }).strict();
 const getTreeSchema = z.object({ rootId: z.string().optional() }).strict();
 
 export function createCardInspectionProvider(ctx: CardInspectionProviderContext): ToolProvider {
-  const store = ctx.store ?? new CardStore(ctx.projectRoot);
+  if (!ctx.store) throw new Error('Card inspection requires an injected card read model.');
+  const store = ctx.store;
   return {
     providerName: 'card-inspection',
     tools: [
@@ -86,8 +86,8 @@ function getCard(projectRoot: string, store: CardInspectionStore, cardId: string
     .filter((child): child is CardRecord => child !== null)
     .map((child) => cardSummary(store, child));
   if (!isFullStore(store)) return { success: true, data: { ...card, display_path: displayPath(store, card), children } };
-  const records = cardRecordSummaries(projectRoot, cardId);
-  return { success: true, data: { ...toCardView(store, card), effective_updated_at: effectiveUpdatedAt(projectRoot, cardId), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
+  const records = cardRecordSummaries(store, cardId);
+  return { success: true, data: { ...toCardView(store, card), effective_updated_at: effectiveUpdatedAt(store, cardId), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
 }
 
 function getTree(store: CardInspectionStore, rootId: string): ToolResult {
@@ -140,33 +140,17 @@ function isFullStore(store: CardInspectionStore): store is CardStore {
   return typeof store.list === 'function' && typeof store.listChildren === 'function';
 }
 
-function effectiveUpdatedAt(projectRoot: string, cardId: string): string | null {
-  const committedTimes: string[] = [];
-  for (const slot of ['card', ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => definition.slot)]) {
-    const index = readRecordSlotIndex(projectRoot, cardId, slot);
-    if (index.latest === null) continue;
-    const committedAt = index.versions[String(index.latest)]?.committed_at;
-    if (committedAt) committedTimes.push(committedAt);
-  }
+function effectiveUpdatedAt(store: CardStore, cardId: string): string | null {
+  const committedTimes = [store.recordReader.generation().cards.get(cardId)?.current.committed_at, ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch { return null; } })].filter((value): value is string => Boolean(value));
   if (committedTimes.length === 0) return null;
   return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
 }
 
-function cardRecordSummaries(projectRoot: string, cardId: string): Array<Record<string, unknown>> {
+function cardRecordSummaries(store: CardStore, cardId: string): Array<Record<string, unknown>> {
   return recordSlotDefinitions()
     .filter((definition) => definition.exposed)
     .map((definition) => {
-      const index = readRecordSlotIndex(projectRoot, cardId, definition.slot);
-      if (index.latest === null) return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
-      const entry = index.versions[String(index.latest)];
-      const url = normalizeRecordUrl({ filename: definition.filename, cardId, version: index.latest });
-      const summary: Record<string, unknown> = { filename: definition.filename, path: `record:///${definition.filename}`, url, latest: index.latest, format: definition.format, schema: definition.schema, writers: definition.writers, size: entry?.size ?? null, modifiedAt: entry?.committed_at ?? null, writer: entry?.writer ?? null };
-      const path = recordPath(projectRoot, cardId, definition.slot, index.latest, definition.filename).absolutePath;
-      if (existsSync(path)) {
-        const max = 4000;
-        const content = readFileSync(path, 'utf-8');
-        summary.inline = { content: content.slice(0, max), truncated: statSync(path).size > Buffer.byteLength(content.slice(0, max), 'utf-8') };
-      }
-      return summary;
+      try { const record = store.readRecord(cardId, definition.filename); const content = record.artifact.content; const max = 4000; return { filename: definition.filename, path: `record:///${definition.filename}`, url: record.recordUrl, latest: record.version, format: definition.format, schema: definition.schema, writers: definition.writers, size: Buffer.byteLength(content), modifiedAt: record.artifact.committed_at, writer: record.artifact.writer, inline: { content: content.slice(0, max), truncated: content.length > max } }; }
+      catch { return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null }; }
     });
 }

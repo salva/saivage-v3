@@ -1,13 +1,12 @@
 import * as childProcess from 'node:child_process';
 import { closeSync, createReadStream, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import type { AgentRole } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
-import { closeOpenRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex } from '../runtime/records/record-slots.js';
 import type { CardStore } from '../cards/store-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
 import { propagateAnalystBriefEdit } from '../runtime/changed-propagation.js';
@@ -26,7 +25,7 @@ export const READ_HEAD_SAMPLE_BYTES = 4096;
 const GREP_HEAD_SAMPLE_BYTES = 1024;
 const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
-export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read' | 'getAncestors' | 'setStatus'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
+export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read' | 'getAncestors' | 'setStatus' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord' | 'runPersistenceRequest'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
 type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
 
 export class WorkspaceToolInputError extends Error {
@@ -104,7 +103,7 @@ function canWriteWorkspaceFiles(role: AgentRole | undefined): boolean {
 }
 
 function vfsCtx(ctx: WorkspaceContext) {
-  return { projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError };
+  return { projectRoot: ctx.projectRoot, records: ctx.store?.recordReader, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError };
 }
 
 function assertScopedReadable(ctx: WorkspaceContext, resolved: VfsResolved): ResolvedToolPath {
@@ -141,13 +140,15 @@ function resolveReadPath(ctx: WorkspaceContext, raw: string): { resolved: Resolv
   return { resolved: assertScopedReadable(ctx, resolved), scoped: true };
 }
 
-function resolveWritePath(ctx: WorkspaceContext, raw: string): ResolvedToolPath {
+function resolveWritePath(ctx: WorkspaceContext, raw: string): Exclude<ResolvedToolPath, { kind: 'record' }> {
   const resolved = resolveScopedPath(vfsCtx(ctx), raw, 'write');
   if (resolved === null) {
     if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
     return { kind: 'project', ...assertWritable(ctx.projectRoot, raw), isRoot: false };
   }
-  return assertScopedWritable(ctx, raw, resolved);
+  const writable = assertScopedWritable(ctx, raw, resolved);
+  if (writable.kind === 'record') throw new Error('Logical record writes must be handled before filesystem path resolution.');
+  return writable;
 }
 
 async function directoryEntriesForRead(ctx: WorkspaceContext, raw: string, resolved: ResolvedToolPath, scoped: boolean) {
@@ -191,9 +192,16 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
     if (params.metadata_only === true) return { path: `record:///${resolved.cardId}`, metadata_only: true, is_directory: true, entries_count: listing.records.length };
     return { path: `record:///${resolved.cardId}`, records: listing.records.slice(offset, offset + limit), offset, limit, total_records: listing.records.length, truncated: offset + limit < listing.records.length };
   }
+  if (resolved.kind === 'record') {
+    const lines = resolved.content.split(/\r?\n/);
+    const offset = parseNonNegativeInt(params.offset, 0);
+    const limit = parseNonNegativeInt(params.limit, DEFAULT_READ_LIMIT, DEFAULT_READ_LIMIT);
+    const content = lines.slice(offset, offset + limit).join('\n');
+    return { path: resolved.recordUrl, record_url: resolved.recordUrl, ...(params.metadata_only ? { metadata_only: true, is_directory: false } : { content, offset, limit, total_lines: lines.length, truncated: offset + limit < lines.length }), size: resolved.size, mtime: resolved.committedAt };
+  }
   const { absolutePath, relativePath } = resolved;
   const st = statSync(absolutePath);
-  const baseRecord = { path: displayPathForResolved(ctx.projectRoot, resolved), ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}) };
+  const baseRecord = { path: displayPathForResolved(ctx.projectRoot, resolved) };
   if (params.metadata_only === true) {
     if (st.isDirectory()) {
       const entries = await directoryEntriesForRead(ctx, params.path, resolved, scoped);
@@ -247,11 +255,21 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
 
 export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<unknown> {
   if (ctx.agentRole === 'analyst' && params.path.startsWith('record:///')) return writeAnalystBriefRecord(ctx, params);
+  if (params.path.startsWith('record:///')) {
+    if (!ctx.store || !ctx.agentRole) throw new Error('Record writes require an injected card store and agent role.');
+    const target = resolveRecordWriteTarget(vfsCtx(ctx), params.path);
+    assertRecordWrite(target.agent.agentRole, target.agent.cardId, target.cardId, target.filename, target.version, toolInputError);
+    const card = ctx.store.read(target.cardId);
+    if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
+    const open = ctx.store.openRecord(target.cardId, target.filename);
+    ctx.store.editRecord(target.cardId, target.filename, open.version, params.content);
+    return { path: open.recordUrl, record_url: open.recordUrl, bytes: Buffer.byteLength(params.content), written: true };
+  }
   const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
   mkdirSync(dirname(absolutePath), { recursive: true });
   writeFileSync(absolutePath, params.content, 'utf8');
-  return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), bytes: Buffer.byteLength(params.content, 'utf8'), written: true };
+  return { path: relativePath, bytes: Buffer.byteLength(params.content, 'utf8'), written: true };
 }
 
 export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: string; content?: string }): void {
@@ -260,7 +278,7 @@ export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: str
     return;
   }
   if (params.path.startsWith('record:///')) {
-    const target = resolveRecordWriteTarget({ projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError }, params.path);
+    const target = resolveRecordWriteTarget(vfsCtx(ctx), params.path);
     assertRecordWrite(target.agent.agentRole, target.agent.cardId, target.cardId, target.filename, target.version, toolInputError);
     return;
   }
@@ -280,16 +298,17 @@ export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: str
 function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; content: string }): unknown {
   const target = assertAnalystBriefRecordWritable(ctx, params);
   const card = ctx.store!.read(target.cardId)!;
-  const open = openRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md' });
-  try {
-    writeFileSync(open.absolutePath, params.content, 'utf8');
-    const closed = closeOpenRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md', writer: 'analyst', cardVersionSeq: card.version_seq });
-    propagateAnalystBriefEdit(ctx.store!, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, ctx.notifyCard!);
-    return { card_id: target.cardId, path: closed.relativePath, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true };
-  } catch (err) {
-    discardOpenRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md', reason: 'analyst write failed' });
-    throw err;
-  }
+  return ctx.store!.runPersistenceRequest(() => {
+    const open = ctx.store!.openRecord(target.cardId, 'brief.md');
+    ctx.store!.editRecord(target.cardId, 'brief.md', open.version, params.content);
+    const closed = ctx.store!.closeRecord(target.cardId, 'brief.md', open.version, 'analyst', card.version_seq);
+    try {
+      propagateAnalystBriefEdit(ctx.store!, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, ctx.notifyCard!);
+      return { card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true, propagation: { ok: true } };
+    } catch (error) {
+      return { card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } };
+    }
+  });
 }
 
 function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path: string; content?: string }): { cardId: string; path: string } {
@@ -306,13 +325,12 @@ function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path:
   const card = ctx.store.read(target.cardId);
   if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
   if (card.status !== 'backlog' && card.status !== 'done' && card.status !== 'failed' && card.status !== 'running') throw toolInputError(`Analyst brief edits require target card status backlog, done, failed, or running. Current status is ${card.status}.`);
-  const index = readRecordSlotIndex(ctx.projectRoot, target.cardId, 'brief');
-  if (index.open !== null) throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`);
+  try { ctx.store.readRecord(target.cardId, 'brief.md', 'open'); throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`); } catch (error) { if (error instanceof WorkspaceToolInputError) throw error; }
   return target;
 }
 
 function resolveAnalystBriefWriteUrl(ctx: WorkspaceContext, raw: string): { cardId: string; path: string } {
-  const target = resolveRecordWriteTarget({ projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError }, raw);
+  const target = resolveRecordWriteTarget(vfsCtx(ctx), raw);
   if (target.filename !== 'brief.md') throw toolInputError('Analyst write only supports record:///brief.md document writes.');
   if (target.version !== 'next') throw toolInputError('Analyst record writes must use v=next.');
   return { cardId: target.cardId, path: target.recordUrl };
@@ -373,7 +391,9 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
     const redact = scoped.kind === 'work';
     await visitScopedFiles(vfsCtx(ctx), raw, async (entry) => {
       if (matches.length >= limit) return false;
-      const outcome = await scanFile(entry.absolutePath, entry.displayPath, regex, include, redact, limit, matches);
+      const outcome = entry.content === undefined
+        ? await scanFile(entry.absolutePath!, entry.displayPath, regex, include, redact, limit, matches)
+        : scanRecordText(entry.content, entry.displayPath, regex, include, limit, matches);
       contentTruncated ||= outcome.contentTruncated;
       return outcome.stop ? false : undefined;
     });
@@ -399,6 +419,19 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
 interface GrepScanOutcome {
   stop: boolean;
   contentTruncated: boolean;
+}
+
+function scanRecordText(content: string, displayPath: string, regex: RegExp, include: RegExp | null, limit: number, matches: Array<{ path: string; line: number; preview: string }>): GrepScanOutcome {
+  if (include) { include.lastIndex = 0; if (!include.test(displayPath)) return { stop: false, contentTruncated: false }; }
+  let contentTruncated = false;
+  for (const [index, rawLine] of content.split(/\r?\n/).entries()) {
+    const line = rawLine.slice(0, MAX_READ_LINE_CHARS);
+    contentTruncated ||= line.length !== rawLine.length;
+    regex.lastIndex = 0;
+    if (regex.test(line)) matches.push({ path: displayPath, line: index + 1, preview: line.slice(0, 500) });
+    if (matches.length >= limit) return { stop: true, contentTruncated };
+  }
+  return { stop: false, contentTruncated };
 }
 
 async function scanFile(absolutePath: string, displayPath: string, regex: RegExp, include: RegExp | null, redact: boolean, limit: number, matches: Array<{ path: string; line: number; preview: string }>): Promise<GrepScanOutcome> {
@@ -495,6 +528,18 @@ async function scanFile(absolutePath: string, displayPath: string, regex: RegExp
 
 export async function editProject(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): Promise<unknown> {
   if (ctx.agentRole === 'analyst' && params.path.startsWith('record:///')) return editAnalystBriefRecord(ctx, params);
+  if (params.path.startsWith('record:///')) {
+    if (!ctx.store) throw new Error('Record edits require an injected card store.');
+    const target = resolveRecordWriteTarget(vfsCtx(ctx), params.path);
+    const open = ctx.store.readRecord(target.cardId, target.filename, 'open');
+    const content = open.artifact.content;
+    const occurrences = content.split(params.old_string).length - 1;
+    if (occurrences === 0) throw toolInputError('old_string was not found.');
+    if (occurrences > 1 && params.replace_all !== true) throw toolInputError('old_string appears multiple times; set replace_all to true.');
+    const next = params.replace_all === true ? content.split(params.old_string).join(params.new_string) : content.replace(params.old_string, params.new_string);
+    ctx.store.editRecord(target.cardId, target.filename, open.version, next);
+    return { path: open.recordUrl, record_url: open.recordUrl, replacements: params.replace_all === true ? occurrences : 1, bytes: Buffer.byteLength(next), edited: true };
+  }
   const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
   const content = readFileSync(absolutePath, 'utf8');
@@ -503,15 +548,12 @@ export async function editProject(ctx: WorkspaceContext, params: { path: string;
   if (occurrences > 1 && params.replace_all !== true) throw toolInputError('old_string appears multiple times; set replace_all to true.');
   const next = params.replace_all === true ? content.split(params.old_string).join(params.new_string) : content.replace(params.old_string, params.new_string);
   writeFileSync(absolutePath, next, 'utf8');
-  return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), replacements: params.replace_all === true ? occurrences : 1, bytes: Buffer.byteLength(next, 'utf8'), edited: true };
+  return { path: relativePath, replacements: params.replace_all === true ? occurrences : 1, bytes: Buffer.byteLength(next, 'utf8'), edited: true };
 }
 
 function editAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): unknown {
   const target = assertAnalystBriefRecordWritable(ctx, { path: params.path });
-  const index = readRecordSlotIndex(ctx.projectRoot, target.cardId, 'brief');
-  if (index.latest === null) throw toolInputError(`Cannot edit '${target.path}': no closed brief.md version exists.`);
-  const latest = latestClosedRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md' });
-  const content = readFileSync(latest.absolutePath, 'utf8');
+  const content = ctx.store!.readRecord(target.cardId, 'brief.md', 'latest').artifact.content;
   const occurrences = content.split(params.old_string).length - 1;
   if (occurrences === 0) throw toolInputError('old_string was not found.');
   if (occurrences > 1 && params.replace_all !== true) throw toolInputError('old_string appears multiple times; set replace_all to true.');

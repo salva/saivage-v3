@@ -1,10 +1,11 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
+
 import { ANALYST_CONTROL_TOOLS } from '../../src/tools/analyst-tool-registry.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';

@@ -1,3 +1,4 @@
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, expect, it, jest, beforeEach, afterEach } from '@jest/globals';
 import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { EventBus } from '../../src/events/bus.js';
@@ -6,9 +7,9 @@ import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtim
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
-import { CardStore } from '../../src/cards/card-store.js';
+
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 
 

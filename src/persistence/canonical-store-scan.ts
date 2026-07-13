@@ -37,7 +37,7 @@ import {
 } from './durable-file-replacement.js';
 import { readDeletedCardIds } from './deleted-card-ids.js';
 
-const CARD_NAMESPACE_ENTRIES = new Set(['card', 'brief', 'status', 'review', 'conversations']);
+const CARD_NAMESPACE_ENTRIES = new Set(['card', 'brief', 'status', 'review', 'conversations', 'runtime']);
 const SLOT_ENTRIES = new Set(['versions', 'index.json']);
 
 export interface ScannedRecordSlot {

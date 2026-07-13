@@ -1,3 +1,4 @@
+import { CardStore, initProjectTree } from '../helpers/canonical-project.js';
 import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 
-import { initProjectTree } from '../../src/persistence/file-tree.js';
+
 import { initRuntimeState, readRuntimeState, saveRuntimeState } from '../../src/runtime/state.js';
 import { appendConversationMessage } from '../../src/runtime/actors/conversation-store.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
@@ -39,17 +40,19 @@ function writeConversation(projectRoot: string, sessionId: string, messages: Arr
 describe('GET /api/agents/:id', () => {
   let projectRoot: string;
   let app: FastifyInstance;
+  let cardStore: CardStore;
 
   beforeEach(async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-agent-detail-'));
     initProjectTree(projectRoot);
+    cardStore = new CardStore(projectRoot);
     initRuntimeState(projectRoot);
     process.env['SAIVAGE_API_TOKEN'] = AUTH_TOKEN;
 
     app = Fastify({ logger: false });
     await app.register(cors);
     const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
-    registerOperatorContractRoutes({ fastify: app, projectRoot, authPolicy: new AuthPolicy({ apiToken: AUTH_TOKEN }) });
+    registerOperatorContractRoutes({ fastify: app, projectRoot, authPolicy: new AuthPolicy({ apiToken: AUTH_TOKEN }), cardStore });
     await app.ready();
   });
 
@@ -147,10 +150,8 @@ describe('GET /api/agents/:id', () => {
     saveRuntimeState(projectRoot, { ...state, status: 'stopped' });
     const sessionId = 'planner:project';
     writeConversation(projectRoot, sessionId, [{ role: 'system', content: 'done planner' }]);
-    const { CardStore } = await import('../../src/cards/card-store.js');
-    const store = new CardStore(projectRoot);
-    store.setStatus('project', 'running');
-    store.setStatus('project', 'blocked');
+    cardStore.setStatus('project', 'running');
+    cardStore.setStatus('project', 'blocked');
 
     const res = await app.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}`, headers: authHdr() });
     expect(res.statusCode).toBe(200);

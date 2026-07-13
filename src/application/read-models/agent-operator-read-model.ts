@@ -1,5 +1,4 @@
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from '../../agents/session-ids.js';
-import { CardStore } from '../../cards/store-api.js';
 import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
 import { listConversationSessionIds, readConversationMessages } from '../../runtime/actors/conversation-store.js';
 import { readActorSnapshots, type ActorSnapshotRecord } from '../../runtime/actors/snapshots.js';
@@ -23,7 +22,7 @@ export interface AgentOperatorConversationResponse {
 }
 
 export class AgentOperatorReadModelService {
-  constructor(private readonly projectRoot: string) {}
+  constructor(private readonly projectRoot: string, private readonly cards?: { read(cardId: string): { status: string } | null }) {}
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
     const snapshots = readActorSnapshots(this.projectRoot);
@@ -99,7 +98,7 @@ export class AgentOperatorReadModelService {
     if (snapshot?.state_value === 'waiting_tool') return 'waiting';
     if (snapshot) return 'active';
     if (!cardId) return 'inactive';
-    const status = new CardStore(this.projectRoot).read(cardId)?.status;
+    const status = this.cards?.read(cardId)?.status;
     if (status === 'done' || status === 'blocked' || status === 'failed') return status;
     return 'inactive';
   }
@@ -127,7 +126,8 @@ export class AgentOperatorReadModelService {
 
 function stripPrivateProjectionMarker(message: AgentMessage): AgentMessage {
   if (!message.provider_projection) return message;
-  const { provider_projection: _privateMarker, ...publicMessage } = message;
+  const publicMessage = { ...message };
+  delete publicMessage.provider_projection;
   return publicMessage;
 }
 

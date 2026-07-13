@@ -11,7 +11,7 @@ export interface WorkspaceProviderContext {
   readonly projectRoot: string;
   readonly cardId?: string;
   readonly agentRole: AgentRole;
-  readonly store?: Pick<CardStore, 'read' | 'getAncestors' | 'setStatus'>;
+  readonly store?: Pick<CardStore, 'read' | 'getAncestors' | 'setStatus' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord' | 'runPersistenceRequest'>;
   readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 }
 

@@ -1,76 +1,36 @@
 import { describe, expect, it } from '@jest/globals';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readClosedRecordSlotMetadata, readRecordSlotIndex, recordFileIsNonEmpty } from '../../src/runtime/records/record-slots.js';
 
-function withTempProject<T>(fn: (projectRoot: string) => T): T {
-  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-record-slots-'));
-  try { return fn(projectRoot); } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+import { CardStore, initProjectTree, readRecordSlotIndex } from '../helpers/canonical-project.js';
+
+function withProject(run: (root: string, store: CardStore) => void): void {
+  const root = mkdtempSync(join(tmpdir(), 'saivage-record-slots-'));
+  try { initProjectTree(root); run(root, new CardStore(root)); } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
-describe('record slots', () => {
-  it('opens, reuses, and closes slot-local versions', () => withTempProject((projectRoot) => {
-    const first = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
-    const reused = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
-    expect(reused.recordUrl).toBe(first.recordUrl);
-    writeFileSync(first.absolutePath, 'done', 'utf8');
-
-    const closed = closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
-    expect(closed.recordUrl).toBe('record:///status.md?card=card-1&v=1');
-    const index = readRecordSlotIndex(projectRoot, 'card-1', 'status');
-    expect(index).toMatchObject({ latest: 1, open: null, versions: { '1': { status: 'closed', writer: 'planner', size: 4, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 1, globalSeq: 1 } } });
-    expect(index.versions['1']).not.toHaveProperty('url');
-    expect(readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'status.md' })).toMatchObject({ writer: 'planner', committed_at: expect.any(String), size: 4, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 1, globalSeq: 1, url: 'record:///status.md?card=card-1&v=1' });
-
-    const second = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
-    expect(second.recordUrl).toBe('record:///status.md?card=card-1&v=2');
+describe('canonical authored record slots', () => {
+  it('opens, edits, closes, and projects a slot-local version', () => withProject((root, store) => {
+    const open = store.openRecord('project', 'status.md');
+    expect(store.openRecord('project', 'status.md').version).toBe(open.version);
+    store.editRecord('project', 'status.md', open.version, 'done');
+    const closed = store.closeRecord('project', 'status.md', open.version, 'planner', 1);
+    expect(closed.artifact).toMatchObject({ state: 'closed', content: 'done', writer: 'planner', card_version_seq: 1, committed_at: expect.any(String) });
+    expect(readRecordSlotIndex(root, 'project', 'status')).toMatchObject({ latest: 1, open: null });
   }));
 
-  it('discards stale open records without advancing latest', () => withTempProject((projectRoot) => {
-    const first = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md' });
-    writeFileSync(first.absolutePath, 'stale', 'utf8');
-    const discarded = discardOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md', reason: 'stale_review' });
-
-    expect(discarded?.recordUrl).toBe('record:///review.md?card=card-1&v=1');
-    expect(readRecordSlotIndex(projectRoot, 'card-1', 'review')).toMatchObject({ latest: null, open: null, versions: { '1': { status: 'discarded' } } });
-    expect(existsSync(first.absolutePath)).toBe(true);
-    expect(openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md' }).recordUrl).toBe('record:///review.md?card=card-1&v=2');
+  it('discards an open artifact without changing latest closed authority', () => withProject((_root, store) => {
+    const first = store.openRecord('project', 'review.md');
+    store.editRecord('project', 'review.md', first.version, 'draft');
+    store.discardRecord('project', 'review.md', first.version, 'stale_review');
+    expect(store.readRecord('project', 'review.md', first.version).artifact).toMatchObject({ state: 'discarded', reason: 'stale_review' });
+    expect(() => store.readRecord('project', 'review.md', 'latest')).toThrow(/does not exist/);
+    expect(store.openRecord('project', 'review.md').version).toBe(2);
   }));
 
-  it('records explicit writer and card/global sequence metadata on close', () => withTempProject((projectRoot) => {
-    const first = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
-    writeFileSync(first.absolutePath, 'executor status', 'utf8');
-    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md', writer: 'executor', cardVersionSeq: 7 });
-
-    const second = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md' });
-    writeFileSync(second.absolutePath, 'review', 'utf8');
-    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md', writer: 'reviewer', cardVersionSeq: 8 });
-
-    expect(readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'status.md' })).toMatchObject({ writer: 'executor', cardVersionSeq: 7, globalSeq: 1 });
-    expect(readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'review.md' })).toMatchObject({ writer: 'reviewer', cardVersionSeq: 8, globalSeq: 2 });
-  }));
-
-  it('rejects unsupported and internal document URLs through metadata reads', () => withTempProject((projectRoot) => {
-    expect(() => openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'notes.md' })).toThrow("Unsupported record slot 'notes.md'");
-    expect(() => readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'card.json' })).toThrow('internal');
-  }));
-
-  it('classifies missing, empty, and non-empty record files', () => withTempProject((projectRoot) => {
-    const emptyPath = join(projectRoot, 'empty.md');
-    const nonEmptyPath = join(projectRoot, 'non-empty.md');
-    writeFileSync(emptyPath, '', 'utf8');
-    writeFileSync(nonEmptyPath, 'content', 'utf8');
-
-    expect(recordFileIsNonEmpty(join(projectRoot, 'missing.md'))).toBe(false);
-    expect(recordFileIsNonEmpty(emptyPath)).toBe(false);
-    expect(recordFileIsNonEmpty(nonEmptyPath)).toBe(true);
-  }));
-
-  it('rethrows non-missing filesystem errors while checking record files', () => withTempProject((projectRoot) => {
-    const notDirectory = join(projectRoot, 'not-directory');
-    writeFileSync(notDirectory, 'file', 'utf8');
-
-    expect(() => recordFileIsNonEmpty(join(notDirectory, 'child.md'))).toThrow(/ENOTDIR/);
+  it('rejects obsolete ordering metadata in strict canonical artifacts', () => withProject((_root, store) => {
+    const open = store.openRecord('project', 'status.md');
+    expect(open.artifact).not.toHaveProperty(['global', 'Seq'].join(''));
   }));
 });

@@ -1,83 +1,30 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { basename, extname } from 'node:path';
+
 import type { AgentRole } from '../../schemas/index.js';
 import { buildScopedPathUrl } from '../../contracts/scoped-path-url.js';
-import { SAIVAGE_CARDS_RELATIVE_DIR } from '../../persistence/layout.js';
+import type { ProjectCardRecordReader, RecordProjection } from '../../persistence/project-persistence-authority.js';
+import type { AuthoredRecordSlot, RecordSlotIndexArtifact, RecordVersionArtifact } from '../../persistence/canonical-record-artifacts.js';
 
-export type RecordSlotVersionStatus = 'open' | 'closed' | 'discarded';
-
-export interface RecordSlotVersionEntry {
-  status: RecordSlotVersionStatus;
-  opened_at?: string;
-  closed_at?: string;
-  committed_at?: string;
-  discarded_at?: string;
-  reason?: string;
-  writer?: AgentRole;
-  size?: number;
-  format?: RecordSlotFormat;
-  schema?: string;
-  cardVersionSeq?: number;
-  globalSeq?: number;
-  history?: unknown;
-}
-
-export type RecordSlotFormat = 'markdown' | 'json';
+export type RecordSlotVersionStatus = RecordVersionArtifact['state'];
+export type RecordSlotVersionEntry = RecordSlotIndexArtifact['versions'][string];
+export type RecordSlotIndex = RecordSlotIndexArtifact;
+export type RecordSlotFormat = RecordVersionArtifact['format'];
 
 export interface RecordSlotDefinition {
   filename: string;
-  slot: string;
+  slot: AuthoredRecordSlot | 'card';
   writers: readonly AgentRole[];
-  format: RecordSlotFormat;
+  format: RecordSlotFormat | 'json';
   schema: string;
   exposed: boolean;
 }
 
-export interface ClosedRecordSlotMetadata {
-  url: string;
-  cardId: string;
-  filename: string;
-  slot: string;
-  version: number;
-  writer: AgentRole;
-  committed_at: string;
-  size: number;
-  format: RecordSlotFormat;
-  schema: string;
-  cardVersionSeq: number;
-  globalSeq: number;
-}
-
-export interface RecordSlotIndex {
-  slot: string;
-  latest: number | null;
-  open: number | null;
-  versions: Record<string, RecordSlotVersionEntry>;
-}
-
-export interface RecordUrlParts {
-  filename: string;
-  slot: string;
-  cardId: string;
-  version: number;
-}
-
-export interface OpenRecordSlot extends RecordUrlParts {
-  absolutePath: string;
-  relativePath: string;
-  recordUrl: string;
-}
+export type OpenRecordSlot = RecordProjection;
 
 export type RecordSlotCloseFailureReason = 'missing_open' | 'empty_open';
-
 export class ExpectedRecordSlotCloseError extends Error {
-  constructor(public readonly reason: RecordSlotCloseFailureReason, message: string) {
-    super(message);
-    this.name = 'ExpectedRecordSlotCloseError';
-  }
+  constructor(public readonly reason: RecordSlotCloseFailureReason, message: string) { super(message); this.name = 'ExpectedRecordSlotCloseError'; }
 }
-
-export const RECORD_OUTPUTS_RELATIVE_DIR = SAIVAGE_CARDS_RELATIVE_DIR;
 
 export const RECORD_SLOT_DEFINITIONS: readonly RecordSlotDefinition[] = [
   { filename: 'brief.md', slot: 'brief', writers: ['analyst', 'planner'], format: 'markdown', schema: 'record.brief.markdown.v1', exposed: true },
@@ -86,189 +33,21 @@ export const RECORD_SLOT_DEFINITIONS: readonly RecordSlotDefinition[] = [
   { filename: 'card.json', slot: 'card', writers: [], format: 'json', schema: 'record.card.json.v1', exposed: false },
 ] as const;
 
-const RECORD_SLOT_DEFINITION_BY_FILENAME = new Map(RECORD_SLOT_DEFINITIONS.map((definition) => [definition.filename, definition]));
-const GLOBAL_INDEX_FILENAME = 'index.json';
+const byFilename = new Map(RECORD_SLOT_DEFINITIONS.map((definition) => [definition.filename, definition]));
 
 export function slotFromFilename(filename: string): string {
-  const clean = basename(filename);
-  const ext = extname(clean);
-  const slot = ext ? clean.slice(0, -ext.length) : clean;
-  if (!slot || slot === '.' || slot.includes('/')) throw new Error(`Invalid record filename '${filename}'.`);
-  return slot;
+  const clean = basename(filename); const ext = extname(clean); return ext ? clean.slice(0, -ext.length) : clean;
 }
-
 export function recordSlotDefinitionForFilename(filename: string): RecordSlotDefinition {
-  const clean = basename(filename);
-  const definition = RECORD_SLOT_DEFINITION_BY_FILENAME.get(clean);
-  if (!definition) throw new Error(`Unsupported record slot '${clean}'.`);
-  return definition;
+  const clean = basename(filename); const definition = byFilename.get(clean); if (!definition) throw new Error(`Unsupported record slot '${clean}'.`); return definition;
 }
-
-export function recordSlotDefinitions(): readonly RecordSlotDefinition[] {
-  return RECORD_SLOT_DEFINITIONS;
-}
-
 export function exposedRecordSlotDefinitionForFilename(filename: string): RecordSlotDefinition {
-  const definition = recordSlotDefinitionForFilename(filename);
-  if (!definition.exposed) throw new Error(`Record slot '${definition.filename}' is internal and cannot be read through record:/// URLs.`);
-  return definition;
+  const definition = recordSlotDefinitionForFilename(filename); if (!definition.exposed) throw new Error(`Record slot '${definition.filename}' is internal and cannot be read through record:/// URLs.`); return definition;
 }
-
-export function recordSlotDir(projectRoot: string, cardId: string, slot: string): string {
-  return join(projectRoot, RECORD_OUTPUTS_RELATIVE_DIR, cardId, slot);
-}
-
-export function recordPath(projectRoot: string, cardId: string, slot: string, version: number, filename: string): { absolutePath: string; relativePath: string } {
-  const relativePath = `${RECORD_OUTPUTS_RELATIVE_DIR}/${cardId}/${slot}/${version}${extname(filename) || '.md'}`;
-  return { absolutePath: join(projectRoot, relativePath), relativePath };
-}
-
+export function recordSlotDefinitions(): readonly RecordSlotDefinition[] { return RECORD_SLOT_DEFINITIONS; }
 export function normalizeRecordUrl(input: { filename: string; cardId: string; version: number }): string {
   return `${buildScopedPathUrl('record', [basename(input.filename)])}?card=${encodeURIComponent(input.cardId)}&v=${encodeURIComponent(String(input.version))}`;
 }
-
-export function readRecordSlotIndex(projectRoot: string, cardId: string, slot: string): RecordSlotIndex {
-  const path = join(recordSlotDir(projectRoot, cardId, slot), 'index.json');
-  if (!existsSync(path)) return { slot, latest: null, open: null, versions: {} };
-  const parsed = JSON.parse(readFileSync(path, 'utf8')) as RecordSlotIndex;
-  if (parsed.slot !== slot) throw new Error(`Record slot index mismatch for '${cardId}/${slot}'.`);
-  return parsed;
-}
-
-export function writeRecordSlotIndex(projectRoot: string, cardId: string, index: RecordSlotIndex): void {
-  const dir = recordSlotDir(projectRoot, cardId, index.slot);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'index.json'), `${JSON.stringify(index, null, 2)}\n`, 'utf8');
-}
-
-export function openRecordSlot(projectRoot: string, input: { cardId: string; filename: string }): OpenRecordSlot {
-  const filename = basename(input.filename);
-  const slot = recordSlotDefinitionForFilename(filename).slot;
-  const index = readRecordSlotIndex(projectRoot, input.cardId, slot);
-  let version = index.open;
-  if (version === null) {
-    version = nextUnusedVersion(index);
-    index.open = version;
-    index.versions[String(version)] = { status: 'open', opened_at: new Date().toISOString() };
-    writeRecordSlotIndex(projectRoot, input.cardId, index);
-  }
-  const path = recordPath(projectRoot, input.cardId, slot, version, filename);
-  mkdirSync(recordSlotDir(projectRoot, input.cardId, slot), { recursive: true });
-  return { filename, slot, cardId: input.cardId, version, ...path, recordUrl: normalizeRecordUrl({ filename, cardId: input.cardId, version }) };
-}
-
-export function latestClosedRecordSlot(projectRoot: string, input: { cardId: string; filename: string }): OpenRecordSlot {
-  const filename = basename(input.filename);
-  const slot = recordSlotDefinitionForFilename(filename).slot;
-  const index = readRecordSlotIndex(projectRoot, input.cardId, slot);
-  if (index.latest === null) throw new Error(`No closed record exists for '${input.cardId}/${slot}'.`);
-  const path = recordPath(projectRoot, input.cardId, slot, index.latest, filename);
-  return { filename, slot, cardId: input.cardId, version: index.latest, ...path, recordUrl: normalizeRecordUrl({ filename, cardId: input.cardId, version: index.latest }) };
-}
-
-export function concreteRecordSlot(projectRoot: string, input: { cardId: string; filename: string; version: number }): OpenRecordSlot {
-  const filename = basename(input.filename);
-  const slot = recordSlotDefinitionForFilename(filename).slot;
-  const index = readRecordSlotIndex(projectRoot, input.cardId, slot);
-  const entry = index.versions[String(input.version)];
-  if (!entry) throw new Error(`Record '${input.cardId}/${slot}/${input.version}' does not exist.`);
-  const path = recordPath(projectRoot, input.cardId, slot, input.version, filename);
-  return { filename, slot, cardId: input.cardId, version: input.version, ...path, recordUrl: normalizeRecordUrl({ filename, cardId: input.cardId, version: input.version }) };
-}
-
-export function closeOpenRecordSlot(projectRoot: string, input: { cardId: string; filename: string; writer?: AgentRole; cardVersionSeq?: number; globalSeq?: number }): OpenRecordSlot {
-  const filename = basename(input.filename);
-  const definition = recordSlotDefinitionForFilename(filename);
-  const slot = definition.slot;
-  const index = readRecordSlotIndex(projectRoot, input.cardId, slot);
-  if (index.open === null) throw new ExpectedRecordSlotCloseError('missing_open', `Required record 'record:///${filename}?card=${input.cardId}&v=next' was not created.`);
-  const open = concreteRecordSlot(projectRoot, { cardId: input.cardId, filename, version: index.open });
-  if (!recordFileIsNonEmpty(open.absolutePath)) throw new ExpectedRecordSlotCloseError('empty_open', `Required record '${open.recordUrl}' was not created or is empty.`);
-  const writer = input.writer ?? singleWriter(definition);
-  if (!definition.writers.includes(writer)) throw new Error(`${writer} cannot close record slot '${slot}'.`);
-  const size = statSync(open.absolutePath).size;
-  const committedAt = new Date().toISOString();
-  const cardVersionSeq = input.cardVersionSeq ?? open.version;
-  const globalSeq = input.globalSeq ?? nextGlobalRecordSeq(projectRoot);
-  index.versions[String(open.version)] = {
-    ...index.versions[String(open.version)],
-    status: 'closed',
-    closed_at: committedAt,
-    committed_at: committedAt,
-    writer,
-    size,
-    format: definition.format,
-    schema: definition.schema,
-    cardVersionSeq,
-    globalSeq,
-  };
-  index.latest = open.version;
-  index.open = null;
-  writeRecordSlotIndex(projectRoot, input.cardId, index);
-  return open;
-}
-
-export function discardOpenRecordSlot(projectRoot: string, input: { cardId: string; filename: string; reason: string }): OpenRecordSlot | null {
-  const filename = basename(input.filename);
-  const slot = recordSlotDefinitionForFilename(filename).slot;
-  const index = readRecordSlotIndex(projectRoot, input.cardId, slot);
-  if (index.open === null) return null;
-  const version = index.open;
-  index.versions[String(version)] = { ...index.versions[String(version)], status: 'discarded', discarded_at: new Date().toISOString(), reason: input.reason };
-  index.open = null;
-  writeRecordSlotIndex(projectRoot, input.cardId, index);
-  const path = recordPath(projectRoot, input.cardId, slot, version, filename);
-  return { filename, slot, cardId: input.cardId, version, ...path, recordUrl: normalizeRecordUrl({ filename, cardId: input.cardId, version }) };
-}
-
-export function readClosedRecordSlotMetadata(projectRoot: string, input: { cardId: string; filename: string; version?: number }): ClosedRecordSlotMetadata {
-  const filename = basename(input.filename);
-  const definition = exposedRecordSlotDefinitionForFilename(filename);
-  const slot = definition.slot;
-  const index = readRecordSlotIndex(projectRoot, input.cardId, slot);
-  const version = input.version ?? index.latest;
-  if (version === null) throw new Error(`No closed record exists for '${input.cardId}/${slot}'.`);
-  const entry = index.versions[String(version)];
-  if (!entry) throw new Error(`Record '${input.cardId}/${slot}/${version}' does not exist.`);
-  if (entry.status !== 'closed') throw new Error(`Record '${input.cardId}/${slot}/${version}' is not closed.`);
-  if (!entry.writer || !entry.committed_at || entry.size === undefined || !entry.format || !entry.schema || entry.cardVersionSeq === undefined || entry.globalSeq === undefined) {
-    throw new Error(`Closed record '${input.cardId}/${slot}/${version}' is missing required metadata.`);
-  }
-  return { url: normalizeRecordUrl({ filename, cardId: input.cardId, version }), cardId: input.cardId, filename, slot, version, writer: entry.writer, committed_at: entry.committed_at, size: entry.size, format: entry.format, schema: entry.schema, cardVersionSeq: entry.cardVersionSeq, globalSeq: entry.globalSeq };
-}
-
-export function recordFileIsNonEmpty(path: string): boolean {
-  try {
-    const stats = statSync(path);
-    return stats.isFile() && stats.size > 0;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw error;
-  }
-}
-
-function nextUnusedVersion(index: RecordSlotIndex): number {
-  const existing = Object.keys(index.versions).map((key) => Number(key)).filter((value) => Number.isInteger(value));
-  return Math.max(index.latest ?? 0, ...existing, 0) + 1;
-}
-
-function singleWriter(definition: RecordSlotDefinition): AgentRole {
-  if (definition.writers.length === 0) throw new Error(`Record slot '${definition.filename}' has no writer.`);
-  return definition.writers[0]!;
-}
-
-function nextGlobalRecordSeq(projectRoot: string): number {
-  const dir = join(projectRoot, RECORD_OUTPUTS_RELATIVE_DIR);
-  const path = join(dir, GLOBAL_INDEX_FILENAME);
-  const current = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as { globalSeq?: unknown } : {};
-  const prior = current.globalSeq;
-  if (prior !== undefined && (!Number.isInteger(prior) || Number(prior) < 0)) throw new Error('Record global sequence index is invalid.');
-  const next = Number(prior ?? 0) + 1;
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path, `${JSON.stringify({ globalSeq: next }, null, 2)}\n`, 'utf8');
-  return next;
-}
-
-export function allocateGlobalRecordSeq(projectRoot: string): number {
-  return nextGlobalRecordSeq(projectRoot);
-}
+export function latestClosedRecordSlot(reader: ProjectCardRecordReader, input: { cardId: string; filename: string }): RecordProjection { return reader.record(input.cardId, input.filename, 'latest'); }
+export function concreteRecordSlot(reader: ProjectCardRecordReader, input: { cardId: string; filename: string; version: number }): RecordProjection { return reader.record(input.cardId, input.filename, input.version); }
+export function recordContentIsNonEmpty(record: RecordProjection): boolean { return record.artifact.content.trim().length > 0; }
