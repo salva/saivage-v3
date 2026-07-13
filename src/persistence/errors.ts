@@ -19,6 +19,12 @@ export class PersistenceWriteError extends PersistenceError {
   }
 }
 
+export class IndeterminatePublicationError extends PersistenceError {
+  constructor(readonly path: string, options?: ErrorOptions) {
+    super(`Publication of ${path} may have completed, but its durability could not be confirmed`, options);
+  }
+}
+
 export class PersistenceValidationError extends PersistenceReadError {
   constructor(path: string, message: string, options?: ErrorOptions) {
     super(path, `validation failed: ${message}`, options);
