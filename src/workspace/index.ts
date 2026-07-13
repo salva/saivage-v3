@@ -39,7 +39,6 @@ export {
   type ScopedPathScheme,
 } from './scoped-path-schemes.js';
 export {
-  collectScopedFiles,
   displayPathForResolved,
   globScopedPath,
   globSegmentToRegExp,
@@ -50,6 +49,8 @@ export {
   resolveScopedPath,
   scopedReadFilterRel,
   walkFiles,
+  visitFiles,
+  visitScopedFiles,
   workRootOf,
   type RecordSummary,
   type ScopedFileEntry,

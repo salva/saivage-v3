@@ -1,4 +1,5 @@
 import { readdirSync, statSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
@@ -111,6 +112,22 @@ export function walkFiles(projectRoot: string, start: string, visitor: (absolute
     }
     if (!entry.isFile() || (!options.includeHidden && isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
     if (visitor(absolutePath, options.displayPath ? options.displayPath(absolutePath, relativePath) : relativePath) === false) return false;
+  }
+}
+
+export async function visitFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => Promise<boolean | void>, options: { includeHidden: boolean; root?: string; displayPath?: (absolutePath: string, relativePath: string) => string } = { includeHidden: false }): Promise<boolean | void> {
+  const root = options.root ?? projectRoot;
+  const entries = (await readdir(start, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    const absolutePath = join(start, entry.name);
+    const relativePath = normalizeRel(relative(root, absolutePath));
+    if (entry.isDirectory()) {
+      if (!options.includeHidden && (SKIPPED_DIRS.has(entry.name) || isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
+      if (await visitFiles(projectRoot, absolutePath, visitor, options) === false) return false;
+      continue;
+    }
+    if (!entry.isFile() || (!options.includeHidden && isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
+    if (await visitor(absolutePath, options.displayPath ? options.displayPath(absolutePath, relativePath) : relativePath) === false) return false;
   }
 }
 
@@ -253,7 +270,7 @@ function displayPathCallback(projectRoot: string, resolved: FsResolved): ((absol
   return undefined;
 }
 
-export function collectScopedFiles(ctx: VfsContext, raw: string, visitor: (entry: ScopedFileEntry) => boolean | void): void {
+export async function visitScopedFiles(ctx: VfsContext, raw: string, visitor: (entry: ScopedFileEntry) => Promise<boolean | void>): Promise<void> {
   const resolved = resolveScopedPath(ctx, raw, 'search');
   if (resolved === null) throw ctx.fail(`Expected a scoped path, got '${raw}'.`);
 
@@ -261,7 +278,7 @@ export function collectScopedFiles(ctx: VfsContext, raw: string, visitor: (entry
     for (const definition of recordSlotDefinitions().filter((candidate) => candidate.exposed)) {
       const latest = latestClosedRecordEntry(ctx.projectRoot, resolved.cardId, definition);
       if (latest === null) continue;
-      if (visitor({ absolutePath: latest.absolutePath, displayPath: latest.recordUrl, matchPath: latest.filename }) === false) return;
+      if (await visitor({ absolutePath: latest.absolutePath, displayPath: latest.recordUrl, matchPath: latest.filename }) === false) return;
     }
     return;
   }
@@ -270,12 +287,12 @@ export function collectScopedFiles(ctx: VfsContext, raw: string, visitor: (entry
   if (st.isFile()) {
     const filterRel = scopedReadFilterRel(resolved, resolved.absolutePath, resolved.relativePath);
     if (isHiddenPath(ctx.projectRoot, resolved.absolutePath, filterRel)) return;
-    visitor({ absolutePath: resolved.absolutePath, displayPath: displayPathForResolved(ctx.projectRoot, resolved), matchPath: resolved.relativePath });
+    await visitor({ absolutePath: resolved.absolutePath, displayPath: displayPathForResolved(ctx.projectRoot, resolved), matchPath: resolved.relativePath });
     return;
   }
 
   const base = resolved.absolutePath;
-  walkFiles(ctx.projectRoot, resolved.absolutePath, (absolutePath, displayPath) => visitor({
+  await visitFiles(ctx.projectRoot, resolved.absolutePath, (absolutePath, displayPath) => visitor({
     absolutePath,
     displayPath,
     matchPath: normalizeRel(relative(base, absolutePath)),
@@ -285,7 +302,7 @@ export function collectScopedFiles(ctx: VfsContext, raw: string, visitor: (entry
 export async function globScopedPath(ctx: VfsContext, raw: string, globPattern: string, limit: number): Promise<{ matches: string[]; truncated: boolean }> {
   const pattern = globToRegExp(globPattern);
   const matches: string[] = [];
-  collectScopedFiles(ctx, raw, (entry) => {
+  await visitScopedFiles(ctx, raw, async (entry) => {
     if (pattern.test(entry.matchPath) || pattern.test(entry.displayPath)) matches.push(entry.displayPath);
     if (matches.length >= limit) return false;
   });

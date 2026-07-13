@@ -1,11 +1,12 @@
 import * as childProcess from 'node:child_process';
-import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, createReadStream, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 import type { AgentRole } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { assertRecordWrite, collectScopedFiles, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, walkFiles, type VfsResolved } from '../workspace/index.js';
+import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex } from '../runtime/records/record-slots.js';
 import type { CardStore } from '../cards/store-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
@@ -22,6 +23,8 @@ export const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_READ_OUTPUT_BYTES = 256 * 1024;
 export const MAX_READ_LINE_CHARS = 2000;
 export const READ_HEAD_SAMPLE_BYTES = 4096;
+const GREP_HEAD_SAMPLE_BYTES = 1024;
+const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
 export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read' | 'getAncestors' | 'setStatus'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
 type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
@@ -355,31 +358,138 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
   const include = params.include ? globToRegExp(params.include) : null;
   const limit = parseNonNegativeInt(params.max_results, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
   const matches: Array<{ path: string; line: number; preview: string }> = [];
+  let contentTruncated = false;
+
+  const result = () => ({
+    pattern: params.pattern,
+    matches,
+    truncated: matches.length >= limit || contentTruncated,
+    ...(contentTruncated ? { content_truncated: true, max_line_chars: MAX_READ_LINE_CHARS } : {}),
+  });
+
+  if (limit === 0) return result();
 
   if (scoped !== null) {
     const redact = scoped.kind === 'work';
-    collectScopedFiles(vfsCtx(ctx), raw, (entry) => scanFile(entry.absolutePath, entry.displayPath, regex, include, redact, limit, matches));
-    return { pattern: params.pattern, matches, truncated: matches.length >= limit };
+    await visitScopedFiles(vfsCtx(ctx), raw, async (entry) => {
+      if (matches.length >= limit) return false;
+      const outcome = await scanFile(entry.absolutePath, entry.displayPath, regex, include, redact, limit, matches);
+      contentTruncated ||= outcome.contentTruncated;
+      return outcome.stop ? false : undefined;
+    });
+    return result();
   }
 
   const target = { kind: 'project' as const, ...assertReadable(ctx.projectRoot, raw), isRoot: false };
   const st = statSync(target.absolutePath);
-  if (st.isFile()) scanFile(target.absolutePath, displayPathForResolved(ctx.projectRoot, target), regex, include, false, limit, matches);
-  else walkFiles(ctx.projectRoot, target.absolutePath, (abs, rel) => scanFile(abs, rel, regex, include, false, limit, matches), { includeHidden: false });
-  return { pattern: params.pattern, matches, truncated: matches.length >= limit };
+  if (st.isFile()) {
+    const outcome = await scanFile(target.absolutePath, displayPathForResolved(ctx.projectRoot, target), regex, include, false, limit, matches);
+    contentTruncated = outcome.contentTruncated;
+  } else {
+    await visitFiles(ctx.projectRoot, target.absolutePath, async (abs, rel) => {
+      if (matches.length >= limit) return false;
+      const outcome = await scanFile(abs, rel, regex, include, false, limit, matches);
+      contentTruncated ||= outcome.contentTruncated;
+      return outcome.stop ? false : undefined;
+    }, { includeHidden: false });
+  }
+  return result();
 }
 
-function scanFile(absolutePath: string, displayPath: string, regex: RegExp, include: RegExp | null, redact: boolean, limit: number, matches: Array<{ path: string; line: number; preview: string }>): boolean | void {
-  if (include && !include.test(displayPath)) return;
-  const sample = readFileSync(absolutePath);
-  if (isBinarySample(sample.subarray(0, Math.min(sample.length, 1024)))) return;
-  const lines = sample.toString('utf8').split(/\r?\n/);
-  for (let i = 0; i < lines.length; i += 1) {
-    if (regex.test(lines[i]!)) {
-      const preview = lines[i]!.slice(0, 500);
-      matches.push({ path: displayPath, line: i + 1, preview: redact ? redactTextForOutbound(preview, 'operator.api', { source: 'project-file-tools.grep.work' }) : preview });
+interface GrepScanOutcome {
+  stop: boolean;
+  contentTruncated: boolean;
+}
+
+async function scanFile(absolutePath: string, displayPath: string, regex: RegExp, include: RegExp | null, redact: boolean, limit: number, matches: Array<{ path: string; line: number; preview: string }>): Promise<GrepScanOutcome> {
+  if (include) {
+    include.lastIndex = 0;
+    if (!include.test(displayPath)) return { stop: false, contentTruncated: false };
+  }
+
+  const stream = createReadStream(absolutePath, { highWaterMark: GREP_STREAM_CHUNK_BYTES });
+  const decoder = new StringDecoder('utf8');
+  const initialChunks: Buffer[] = [];
+  let initialBytes = 0;
+  let classified = false;
+  let linePrefix = '';
+  let lineChars = 0;
+  let lineNumber = 1;
+  let contentTruncated = false;
+  let pendingCarriageReturn = false;
+  let stop = false;
+
+  const append = (char: string) => {
+    if (lineChars < MAX_READ_LINE_CHARS) {
+      linePrefix += char;
+      lineChars += 1;
+    } else {
+      contentTruncated = true;
     }
-    if (matches.length >= limit) return false;
+  };
+
+  const finishLine = () => {
+    regex.lastIndex = 0;
+    if (regex.test(linePrefix)) {
+      const preview = linePrefix.slice(0, 500);
+      matches.push({ path: displayPath, line: lineNumber, preview: redact ? redactTextForOutbound(preview, 'operator.api', { source: 'project-file-tools.grep.work' }) : preview });
+    }
+    if (matches.length >= limit) stop = true;
+    linePrefix = '';
+    lineChars = 0;
+    lineNumber += 1;
+  };
+
+  const consumeText = (text: string) => {
+    for (const char of text) {
+      if (char === '\n') {
+        pendingCarriageReturn = false;
+        finishLine();
+        if (stop) return;
+        continue;
+      }
+      if (pendingCarriageReturn) append('\r');
+      pendingCarriageReturn = char === '\r';
+      if (!pendingCarriageReturn) append(char);
+    }
+  };
+
+  try {
+    for await (const rawChunk of stream) {
+      const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+      if (!classified) {
+        initialChunks.push(chunk);
+        initialBytes += chunk.length;
+        if (initialBytes < GREP_HEAD_SAMPLE_BYTES) continue;
+        const initial = Buffer.concat(initialChunks, initialBytes);
+        if (isBinarySample(initial.subarray(0, GREP_HEAD_SAMPLE_BYTES))) {
+          stream.destroy();
+          return { stop: false, contentTruncated: false };
+        }
+        classified = true;
+        consumeText(decoder.write(initial));
+      } else {
+        consumeText(decoder.write(chunk));
+      }
+      if (stop) {
+        stream.destroy();
+        return { stop: true, contentTruncated };
+      }
+    }
+
+    if (!classified) {
+      const initial = Buffer.concat(initialChunks, initialBytes);
+      if (isBinarySample(initial)) return { stop: false, contentTruncated: false };
+      consumeText(decoder.write(initial));
+    }
+    consumeText(decoder.end());
+    if (stop) return { stop: true, contentTruncated };
+    if (pendingCarriageReturn) append('\r');
+    finishLine();
+    return { stop, contentTruncated };
+  } catch (error) {
+    stream.destroy();
+    throw error;
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { globProject, grepProject, MAX_READ_FILE_BYTES, MAX_READ_LINE_CHARS, MAX_READ_OUTPUT_BYTES, readProject } from '../../src/tools/project-file-tools.js';
@@ -157,5 +157,110 @@ describe('project file tool read limits', () => {
     expect(result.max_bytes).toBe(MAX_READ_OUTPUT_BYTES);
     expect(result.bytes).toBe(Buffer.byteLength(result.content, 'utf8'));
     expect(result.bytes).toBeLessThanOrEqual(MAX_READ_OUTPUT_BYTES);
+  }));
+
+  it('streams files larger than the inline read limit and finds matches beyond it', async () => withTempProject(async (projectRoot) => {
+    const beforeMatch = Buffer.from('a\n'.repeat(Math.ceil(MAX_READ_FILE_BYTES / 2) + 1));
+    writeFileSync(join(projectRoot, 'oversized.txt'), Buffer.concat([beforeMatch, Buffer.from('needle beyond inline limit\n')]));
+
+    const result = await grepProject(ctx(projectRoot), { path: 'oversized.txt', pattern: 'needle beyond' });
+
+    expect(result).toMatchObject({ matches: [{ path: 'oversized.txt', line: Math.ceil(MAX_READ_FILE_BYTES / 2) + 2, preview: 'needle beyond inline limit' }], truncated: false });
+  }));
+
+  it('has no whole-file synchronous read in the grep scanner', () => {
+    const source = readFileSync(join(process.cwd(), 'src/tools/project-file-tools.ts'), 'utf8');
+    const scanner = source.slice(source.indexOf('async function scanFile'), source.indexOf('export async function editProject'));
+
+    expect(scanner).toContain('createReadStream');
+    expect(scanner).not.toContain('readFileSync');
+  });
+
+  it('decodes tokens and newline delimiters split across stream chunks', async () => withTempProject(async (projectRoot) => {
+    const chunkPrefix = 'a\n'.repeat(32767);
+    writeFileSync(join(projectRoot, 'token-boundary.txt'), Buffer.concat([Buffer.from(`${chunkPrefix}x`), Buffer.from('éneedle\n')]));
+    writeFileSync(join(projectRoot, 'newline-boundary.txt'), `${chunkPrefix}x\r\nneedle-final`, 'utf8');
+
+    const token = await grepProject(ctx(projectRoot), { path: 'token-boundary.txt', pattern: 'xéneedle' });
+    const newline = await grepProject(ctx(projectRoot), { path: 'newline-boundary.txt', pattern: 'needle-final' });
+
+    expect(token).toMatchObject({ matches: [{ line: 32768, preview: 'xéneedle' }], truncated: false });
+    expect(newline).toMatchObject({ matches: [{ line: 32769, preview: 'needle-final' }], truncated: false });
+  }));
+
+  it('counts CRLF and final unterminated lines accurately', async () => withTempProject(async (projectRoot) => {
+    writeFileSync(join(projectRoot, 'lines.txt'), 'first\r\nneedle two\r\nthird\nneedle final', 'utf8');
+
+    const result = await grepProject(ctx(projectRoot), { path: 'lines.txt', pattern: 'needle' });
+
+    expect(result).toEqual({
+      pattern: 'needle',
+      matches: [
+        { path: 'lines.txt', line: 2, preview: 'needle two' },
+        { path: 'lines.txt', line: 4, preview: 'needle final' },
+      ],
+      truncated: false,
+    });
+  }));
+
+  it('searches only an overlong line prefix and reports truthful truncation metadata', async () => withTempProject(async (projectRoot) => {
+    const prefix = `prefix-needle-${'x'.repeat(MAX_READ_LINE_CHARS)}`;
+    writeFileSync(join(projectRoot, 'overlong.txt'), `${prefix}-suffix-needle`, 'utf8');
+
+    const prefixResult = await grepProject(ctx(projectRoot), { path: 'overlong.txt', pattern: 'prefix-needle' }) as Record<string, unknown>;
+    const suffixResult = await grepProject(ctx(projectRoot), { path: 'overlong.txt', pattern: 'suffix-needle' }) as Record<string, unknown>;
+
+    expect(prefixResult).toMatchObject({
+      matches: [{ path: 'overlong.txt', line: 1, preview: expect.stringMatching(/^prefix-needle-/) }],
+      truncated: true,
+      content_truncated: true,
+      max_line_chars: MAX_READ_LINE_CHARS,
+    });
+    expect(((prefixResult.matches as Array<{ preview: string }>)[0]!.preview)).toHaveLength(500);
+    expect(suffixResult).toEqual({ pattern: 'suffix-needle', matches: [], truncated: true, content_truncated: true, max_line_chars: MAX_READ_LINE_CHARS });
+  }));
+
+  it('stops before opening later files at the result limit', async () => withTempProject(async (projectRoot) => {
+    writeFileSync(join(projectRoot, 'a-match.txt'), 'needle\n' + 'ignored\n'.repeat(10000), 'utf8');
+    const unreadable = join(projectRoot, 'z-unreadable.txt');
+    writeFileSync(unreadable, 'needle', 'utf8');
+    chmodSync(unreadable, 0);
+
+    try {
+      const result = await grepProject(ctx(projectRoot), { pattern: 'needle', max_results: 1 });
+      expect(result).toEqual({ pattern: 'needle', matches: [{ path: 'a-match.txt', line: 1, preview: 'needle' }], truncated: true });
+    } finally {
+      chmodSync(unreadable, 0o600);
+    }
+  }));
+
+  it('does not stat, enumerate, or open a path when max_results is zero', async () => withTempProject(async (projectRoot) => {
+    const result = await grepProject(ctx(projectRoot), { path: 'missing-directory', pattern: 'needle', max_results: 0 });
+
+    expect(result).toEqual({ pattern: 'needle', matches: [], truncated: true });
+  }));
+
+  it('skips binary head samples and continues to later text files', async () => withTempProject(async (projectRoot) => {
+    writeFileSync(join(projectRoot, 'a-binary.bin'), Buffer.from([0, 1, 2, 3, 110, 101, 101, 100, 108, 101]));
+    writeFileSync(join(projectRoot, 'b-text.txt'), 'needle text', 'utf8');
+
+    const result = await grepProject(ctx(projectRoot), { pattern: 'needle' });
+
+    expect(result).toEqual({ pattern: 'needle', matches: [{ path: 'b-text.txt', line: 1, preview: 'needle text' }], truncated: false });
+  }));
+
+  it('redacts streamed work grep previews while preserving path and line', async () => withTempProject(async (projectRoot) => {
+    const workDir = join(projectRoot, '.saivage/work', 'processes', 'proc-1');
+    mkdirSync(workDir, { recursive: true });
+    writeFileSync(join(workDir, 'stdout.log'), 'ordinary output\nAuthorization: Bearer secret-token needle\n', 'utf8');
+
+    const result = await grepProject(ctx(projectRoot), { path: 'work:///processes/proc-1/stdout.log', pattern: 'Authorization' });
+
+    expect(result).toEqual({
+      pattern: 'Authorization',
+      matches: [{ path: 'work:///processes/proc-1/stdout.log', line: 2, preview: expect.stringContaining('[REDACTED]') }],
+      truncated: false,
+    });
+    expect((result as { matches: Array<{ preview: string }> }).matches[0]!.preview).not.toContain('secret-token');
   }));
 });

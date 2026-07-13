@@ -415,6 +415,7 @@ describe('workspace and patch providers', () => {
       const glob = await invokeTool(surface, 'glob', { directory: 'project:///', pattern: '**/*.md' });
       const nonScopedGrep = await invokeTool(surface, 'grep', { path: '.', pattern: 'spec' });
       const grep = await invokeTool(surface, 'grep', { pattern: '(unclosed' });
+      const missingGrep = await invokeTool(surface, 'grep', { path: 'missing.txt', pattern: 'spec' });
 
       expect(read.success).toBe(true);
       if (read.success) expect(read.data).toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ name: 'SPEC.md' })]) });
@@ -424,6 +425,8 @@ describe('workspace and patch providers', () => {
       if (nonScopedGrep.success) expect((nonScopedGrep.data as { matches: Array<{ path: string }> }).matches).toEqual([expect.objectContaining({ path: 'SPEC.md' })]);
       expect(grep.success).toBe(false);
       if (!grep.success) expect(grep.error).toContain('Invalid regular expression');
+      expect(missingGrep.success).toBe(false);
+      if (!missingGrep.success) expect(missingGrep.error).toContain('ENOENT');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
