@@ -16,6 +16,7 @@ import { surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
@@ -119,7 +120,8 @@ function setCardStatusForTest(store: CardStore, cardId: string, status: CardStat
 }
 
 function toolCtx(root: string, store: CardStore, overrides: Partial<ToolContext> = {}): ToolContext {
-  return { projectRoot: root, processRunner: new ProcessRunner(root), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, ...overrides };
+  const processRunner = overrides.processRunner ?? createTestProcessRunner(root);
+  return { projectRoot: root, processRunner, processScope: overrides.processScope ?? processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, ...overrides };
 }
 
 function toolResponse(tool: string, args: Record<string, unknown>): Response {
@@ -132,7 +134,7 @@ function messageResponse(content: string): Response {
 
 function createProductionShapedAnalystSurface(root: string, store: CardStore): ReturnType<typeof buildRoleSurface> {
   const ctx: ToolContext = toolCtx(root, store, { sessionId: 'analyst:test' });
-  return buildRoleSurface('analyst', { projectRoot: root, toolContext: ctx, store, processRunner: ctx.processRunner, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => undefined });
+  return buildRoleSurface('analyst', { projectRoot: root, toolContext: ctx, store, processRunner: ctx.processRunner, processScope: ctx.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => undefined });
 }
 
 function renderAnalystPrompt(root: string, tools = ANALYST_TOOL_DEFINITIONS): string {
@@ -335,12 +337,13 @@ describe('Contract C1 unsupported-action reply', () => {
 describe('Contract C2 partial-success reporting', () => {
   it('returns flat partial-success data for delete_card fan-out and no nested totals', async () => {
     const root = setupRoot();
-    const processRunner = new ProcessRunner(root);
+    const processRunner = createTestProcessRunner(root);
     try {
       const store = seedDeleteCards(root);
       pauseRuntime(root);
       const codeIds = store.listChildren('card-1');
-      const proc = processRunner.spawn({ command: 'sleep 30', cardId: codeIds[1], ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: true });
+      const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-runtime', 'runtime_card');
+      const proc = processRunner.spawn({ command: 'sleep 30', directScope: processScope, category: 'runtime_card', cardId: codeIds[1], ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: true });
       store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
       const result = await delete_card(toolCtx(root, store), { ids: codeIds });
@@ -350,17 +353,18 @@ describe('Contract C2 partial-success reporting', () => {
       expect(data.totals).toBeUndefined();
       expect(data.failures).toHaveLength(1);
       expect(data.failures[0]).toEqual({ id: codeIds[1], reason: expect.stringContaining("delete_card denied by permission matrix") });
-    } finally { await processRunner.stopRuntimeOwned('test cleanup', { graceMs: 100 }); rmSync(root, { recursive: true, force: true }); }
+    } finally { await processRunner.terminateScopeTree({ rootScope: processRunner.runtimeRootScope, categories: ['runtime_card'], reason: 'test cleanup', graceMs: 100 }); rmSync(root, { recursive: true, force: true }); }
   });
 
   afterEach(() => { jest.restoreAllMocks(); });
   it('invokes exposed delete_card and reports partial success while stopped', async () => {
     const root = setupRoot();
-    const processRunner = new ProcessRunner(root);
+    const processRunner = createTestProcessRunner(root);
     try {
       const store = seedDeleteCards(root);
       const codeIds = store.listChildren('card-1');
-      const proc = processRunner.spawn({ command: 'sleep 30', cardId: codeIds[1], ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: true });
+      const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-runtime', 'runtime_card');
+      const proc = processRunner.spawn({ command: 'sleep 30', directScope: processScope, category: 'runtime_card', cardId: codeIds[1], ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: true });
       store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
       let call = 0;
@@ -376,7 +380,7 @@ describe('Contract C2 partial-success reporting', () => {
       expect(response.toolInvocations?.[0].result.success).toBe(true);
       if (!response.toolInvocations?.[0].result.success) throw new Error('Expected successful delete_card result.');
       expect(response.toolInvocations[0].result.data).toMatchObject({ partial: true, succeeded: 2 });
-    } finally { await processRunner.stopRuntimeOwned('test cleanup', { graceMs: 100 }); rmSync(root, { recursive: true, force: true }); }
+    } finally { await processRunner.terminateScopeTree({ rootScope: processRunner.runtimeRootScope, categories: ['runtime_card'], reason: 'test cleanup', graceMs: 100 }); rmSync(root, { recursive: true, force: true }); }
   });
 });
 
@@ -387,7 +391,7 @@ describe('Reconfigure MCP live manager refresh', () => {
         const config = loadTestConfig(root);
       const eventBus = new EventBus();
       const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
-      const mcpManager = new McpManager(root, { config });
+      const mcpManager = new McpManager(root, { config, processRunner: runtimeApplication.processRunner });
       const depsBeforeMcp = runtimeApplication.analystDeps;
       expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);
       runtimeApplication.setMcpManager(mcpManager);
@@ -421,7 +425,8 @@ describe('internal runtime shutdown', () => {
     const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus), readModelChanges: new ReadModelChangeBroadcaster() });
     try {
       await runtimeApplication.runtimeApi.start();
-      const process = runtimeApplication.processRunner.spawn({ command: 'sleep 30', cardId: null, ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: false });
+      const processScope = runtimeApplication.processRunner.createDirectScope(runtimeApplication.processRunner.runtimeRootScope, 'test-runtime', 'runtime_card');
+      const process = runtimeApplication.processRunner.spawn({ command: 'sleep 30', directScope: processScope, category: 'runtime_card', cardId: null, ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: false });
 
       await runtimeApplication.runtimeApi.shutdown();
 

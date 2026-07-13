@@ -9,6 +9,7 @@ import { appendConversationMessage, readConversationMessages } from '../../src/r
 import { activeVersionPath, conversationDir, writeConversationIndex } from '../../src/runtime/actors/conversation-index.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { actorSnapshotPath } from '../../src/runtime/actors/snapshots.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { listControlActions } from '../../src/persistence/index.js';
@@ -83,27 +84,6 @@ describe('AnalystHandler F05 contract', () => {
       const rows = readPersistedRows(root, 's-msg');
       expect(rows.filter((r) => r.kind === 'tool_call')).toHaveLength(0);
       expect(rows.filter((r) => r.role === 'assistant' && r.kind === 'text').map((r) => r.content)).toContain('Hello user.');
-    } finally { rmSync(root, { recursive: true, force: true }); }
-  });
-
-  it('terminates running processes owned by an Analyst session', async () => {
-    const root = setupRoot();
-    try {
-      const sessionId = resolveAnalystSessionId('s-cleanup');
-      const processRunner = new ProcessRunner(root);
-      const process = processRunner.spawn({
-        command: 'sleep 5',
-        cardId: sessionId,
-        ownerId: sessionId,
-        agentSessionId: sessionId,
-        ownerKind: 'operator',
-        launchReason: 'analyst workspace run_command',
-      });
-      const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, processRunner }) });
-
-      await runtime.shutdownSessionProcesses(sessionId);
-
-      expect(processRunner.get(process.id)).toEqual(expect.objectContaining({ status: 'killed' }));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

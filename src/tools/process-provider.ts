@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
-import type { ProcessRunner } from '../runtime/process-runner.js';
+import type { ManagedProcessScope, ProcessCategory, ProcessRunner } from '../runtime/process-runner.js';
 import type { AgentRole, ProcessRecord, ProcessStatus } from '../schemas/index.js';
 import { resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
@@ -26,6 +26,8 @@ export interface ProcessProviderContext {
   readonly cardId?: string;
   readonly agentRole?: AgentRole;
   readonly ownerKind: 'agent' | 'operator' | 'runtime';
+  readonly directScope: ManagedProcessScope;
+  readonly category: ProcessCategory;
   readonly launchReason?: string;
 }
 
@@ -154,7 +156,9 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         : reason.kind === 'session_closed'
           ? 'session closed'
           : 'runtime shutdown';
-      await ctx.processRunner.stopByOwner(ctx.ownerId, label, { graceMs: 5000 });
+      ctx.processRunner.closeScope(ctx.directScope);
+      const report = await ctx.processRunner.terminateScopeTree({ rootScope: ctx.directScope, categories: [ctx.category], reason: label, graceMs: 5000 });
+      if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
     },
     tools: [
       defineTool({
@@ -166,6 +170,8 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
             throwIfAborted(signal);
             const record = ctx.processRunner.spawn({
               command: args.command,
+              directScope: ctx.directScope,
+              category: ctx.category,
               cardId: ctx.cardId ?? null,
               ownerId: ctx.ownerId,
               agentSessionId: ctx.ownerId,
@@ -179,7 +185,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
             try {
               await waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
             } catch (err) {
-              await ctx.processRunner.kill(record.id, 'tool invocation interrupted', { graceMs: 5000 });
+              await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted', graceMs: 5000 });
               if (isAbortError(err, signal)) return { success: true, data: processResult(ctx, record.id) };
               throw err;
             }
@@ -215,7 +221,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         executor: async (args) => {
           try {
             assertOwned(ctx, args.process_id);
-            const record = await ctx.processRunner.kill(args.process_id, 'tool kill_process');
+            const record = await ctx.processRunner.kill(args.process_id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool kill_process' });
             if (!record) throw new Error(`Unknown process '${args.process_id}'.`);
             return { success: true, data: processResult(ctx, args.process_id) };
           } catch (err) {

@@ -1,7 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { buildProcessOperatorContractHandlers } from '../../src/server/routes/operator-process-handlers.js';
+import { toProcessView } from '../../src/server/routes/operator-process-handlers.js';
 import type { ProcessRecord } from '../../src/schemas/index.js';
 
 function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
@@ -36,11 +35,7 @@ function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
 }
 
 async function processView(input: ProcessRecord): Promise<Record<string, unknown>> {
-  const runner = new ProcessRunner('/workspace/project');
-  runner.setTransientRegistry(new Map([[input.id, input]]));
-  const handlers = buildProcessOperatorContractHandlers({ projectRoot: '/workspace/project', processRunner: runner });
-  const response = await handlers['processes.get']!({ contract: {} as never, params: { id: input.id }, query: {}, body: undefined, request: {} as never, reply: {} as never });
-  return (response.body as { process: Record<string, unknown> }).process;
+  return toProcessView('/workspace/project', input);
 }
 
 describe('process operator view projection', () => {

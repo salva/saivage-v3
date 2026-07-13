@@ -1,7 +1,5 @@
-import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { watch as nodeWatch, type FSWatcher, type WatchOptions } from 'node:fs';
 import type { EventEmitter } from 'node:events';
-import { processGroupAlive, signalProcessGroup, waitForProcessGroupAbsence } from '../runtime/posix-process-group.js';
 
 export interface Disposable {
   dispose(): Promise<void> | void;
@@ -21,11 +19,9 @@ export interface ScopedInterval extends Disposable { readonly name: string; }
 export interface ScopedTimeout extends Disposable { readonly name: string; }
 export interface ScopedListener extends Disposable { readonly name: string; }
 export interface ScopedSignalHandler extends Disposable { readonly name: string; }
-export interface ScopedChildProcess extends Disposable { readonly name: string; readonly process: ChildProcess; }
 export interface ScopedFsWatch extends Disposable { readonly name: string; readonly watcher: FSWatcher; }
 
 export type WatchHandler = (eventType: string, filename: string | Buffer | null) => void;
-export type SpawnOpts = SpawnOptions & { name?: string; timeoutMs?: number };
 
 export interface ResourceScope {
   readonly id: string;
@@ -35,14 +31,12 @@ export interface ResourceScope {
   setTimeout(handler: () => void, ms: number, opts?: { name?: string; timeoutMs?: number }): ScopedTimeout;
   on(emitter: EventEmitter, event: string | symbol, handler: (...args: unknown[]) => void, opts?: { name?: string; timeoutMs?: number }): ScopedListener;
   onSignal(signal: NodeJS.Signals, handler: () => Promise<void> | void, opts?: { name?: string; timeoutMs?: number }): ScopedSignalHandler;
-  spawn(cmd: string, args: string[], opts?: SpawnOpts): ScopedChildProcess;
   watch(path: string, handler: WatchHandler, opts?: WatchOptions & { name?: string; timeoutMs?: number }): ScopedFsWatch;
   dispose(): Promise<DisposalReport>;
   isDisposed(): boolean;
 }
 
 const DEFAULT_DISPOSE_TIMEOUT_MS = 5_000;
-const MIN_CHILD_KILL_GRACE_MS = 25;
 
 export class ScopeDisposed extends Error {
   constructor(readonly scopeId: string) {
@@ -64,21 +58,6 @@ function resourceName(resource: Disposable, fallback: string): string {
 
 function timeoutError(name: string, timeoutMs: number): Error {
   return new Error(`Timed out disposing '${name}' after ${timeoutMs}ms`);
-}
-
-async function disposeChildProcess(child: ChildProcess, name: string, timeoutMs: number): Promise<void> {
-  if (!child.pid) throw new Error(`Child process '${name}' has no PID.`);
-  const pgid = child.pid;
-  if (!processGroupAlive(pgid)) return;
-
-  const graceMs = Math.max(MIN_CHILD_KILL_GRACE_MS, Math.floor(timeoutMs / 2));
-  signalProcessGroup(pgid, 'SIGTERM');
-  if (await waitForProcessGroupAbsence(pgid, graceMs)) return;
-
-  signalProcessGroup(pgid, 'SIGKILL');
-  if (await waitForProcessGroupAbsence(pgid, graceMs)) return;
-
-  throw new Error(`Child process '${name}' did not exit after SIGTERM or SIGKILL within ${timeoutMs}ms`);
 }
 
 export function createResourceScope(id: string, opts?: { disposeTimeoutMs?: number }): ResourceScope {
@@ -149,19 +128,6 @@ class DefaultResourceScope implements ResourceScope {
       name: opts?.name ?? `signal:${signal}`,
       dispose: () => { process.removeListener(signal, handler); },
     }, opts);
-  }
-
-  spawn(cmd: string, args: string[], opts?: SpawnOpts): ScopedChildProcess {
-    this.assertOpen();
-    const { name, timeoutMs, ...spawnOpts } = opts ?? {};
-    const resourceName = name ?? `child:${cmd}`;
-    const disposalTimeoutMs = timeoutMs ?? this.defaultDisposeTimeoutMs;
-    const child = nodeSpawn(cmd, args, { ...spawnOpts, detached: true });
-    return this.add({
-      name: resourceName,
-      process: child,
-      dispose: () => disposeChildProcess(child, resourceName, disposalTimeoutMs),
-    }, { name: resourceName, timeoutMs: disposalTimeoutMs + MIN_CHILD_KILL_GRACE_MS });
   }
 
   watch(path: string, handler: WatchHandler, opts?: WatchOptions & { name?: string; timeoutMs?: number }): ScopedFsWatch {

@@ -12,6 +12,7 @@ import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 
@@ -104,7 +105,7 @@ function noopNotificationDelivery() {
 }
 
 function processRunner(projectRoot: string): ProcessRunner {
-  return new ProcessRunner(projectRoot);
+  return createTestProcessRunner(projectRoot);
 }
 
 function providerTurnFailure(message: string): ProviderTurnFailure {

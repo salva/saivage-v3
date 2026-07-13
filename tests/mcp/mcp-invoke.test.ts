@@ -12,6 +12,8 @@ import { tmpdir } from 'node:os';
 import { spawn as realSpawn } from 'node:child_process';
 import * as YAML from 'yaml';
 import { loadEnvironment } from '../../src/config/environment.js';
+import { ManagedProcessGroupRegistry, type ManagedProcessPlatform } from '../../src/runtime/managed-process-group-registry.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 let nextPid = 12345;
 
@@ -79,8 +81,32 @@ function loadTestConfig(projectRoot: string) {
   return loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config;
 }
 
-function createMcpManager<T extends new (projectRoot: string, options: { config: ReturnType<typeof loadTestConfig> }) => unknown>(McpManager: T, projectRoot: string): InstanceType<T> {
-  return new McpManager(projectRoot, { config: loadTestConfig(projectRoot) }) as InstanceType<T>;
+function createMcpManager<T extends new (projectRoot: string, options: { config: ReturnType<typeof loadTestConfig>; processRunner: ProcessRunner }) => unknown>(McpManager: T, projectRoot: string): InstanceType<T> {
+  const processes = new Map<number, ReturnType<typeof createMockProc>>();
+  const realPids = new Set<number>();
+  const platform: ManagedProcessPlatform = {
+    spawn: (file, args, options) => {
+      if (file === process.execPath) {
+        const child = realSpawn(file, [...args], options);
+        realPids.add(child.pid!);
+        return child;
+      }
+      const child = (mockSpawn as unknown as (...spawnArgs: unknown[]) => ReturnType<typeof createMockProc>)(file, [...args], options);
+      processes.set(child.pid as number, child);
+      return child as never;
+    },
+    probe: (pgid) => {
+      if (realPids.has(pgid)) { process.kill(-pgid, 0); return; }
+      const child = processes.get(pgid)!;
+      if (child.killed || child.exitCode !== null) throw Object.assign(new Error('absent'), { code: 'ESRCH' });
+    },
+    signal: (pgid, signal) => {
+      if (realPids.has(pgid)) { process.kill(-pgid, signal); return; }
+      (processes.get(pgid)!.kill as (signal: NodeJS.Signals) => boolean)(signal);
+    },
+  };
+  const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry(platform));
+  return new McpManager(projectRoot, { config: loadTestConfig(projectRoot), processRunner }) as InstanceType<T>;
 }
 
 function stdioCfg(overrides: Record<string, unknown> = {}) {
@@ -171,10 +197,13 @@ async function setupRealProc(
 ) {
   const sp = join(root, 'mcp-' + serverName + '.js');
   writeFileSync(sp, script);
-  const proc = realSpawn('node', [sp], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const runtime = runtimeFor(mgr, serverName);
+  const options = runtime.options as { processRunner: ProcessRunner; processScope: import('../../src/runtime/process-runner.js').ManagedProcessScope };
+  const launch = options.processRunner.spawnInteractive({ file: process.execPath, args: [sp], stdio: ['pipe', 'pipe', 'pipe'], env: process.env, directScope: options.processScope, category: 'service_infrastructure', ownerId: `mcp:${serverName}`, ownerKind: 'runtime' });
+  const proc = launch.process;
   await new Promise((r) => setTimeout(r, 150));
 
-  seedRuntime(mgr, serverName, { process: proc }, toolDefs);
+  seedRuntime(mgr, serverName, { process: proc, processId: launch.record.id }, toolDefs);
   return proc;
 }
 
@@ -186,7 +215,14 @@ function runtimeFor(mgr: unknown, serverName: string): Record<string, unknown> {
 
 function seedRuntime(mgr: unknown, serverName: string, handle: unknown, tools: unknown[]): Record<string, unknown> {
   const runtime = runtimeFor(mgr, serverName);
-  runtime.handle = handle;
+  const supplied = handle as { process?: unknown; processId?: string; abortController?: AbortController };
+  if (supplied.process && !supplied.processId) {
+    const options = runtime.options as { processRunner: ProcessRunner; processScope: import('../../src/runtime/process-runner.js').ManagedProcessScope };
+    const launch = options.processRunner.spawnInteractive({ file: 'test-mcp', args: [], stdio: ['pipe', 'pipe', 'pipe'], env: process.env, directScope: options.processScope, category: 'service_infrastructure', ownerId: `mcp:${serverName}`, ownerKind: 'runtime' });
+    runtime.handle = { process: launch.process, processId: launch.record.id };
+  } else {
+    runtime.handle = handle;
+  }
   runtime.tools = tools;
   runtime.startedAt = new Date().toISOString();
   return runtime;

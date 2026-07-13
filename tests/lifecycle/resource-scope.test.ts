@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync, watch as fsWatch, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, watch as fsWatch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createResourceScope, ScopeDisposed } from '../../src/lifecycle/index.js';
@@ -16,16 +16,6 @@ try {
   canAllocateFsWatcher = false;
 }
 const watchTest = canAllocateFsWatcher ? it : it.skip;
-
-async function delay(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForReady(child: { process: { stdout?: NodeJS.ReadableStream | null } }): Promise<void> {
-  const stdout = child.process.stdout;
-  if (!stdout) throw new Error('child stdout pipe missing');
-  await new Promise<void>((resolve) => stdout.once('data', () => resolve()));
-}
 
 describe('ResourceScope', () => {
   it('disposes children before parent resources and parent resources in reverse registration order', async () => {
@@ -87,61 +77,6 @@ describe('ResourceScope', () => {
 
     expect(seen).toEqual([['payload']]);
     expect(emitter.listenerCount('event')).toBe(0);
-  });
-
-  it('spawn disposal waits for child process termination after SIGTERM', async () => {
-    const scope = createResourceScope('child-process', { disposeTimeoutMs: 1_000 });
-    const child = scope.spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => setTimeout(() => process.exit(0), 75)); console.log("ready"); setInterval(() => {}, 1000);'], {
-      name: 'sigterm-child',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeoutMs: 500,
-    });
-    const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      child.process.once('exit', (code, signal) => resolve({ code, signal }));
-    });
-    await waitForReady(child);
-
-    const report = await scope.dispose();
-    const { code, signal } = await exit;
-
-    expect(report.errors).toEqual([]);
-    expect(code === null || code === 0).toBe(true);
-    expect(signal === null || signal === 'SIGTERM').toBe(true);
-    expect(report.disposed.find((entry) => entry.name === 'sigterm-child')?.durationMs).toBeGreaterThanOrEqual(50);
-  });
-
-  it('spawn disposal escalates to SIGKILL and reports non-graceful child termination', async () => {
-    const scope = createResourceScope('child-process-kill', { disposeTimeoutMs: 1_000 });
-    const child = scope.spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000);'], {
-      name: 'stubborn-child',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      // timeoutMs:500 → outer cap 525ms covers SIGTERM grace (≥25ms inner) + SIGKILL escalation on slower hosts
-      timeoutMs: 500,
-    });
-    await waitForReady(child);
-
-    const report = await scope.dispose();
-
-    expect(child.process.signalCode).toBe('SIGKILL');
-    expect(report.errors).toEqual([]);
-  });
-
-  it('scope disposal kills a descendant after its detached leader exits', async () => {
-    const pidFile = join(mkdtempSync(join(tmpdir(), 'saivage-resource-scope-child-')), 'descendant.pid');
-    const scope = createResourceScope('descendant-scope', { disposeTimeoutMs: 1_000 });
-    const child = scope.spawn('sh', ['-c', `sleep 60 & echo $! > ${JSON.stringify(pidFile)}; exit`], { name: 'leader-exited-descendant' });
-    try {
-      for (let attempt = 0; attempt < 100 && !existsSync(pidFile); attempt += 1) await delay(10);
-      const descendantPid = Number(readFileSync(pidFile, 'utf8').trim());
-      if (child.process.exitCode === null && child.process.signalCode === null) {
-        await new Promise<void>((resolve) => child.process.once('exit', () => resolve()));
-      }
-      await scope.dispose();
-      expect(() => process.kill(descendantPid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
-    } finally {
-      await scope.dispose();
-      rmSync(join(pidFile, '..'), { recursive: true, force: true });
-    }
   });
 
   watchTest('owns fs watchers and closes them during disposal', async () => {

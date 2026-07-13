@@ -1,6 +1,6 @@
 import type { AgentRole } from '../schemas/index.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
-import type { ProcessRunner } from '../runtime/process-runner.js';
+import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { CardNotification } from '../runtime/actors/card-actor.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext } from './analyst-tool-types.js';
@@ -26,6 +26,7 @@ export interface RoleSurfaceContext {
   store?: unknown;
   processRunner?: ProcessRunner;
   ownerId?: string;
+  processScope?: ManagedProcessScope;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   children?: PlannerControlProviderContext['children'];
   notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
@@ -68,8 +69,8 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     store: ctx.store as WorkspaceProviderContext['store'],
   }),
   process: (ctx, role) => role === 'analyst'
-    ? createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })
-    : createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId!, ownerKind: 'agent', cardId: ctx.cardId }),
+    ? createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, directScope: ctx.processScope!, category: 'operator_session', ownerId: ctx.ownerId ?? ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })
+    : createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, directScope: ctx.processScope!, category: 'runtime_card', ownerId: ctx.ownerId ?? ctx.sessionId!, ownerKind: 'agent', cardId: ctx.cardId }),
   cardHistory: (ctx, role) => createCardHistoryProvider({
     projectRoot: ctx.projectRoot,
     store: ctx.store as CardHistoryProviderContext['store'],

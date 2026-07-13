@@ -1,7 +1,6 @@
-import type { ChildProcess } from 'node:child_process';
 import * as readline from 'node:readline';
 import { InvalidArgumentsError, McpInvokeError, TimeoutError, TransportError } from './errors.js';
-import { CLIENT_NAME, CLIENT_VERSION, MCP_DISCOVERY_TIMEOUT_MS, MCP_PROTOCOL_VERSION, SIGTERM_TIMEOUT_MS, type McpJsonRpcRequest, type McpToolDefinition } from './protocol.js';
+import { CLIENT_NAME, CLIENT_VERSION, MCP_DISCOVERY_TIMEOUT_MS, MCP_PROTOCOL_VERSION, type McpJsonRpcRequest, type McpToolDefinition } from './protocol.js';
 import type { McpServerConfig, McpServerHandle } from './server-registry.js';
 
 export interface MessageIdSource { next(): number | string }
@@ -112,21 +111,6 @@ export async function invokeStdioTool(input: { serverName: string; toolName: str
   } finally {
     clearTimeout(timeoutId);
     await closeReadline(rl, () => rlClosed);
-  }
-}
-
-export async function stopStdioProcess(proc: ChildProcess): Promise<void> {
-  if (proc.killed || proc.exitCode !== null) return;
-  proc.kill('SIGTERM');
-  const killed = await new Promise<boolean>((resolve) => {
-    const timeout = setTimeout(() => resolve(false), SIGTERM_TIMEOUT_MS);
-    proc.once('exit', () => { clearTimeout(timeout); resolve(true); });
-    const check = setInterval(() => {
-      if (proc.killed || proc.exitCode !== null) { clearTimeout(timeout); clearInterval(check); resolve(true); }
-    }, 100);
-  });
-  if (!killed) {
-    try { proc.kill('SIGKILL'); } catch { /* process may have died */ }
   }
 }
 

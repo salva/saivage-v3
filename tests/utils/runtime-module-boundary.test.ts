@@ -28,11 +28,11 @@ describe('runtime module ownership boundary', () => {
 
   it('keeps ActiveRuntime out of public runtime API modules', async () => {
     const controlApi = await import('../../src/runtime/control-api.js');
-    const lifecycle = await import('../../src/runtime/lifecycle.js');
+    const processRegistry = await import('../../src/runtime/managed-process-group-registry.js');
     const runtimeApi = await import('../../src/runtime/runtime-api.js');
     const stateApi = await import('../../src/runtime/state-api.js');
     expect('ActiveRuntime' in controlApi).toBe(false);
-    expect('ActiveRuntime' in lifecycle).toBe(false);
+    expect('ActiveRuntime' in processRegistry).toBe(false);
     expect('ActiveRuntime' in runtimeApi).toBe(false);
     expect('ActiveRuntime' in stateApi).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/active-runtime.ts'))).toBe(false);
@@ -46,7 +46,7 @@ describe('runtime module ownership boundary', () => {
   });
 
   it('keeps public runtime API modules independent from concrete Runtime', () => {
-    for (const filePath of ['src/runtime/control-api.ts', 'src/runtime/lifecycle.ts', 'src/runtime/runtime-api.ts', 'src/runtime/state-api.ts']) {
+    for (const filePath of ['src/runtime/control-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/runtime/runtime-api.ts', 'src/runtime/state-api.ts']) {
       const source = readFileSync(join(process.cwd(), filePath), 'utf8');
       expect(source).not.toContain("from './runtime.js'");
       expect(source).not.toContain('from "./runtime.js"');

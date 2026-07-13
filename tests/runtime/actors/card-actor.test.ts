@@ -9,6 +9,7 @@ import { join } from 'node:path';
 
 import { CardActor, LLMActor, MAX_NOTIFICATION_DELIVERY_MARKERS, cardActorId, createSupervisorRuntimeApi, isActivatable, processorActorId, readActorSnapshot, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
@@ -37,7 +38,7 @@ function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled'
 }
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function cardActive(cardId: string): Record<string, unknown> {
@@ -347,7 +348,7 @@ describe('CardActor', () => {
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store,
       provider: { completeTurn: jest.fn() as never },
-      processRunner: new ProcessRunner(projectRoot),
+      processRunner: createTestProcessRunner(projectRoot),
     });
 
     const result = runtime.notifyCard(goal.id, { id: 'inactive', message: 'wake up', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
@@ -370,7 +371,7 @@ describe('CardActor', () => {
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store,
       provider: { completeTurn: jest.fn() as never },
-      processRunner: new ProcessRunner(projectRoot),
+      processRunner: createTestProcessRunner(projectRoot),
     });
 
     const result = runtime.notifyCard('missing-card', { id: 'missing', message: 'wake up', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
@@ -547,8 +548,8 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     createProject(store);
     const runningGoal = createGoal(store);
-    const runner = new ProcessRunner(projectRoot);
-    const stopByOwner = jest.spyOn(runner, 'stopByOwner').mockResolvedValue({ attempted: [], stopped: [], failed: [] });
+    const runner = createTestProcessRunner(projectRoot);
+    const terminateScopeTree = jest.spyOn(runner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
     let finish!: (outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => void;
     const runningProcessor: CardProcessorActor = {
       activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = resolve; })),
@@ -563,7 +564,7 @@ describe('CardActor', () => {
     expect(actor.state()).toBe('running');
     expect(store.read(runningGoal.id)?.status).toBe('cancelled');
     await expect(activation).resolves.toMatchObject({ status: 'cancelled', summary: 'operator requested stop' });
-    expect(stopByOwner).not.toHaveBeenCalled();
+    expect(terminateScopeTree).not.toHaveBeenCalled();
 
     finish({ status: 'blocked', summary: 'stopped later', result: { kind: 'blocked', summary: 'stopped later', resume_reason: 'manual resume' } });
     await eventually(() => expect(actor.state()).toBe('cancelled'));

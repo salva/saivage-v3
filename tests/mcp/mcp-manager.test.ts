@@ -21,6 +21,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as YAML from 'yaml';
 import { loadEnvironment } from '../../src/config/environment.js';
+import { ManagedProcessGroupRegistry, type ManagedProcessPlatform } from '../../src/runtime/managed-process-group-registry.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 // ── Mocks ─────────────────────────────────────────────────────
 
@@ -129,7 +131,21 @@ function loadTestConfig(projectRoot: string) {
 }
 
 function createMcpManager(McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'], projectRoot: string, options: { scope?: import('../../src/lifecycle/index.js').ResourceScope } = {}) {
-  return new McpManager(projectRoot, { ...options, config: loadTestConfig(projectRoot) });
+  const processes = new Map<number, ReturnType<typeof createMockProc>>();
+  const platform: ManagedProcessPlatform = {
+    spawn: (file, args, spawnOptions) => {
+      const child = mockSpawn(file, [...args], spawnOptions) as ReturnType<typeof createMockProc>;
+      processes.set(child.pid, child);
+      return child as never;
+    },
+    probe: (pgid) => {
+      const child = processes.get(pgid)!;
+      if (child.killed || child.exitCode !== null) throw Object.assign(new Error('absent'), { code: 'ESRCH' });
+    },
+    signal: (pgid, signal) => { processes.get(pgid)!.kill(signal); },
+  };
+  const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry(platform));
+  return new McpManager(projectRoot, { ...options, config: loadTestConfig(projectRoot), processRunner });
 }
 
 function stdioConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {

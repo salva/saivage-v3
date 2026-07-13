@@ -9,6 +9,7 @@ import { runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 
@@ -24,7 +25,8 @@ function readAudit(root: string): Array<Record<string, unknown>> {
 
 describe('Audited analyst tool runner', () => {
   function ctx(root: string): ToolContext {
-    return { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+    const processRunner = createTestProcessRunner(root);
+    return { projectRoot: root, processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
   }
 
   it('records schema-safe audit entries for allowed mutations', async () => {

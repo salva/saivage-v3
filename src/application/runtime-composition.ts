@@ -18,6 +18,7 @@ import { CardStore } from '../cards/card-store.js';
 import { InvocationService } from '../agents/invocation-service.js';
 import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
+import { ManagedProcessGroupRegistry } from '../runtime/managed-process-group-registry.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
@@ -84,6 +85,7 @@ function buildAnalystDeps(input: {
     emitAnalystToolInvoked: input.emitAnalystToolInvoked,
     provider: createInvocationServiceProvider(input.invocationService),
     processRunner: input.processRunner,
+    analystProcessRootScope: input.processRunner.analystRootScope,
     mcpManager: input.mcpManager,
     conversations: input.conversations,
   };
@@ -118,7 +120,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     candidateAvailability,
     providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, services.readModelChanges),
   });
-  const processRunner = new ProcessRunner(projectRoot);
+  const processRegistry = new ManagedProcessGroupRegistry();
+  const processRunner = new ProcessRunner(projectRoot, processRegistry);
   const runtimeGate = new RuntimeGate();
   const promptTemplates = createPromptTemplateRegistry({
     defaultRoot: bundledPromptDefaultsRoot(),

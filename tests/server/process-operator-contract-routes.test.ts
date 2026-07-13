@@ -4,72 +4,43 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
-import type { ProcessRecord } from '../../src/schemas/index.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
-
-function processRecord(projectRoot: string, overrides: Partial<ProcessRecord> = {}): ProcessRecord {
-  return {
-    id: 'proc-1',
-    card_id: 'card-1',
-    owner_id: 'runtime-owner',
-    command: 'echo hello',
-    command_hash: 'a'.repeat(64),
-    cwd: join(projectRoot, 'work'),
-    cwd_canonical: join(projectRoot, 'work'),
-    status: 'exited',
-    pid: null,
-    started_at: '2026-01-01T00:00:00.000Z',
-    started_at_monotonic: 1,
-    completed_at: '2026-01-01T00:00:01.000Z',
-    exit_code: 0,
-    signal: null,
-    terminal_reason: 'exit',
-    required_for_card_completion: true,
-    output_dir: join(projectRoot, '.saivage/work', 'cards', 'card-1', 'processes', 'proc-1'),
-    stdout_path: join(projectRoot, '.saivage/work', 'cards', 'card-1', 'processes', 'proc-1', 'stdout.log'),
-    stderr_path: join(projectRoot, '.saivage/work', 'cards', 'card-1', 'processes', 'proc-1', 'stderr.log'),
-    agent_session_id: null,
-    goal_id: null,
-    launch_reason: null,
-    owner_kind: 'runtime',
-    background_policy: null,
-    failure_classification: null,
-    ...overrides,
-  };
-}
 
 describe('contract-backed process routes', () => {
   it('lists and reads safe process views without the old hand-mounted route owner', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      const processRunner = new ProcessRunner(projectRoot);
-      processRunner.setTransientRegistry(new Map([['proc-1', processRecord(projectRoot)]]));
+      const processRunner = createTestProcessRunner(projectRoot);
+      const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'route-test', 'runtime_card');
+      const record = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: 'card-1', ownerId: 'runtime-owner', ownerKind: 'runtime' });
+      await processRunner.waitForSettlement(record.id);
       registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
 
       const list = await fastify.inject({ method: 'GET', url: '/api/processes' });
       expect(list.statusCode).toBe(200);
       expect(list.json()).toEqual({
         processes: [expect.objectContaining({
-          id: 'proc-1',
+          id: record.id,
           card_id: 'card-1',
           owner_id: 'runtime-owner',
           owner_kind: 'runtime',
           status: 'exited',
-          ended_at: '2026-01-01T00:00:01.000Z',
+          ended_at: expect.any(String),
           exit_code: 0,
           logs: {
-            stdout: 'work:///cards/card-1/processes/proc-1/stdout.log',
-            stderr: 'work:///cards/card-1/processes/proc-1/stderr.log',
+            stdout: `work:///cards/card-1/processes/${record.id}/stdout.log`,
+            stderr: `work:///cards/card-1/processes/${record.id}/stderr.log`,
           },
         })],
       });
 
-      const detail = await fastify.inject({ method: 'GET', url: '/api/processes/proc-1' });
+      const detail = await fastify.inject({ method: 'GET', url: `/api/processes/${record.id}` });
       expect(detail.statusCode).toBe(200);
-      expect(detail.json().process.id).toBe('proc-1');
+      expect(detail.json().process.id).toBe(record.id);
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });
@@ -80,8 +51,7 @@ describe('contract-backed process routes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      const processRunner = new ProcessRunner(projectRoot);
-      processRunner.setTransientRegistry(new Map());
+      const processRunner = createTestProcessRunner(projectRoot);
       registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });

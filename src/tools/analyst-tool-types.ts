@@ -5,7 +5,7 @@ import type { ControlActionSurface } from '../schemas/index.js';
 import type { ActorRole } from '../agents/authz.js';
 import type { EventBus } from '../events/index.js';
 import type { ToolResult } from './invocation.js';
-import type { ProcessRunner } from '../runtime/process-runner.js';
+import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 
 export type { ToolResult };
 
@@ -18,6 +18,7 @@ export interface SafeToolData {
 export interface ToolContext {
   projectRoot: string;
   processRunner: ProcessRunner;
+  processScope: ManagedProcessScope;
   store: CardStore;
   sessionId?: string;
   runtime?: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;

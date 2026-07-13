@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 
@@ -36,7 +37,7 @@ function createRuntimeApplication(projectRoot: string, calls: { pause: number; r
   return {
     runtimeApi,
     cardStore,
-    processRunner: new ProcessRunner(projectRoot),
+    processRunner: createTestProcessRunner(projectRoot),
     analystDeps: undefined as never,
     analystRuntime: undefined as never,
     getProviderRoutingReadModel: () => ({ providers: {} }),

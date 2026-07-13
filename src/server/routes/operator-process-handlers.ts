@@ -2,7 +2,7 @@ import type { ProcessRecord } from '../../schemas/index.js';
 import { redactCommandForOperator, redactOperatorErrorMessage, toContainedRelativePath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import type { OperatorContractHandlerMap, OperatorProjectContext } from './operator-handler-context.js';
 
-function toProcessView(projectRoot: string, record: ProcessRecord): Record<string, unknown> {
+export function toProcessView(projectRoot: string, record: ProcessRecord): Record<string, unknown> {
   const safePath = (path: string | null | undefined) => path ? toContainedRelativePath(projectRoot, path) : null;
   const logUrl = (path: string | null | undefined) => path ? workUrlFromAbsolutePath(projectRoot, path) : null;
   return {

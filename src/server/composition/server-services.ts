@@ -104,7 +104,7 @@ export async function createServerServices(input: {
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
 
-  const mcpManager = new McpManager(projectRoot, { config, scope: scope.child('mcp') });
+  const mcpManager = new McpManager(projectRoot, { config, processRunner: runtimeApplication.processRunner, scope: scope.child('mcp') });
   await mcpManager.startAll();
   fastify.log.info('MCP manager started');
   runtimeApplication.setMcpManager(mcpManager);

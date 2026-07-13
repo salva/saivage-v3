@@ -9,6 +9,7 @@ import { appendConversationMessage, buildContextTextMessage } from '../../src/ru
 import { list_agent_sessions, read_agent_session } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 
 let root: string;
 let ctx: ToolContext;
@@ -16,7 +17,8 @@ let ctx: ToolContext;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'saivage-analyst-tools-'));
   initProjectTree(root);
-  ctx = { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+  const processRunner = createTestProcessRunner(root);
+  ctx = { projectRoot: root, processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
 });
 
 afterEach(() => {

@@ -29,9 +29,9 @@ import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
 import { invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
-import { createProcessProvider } from '../tools/process-provider.js';
 import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
+import type { ManagedProcessScope } from '../runtime/process-runner.js';
 import { BaseActor, type ActorDefinition } from '../runtime/micro-actor/index.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prompt-api.js';
@@ -91,6 +91,7 @@ export interface AnalystRuntimeDeps {
   mcpManager?: McpManager;
   provider: LLMProviderPort;
   processRunner: ProcessRunner;
+  analystProcessRootScope: ManagedProcessScope;
   conversations: ConversationMutationPort;
 }
 
@@ -151,8 +152,8 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
   deps.emitAnalystToolInvoked({ sessionId, tool, success: result.success, ...payload });
 }
 
-function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
-  return { projectRoot: args.projectRoot, processRunner: args.runtimeDeps.processRunner, store: args.runtimeDeps.cardStore, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
+function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
+  return { projectRoot: args.projectRoot, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.runtimeDeps.cardStore, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
 }
 
 type PendingAnalystTurn = {
@@ -178,9 +179,11 @@ export class AnalystSessionActor extends BaseActor {
   private started = false;
   private lastOutcome: AnalystSessionReadModel['lastOutcome'] = null;
   private pendingRestartConfirmation = false;
+  private readonly processScope: ManagedProcessScope;
 
   constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
     super();
+    this.processScope = args.runtimeDeps.processRunner.createDirectScope(args.runtimeDeps.analystProcessRootScope, `analyst-session:${args.sessionId}`, 'operator_session');
     this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
   }
 
@@ -266,8 +269,8 @@ export class AnalystSessionActor extends BaseActor {
       this.pendingRestartConfirmation = false;
       if (input.userContent === 'RESTART SERVER') return this.scheduleConfirmedRestart(input);
     }
-    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
-    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
+    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
+    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
     const previousToolCallFingerprints = new Set<string>();
     let noProgressDirectiveSent = false;
     const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(input.workspaceContext));
@@ -513,6 +516,12 @@ export class AnalystSessionActor extends BaseActor {
   private cancelledLoopOutcome(): LLMActorOutcome {
     return { type: 'result', agentId: this.llm.agentId, result: { kind: 'message', content: `Cancelled: ${this.cancellationReason ?? 'cancelled'}` } };
   }
+
+  async shutdownProcesses(): Promise<void> {
+    this.args.runtimeDeps.processRunner.closeScope(this.processScope);
+    const report = await this.args.runtimeDeps.processRunner.terminateScopeTree({ rootScope: this.processScope, categories: ['operator_session'], reason: 'session closed', graceMs: 5_000 });
+    if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
+  }
 }
 
 export class AnalystRuntime {
@@ -533,17 +542,22 @@ export class AnalystRuntime {
   }
 
   getAvailableToolNames(actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat'): string[] {
-    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
-    return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
+    const processScope = this.args.runtimeDeps.processRunner.createDirectScope(this.args.runtimeDeps.analystProcessRootScope, 'analyst-tool-catalog', 'operator_session');
+    try {
+      const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
+      return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
+    } finally {
+      this.args.runtimeDeps.processRunner.closeScope(processScope);
+    }
   }
 
   async shutdown(): Promise<void> {
-    await Promise.all([...this.sessions.keys()].map((sessionId) => this.shutdownSessionProcesses(sessionId)));
+    await Promise.all([...this.sessions.values()].map((session) => session.shutdownProcesses()));
   }
 
   async shutdownSessionProcesses(sessionId: string): Promise<void> {
-    const ownerId = resolveAnalystSessionId(sessionId);
-    await createProcessProvider({ projectRoot: this.args.projectRoot, processRunner: this.args.runtimeDeps.processRunner, ownerId, agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }).cleanup?.({ kind: 'session_closed' });
+    const session = this.sessions.get(resolveAnalystSessionId(sessionId));
+    if (session) await session.shutdownProcesses();
   }
 
   private getOrCreateSession(sessionId: string, input?: AnalystTurnInput): AnalystSessionActor {

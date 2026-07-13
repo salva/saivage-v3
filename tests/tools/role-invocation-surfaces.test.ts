@@ -10,6 +10,7 @@ import { ANALYST_CONTROL_TOOLS } from '../../src/tools/analyst-tool-registry.js'
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 
 const roots: string[] = [];
 
@@ -61,12 +62,14 @@ describe('role invocation surfaces', () => {
 
   it('pins the executor provider-derived tool set', () => {
     const projectRoot = setupRoot();
+    const processRunner = createTestProcessRunner(projectRoot);
     const surface = buildRoleSurface('executor', {
       projectRoot,
       cardId: 'card-1',
       sessionId: 'activation-1',
       ownerId: 'activation-1',
-      processRunner: new ProcessRunner(projectRoot),
+      processRunner,
+      processScope: processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-executor', 'runtime_card'),
       mcpManagerProvider: () => undefined,
     });
 
@@ -78,12 +81,15 @@ describe('role invocation surfaces', () => {
   it('pins the analyst provider-derived tool set', () => {
     const projectRoot = setupRoot();
     const store = new CardStore(projectRoot);
-    const ctx: ToolContext = { projectRoot, processRunner: new ProcessRunner(projectRoot), store, sessionId: 'analyst:test', actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+    const processRunner = createTestProcessRunner(projectRoot);
+    const processScope = processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session');
+    const ctx: ToolContext = { projectRoot, processRunner, processScope, store, sessionId: 'analyst:test', actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
     const surface = buildRoleSurface('analyst', {
       projectRoot,
       toolContext: ctx,
       store,
       processRunner: ctx.processRunner,
+      processScope,
       sessionId: ctx.sessionId,
       ownerId: ctx.sessionId,
       mcpManagerProvider: () => undefined,

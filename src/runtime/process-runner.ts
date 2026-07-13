@@ -1,28 +1,22 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import type { RuntimeResourceHandle } from './lifecycle.js';
-import { createRuntimeLifecycleScope, type RuntimeLifecycleScope } from './lifecycle.js';
-import {
-  mkdirSync,
-  createWriteStream,
-  type WriteStream,
-} from 'node:fs';
-import { join, resolve } from 'node:path';
+import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
+import { createWriteStream, mkdirSync, writeFileSync, type WriteStream } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/layout.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
 import { now } from '../utils/clock.js';
-import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/layout.js';
-import { processGroupAlive, processGroupId, signalProcessGroup } from './posix-process-group.js';
-
-interface ProcessGroupControl {
-  pgid: number;
-  leaderOutcome: Pick<ProcessRecord, 'status' | 'exit_code' | 'signal' | 'terminal_reason'> | null;
-  terminationReason: string | null;
-  settlement: Promise<void>;
-}
+import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
+import {
+  ManagedProcessGroupRegistry,
+  type ManagedProcessScope,
+  type ProcessCategory,
+  type ProcessStopReport,
+} from './managed-process-group-registry.js';
 
 export interface ProcessSpawnSpec {
   command: string;
+  directScope: ManagedProcessScope;
+  category: ProcessCategory;
   cardId?: string | null;
   ownerId: string;
   ownerKind: 'agent' | 'operator' | 'runtime';
@@ -33,6 +27,18 @@ export interface ProcessSpawnSpec {
   goalId?: string;
   launchReason?: string;
   backgroundPolicy?: 'foreground';
+}
+
+export interface InteractiveProcessSpawnSpec extends Omit<ProcessSpawnSpec, 'command' | 'backgroundPolicy' | 'env'> {
+  file: string;
+  args: readonly string[];
+  stdio: SpawnOptions['stdio'];
+  env: NodeJS.ProcessEnv;
+}
+
+export interface InteractiveProcessLaunch {
+  record: ProcessRecord;
+  process: ChildProcess;
 }
 
 export interface ProcessWaitResult {
@@ -48,81 +54,11 @@ export interface ProcessListFilter {
   status?: ProcessStatus | ProcessStatus[];
 }
 
-export interface ProcessStopReport {
-  attempted: string[];
-  stopped: string[];
-  failed: Array<{ id: string; error: string }>;
-}
-
-export class ProcessRunner {
-  private processRecords: Map<string, ProcessRecord> | null = null;
-  private commandHashSalt: Buffer | null = null;
-  readonly activeProcesses = new Map<string, ChildProcess>();
-  readonly outputStreams = new Map<string, { stdout: WriteStream; stderr: WriteStream }>();
-  readonly pendingStreamCloses = new Map<string, number>();
-  readonly streamCloseWaiters = new Map<string, Promise<void>>();
-  private scope: RuntimeLifecycleScope | null = null;
-  readonly processResourceHandles = new Map<string, RuntimeResourceHandle[]>();
-  readonly processGroups = new Map<string, ProcessGroupControl>();
-
-  constructor(readonly projectRoot: string) {}
-
-  spawn(spec: ProcessSpawnSpec): ProcessRecord { return startProcessForRunner(this, spec); }
-  wait(procId: string, timeoutMs: number = 0): Promise<ProcessWaitResult> { return waitProcessForRunner(this, procId, timeoutMs); }
-  kill(procId: string, reason = 'process killed', options: { graceMs?: number } = {}): Promise<ProcessRecord | null> { return stopProcess(this, procId, reason, options.graceMs ?? 5000); }
-  stopByOwner(ownerId: string, reason: string, options: { graceMs?: number } = {}): Promise<ProcessStopReport> { return stopMatching(this, (record) => record.owner_id === ownerId, reason, options.graceMs ?? 5000); }
-  stopRuntimeOwned(reason: string, options: { graceMs?: number } = {}): Promise<ProcessStopReport> { return stopMatching(this, (record) => record.owner_kind !== 'operator', reason, options.graceMs ?? 5000); }
-  list(filter?: ProcessListFilter): ProcessRecord[] { return listProcessesForRunner(this, filter); }
-  get(procId: string): ProcessRecord | null { return getProcessForRunner(this, procId); }
-
-  getTransientRegistry(): Map<string, ProcessRecord> {
-    if (!this.processRecords) this.processRecords = new Map();
-    return this.processRecords;
-  }
-
-  setTransientRegistry(records: Map<string, ProcessRecord>): void { this.processRecords = records; }
-
-  getCommandHashSalt(): Buffer {
-    if (!this.commandHashSalt) this.commandHashSalt = randomBytes(32);
-    return this.commandHashSalt;
-  }
-
-  getRuntimeScope(): RuntimeLifecycleScope | null { return this.scope; }
-  setRuntimeScope(scope: RuntimeLifecycleScope | null): void { this.scope = scope; }
-}
-
-function processScope(service: ProcessRunner): RuntimeLifecycleScope {
-  let scope = service.getRuntimeScope();
-  if (!scope || scope.isDisposed) {
-    scope = createRuntimeLifecycleScope(`process-runtime:${service.projectRoot}`);
-    service.setRuntimeScope(scope);
-  }
-  return scope;
-}
-
-function rememberProcessResource(service: ProcessRunner, procId: string, handle: RuntimeResourceHandle): RuntimeResourceHandle {
-  let handles = service.processResourceHandles.get(procId);
-  if (!handles) {
-    handles = [];
-    service.processResourceHandles.set(procId, handles);
-  }
-  handles.push(handle);
-  return handle;
-}
-
-function unregisterProcessResource(service: ProcessRunner, procId: string, handle: RuntimeResourceHandle): void {
-  handle.unregister();
-  const handles = service.processResourceHandles.get(procId);
-  if (!handles) return;
-  const idx = handles.indexOf(handle);
-  if (idx >= 0) handles.splice(idx, 1);
-  if (handles.length === 0) service.processResourceHandles.delete(procId);
-}
-
-function unregisterAllProcessResources(service: ProcessRunner, procId: string): void {
-  const handles = service.processResourceHandles.get(procId) ?? [];
-  for (const handle of handles.splice(0)) handle.unregister();
-  service.processResourceHandles.delete(procId);
+interface ProcessPresentation {
+  record: ProcessRecord;
+  leaderOutcome: Pick<ProcessRecord, 'status' | 'exit_code' | 'signal' | 'terminal_reason'> | null;
+  streams: { stdout: WriteStream; stderr: WriteStream } | null;
+  streamClose: Promise<void> | null;
 }
 
 function generateId(): string {
@@ -133,435 +69,231 @@ function nowMonotonic(): number {
   return Math.floor(performance.timeOrigin + performance.now());
 }
 
-function processDir(projectRoot: string, procId: string, cardId?: string | null): string {
-  return cardId ? cardProcessOutputRoot(projectRoot, cardId, procId) : nonCardProcessOutputRoot(projectRoot, procId);
-}
-
-function commandHash(service: ProcessRunner, command: string): string {
-  return createHash('sha256').update(service.getCommandHashSalt()).update('\0').update(command).digest('hex');
-}
-
-function transientRegistry(service: ProcessRunner): Map<string, ProcessRecord> {
-  return service.getTransientRegistry();
-}
-
-function sleep(ms: number): Promise<void> {
+function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForDurableOutput(service: ProcessRunner, procId: string): Promise<void> {
-  const waiter = service.streamCloseWaiters.get(procId);
-  if (!waiter) return;
-  try {
-    await waiter;
-  } catch { void 0; 
-  }
-}
+export class ProcessRunner {
+  private readonly presentations = new Map<string, ProcessPresentation>();
+  private readonly bindings = new Map<string, { directScope: ManagedProcessScope; category: ProcessCategory }>();
+  private readonly commandHashSalt = randomBytes(32);
 
-function loadRegistryForRunner(service: ProcessRunner): Map<string, ProcessRecord> {
-  return transientRegistry(service);
-}
+  readonly runtimeRootScope: ManagedProcessScope;
+  readonly analystRootScope: ManagedProcessScope;
+  readonly serviceRootScope: ManagedProcessScope;
 
-function upsertRegistryRecord(service: ProcessRunner, record: ProcessRecord): void {
-  const registry = transientRegistry(service);
-  registry.set(record.id, record);
-}
-
-function ensureProcessDir(projectRoot: string, procId: string, cardId?: string | null): string {
-  const dir = processDir(projectRoot, procId, cardId);
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function openOutputStreams(dir: string): {
-  stdout: WriteStream;
-  stderr: WriteStream;
-} {
-  const stdout = createWriteStream(join(dir, 'stdout.log'), { flags: 'a' });
-  const stderr = createWriteStream(join(dir, 'stderr.log'), { flags: 'a' });
-
-  for (const stream of [stdout, stderr]) {
-    stream.on('error', () => {});
+  constructor(readonly projectRoot: string, readonly registry: ManagedProcessGroupRegistry) {
+    this.runtimeRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
+    this.analystRootScope = registry.createContainerScope(registry.rootScope, 'analyst-sessions');
+    this.serviceRootScope = registry.createContainerScope(registry.rootScope, 'service-infrastructure');
   }
 
-  return { stdout, stderr };
-}
-
-function closeAllStreams(service: ProcessRunner, procId: string): Promise<void> {
-  const streams = service.outputStreams.get(procId);
-  if (!streams) return Promise.resolve();
-
-  service.outputStreams.delete(procId);
-
-  const closings: Promise<void>[] = [];
-  for (const stream of Object.values(streams)) {
-    if (stream.destroyed) continue;
-    closings.push(
-      new Promise<void>((resolve) => {
-        stream.on('close', () => resolve());
-        const safety = setTimeout(() => resolve(), 5000);
-        safety.unref();
-        stream.on('close', () => clearTimeout(safety));
-        try {
-          stream.end();
-        } catch {
-          resolve();
-        }
-      }),
-    );
+  spawn(spec: ProcessSpawnSpec): ProcessRecord {
+    return this.launch(spec, 'sh', ['-c', spec.command], ['ignore', 'pipe', 'pipe'], true, { ...sanitizedCommandEnv(), PROJECT_ROOT: this.projectRoot, SAIVAGE_ROOT: this.projectRoot, ...spec.env }).record;
   }
 
-  return Promise.all(closings).then(() => undefined);
-}
-
-function finalizeProcess(service: ProcessRunner, procId: string): void {
-  const child = service.activeProcesses.get(procId);
-  if (child) {
-    child.stdout?.destroy();
-    child.stderr?.destroy();
-    child.stdin?.destroy();
-  }
-  unregisterAllProcessResources(service, procId);
-  const closePromise = closeAllStreams(service, procId).finally(() => {
-    service.streamCloseWaiters.delete(procId);
-  });
-  service.streamCloseWaiters.set(procId, closePromise);
-  service.activeProcesses.delete(procId);
-  service.pendingStreamCloses.delete(procId);
-}
-
-function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): ProcessRecord {
-  const command = spec.command;
-  const options = spec;
-  if (!command || command.length === 0) {
-    throw new Error('command must not be empty');
-  }
-  if (!options.ownerId || !options.ownerKind) {
-    throw new Error('process spawn requires explicit ownerId and ownerKind.');
+  spawnInteractive(spec: InteractiveProcessSpawnSpec): InteractiveProcessLaunch {
+    const command = [spec.file, ...spec.args].join(' ');
+    return this.launch({ ...spec, command, env: undefined }, spec.file, spec.args, spec.stdio, false, spec.env);
   }
 
-  const id = generateId();
-  const projectRoot = service.projectRoot;
-  const cwd = options.cwd ? resolve(options.cwd) : projectRoot;
-  const cardId = options.cardId ?? null;
-  const dir = ensureProcessDir(projectRoot, id, cardId);
-
-  const stdoutPath = join(dir, 'stdout.log');
-  const stderrPath = join(dir, 'stderr.log');
-
-  const streams = openOutputStreams(dir);
-  service.pendingStreamCloses.set(id, 2);
-
-  const childEnv = {
-    ...sanitizedCommandEnv(),
-    PROJECT_ROOT: projectRoot,
-    SAIVAGE_ROOT: projectRoot,
-    ...options.env,
-  };
-
-  const child = spawn('sh', ['-c', command], {
-    cwd,
-    env: childEnv,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-  });
-
-  if (child.stdout) {
-    child.stdout.pipe(streams.stdout);
-    child.stdout.on('end', () => onStreamEnd(service, id));
-  }
-
-  if (child.stderr) {
-    child.stderr.pipe(streams.stderr);
-    child.stderr.on('end', () => onStreamEnd(service, id));
-  }
-
-  if (!child.stdout && !child.stderr) {
-    service.pendingStreamCloses.set(id, 0);
-  }
-
-  service.activeProcesses.set(id, child);
-  const pgid = processGroupId(child);
-  service.outputStreams.set(id, streams);
-  const scope = processScope(service);
-  rememberProcessResource(service, id, scope.registerChildProcess(child, 'kill', `child:${id}`, `child:${id}`));
-  rememberProcessResource(service, id, scope.registerStream(streams.stdout, `stdout:${id}`, `stream:stdout:${id}`));
-  rememberProcessResource(service, id, scope.registerStream(streams.stderr, `stderr:${id}`, `stream:stderr:${id}`));
-
-  const record: ProcessRecord = {
-    id,
-    card_id: cardId,
-    owner_id: options.ownerId,
-    command: redactCommandForPolicy(command),
-    command_hash: commandHash(service, command),
-    cwd,
-    cwd_canonical: resolve(cwd),
-    status: 'running',
-    pid: child.pid ?? null,
-    started_at: now(),
-    started_at_monotonic: nowMonotonic(),
-    completed_at: null,
-    exit_code: null,
-    signal: null,
-    terminal_reason: null,
-    required_for_card_completion: cardId ? (options.requiredForCardCompletion ?? true) : false,
-    output_dir: dir,
-    stdout_path: stdoutPath,
-    stderr_path: stderrPath,
-    agent_session_id: options.agentSessionId ?? null,
-    goal_id: options.goalId ?? null,
-    launch_reason: options.launchReason ?? null,
-    owner_kind: options.ownerKind,
-    background_policy: options.backgroundPolicy ?? null,
-    failure_classification: null,
-  };
-
-  upsertRegistryRecord(service, record);
-
-  const control: ProcessGroupControl = {
-    pgid,
-    leaderOutcome: null,
-    terminationReason: null,
-    settlement: Promise.resolve(),
-  };
-  control.settlement = settleProcessGroup(service, id, control);
-  service.processGroups.set(id, control);
-
-  child.on('exit', (exitCode, signalCode) => {
-    const finalStatus: ProcessStatus =
-      signalCode === 'SIGKILL' || signalCode === 'SIGTERM'
-        ? 'killed'
-        : exitCode === 0
-          ? 'exited'
-          : 'failed';
-
-    control.leaderOutcome = {
-      status: finalStatus,
-      exit_code: exitCode,
-      signal: signalCode ?? null,
-      terminal_reason: signalCode ? 'signal' : 'exit',
-    };
-    service.activeProcesses.delete(id);
-  });
-
-  child.on('error', (err) => {
-    const errorMsg = `[process-runner] spawn error: ${err.message}\n`;
-    try {
-      streams.stderr.write(errorMsg);
-    } catch { void 0; }
-
-    const updatedRecord: ProcessRecord = {
-      ...record,
-      status: 'failed',
-      exit_code: -1,
-      signal: null,
-      terminal_reason: 'spawn_error',
-      failure_classification: 'spawn_error',
-      completed_at: now(),
-    };
-
-    service.processGroups.delete(id);
-    finalizeProcess(service, id);
-
-    try {
-      upsertRegistryRecord(service, updatedRecord);
-    } catch { void 0; }
-  });
-
-  return record;
-}
-
-function onStreamEnd(service: ProcessRunner, procId: string): void {
-  const current = service.pendingStreamCloses.get(procId);
-  if (current === undefined) return;
-
-  const remaining = current - 1;
-  if (remaining <= 0) {
-    service.pendingStreamCloses.set(procId, 0);
-  } else {
-    service.pendingStreamCloses.set(procId, remaining);
-  }
-}
-
-async function settleProcessGroup(service: ProcessRunner, procId: string, control: ProcessGroupControl): Promise<void> {
-  while (processGroupAlive(control.pgid)) await sleep(50);
-  const current = getProcessForRunner(service, procId);
-  if (!current) return;
-  const outcome: Pick<ProcessRecord, 'status' | 'exit_code' | 'signal' | 'terminal_reason'> = control.terminationReason
-    ? { status: 'killed', exit_code: null, signal: 'SIGTERM', terminal_reason: 'signal' }
-    : control.leaderOutcome ?? { status: 'failed', exit_code: null, signal: null, terminal_reason: 'spawn_error' };
-  upsertRegistryRecord(service, { ...current, ...outcome, completed_at: now() });
-  service.processGroups.delete(procId);
-  finalizeProcess(service, procId);
-}
-
-function waitProcessForRunner(
-  service: ProcessRunner,
-  procId: string,
-  timeoutMs: number = 0,
-): Promise<ProcessWaitResult> {
-  return new Promise((resolve) => {
-    const waitStart = Date.now();
-    const control = service.processGroups.get(procId);
-    if (!control) {
-      const registry = loadRegistryForRunner(service);
-      const record = registry.get(procId);
-      if (!record) {
-        resolve({
-          id: procId,
-          status: 'failed',
-          exitCode: null,
-          timedOut: false,
-          waitDurationMs: Date.now() - waitStart,
-        });
-        return;
-      }
-
-      void waitForDurableOutput(service, procId).finally(() => {
-        resolve({
-          id: procId,
-          status: record.status,
-          exitCode: record.exit_code ?? null,
-          timedOut: false,
-          waitDurationMs: Date.now() - waitStart,
-        });
-      });
-      return;
+  async wait(procId: string, timeoutMs = 0): Promise<ProcessWaitResult> {
+    const started = Date.now();
+    const presentation = this.presentations.get(procId);
+    if (!presentation) return { id: procId, status: 'failed', exitCode: null, timedOut: false, waitDurationMs: Date.now() - started };
+    const settlement = this.registry.wait(procId);
+    if (!settlement) {
+      await presentation.streamClose;
+      return this.waitResult(procId, false, started);
     }
+    if (timeoutMs === 0) return this.waitResult(procId, false, started);
+    const result = await Promise.race([settlement.then(() => 'settled' as const), delay(timeoutMs).then(() => 'timeout' as const)]);
+    if (result === 'timeout' && this.registry.isLive(procId)) return this.waitResult(procId, true, started);
+    await presentation.streamClose;
+    return this.waitResult(procId, false, started);
+  }
 
-    if (timeoutMs === 0) {
-      if (processGroupAlive(control.pgid)) {
-        resolve({ id: procId, status: 'running', exitCode: null, timedOut: false, waitDurationMs: Date.now() - waitStart });
-        return;
-      }
-      void control.settlement.then(async () => {
-        await waitForDurableOutput(service, procId);
-        const latest = getProcessForRunner(service, procId)!;
-        resolve({ id: procId, status: latest.status, exitCode: latest.exit_code ?? null, timedOut: false, waitDurationMs: Date.now() - waitStart });
-      });
-      return;
+  async waitForSettlement(procId: string): Promise<ProcessWaitResult> {
+    const started = Date.now();
+    const presentation = this.presentations.get(procId);
+    if (!presentation) return { id: procId, status: 'failed', exitCode: null, timedOut: false, waitDurationMs: 0 };
+    await this.registry.wait(procId);
+    await presentation.streamClose;
+    return this.waitResult(procId, false, started);
+  }
+
+  async kill(procId: string, authority: { directScope: ManagedProcessScope; category: ProcessCategory; reason?: string; graceMs?: number }): Promise<ProcessRecord | null> {
+    const record = this.get(procId);
+    if (!record) return null;
+    if (!this.bindingMatches(procId, authority.directScope, authority.category)) {
+      throw new Error(`Managed process '${procId}' is not bound to the invoking direct scope and category.`);
     }
-    const timer = sleep(timeoutMs).then(() => 'timeout' as const);
-    Promise.race([control.settlement.then(() => 'settled' as const), timer]).then(async (result) => {
-      if (result === 'timeout' && service.processGroups.has(procId)) {
-        resolve({ id: procId, status: 'running', exitCode: null, timedOut: true, waitDurationMs: Date.now() - waitStart });
-        return;
-      }
-      await waitForDurableOutput(service, procId);
-      const latest = getProcessForRunner(service, procId)!;
-      resolve({ id: procId, status: latest.status, exitCode: latest.exit_code ?? null, timedOut: false, waitDurationMs: Date.now() - waitStart });
+    const report = await this.registry.terminateGroup({
+      groupId: procId,
+      directScope: authority.directScope,
+      category: authority.category,
+      reason: authority.reason ?? 'process killed',
+      graceMs: authority.graceMs,
     });
-  });
-}
+    this.assertStopSucceeded(report);
+    return this.get(procId);
+  }
 
-async function stopProcess(service: ProcessRunner, procId: string, reason: string, graceMs: number): Promise<ProcessRecord | null> {
-  const record = getProcessForRunner(service, procId);
-  if (!record) return null;
-  if (record.status !== 'running') return record;
-  const control = service.processGroups.get(procId);
-  if (control) {
-    control.terminationReason = reason;
-    signalProcessGroup(control.pgid, 'SIGTERM');
-    const waitResult = await waitProcessForRunner(service, procId, graceMs);
-    if (waitResult.timedOut || waitResult.status === 'running') {
-      signalProcessGroup(control.pgid, 'SIGKILL');
-      await waitProcessForRunner(service, procId, 2000);
+  terminateScopeTree(input: { rootScope: ManagedProcessScope; categories: readonly ProcessCategory[]; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
+    return this.registry.terminateScopeTree(input);
+  }
+
+  closeScope(scope: ManagedProcessScope): void {
+    this.registry.closeScope(scope);
+  }
+
+  createContainerScope(parent: ManagedProcessScope, label: string): ManagedProcessScope {
+    return this.registry.createContainerScope(parent, label);
+  }
+
+  createDirectScope(parent: ManagedProcessScope, label: string, category: ProcessCategory): ManagedProcessScope {
+    return this.registry.createDirectScope(parent, label, category);
+  }
+
+  list(filter?: ProcessListFilter): ProcessRecord[] {
+    let records = [...this.presentations.values()].map(({ record }) => ({ ...record }));
+    if (filter?.cardId) records = records.filter((record) => record.card_id === filter.cardId);
+    if (filter?.status) {
+      const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
+      records = records.filter((record) => statuses.includes(record.status));
     }
-    const latest = getProcessForRunner(service, procId);
-    if (latest && latest.status !== 'running') return latest;
-    return latest;
+    return records;
   }
 
-  return record;
-}
+  get(procId: string): ProcessRecord | null {
+    const record = this.presentations.get(procId)?.record;
+    return record ? { ...record } : null;
+  }
 
-function listProcessesForRunner(
-  service: ProcessRunner,
-  filter?: ProcessListFilter,
-): ProcessRecord[] {
-  const registry = loadRegistryForRunner(service);
-  const records = Array.from(registry.values());
+  bindingMatches(procId: string, directScope: ManagedProcessScope, category: ProcessCategory): boolean {
+    const binding = this.bindings.get(procId);
+    return binding?.directScope === directScope && binding.category === category;
+  }
 
-  for (const [procId] of service.processGroups) {
-
-    const existing = registry.get(procId);
-    if (existing) {
-      const idx = records.findIndex((r) => r.id === procId);
-      if (idx >= 0) {
-        records[idx] = { ...existing, status: 'running' };
-      }
+  private launch(spec: ProcessSpawnSpec, file: string, args: readonly string[], stdio: SpawnOptions['stdio'], captureOutput: boolean, childEnv: NodeJS.ProcessEnv): InteractiveProcessLaunch {
+    if (!spec.command) throw new Error('command must not be empty');
+    if (!spec.ownerId || !spec.ownerKind) throw new Error('process spawn requires explicit ownerId and ownerKind.');
+    const id = generateId();
+    const cwd = spec.cwd ? resolve(spec.cwd) : this.projectRoot;
+    const cardId = spec.cardId ?? null;
+    const outputDir = cardId ? cardProcessOutputRoot(this.projectRoot, cardId, id) : nonCardProcessOutputRoot(this.projectRoot, id);
+    mkdirSync(outputDir, { recursive: true });
+    const stdoutPath = join(outputDir, 'stdout.log');
+    const stderrPath = join(outputDir, 'stderr.log');
+    let streams: ProcessPresentation['streams'] = null;
+    if (captureOutput) {
+      streams = { stdout: createWriteStream(stdoutPath, { flags: 'a' }), stderr: createWriteStream(stderrPath, { flags: 'a' }) };
+      streams.stdout.on('error', () => {});
+      streams.stderr.on('error', () => {});
+    } else {
+      writeFileSync(stdoutPath, '', { flag: 'a' });
+      writeFileSync(stderrPath, '', { flag: 'a' });
     }
-  }
-
-  let filtered = records;
-  if (filter?.cardId) {
-    filtered = filtered.filter((r) => r.card_id === filter.cardId);
-  }
-  if (filter?.status) {
-    const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
-    filtered = filtered.filter((r) => statuses.includes(r.status));
-  }
-
-  return filtered;
-}
-
-function getProcessForRunner(
-  service: ProcessRunner,
-  procId: string,
-): ProcessRecord | null {
-  const registry = loadRegistryForRunner(service);
-  return registry.get(procId) ?? null;
-}
-
-async function stopMatching(service: ProcessRunner, predicate: (record: ProcessRecord) => boolean, reason: string, graceMs: number): Promise<ProcessStopReport> {
-  const records = listProcessesForRunner(service, { status: 'running' }).filter(predicate);
-  const attempted = records.map((record) => record.id);
-  const report: ProcessStopReport = { attempted, stopped: [], failed: [] };
-
-  for (const record of records) {
-    const control = service.processGroups.get(record.id);
-    if (control) {
-      control.terminationReason = reason;
-      signalProcessGroup(control.pgid, 'SIGTERM');
-      continue;
-    }
-    report.failed.push({ id: record.id, error: 'running process has no live child handle' });
-  }
-
-  await Promise.all(records.map(async (record) => {
+    const record: ProcessRecord = {
+      id,
+      card_id: cardId,
+      owner_id: spec.ownerId,
+      command: redactCommandForPolicy(spec.command),
+      command_hash: createHash('sha256').update(this.commandHashSalt).update('\0').update(spec.command).digest('hex'),
+      cwd,
+      cwd_canonical: resolve(cwd),
+      status: 'running',
+      pid: null,
+      started_at: now(),
+      started_at_monotonic: nowMonotonic(),
+      completed_at: null,
+      exit_code: null,
+      signal: null,
+      terminal_reason: null,
+      required_for_card_completion: cardId ? (spec.requiredForCardCompletion ?? true) : false,
+      output_dir: outputDir,
+      stdout_path: stdoutPath,
+      stderr_path: stderrPath,
+      agent_session_id: spec.agentSessionId ?? null,
+      goal_id: spec.goalId ?? null,
+      launch_reason: spec.launchReason ?? null,
+      owner_kind: spec.ownerKind,
+      background_policy: spec.backgroundPolicy ?? null,
+      failure_classification: null,
+    };
+    const presentation: ProcessPresentation = { record, leaderOutcome: null, streams, streamClose: null };
+    this.presentations.set(id, presentation);
+    this.bindings.set(id, { directScope: spec.directScope, category: spec.category });
+    let child: ChildProcess;
     try {
-      if (service.processGroups.has(record.id)) {
-        await waitProcessForRunner(service, record.id, graceMs);
-      }
+      child = this.registry.launch({
+        groupId: id,
+        directScope: spec.directScope,
+        category: spec.category,
+        file,
+        args,
+        options: {
+          cwd,
+          env: childEnv,
+          stdio,
+        },
+        onAbsent: (reason) => this.finalize(id, reason),
+      });
     } catch (error) {
-      report.failed.push({ id: record.id, error: error instanceof Error ? error.message : String(error) });
+      this.presentations.delete(id);
+      this.bindings.delete(id);
+      void this.closeStreams(streams);
+      throw error;
     }
-  }));
-
-  for (const record of records) {
-    const latest = getProcessForRunner(service, record.id) ?? record;
-    if (latest.status !== 'running') continue;
-    const control = service.processGroups.get(record.id);
-    if (control) {
-      signalProcessGroup(control.pgid, 'SIGKILL');
+    record.pid = child.pid ?? null;
+    if (captureOutput && streams) {
+      child.stdout?.pipe(streams.stdout);
+      child.stderr?.pipe(streams.stderr);
     }
+    child.once('exit', (exitCode, signalCode) => {
+      presentation.leaderOutcome = {
+        status: signalCode === 'SIGKILL' || signalCode === 'SIGTERM' ? 'killed' : exitCode === 0 ? 'exited' : 'failed',
+        exit_code: exitCode,
+        signal: signalCode ?? null,
+        terminal_reason: signalCode ? 'signal' : 'exit',
+      };
+    });
+    child.once('error', (error) => {
+      if (streams) streams.stderr.write(`[process-runner] spawn error: ${error.message}\n`);
+      presentation.leaderOutcome = { status: 'failed', exit_code: -1, signal: null, terminal_reason: 'spawn_error' };
+    });
+    return { record: { ...record }, process: child };
   }
 
-  await Promise.all(records.map(async (record) => {
-    if (report.failed.some((item) => item.id === record.id)) return;
-    try {
-      if (service.processGroups.has(record.id)) {
-        await waitProcessForRunner(service, record.id, 2000);
-      }
+  private finalize(procId: string, terminationReason: string | null): void {
+    const presentation = this.presentations.get(procId);
+    if (!presentation || presentation.record.status !== 'running') return;
+    const outcome = terminationReason
+      ? { status: 'killed' as const, exit_code: null, signal: 'SIGTERM', terminal_reason: 'signal' as const }
+      : presentation.leaderOutcome ?? { status: 'failed' as const, exit_code: null, signal: null, terminal_reason: 'spawn_error' };
+    presentation.record = { ...presentation.record, ...outcome, completed_at: now(), failure_classification: outcome.terminal_reason === 'spawn_error' ? 'spawn_error' : null };
+    presentation.streamClose = this.closeStreams(presentation.streams);
+    presentation.streams = null;
+  }
 
-      await waitForDurableOutput(service, record.id);
-      const finalRecord = getProcessForRunner(service, record.id);
-      if (finalRecord && finalRecord.status !== 'running') report.stopped.push(record.id);
-      else report.failed.push({ id: record.id, error: 'process still running after termination attempt' });
-    } catch (error) {
-      report.failed.push({ id: record.id, error: error instanceof Error ? error.message : String(error) });
-    }
-  }));
+  private closeStreams(streams: ProcessPresentation['streams']): Promise<void> {
+    if (!streams) return Promise.resolve();
+    return Promise.all(Object.values(streams).map((stream) => new Promise<void>((resolveClose) => {
+      if (stream.destroyed) { resolveClose(); return; }
+      stream.once('close', resolveClose);
+      stream.end();
+    }))).then(() => undefined);
+  }
 
-  return report;
+  private waitResult(procId: string, timedOut: boolean, started: number): ProcessWaitResult {
+    const record = this.presentations.get(procId)!.record;
+    return { id: procId, status: record.status, exitCode: record.exit_code ?? null, timedOut, waitDurationMs: Date.now() - started };
+  }
+
+  private assertStopSucceeded(report: ProcessStopReport): void {
+    if (report.failed.length === 0) return;
+    throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
+  }
 }
+
+export type { ManagedProcessScope, ProcessCategory, ProcessStopReport } from './managed-process-group-registry.js';

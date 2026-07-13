@@ -10,7 +10,7 @@ import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contra
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../../tools/invocation.js';
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
-import type { ProcessRunner } from '../process-runner.js';
+import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
@@ -75,7 +75,8 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const llm = this.createMainLlm(executorActorId(this.cardId));
     if (llm.state() === 'idle') this.discardOpenRecord('status.md', 'new_activation');
     const processOwnerId = input.activationId;
-    const surface = this.executorInvocationSurface(processOwnerId);
+    const processScope = this.processRunner.createDirectScope(this.processRunner.runtimeRootScope, `card-activation:${processOwnerId}`, 'runtime_card');
+    const surface = this.executorInvocationSurface(processOwnerId, processScope);
     this.activeProcessOwnerId = processOwnerId;
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
     try {
@@ -156,8 +157,8 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return { success: false, error: `Unsupported executor tool call '${outcome.toolName}'.` };
   }
 
-  private executorInvocationSurface(processOwnerId: string): InvocationSurface {
-    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, store: this.store, processRunner: this.processRunner, mcpManagerProvider: this.mcpManagerProvider });
+  private executorInvocationSurface(processOwnerId: string, processScope: ManagedProcessScope): InvocationSurface {
+    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, store: this.store, processRunner: this.processRunner, processScope, mcpManagerProvider: this.mcpManagerProvider });
   }
 
   private validateExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): string | null {

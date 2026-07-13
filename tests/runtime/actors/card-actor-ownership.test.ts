@@ -9,6 +9,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 
 import { CardActor, type CardActorDeps, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -26,7 +27,7 @@ function deps(projectRoot: string, store: CardStore, lookup = new Map<string, Ca
     store,
     provider,
     promptTemplates: createTestPromptTemplateRegistry(),
-    processRunner: new ProcessRunner(projectRoot),
+    processRunner: createTestProcessRunner(projectRoot),
     notifyCard: () => ({ ok: true }),
     lookup,
   };

@@ -19,6 +19,7 @@ import { loadEnvironment } from '../../src/config/environment.js';
 import { cardActorId } from '../../src/runtime/actors/index.js';
 import type { CardNotification } from '../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from './test-process-runner.js';
 import { createTestPromptTemplateRegistry } from './prompt-template-registry.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
@@ -105,7 +106,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
   const projectRoot = opts.projectRoot ?? mkdtempSync(join(tmpdir(), 'saivage-test-analyst-runtime-'));
   if (!opts.projectRoot) ensureTestSaivageConfig(projectRoot);
   const cardStore = opts.cardStore ?? new CardStore(projectRoot);
-  const processRunner = opts.processRunner ?? new ProcessRunner(projectRoot);
+  const processRunner = opts.processRunner ?? createTestProcessRunner(projectRoot);
   const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus, cardStore, projectRoot });
   const config = loadTestConfig(projectRoot);
   const availability = new MemoryCandidateAvailability();
@@ -127,6 +128,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     emitAnalystToolInvoked: (payload: Parameters<typeof analystRuntime.emitAnalystToolInvoked>[0]) => analystRuntime.emitAnalystToolInvoked(payload),
     provider: createInvocationServiceProvider(invocationService),
     processRunner,
+    analystProcessRootScope: processRunner.analystRootScope,
     mcpManager: analystRuntime.mcpManager,
     conversations: testConversationMutations(projectRoot),
   };
@@ -137,7 +139,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-test-runtime-app-'));
   ensureTestSaivageConfig(projectRoot);
   const cardStore = opts.cardStore ?? new CardStore(projectRoot);
-  const processRunner = new ProcessRunner(projectRoot);
+  const processRunner = createTestProcessRunner(projectRoot);
   const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus, cardStore, projectRoot });
   let analystRuntimeService: AnalystRuntime | null = null;
   const runtimeApplication: RuntimeApplication = {
@@ -175,6 +177,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         emitAnalystToolInvoked: (payload: Parameters<typeof analystRuntime.emitAnalystToolInvoked>[0]) => analystRuntime.emitAnalystToolInvoked(payload),
         provider: createInvocationServiceProvider(invocationService),
         processRunner,
+        analystProcessRootScope: processRunner.analystRootScope,
         mcpManager: analystRuntime.mcpManager,
         conversations: testConversationMutations(projectRoot),
       };

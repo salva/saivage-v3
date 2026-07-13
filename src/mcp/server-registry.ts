@@ -4,6 +4,7 @@ import type { McpTransport } from './protocol.js';
 
 export interface McpServerHandle {
   process?: ChildProcess;
+  processId?: string;
   abortController?: AbortController;
   streamableHttpSessionId?: string;
 }

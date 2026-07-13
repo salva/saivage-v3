@@ -1,5 +1,4 @@
-import type { ChildProcess } from 'node:child_process';
-import type { ResourceScope } from '../lifecycle/index.js';
+import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import {
   compileMcpArgumentValidator,
   fingerprintMcpInputSchema,
@@ -17,14 +16,15 @@ import {
   invokeStreamableHttpTool,
   probeStreamableHttpStartup,
 } from './streamable-http-transport.js';
-import { discoverStdioTools, healthStdioProcess, invokeStdioTool, stopStdioProcess } from './stdio-transport.js';
+import { discoverStdioTools, invokeStdioTool } from './stdio-transport.js';
 
 export interface McpJsonRpcIdProvider { next(): number | string }
 
 export interface McpServerRuntimeOptions {
   name: string;
   config: McpServerConfig;
-  scope: ResourceScope;
+  processRunner: ProcessRunner;
+  processScope: ManagedProcessScope;
   ids: McpJsonRpcIdProvider;
   invocationStats: McpInvocationStatsRecorder;
 }
@@ -55,7 +55,7 @@ export class McpServerRuntime {
     if (cfg.disabled) return;
     const existing = this.handle;
     if (existing) {
-      if (cfg.transport === 'stdio' && existing.process && !existing.process.killed) return;
+      if (cfg.transport === 'stdio' && existing.processId && this.options.processRunner.get(existing.processId)?.status === 'running') return;
       if (cfg.transport === 'streamable-http' && existing.abortController) return;
     }
 
@@ -75,7 +75,7 @@ export class McpServerRuntime {
   async stop(): Promise<void> {
     const handle = this.handle;
     if (!handle) return;
-    if (this.configValue.transport === 'stdio' && handle.process) await this.stopStdio(handle.process);
+    if (this.configValue.transport === 'stdio' && handle.processId) await this.stopStdio(handle.processId);
     else if (this.configValue.transport === 'streamable-http' && handle.abortController) handle.abortController.abort();
     this.handle = undefined;
     this.statusOverride = { status: 'stopped' };
@@ -89,8 +89,8 @@ export class McpServerRuntime {
 
   async dispose(): Promise<void> {
     const handle = this.handle;
-    if (!handle) return;
-    await this.killHandle(handle);
+    this.options.processRunner.closeScope(this.options.processScope);
+    if (handle) await this.killHandle(handle);
     this.handle = undefined;
     this.clearCaches();
   }
@@ -100,7 +100,7 @@ export class McpServerRuntime {
     const handle = this.handle;
     if (!handle) throw new ServerNotRunningError(this.name);
     if (cfg.transport === 'stdio') {
-      if (!handle.process || handle.process.killed || handle.process.exitCode !== null) throw new ServerNotRunningError(this.name);
+      if (!handle.process || !handle.processId || this.options.processRunner.get(handle.processId)?.status !== 'running') throw new ServerNotRunningError(this.name);
     } else if (!handle.abortController || handle.abortController.signal.aborted) {
       throw new ServerNotRunningError(this.name);
     }
@@ -131,7 +131,7 @@ export class McpServerRuntime {
   async healthCheck(): Promise<boolean> {
     const cfg = this.configValue;
     if (cfg.disabled) return false;
-    if (cfg.transport === 'stdio') return healthStdioProcess(this.handle);
+    if (cfg.transport === 'stdio') return Boolean(this.handle?.processId && this.options.processRunner.get(this.handle.processId)?.status === 'running');
     if (cfg.transport === 'streamable-http') return healthStreamableHttpServer({ serverName: this.name, config: cfg, handle: this.handle });
     return false;
   }
@@ -168,35 +168,35 @@ export class McpServerRuntime {
       this.statusOverride = { status: 'error', error: msg };
       throw new Error(msg);
     }
-    const childEnv = { ...process.env, ...(cfg.env ?? {}) };
     const args = cfg.args ?? [];
-    const proc = this.options.scope.spawn(cfg.command, args, {
-      name: `mcp-stdio:${this.name}`,
-      env: childEnv,
+    const launch = this.options.processRunner.spawnInteractive({
+      file: cfg.command,
+      args,
+      directScope: this.options.processScope,
+      category: 'service_infrastructure',
+      ownerId: `mcp:${this.name}`,
+      ownerKind: 'runtime',
+      launchReason: `MCP stdio server ${this.name}`,
+      env: { ...process.env, ...(cfg.env ?? {}) },
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).process;
-    this.handle = { process: proc };
+    });
+    const proc = launch.process;
+    this.handle = { process: proc, processId: launch.record.id };
     this.startedAt = new Date().toISOString();
 
-    proc.on('exit', (code, signal) => {
+    void this.options.processRunner.waitForSettlement(launch.record.id).then(() => {
       const handle = this.handle;
-      if (!handle || handle.process !== proc) return;
-      if (!signal && code === 0) {
+      if (!handle || handle.processId !== launch.record.id) return;
+      const record = this.options.processRunner.get(launch.record.id);
+      if (record?.status === 'exited') {
         this.handle = undefined;
         this.statusOverride = { status: 'stopped' };
         this.clearCaches();
         return;
       }
-      const error = signal ? `Process exited with signal ${signal}` : `Process exited with code ${code}`;
+      const error = record?.signal ? `Process exited with signal ${record.signal}` : `Process exited with code ${record?.exit_code ?? 'unknown'}`;
       this.handle = undefined;
       this.statusOverride = { status: 'error', error };
-      this.clearCaches();
-    });
-    proc.on('error', (err) => {
-      const handle = this.handle;
-      if (!handle || handle.process !== proc) return;
-      this.handle = undefined;
-      this.statusOverride = { status: 'error', error: `Process error: ${err.message}` };
       this.clearCaches();
     });
     proc.stdin?.on('error', () => undefined);
@@ -228,12 +228,12 @@ export class McpServerRuntime {
     this.argumentValidatorCache.clear();
   }
 
-  private async stopStdio(proc: ChildProcess): Promise<void> {
-    await stopStdioProcess(proc);
+  private async stopStdio(processId: string): Promise<void> {
+    await this.options.processRunner.kill(processId, { directScope: this.options.processScope, category: 'service_infrastructure', reason: `MCP server '${this.name}' stopped` });
   }
 
   private async killHandle(handle: McpServerHandle): Promise<void> {
-    if (handle.process && !handle.process.killed) await stopStdioProcess(handle.process);
+    if (handle.processId) await this.stopStdio(handle.processId);
     if (handle.abortController) handle.abortController.abort();
   }
 

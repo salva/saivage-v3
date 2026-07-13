@@ -9,6 +9,7 @@ import { loadMcpServersFromConfig, type McpServerConfig } from './server-registr
 import { McpInvocationStatsRecorder } from './invocation-stats.js';
 import { buildMcpToolsReadModel } from './status-projection.js';
 import { McpServerRuntime } from './server-runtime.js';
+import type { ProcessRunner } from '../runtime/process-runner.js';
 
 export type { McpServerConfig, McpServerHandle } from './server-registry.js';
 export type { McpTransport, McpStatus, McpServerStatus, McpToolAnnotations, McpToolDefinition, McpJsonRpcRequest, McpJsonRpcResponse, McpJsonRpcError, ListToolsResult, McpInitializeParams, ToolsCallResult } from './protocol.js';
@@ -20,7 +21,7 @@ export interface McpToolsReadModelProvider { getToolsReadModel(): ReturnType<typ
 export type McpToolCapability = ReturnType<typeof buildMcpToolsReadModel>['serverDetails'][number]['tools'][number] & { serverName: string };
 export interface McpToolInvocationPort { getServerTools(name: string): McpToolDefinition[] | undefined; findToolCapability(serverName: string, toolName: string): McpToolCapability | null; invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> }
 
-export interface McpManagerOptions { config: SaivageConfig; scope?: ResourceScope; }
+export interface McpManagerOptions { config: SaivageConfig; processRunner: ProcessRunner; scope?: ResourceScope; }
 
 export class McpManager {
   private projectRoot: string;
@@ -33,7 +34,7 @@ export class McpManager {
   private nextMsgId = 1;
   private readonly invocationStats = new McpInvocationStatsRecorder();
 
-  constructor(projectRoot: string, options: McpManagerOptions) {
+  constructor(projectRoot: string, private readonly options: McpManagerOptions) {
     this.projectRoot = projectRoot;
     this.config = options.config;
     this.scope = options.scope ?? createResourceScope('mcp-manager');
@@ -248,7 +249,8 @@ export class McpManager {
       else this.runtimes.set(name, new McpServerRuntime({
         name,
         config,
-        scope: this.scope,
+        processRunner: this.options.processRunner,
+        processScope: this.options.processRunner.createDirectScope(this.options.processRunner.serviceRootScope, `mcp-server:${name}`, 'service_infrastructure'),
         ids: this,
         invocationStats: this.invocationStats,
       }));

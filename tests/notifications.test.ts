@@ -13,6 +13,7 @@ import { queueNotification, resolveRecipient } from '../src/notifications/notifi
 import { EventBus } from '../src/events/index.js';
 import { CardActor, PlanningCardProcessorActor, type CardActorDeps } from '../src/runtime/actors/index.js';
 import { ProcessRunner } from '../src/runtime/process-runner.js';
+import { createTestProcessRunner } from './helpers/test-process-runner.js';
 import { queue_notification } from '../src/tools/analyst-misc-tools.js';
 import { createPlannerControlProvider } from '../src/tools/planner-control-provider.js';
 import { listControlActions } from '../src/persistence/control-action-audit.js';
@@ -34,7 +35,7 @@ function notificationIdFromCall(call: unknown): string {
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeCard(overrides: Partial<NewCardInput> & { id?: string; type: NewCardInput['type']; title: string }): NewCardInput & { id?: string } {
@@ -209,7 +210,7 @@ describe('queueNotification recipient resolution', () => {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
     const deps = createTestAnalystRuntime({ projectRoot, cardStore: store });
-    const ctx: ToolContext = { projectRoot, processRunner: deps.processRunner, store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false };
+    const ctx: ToolContext = { projectRoot, processRunner: deps.processRunner, processScope: deps.processRunner.createDirectScope(deps.processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false };
 
     const result = await queue_notification(ctx, { recipient: goal.id, kind: 'review_update', body: 'reviewer left actionable feedback' });
 

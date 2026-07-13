@@ -7,12 +7,14 @@ import { join } from 'node:path';
 
 import { listControlActions } from '../../src/persistence/index.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { restart_server } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { createAnalystControlProvider } from '../../src/tools/analyst-control-provider.js';
 
 function context(projectRoot: string, restartServerAvailable: boolean): ToolContext {
-  return { projectRoot, processRunner: new ProcessRunner(projectRoot), store: new CardStore(projectRoot), actor: 'analyst', surface: 'web-chat', restartServerAvailable };
+  const processRunner = createTestProcessRunner(projectRoot);
+  return { projectRoot, processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(projectRoot), actor: 'analyst', surface: 'web-chat', restartServerAvailable };
 }
 
 describe('restart_server', () => {

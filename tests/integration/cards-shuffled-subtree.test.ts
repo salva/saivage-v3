@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { CardStore, closeTestProject, initProjectTree } from '../helpers/canonical-project.js';
 import { get_card, get_tree } from '../../src/tools/analyst-card-tools.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) { closeTestProject(root); rmSync(root, { recursive: true, force: true }); } });
@@ -29,7 +30,8 @@ describe('canonical persisted subtree ordering', () => {
     closeTestProject(root);
     store = new CardStore(root);
     expect(store.listChildren(parent.id)).toEqual(expected);
-    const context = { projectRoot: root, processRunner: new ProcessRunner(root), store, actor: 'analyst' as const, surface: 'web-chat' as const, restartServerAvailable: false };
+    const processRunner = createTestProcessRunner(root);
+    const context = { projectRoot: root, processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst' as const, surface: 'web-chat' as const, restartServerAvailable: false };
     const detail = await get_card(context, { id: parent.id });
     const tree = await get_tree(context, { rootId: parent.id });
     expect(detail.success).toBe(true);

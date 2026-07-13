@@ -8,6 +8,7 @@ import { navigate_back, navigate_workspace } from '../../src/tools/analyst-works
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 
@@ -23,7 +24,8 @@ function readAudit(root: string): Array<Record<string, unknown>> {
 
 describe('analyst navigation tools', () => {
   function ctx(root: string, actor: ToolContext['actor'] = 'analyst'): ToolContext {
-    return { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor, surface: 'web-chat', restartServerAvailable: false };
+    const processRunner = createTestProcessRunner(root);
+    return { projectRoot: root, processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store: new CardStore(root), actor, surface: 'web-chat', restartServerAvailable: false };
   }
 
   it('returns a structured navigate_workspace intent for analyst callers', async () => {

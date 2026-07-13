@@ -13,6 +13,7 @@ import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletio
 import type { CardRecord } from '../../../src/schemas/index.js';
 
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 
@@ -61,7 +62,7 @@ function terminalProcessor(outcome: Exclude<CardActivationOutcome, { status: 'ca
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeChildActor(projectRoot: string, store: CardStore, card: CardRecord, processor: CardProcessorActor): CardActor {

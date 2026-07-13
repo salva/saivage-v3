@@ -123,7 +123,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   private async shutdownOnce(): Promise<void> {
     for (const actor of this.cardActors.values()) actor.cancel({ reason: 'runtime shutdown' });
-    await this.options.processRunner.stopRuntimeOwned('runtime shutdown', { graceMs: 5000 });
+    const processReport = await this.options.processRunner.terminateScopeTree({ rootScope: this.options.processRunner.runtimeRootScope, categories: ['runtime_card'], reason: 'runtime shutdown', graceMs: 5000 });
+    if (processReport.failed.length > 0) throw new Error(processReport.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
     this.cardActors.clear();
     this.currentCardId = null;
     this.started = false;

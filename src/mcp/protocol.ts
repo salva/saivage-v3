@@ -67,7 +67,6 @@ export interface McpServerStatus {
   tools_count?: number;
 }
 
-export const SIGTERM_TIMEOUT_MS = 3_000;
 export const MCP_DISCOVERY_TIMEOUT_MS = 10_000;
 export const MCP_INVOKE_TIMEOUT_MS = 30_000;
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
