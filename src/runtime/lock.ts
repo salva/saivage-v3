@@ -1,254 +1,286 @@
+import { createHash, randomUUID } from 'node:crypto';
 import {
-  openSync,
-  writeSync,
   closeSync,
-  readFileSync,
+  constants,
   existsSync,
-  unlinkSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
-import { realpathSync } from 'node:fs';
-import { constants } from 'node:fs';
+
 import { runtimeProcessLockFile } from '../persistence/layout.js';
+import { durablyReplaceFile } from '../persistence/durable-file-replacement.js';
+import { projectIdentityDigest, readProjectIdentity } from '../persistence/project-identity-store.js';
 
-// ── Types ─────────────────────────────────────────────────────
-
-export interface LockPayload {
-  pid: number;
-  started_at: string;
+export interface RuntimeControlEndpoint {
+  readonly origin: string;
+  readonly auth: 'disabled' | 'bearer';
 }
 
-export interface LockConfig {
-  /** Lock file path (overridable for testing) */
-  lockFilePath?: string;
+interface RuntimeLockOwnerBase {
+  readonly format_version: 1;
+  readonly instance_id: string;
+  readonly pid: number;
+  readonly process_start_identity: string;
+  readonly started_at: string;
+  readonly canonical_root_hash: string;
+}
+
+export type RuntimeLockOwnerRecord = RuntimeLockOwnerBase & (
+  | { readonly lock_state: 'bootstrap_unbound'; readonly project_identity: null; readonly control_endpoint: null }
+  | { readonly lock_state: 'bound'; readonly project_identity: string; readonly control_endpoint: RuntimeControlEndpoint | null }
+);
+
+export type RuntimeLockBlocker =
+  | { readonly kind: 'live'; readonly record: RuntimeLockOwnerRecord }
+  | { readonly kind: 'dead_stale'; readonly record: RuntimeLockOwnerRecord; readonly repairInstruction: string }
+  | { readonly kind: 'malformed_unreadable'; readonly repairInstruction: string; readonly detail: string };
+
+export type RuntimeLockStatus = { readonly kind: 'missing' } | RuntimeLockBlocker;
+
+export interface RuntimeLockConfig {
+  readonly lockFilePath?: string;
+  readonly readProcessStartIdentity?: (pid: number) => string;
+  readonly probeProcess?: (pid: number) => 'live' | 'dead' | 'indeterminate';
 }
 
 declare const runtimeLifecycleLockHandleBrand: unique symbol;
-
-/** Opaque proof of one live runtime-lock acquisition. */
-export interface RuntimeLifecycleLockHandle {
-  readonly [runtimeLifecycleLockHandleBrand]: never;
-}
+export interface RuntimeLifecycleLockHandle { readonly [runtimeLifecycleLockHandleBrand]: never }
 
 interface RuntimeLifecycleLockOwnership {
   active: boolean;
-  canonicalProjectRoot: string;
-  lockFilePath: string;
+  readonly canonicalProjectRoot: string;
+  readonly canonicalRootHash: string;
+  readonly lockFilePath: string;
+  record: RuntimeLockOwnerRecord;
 }
 
-const runtimeLifecycleLockOwnership = new WeakMap<object, RuntimeLifecycleLockOwnership>();
+const ownershipByHandle = new WeakMap<object, RuntimeLifecycleLockOwnership>();
 
-type LockState =
-  | { kind: 'missing' }
-  | { kind: 'malformed' }
-  | { kind: 'valid'; payload: LockPayload };
-
-// ── Constants ─────────────────────────────────────────────────
-
-function lockPath(projectRoot: string, config?: LockConfig): string {
-  if (config?.lockFilePath) return config.lockFilePath;
-  return runtimeProcessLockFile(projectRoot);
+function isErrno(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as NodeJS.ErrnoException).code === code;
 }
 
-// ── PID Check ─────────────────────────────────────────────────
+function lockPath(projectRoot: string, config?: RuntimeLockConfig): string {
+  return config?.lockFilePath ?? runtimeProcessLockFile(projectRoot);
+}
 
-/**
- * Check whether a PID is alive on the current system.
- * Sends signal 0 (null signal) to test process existence.
- */
-function isPidAlive(pid: number): boolean {
+function canonicalRootHash(root: string): string {
+  return createHash('sha256').update(root).digest('hex');
+}
+
+function readProcStartIdentity(pid: number): string {
+  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  const close = stat.lastIndexOf(')');
+  if (close < 0) throw new Error(`Cannot parse process start identity for PID ${pid}.`);
+  const fieldsFromState = stat.slice(close + 2).trim().split(/\s+/u);
+  const startTime = fieldsFromState[19];
+  if (!startTime || !/^\d+$/u.test(startTime)) throw new Error(`Cannot parse process start identity for PID ${pid}.`);
+  return startTime;
+}
+
+function defaultProbeProcess(pid: number): 'live' | 'dead' | 'indeterminate' {
   try {
-    // kill(pid, 0) checks existence without sending a signal
     process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
+    return 'live';
+  } catch (error) {
+    if (isErrno(error, 'ESRCH')) return 'dead';
+    return 'indeterminate';
   }
 }
 
-// ── Lock Payload Reading ───────────────────────────────────────
-
-function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
-  return typeof err === 'object' && err !== null && 'code' in err;
+function isIsoTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && date.toISOString() === value;
 }
 
-function parseLockPayload(raw: string): LockPayload | null {
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    return null;
+export function parseRuntimeLockOwnerRecord(value: unknown): RuntimeLockOwnerRecord {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('lock record must be an object');
+  const record = value as Record<string, unknown>;
+  const commonKeys = ['canonical_root_hash', 'format_version', 'instance_id', 'lock_state', 'pid', 'process_start_identity', 'project_identity', 'started_at', 'control_endpoint'];
+  if (Object.keys(record).sort().join(',') !== commonKeys.sort().join(',')) throw new Error('lock record has unsupported fields');
+  if (record.format_version !== 1) throw new Error('unsupported lock format version');
+  if (typeof record.instance_id !== 'string' || record.instance_id.length === 0) throw new Error('invalid instance identity');
+  if (!Number.isSafeInteger(record.pid) || (record.pid as number) <= 0) throw new Error('invalid PID');
+  if (typeof record.process_start_identity !== 'string' || record.process_start_identity.length === 0) throw new Error('invalid process start identity');
+  if (!isIsoTimestamp(record.started_at)) throw new Error('invalid started_at');
+  if (typeof record.canonical_root_hash !== 'string' || !/^[a-f0-9]{64}$/u.test(record.canonical_root_hash)) throw new Error('invalid canonical root hash');
+  if (record.lock_state === 'bootstrap_unbound') {
+    if (record.project_identity !== null || record.control_endpoint !== null) throw new Error('invalid bootstrap-unbound identity or endpoint');
+    return record as unknown as RuntimeLockOwnerRecord;
   }
-
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const candidate = value as Record<string, unknown>;
-  if (!Number.isSafeInteger(candidate.pid) || (candidate.pid as number) <= 0) return null;
-  if (typeof candidate.started_at !== 'string') return null;
-  const parsed = new Date(candidate.started_at);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== candidate.started_at) return null;
-  return { pid: candidate.pid as number, started_at: candidate.started_at };
-}
-
-function readLockState(projectRoot: string, config?: LockConfig): LockState {
-  const lp = lockPath(projectRoot, config);
-  let raw: string;
-  try {
-    raw = readFileSync(lp, 'utf-8');
-  } catch (err: unknown) {
-    if (isErrnoException(err) && err.code === 'ENOENT') return { kind: 'missing' };
-    const code = isErrnoException(err) && err.code ? ` (${err.code})` : '';
-    throw new Error(`Cannot read runtime lock '${lp}'${code}; refusing to proceed while lock ownership is unknown.`);
+  if (record.lock_state !== 'bound' || typeof record.project_identity !== 'string' || !/^[a-f0-9]{64}$/u.test(record.project_identity)) throw new Error('invalid bound project identity');
+  if (record.control_endpoint !== null) {
+    if (typeof record.control_endpoint !== 'object' || Array.isArray(record.control_endpoint)) throw new Error('invalid control endpoint');
+    const endpoint = record.control_endpoint as Record<string, unknown>;
+    if (Object.keys(endpoint).sort().join(',') !== 'auth,origin' || typeof endpoint.origin !== 'string' || (endpoint.auth !== 'disabled' && endpoint.auth !== 'bearer')) throw new Error('invalid control endpoint');
+    let url: URL;
+    try { url = new URL(endpoint.origin); } catch { throw new Error('invalid control endpoint origin'); }
+    if (url.origin !== endpoint.origin || url.pathname !== '/' || url.search !== '' || url.hash !== '' || url.username !== '' || url.password !== '' || (url.protocol !== 'http:' && url.protocol !== 'https:')) throw new Error('invalid control endpoint origin');
   }
-
-  const payload = parseLockPayload(raw);
-  return payload === null ? { kind: 'malformed' } : { kind: 'valid', payload };
+  return record as unknown as RuntimeLockOwnerRecord;
 }
 
-function unlinkIfPresent(path: string): void {
+function readRecord(path: string): RuntimeLockOwnerRecord {
+  return parseRuntimeLockOwnerRecord(JSON.parse(readFileSync(path, 'utf8')) as unknown);
+}
+
+function repairInstruction(canonicalProjectRoot: string, path: string): string {
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+  return `Verify that no Saivage process owns ${quote(canonicalProjectRoot)}, then remove the abandoned lock manually with: rm -- ${quote(path)}; rerun the command.`;
+}
+
+export function readRuntimeLockStatus(projectRoot: string, config?: RuntimeLockConfig): RuntimeLockStatus {
+  const canonicalProjectRoot = realpathSync(projectRoot);
+  const path = lockPath(canonicalProjectRoot, config);
+  if (!existsSync(path)) return { kind: 'missing' };
+  let record: RuntimeLockOwnerRecord;
   try {
-    unlinkSync(path);
-  } catch (err: unknown) {
-    if (isErrnoException(err) && err.code === 'ENOENT') return;
-    throw err;
+    record = readRecord(path);
+  } catch (error) {
+    return { kind: 'malformed_unreadable', detail: (error as Error).message, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
   }
+  const probe = (config?.probeProcess ?? defaultProbeProcess)(record.pid);
+  if (probe !== 'dead') {
+    if (probe === 'indeterminate') return { kind: 'live', record };
+    let actualStart: string;
+    try { actualStart = (config?.readProcessStartIdentity ?? readProcStartIdentity)(record.pid); } catch { return { kind: 'live', record }; }
+    if (actualStart === record.process_start_identity) return { kind: 'live', record };
+  }
+  return { kind: 'dead_stale', record, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
 }
 
-// ── Public API ────────────────────────────────────────────────
+export function isLocked(projectRoot: string, config?: RuntimeLockConfig): boolean {
+  const status = readRuntimeLockStatus(projectRoot, config);
+  if (status.kind === 'missing') return false;
+  if (status.kind === 'live') return true;
+  throw blockerError(status);
+}
 
-/**
- * Attempt to acquire the exclusive runtime lock.
- *
- * Creates the lock file atomically using O_CREAT | O_EXCL.
- * The lock file contains JSON: { pid, started_at }.
- *
- * If the lock file already exists, removes only malformed lock files and
- * valid locks whose PID is dead, then re-acquires. A valid lock naming a live
- * PID blocks regardless of age. Existing lock files that cannot be read fail
- * closed and are left untouched.
- *
- * @param projectRoot - Absolute path to the project root directory.
- * @param config - Optional lock configuration.
- * @returns Opaque live ownership proof bound to this canonical project root.
- * @throws If the lock is held by a live process and cannot be acquired.
- */
-export function acquireLock(projectRoot: string, config?: LockConfig): RuntimeLifecycleLockHandle {
-  const lp = lockPath(projectRoot, config);
+export function readLiveLockHolder(projectRoot: string, config?: RuntimeLockConfig): { pid: number; started_at: string } | null {
+  const status = readRuntimeLockStatus(projectRoot, config);
+  return status.kind === 'live' ? { pid: status.record.pid, started_at: status.record.started_at } : null;
+}
 
-  // Ensure parent directory exists before attempting O_EXCL
-  mkdirSync(dirname(lp), { recursive: true });
+function blockerError(status: RuntimeLockBlocker): Error {
+  if (status.kind === 'live') return new Error(`Runtime lock is held by live PID ${status.record.pid}; stop and verify the current owner before retrying.`);
+  if (status.kind === 'dead_stale') return new Error(`Runtime lock is dead or stale. ${status.repairInstruction}`);
+  return new Error(`Runtime lock is malformed or unreadable (${status.detail}). ${status.repairInstruction}`);
+}
 
-  // First, try to acquire directly with O_EXCL
+function syncDirectory(path: string): void {
+  const fd = openSync(path, 'r');
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+
+export function acquireRuntimeLifecycleLock(input: {
+  readonly projectRoot: string;
+  readonly mode: 'init' | 'bound';
+  readonly config?: RuntimeLockConfig;
+}): RuntimeLifecycleLockHandle {
+  const canonicalProjectRoot = realpathSync(input.projectRoot);
+  const path = lockPath(canonicalProjectRoot, input.config);
+  const project = readProjectIdentity(canonicalProjectRoot);
+  if (input.mode === 'bound' && project === null) throw new Error(`Project identity is missing; run 'saivage init' first.`);
+  const readStart = input.config?.readProcessStartIdentity ?? readProcStartIdentity;
+  let processStartIdentity: string;
+  try { processStartIdentity = readStart(process.pid); } catch (error) { throw new Error(`Cannot acquire runtime lock without the current process start identity: ${(error as Error).message}`); }
+  mkdirSync(dirname(path), { recursive: true });
+  const base = {
+    format_version: 1 as const,
+    instance_id: randomUUID(),
+    pid: process.pid,
+    process_start_identity: processStartIdentity,
+    started_at: new Date().toISOString(),
+    canonical_root_hash: canonicalRootHash(canonicalProjectRoot),
+  };
+  const record: RuntimeLockOwnerRecord = project === null
+    ? { ...base, lock_state: 'bootstrap_unbound', project_identity: null, control_endpoint: null }
+    : { ...base, lock_state: 'bound', project_identity: projectIdentityDigest(project), control_endpoint: null };
+  let fd: number;
   try {
-    const payload: LockPayload = {
-      pid: process.pid,
-      started_at: new Date().toISOString(),
-    };
-    const fd = openSync(lp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
-    writeSync(fd, JSON.stringify(payload, null, 2) + '\n');
-    closeSync(fd);
-    const handle = {} as RuntimeLifecycleLockHandle;
-    runtimeLifecycleLockOwnership.set(handle, {
-      active: true,
-      canonicalProjectRoot: realpathSync(projectRoot),
-      lockFilePath: lp,
-    });
-    return handle;
-  } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    if (code !== 'EEXIST') {
-      throw err;
+    fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+  } catch (error) {
+    if (isErrno(error, 'EEXIST')) {
+      const status = readRuntimeLockStatus(canonicalProjectRoot, input.config);
+      if (status.kind === 'missing') throw new Error('Runtime lock disappeared after the single acquisition attempt; rerun the command.');
+      throw blockerError(status);
     }
-    // File exists — check staleness
+    throw error;
   }
-
-  const state = readLockState(projectRoot, config);
-  if (state.kind === 'missing') {
-    return acquireLock(projectRoot, config);
+  try {
+    const bytes = Buffer.from(`${JSON.stringify(record, null, 2)}\n`);
+    let offset = 0;
+    while (offset < bytes.byteLength) offset += writeSync(fd, bytes, offset, bytes.byteLength - offset);
+    fsyncSync(fd);
+  } catch (error) {
+    closeSync(fd);
+    unlinkSync(path);
+    throw error;
   }
-  if (state.kind === 'malformed') {
-    unlinkIfPresent(lp);
-    return acquireLock(projectRoot, config);
-  }
-
-  if (!isPidAlive(state.payload.pid)) {
-    unlinkIfPresent(lp);
-    return acquireLock(projectRoot, config);
-  }
-
-  throw new Error(
-    `Runtime lock is held by live PID ${state.payload.pid} (started ${state.payload.started_at}). ` +
-      `Cannot acquire lock while another instance is alive.`,
-  );
+  closeSync(fd);
+  syncDirectory(dirname(path));
+  const handle = {} as RuntimeLifecycleLockHandle;
+  ownershipByHandle.set(handle, { active: true, canonicalProjectRoot, canonicalRootHash: base.canonical_root_hash, lockFilePath: path, record });
+  return handle;
 }
 
-/**
- * Release the runtime lock by deleting the lock file.
- *
- * Releasing invalidates the handle even when the lock file is already absent.
- */
-export function releaseLock(handle: RuntimeLifecycleLockHandle): void {
-  const ownership = runtimeLifecycleLockOwnership.get(handle);
+function requireOwnership(handle: RuntimeLifecycleLockHandle): RuntimeLifecycleLockOwnership {
+  const ownership = ownershipByHandle.get(handle);
   if (!ownership?.active) throw new Error('Runtime lifecycle lock handle is foreign or already released.');
-  const lp = ownership.lockFilePath;
-  // Gracefully handle missing parent directory
-  if (!existsSync(dirname(lp))) {
-    ownership.active = false;
-    return;
+  return ownership;
+}
+
+function assertRecordOwned(ownership: RuntimeLifecycleLockOwnership): void {
+  let record: RuntimeLockOwnerRecord;
+  try { record = readRecord(ownership.lockFilePath); } catch (error) { throw new Error(`Cannot verify runtime lock ownership before mutation: ${(error as Error).message}`); }
+  if (JSON.stringify(record) !== JSON.stringify(ownership.record) || record.canonical_root_hash !== ownership.canonicalRootHash) {
+    throw new Error('Runtime lock ownership changed; refusing to mutate the lock path.');
   }
-  if (existsSync(lp)) {
-    unlinkSync(lp);
-  }
+}
+
+function replaceOwnedRecord(ownership: RuntimeLifecycleLockOwnership, next: RuntimeLockOwnerRecord): void {
+  assertRecordOwned(ownership);
+  const validated = parseRuntimeLockOwnerRecord(next);
+  durablyReplaceFile(ownership.lockFilePath, Buffer.from(`${JSON.stringify(validated, null, 2)}\n`));
+  ownership.record = validated;
+}
+
+export function bindRuntimeLifecycleLock(handle: RuntimeLifecycleLockHandle, projectIdentity: string): void {
+  const ownership = requireOwnership(handle);
+  if (ownership.record.lock_state !== 'bootstrap_unbound') throw new Error('Only a bootstrap-unbound owner may bind project identity.');
+  if (!/^[a-f0-9]{64}$/u.test(projectIdentity)) throw new Error('Invalid project identity digest.');
+  const project = readProjectIdentity(ownership.canonicalProjectRoot);
+  if (project === null || projectIdentityDigest(project) !== projectIdentity) throw new Error('Project identity digest does not match the canonical project identity.');
+  replaceOwnedRecord(ownership, { ...ownership.record, lock_state: 'bound', project_identity: projectIdentity, control_endpoint: null });
+}
+
+export function publishRuntimeControlEndpoint(handle: RuntimeLifecycleLockHandle, endpoint: RuntimeControlEndpoint): void {
+  const ownership = requireOwnership(handle);
+  if (ownership.record.lock_state !== 'bound' || ownership.record.control_endpoint !== null) throw new Error('Runtime endpoint publication requires an unpublished bound lock.');
+  replaceOwnedRecord(ownership, { ...ownership.record, control_endpoint: endpoint });
+}
+
+export function releaseRuntimeLifecycleLock(handle: RuntimeLifecycleLockHandle): void {
+  const ownership = requireOwnership(handle);
+  assertRecordOwned(ownership);
+  unlinkSync(ownership.lockFilePath);
+  syncDirectory(dirname(ownership.lockFilePath));
   ownership.active = false;
 }
 
-export function assertRuntimeLifecycleLock(
-  handle: RuntimeLifecycleLockHandle,
-  projectRoot: string,
-): void {
-  const ownership = runtimeLifecycleLockOwnership.get(handle);
-  if (!ownership?.active) throw new Error('A live runtime lifecycle lock handle is required.');
-  const canonicalProjectRoot = realpathSync(projectRoot);
-  if (ownership.canonicalProjectRoot !== canonicalProjectRoot) {
-    throw new Error(
-      `Runtime lifecycle lock belongs to '${ownership.canonicalProjectRoot}', not '${canonicalProjectRoot}'.`,
-    );
-  }
+export function assertRuntimeLifecycleLock(handle: RuntimeLifecycleLockHandle, projectRoot: string): void {
+  const ownership = requireOwnership(handle);
+  const canonical = realpathSync(projectRoot);
+  if (ownership.canonicalProjectRoot !== canonical) throw new Error(`Runtime lifecycle lock belongs to '${ownership.canonicalProjectRoot}', not '${canonical}'.`);
 }
 
-/**
- * Check whether the runtime lock is currently held (by any process).
- *
- * @param projectRoot - Absolute path to the project root directory.
- * @param config - Optional lock configuration.
- * @returns true if the lock file contains a valid payload naming a live PID.
- */
-export function isLocked(projectRoot: string, config?: LockConfig): boolean {
-  const state = readLockState(projectRoot, config);
-  return state.kind === 'valid' && isPidAlive(state.payload.pid);
-}
-
-/**
- * Remove a malformed lock file or a valid lock whose PID is dead.
- * Valid locks naming live PIDs are never removed due to age.
- *
- * @param projectRoot - Absolute path to the project root directory.
- * @param config - Optional lock configuration.
- */
-export function removeStaleLock(projectRoot: string, config?: LockConfig): void {
-  const lp = lockPath(projectRoot, config);
-  const state = readLockState(projectRoot, config);
-  if (state.kind === 'missing') return;
-  if (state.kind === 'malformed') {
-    unlinkIfPresent(lp);
-    return;
-  }
-
-  if (!isPidAlive(state.payload.pid)) unlinkIfPresent(lp);
-}
-
-export function readLiveLockHolder(projectRoot: string, config?: LockConfig): { pid: number; started_at: string } | null {
-  const state = readLockState(projectRoot, config);
-  if (state.kind !== 'valid' || !isPidAlive(state.payload.pid)) return null;
-  return { pid: state.payload.pid, started_at: state.payload.started_at };
+export function runtimeLifecycleLockRecord(handle: RuntimeLifecycleLockHandle): RuntimeLockOwnerRecord {
+  return requireOwnership(handle).record;
 }

@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import type { EnvironmentSource } from './env-interpolation.js';
 import type { SaivageConfig } from '../agents/config-api.js';
 import { createResolvedConfigAuthority, type ConfigSelectionSource, type ResolvedConfigAuthority } from './resolved-config-authority.js';
+import { realpathSync } from 'node:fs';
 
 export type NodeEnvironment = 'development' | 'production' | 'test';
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
@@ -157,7 +158,7 @@ function parseLogLevel(raw: string | undefined): LogLevel | undefined {
 
 export async function loadEnvironment(argv: readonly string[], env: EnvironmentSource): Promise<Environment> {
   const cli = parseCli(argv);
-  const projectRoot = resolve(cli.projectRoot ?? env['SAIVAGE_PROJECT_ROOT'] ?? process.cwd());
+  const projectRoot = realpathSync(resolve(cli.projectRoot ?? env['SAIVAGE_PROJECT_ROOT'] ?? process.cwd()));
   const source: ConfigSelectionSource = cli.config !== undefined
     ? { kind: 'cli', argument: '--config' }
     : env['SAIVAGE_CONFIG'] !== undefined

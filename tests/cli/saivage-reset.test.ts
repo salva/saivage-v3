@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isInitialized } from '../../src/persistence/file-tree.js';
 import { run } from '../../src/cli.js';
-import { acquireLock, releaseLock } from '../../src/runtime/lock.js';
+import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock, runtimeLifecycleLockRecord } from '../../src/runtime/lock.js';
 
 function validProjectJson(name = 'reset-test'): string {
   return JSON.stringify({ id: 'project', name, context: '', goals_summary: '', constraints: [], planner_enabled: true, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }, null, 2) + '\n';
@@ -127,12 +127,12 @@ describe('saivage reset', () => {
     const marker = join(root, '.saivage', 'state', 'runtime.json');
     try {
       initProjectTree(root);
-      const handle = acquireLock(root);
+      const handle = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
       process.chdir(root);
       await expect(run(['node', 'cli', 'reset'])).rejects.toThrow(/lock/i);
       expect(existsSync(marker)).toBe(true);
       expect(existsSync(join(root, '.saivage', 'cards', 'project'))).toBe(true);
-      releaseLock(handle);
+      releaseRuntimeLifecycleLock(handle);
     } finally {
       process.chdir(cwd);
       rmSync(root, { recursive: true, force: true });
@@ -148,14 +148,17 @@ describe('saivage reset', () => {
       initProjectTree(root);
       const before = readFileSync(marker, 'utf8');
       const oldStartedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: oldStartedAt }, null, 2) + '\n');
+      const blocker = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
+      const record = { ...runtimeLifecycleLockRecord(blocker), started_at: oldStartedAt };
+      releaseRuntimeLifecycleLock(blocker);
+      writeFileSync(lockPath, JSON.stringify(record, null, 2) + '\n');
       process.chdir(root);
 
       await expect(run(['node', 'cli', 'reset'])).rejects.toThrow(/live PID/);
 
       expect(readFileSync(marker, 'utf8')).toBe(before);
       expect(existsSync(join(root, '.saivage', 'cards', 'project'))).toBe(true);
-      expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual({ pid: process.pid, started_at: oldStartedAt });
+      expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(record);
     } finally {
       if (existsSync(lockPath)) rmSync(lockPath, { force: true });
       process.chdir(cwd);
@@ -176,7 +179,7 @@ describe('saivage reset', () => {
       chmodSync(lockPath, 0o000);
       process.chdir(root);
 
-      await expect(run(['node', 'cli', 'reset'])).rejects.toThrow(/Cannot read runtime lock/);
+      await expect(run(['node', 'cli', 'reset'])).rejects.toThrow(/malformed or unreadable/);
 
       chmodSync(lockPath, 0o600);
       expect(readFileSync(marker, 'utf8')).toBe(before);

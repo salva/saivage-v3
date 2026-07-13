@@ -58,7 +58,7 @@ describe('boot fail-fast on missing dispatched model roles', () => {
         argv: ['node', 'saivage', 'start'],
         env: { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_API_TOKEN: 'boot-test-token' },
       }),
-    ).rejects.toThrow(/canonical project|Cannot enumerate/);
+    ).rejects.toThrow(/Project identity is missing; run 'saivage init'/);
     expect(existsSync(join(root, '.saivage', 'events.jsonl'))).toBe(false);
   });
 

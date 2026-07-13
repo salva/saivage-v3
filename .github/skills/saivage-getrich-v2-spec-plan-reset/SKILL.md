@@ -43,6 +43,14 @@ ssh root@10.0.3.170 'systemctl is-active saivage-v3-getrich.service; systemctl s
 ssh root@10.0.3.170 'systemctl stop saivage-v3-getrich.service && systemctl is-active saivage-v3-getrich.service || true'
 ```
 
+After stop, inspect the service, processes, bind-mounted target path, and
+`/home/salva/g/ml/getrich-v2/.saivage/locks/runtime.lock`. Every existing lock
+blocks reset, including a dead/stale-looking or malformed/unreadable record.
+Saivage never removes it automatically. Only after verifying that no Saivage
+process owns this canonical project may the operator explicitly remove that
+exact path with `rm -- '/home/salva/g/ml/getrich-v2/.saivage/locks/runtime.lock'`
+and rerun the command.
+
 3. Create a timestamped full backup under workspace `tmp/`, then copy preserved
 source docs and Saivage durable inputs into a `preserve/` subdirectory.
 
@@ -80,18 +88,17 @@ cp -a "${preserve}/docs/PLAN.md" "${root}/docs/PLAN.md"
 cp -a "${preserve}/.saivage/." "${root}/.saivage/" 2>/dev/null || true
 ```
 
-5. Invoke current locked reset/init semantics from the built Saivage v3 tree.
-The command must acquire `.saivage/locks/runtime.lock`, delete generated roots,
-call `initProjectTree`, and release the lock. It must preserve prompt overrides,
-skills, instructions, project identity, config, credentials, and docs.
+5. Invoke the current built CLI. This is the only reset entry point. Its bound
+direct-command composition owns the strict lifecycle lock, private composition
+authority, shared synchronous mutation lane, generated-state deletion, and
+store-backed reinitialization until exact matching-owner release. It preserves
+prompt overrides, skills, instructions, project identity, config, credentials,
+and docs.
 
 ```bash
 cd "${root}"
 /home/salva/g/ml/saivage-v3/bin/saivage.js reset
 ```
-
-If using a built helper directly instead of the CLI, ensure it performs the same
-locked sequence and does not wipe all of `.saivage/`.
 
 6. Verify the resulting layout.
 

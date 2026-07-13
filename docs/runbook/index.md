@@ -2,6 +2,17 @@
 
 Status: current operator procedures for runtime maintenance.
 
+## Runtime Lock Blockers
+
+`saivage status` classifies an existing `.saivage/locks/runtime.lock` as live,
+dead/stale, or malformed/unreadable. Every existing lock blocks Init, reset, and
+start; Saivage never deletes, takes over, or retries around one. Stop and inspect
+the exact service, process list, bind mount, and canonical target path. For a
+dead/stale or malformed/unreadable blocker, follow the reported instruction
+exactly: `Verify that no Saivage process owns '<canonical-project-root>', then
+remove the abandoned lock manually with: rm -- '<absolute-runtime-lock-path>';
+rerun the command.` Never remove a lock merely because it looks old or malformed.
+
 ## Server Restart
 
 Server restart is available only on deployments with API-token HTTP/WebSocket operator authentication enabled. Request it through the shared Analyst and, after the confirmation-required response, send the exact next message `RESTART SERVER`. The initial request only records confirmation-required state; the exact confirmation schedules shutdown.

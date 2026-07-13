@@ -1,11 +1,11 @@
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run } from '../../src/cli.js';
 
-import { acquireLock, releaseLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
+import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import { readRuntimeState } from '../../src/runtime/state-api.js';
 import { updateRuntimeState } from '../../src/runtime/state.js';
 
@@ -27,7 +27,7 @@ describe('CLI runtime control routing', () => {
       initProjectTree(root);
       updateRuntimeState(root, { status: 'running' });
       process.chdir(root);
-      handle = acquireLock(root);
+      handle = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
       process.env['SAIVAGE_API_TOKEN'] = 'test-token';
       const fetchMock = jest.fn<typeof fetch>().mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
       globalThis.fetch = fetchMock;
@@ -39,7 +39,7 @@ describe('CLI runtime control routing', () => {
       });
       expect(readRuntimeState(root)?.status).toBe('running');
     } finally {
-      if (handle) releaseLock(handle);
+      if (handle) releaseRuntimeLifecycleLock(handle);
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -68,13 +68,31 @@ describe('CLI runtime control routing', () => {
     try {
       initProjectTree(root);
       process.chdir(root);
-      handle = acquireLock(root);
+      handle = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
       globalThis.fetch = jest.fn<typeof fetch>().mockResolvedValue(new Response('server rejected', { status: 409 }));
 
       await expect(run(['node', 'cli', 'resume'])).rejects.toThrow('server rejected');
       expect(readRuntimeState(root)?.status).toBe('stopped');
     } finally {
-      if (handle) releaseLock(handle);
+      if (handle) releaseRuntimeLifecycleLock(handle);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed on a malformed lock instead of applying offline control', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-cli-control-'));
+    try {
+      initProjectTree(root);
+      updateRuntimeState(root, { status: 'running' });
+      writeFileSync(join(root, '.saivage', 'locks', 'runtime.lock'), '{malformed');
+      process.chdir(root);
+      const fetchMock = jest.fn<typeof fetch>();
+      globalThis.fetch = fetchMock;
+
+      await expect(run(['node', 'cli', 'pause'])).rejects.toThrow(/malformed or unreadable/);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(readRuntimeState(root)?.status).toBe('running');
+    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });

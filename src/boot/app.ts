@@ -1,11 +1,12 @@
 import { loadEnvironment, type Environment } from '../config/index.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 import { classifyPersistenceOpenMode, openProjectPersistenceAuthority, type NewProjectRootInput, type ProjectPersistenceAuthority } from '../persistence/project-persistence-authority.js';
-import { acquireLock, releaseLock } from '../runtime/lock.js';
+import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock } from '../runtime/lock.js';
 import { startServer, type ServerInstance } from '../server/server.js';
 import { createRestartPort } from './restart-port.js';
 import { basename, resolve } from 'node:path';
 import type { CardRecord } from '../schemas/index.js';
+import { realpathSync } from 'node:fs';
 
 export interface App {
   readonly environment: Environment;
@@ -51,15 +52,15 @@ function prelockStartupInputs(argv: readonly string[], env: Readonly<Record<stri
       projectRoot = arg.slice('--project-root='.length);
     }
   }
-  return { projectRoot: resolve(projectRoot), createRuntime };
+  return { projectRoot: realpathSync(resolve(projectRoot)), createRuntime };
 }
 
 export async function startApp(options: StartAppOptions): Promise<App> {
   const env = options.env ?? process.env;
   const prelock = prelockStartupInputs(options.argv, env);
   const scope = createResourceScope('app');
-  const lifecycleLock = acquireLock(prelock.projectRoot);
-  scope.add({ dispose: () => releaseLock(lifecycleLock) }, { name: 'runtime-process-lock' });
+  const lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: prelock.projectRoot, mode: 'bound' });
+  scope.add({ dispose: () => releaseRuntimeLifecycleLock(lifecycleLock) }, { name: 'runtime-process-lock' });
   let environment: Environment;
   let server: ServerInstance;
   let authority: ProjectPersistenceAuthority;
@@ -72,6 +73,14 @@ export async function startApp(options: StartAppOptions): Promise<App> {
     scope.add({ dispose: () => authority.close() }, { name: 'project-persistence-authority' });
     environment = await loadEnvironment(options.argv, env);
     server = await startServer({ environment, authority, scope: scope.child('server'), restartPort });
+    const address = server.fastify.server.address();
+    if (address === null || typeof address === 'string') throw new Error('Server did not publish a TCP control address.');
+    const dialHost = environment.server.host === '0.0.0.0' || environment.server.host === '::' ? '127.0.0.1' : environment.server.host;
+    const urlHost = dialHost.includes(':') ? `[${dialHost}]` : dialHost;
+    publishRuntimeControlEndpoint(lifecycleLock, {
+      origin: `http://${urlHost}:${address.port}`,
+      auth: environment.auth.apiToken === undefined ? 'disabled' : 'bearer',
+    });
   } catch (error) {
     await scope.dispose();
     throw error;

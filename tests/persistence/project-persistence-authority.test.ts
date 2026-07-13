@@ -11,7 +11,7 @@ import {
   verifyBootstrapEligibleLayout,
   type ProjectPersistenceAuthority,
 } from '../../src/persistence/project-persistence-authority.js';
-import { acquireLock, releaseLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
+import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import { CardStore } from '../../src/cards/card-store.js';
 
 const stamp = '2026-07-13T12:00:00.000Z';
@@ -65,7 +65,7 @@ function snapshot(path: string): unknown {
 }
 
 function acquire(root: string): RuntimeLifecycleLockHandle {
-  return acquireLock(root);
+  return acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'init' });
 }
 
 afterEach(() => {
@@ -81,7 +81,7 @@ describe('bootstrap eligibility', () => {
     expect(proof.canonicalProjectRoot).toBe(root);
     expect(Object.isFrozen(proof)).toBe(true);
     expect(snapshot(root)).toEqual(before);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('accepts reset-empty generated directories, exact defaults, and an interrupted project prefix', () => {
@@ -102,7 +102,7 @@ describe('bootstrap eligibility', () => {
     const before = snapshot(root);
     expect(() => verifyBootstrapEligibleLayout(root, lock)).not.toThrow();
     expect(snapshot(root)).toEqual(before);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it.each<[string, (root: string) => void]>([
@@ -120,7 +120,7 @@ describe('bootstrap eligibility', () => {
     const before = snapshot(root);
     expect(() => verifyBootstrapEligibleLayout(root, lock)).toThrow();
     expect(snapshot(root)).toEqual(before);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('rejects foreign and released lifecycle-lock handles before layout reads', () => {
@@ -128,8 +128,8 @@ describe('bootstrap eligibility', () => {
     const other = makeRoot();
     const lock = acquire(root);
     expect(() => verifyBootstrapEligibleLayout(other, lock)).toThrow(/belongs to/);
-    releaseLock(lock);
-    expect(() => verifyBootstrapEligibleLayout(root, lock)).toThrow(/live runtime lifecycle lock/);
+    releaseRuntimeLifecycleLock(lock);
+    expect(() => verifyBootstrapEligibleLayout(root, lock)).toThrow(/foreign or already released/);
   });
 });
 
@@ -140,7 +140,7 @@ describe('bootstrap-capable command mode classification', () => {
     const before = snapshot(root);
     expect(classifyPersistenceOpenMode(root, lock, rootInput())).toEqual({ kind: 'bootstrap', root: rootInput() });
     expect(snapshot(root)).toEqual(before);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('selects normal without invoking bootstrap mutation for malformed canonical root evidence', () => {
@@ -153,7 +153,7 @@ describe('bootstrap-capable command mode classification', () => {
     expect(snapshot(root)).toEqual(before);
     expect(() => openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'normal' } })).toThrow(/Failed to parse JSON/);
     expect(snapshot(root)).toEqual(before);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('selects normal mutation-free when the root is missing from a nonfresh generated layout', () => {
@@ -165,7 +165,7 @@ describe('bootstrap-capable command mode classification', () => {
     expect(classifyPersistenceOpenMode(root, lock, rootInput())).toEqual({ kind: 'normal' });
     expect(() => openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'normal' } })).toThrow(/Cannot enumerate canonical project/);
     expect(snapshot(root)).toEqual(before);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 });
 
@@ -186,7 +186,7 @@ describe('project persistence authority opening', () => {
     expect(reopened.state).toBe('open');
     expect(reopened.generation.cards.has('project')).toBe(true);
     reopened.close();
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('cleans an exact interrupted pre-card bootstrap prefix and retries with the configured root', () => {
@@ -198,7 +198,7 @@ describe('project persistence authority opening', () => {
     const authority = openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'bootstrap', root: rootInput() } });
     expect(authority.generation.cards.get('project')?.records.brief.latest?.content).toBe(rootInput().brief);
     authority.close();
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('rejects bootstrap after canonical root publication and preserves the committed root', () => {
@@ -210,7 +210,7 @@ describe('project persistence authority opening', () => {
     const before = readFileSync(cardPath, 'utf8');
     expect(() => openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'bootstrap', root: rootInput() } })).toThrow(/committed canonical card/);
     expect(readFileSync(cardPath, 'utf8')).toBe(before);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('normal reopen rebuilds a missing derived index after canonical root publication', () => {
@@ -223,7 +223,7 @@ describe('project persistence authority opening', () => {
     const reopened = openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'normal' } });
     expect(existsSync(indexPath)).toBe(true);
     reopened.close();
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('rejects invalid root input before establishing bootstrap defaults', () => {
@@ -233,7 +233,7 @@ describe('project persistence authority opening', () => {
     const invalid = { ...rootInput(), card: { ...rootCard(), position: 1 } };
     expect(() => openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'bootstrap', root: invalid } })).toThrow(/canonical project card/);
     expect(snapshot(root)).toEqual(before);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('keeps failed normal opening mutation-free when canonical root authority is absent', () => {
@@ -242,7 +242,7 @@ describe('project persistence authority opening', () => {
     const before = snapshot(root);
     expect(() => openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'normal' } })).toThrow(/Cannot enumerate canonical project/);
     expect(snapshot(root)).toEqual(before);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 });
 
@@ -262,7 +262,7 @@ describe('authority admission and failure behavior', () => {
     expect(order).toEqual(['first', 'second']);
     expect(() => authority.writer.request(() => authority.writer.request(() => undefined))).toThrow(/Recursive/);
     expect(authority.state).toBe('open');
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('injects the exact authority reader and writer into the CardStore composition', () => {
@@ -271,7 +271,7 @@ describe('authority admission and failure behavior', () => {
     expect(store.recordReader).toBe(authority.reader);
     expect((store as unknown as { persistenceWriter: unknown }).persistenceWriter).toBe(authority.writer);
     authority.close();
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('runs a real multi-artifact CardStore request without recursive admission', () => {
@@ -287,7 +287,7 @@ describe('authority admission and failure behavior', () => {
     expect(authority.reader.record(card.id, 'status.md').artifact.content).toBe('composite status');
     expect(authority.generation.cards.get(card.id)?.current.card).toMatchObject({ priority: 2, version_seq: 2 });
     authority.close();
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('checks expected card versions in the admitted turn against the latest generation', () => {
@@ -299,7 +299,7 @@ describe('authority admission and failure behavior', () => {
     expect(() => stale.mutateCard(card.id, { title: 'Stale update' }, { actor: 'planner', surface: 'runtime', reason: 'stale' })).toThrow(/expected version 3/);
     expect(authority.state).toBe('open');
     authority.close();
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('invalidates the authority after a real canonical publication failure', () => {
@@ -309,7 +309,7 @@ describe('authority admission and failure behavior', () => {
     expect(() => authority.writer.request((writer) => writer.openRecord('project', 'status.md'))).toThrow();
     expect(authority.state).toBe('failed');
     expect(() => authority.writer.request(() => undefined)).toThrow(/failed/);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('invalidates after post-publication index failure and normal reopen reaches the canonical fixed point', () => {
@@ -322,7 +322,7 @@ describe('authority admission and failure behavior', () => {
     expect(() => store.mutateCard(card.id, { title: 'Published before index failure' }, { actor: 'planner', surface: 'runtime', reason: 'fault injection' })).toThrow();
     expect(authority.state).toBe('failed');
     expect(existsSync(join(authority.projectRoot, '.saivage', 'cards', card.id, 'card', 'versions', '2.json'))).toBe(true);
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
 
     rmSync(indexPath, { recursive: true });
     const reopenLock = acquire(authority.projectRoot);
@@ -330,7 +330,7 @@ describe('authority admission and failure behavior', () => {
     expect(reopened.generation.cards.get(card.id)?.current.card).toMatchObject({ title: 'Published before index failure', version_seq: 2 });
     expect(lstatSync(indexPath).isFile()).toBe(true);
     reopened.close();
-    releaseLock(reopenLock);
+    releaseRuntimeLifecycleLock(reopenLock);
   });
 
   it('creates no card, project, slot, or per-file lock during canonical mutations', () => {
@@ -343,7 +343,7 @@ describe('authority admission and failure behavior', () => {
     });
     expect(readdirSync(join(authority.projectRoot, '.saivage', 'locks'))).toEqual(['runtime.lock']);
     authority.close();
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('rejects admission after an orderly close rather than queueing it', () => {
@@ -351,20 +351,20 @@ describe('authority admission and failure behavior', () => {
     authority.close();
     expect(() => authority.writer.request(() => undefined)).toThrow(/closed/);
     expect(authority.state).toBe('closed');
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('does not mistake a caller error for a publication failure', () => {
     const { authority, lock } = opened();
     expect(() => authority.writer.request(() => { throw new IndeterminatePublicationError('/target'); })).toThrow(IndeterminatePublicationError);
     expect(authority.state).toBe('open');
-    releaseLock(lock);
+    releaseRuntimeLifecycleLock(lock);
   });
 
   it('invalidates admission when its lifecycle-lock handle is released', () => {
     const { authority, lock } = opened();
-    releaseLock(lock);
-    expect(() => authority.writer.request(() => undefined)).toThrow(/live runtime lifecycle lock/);
+    releaseRuntimeLifecycleLock(lock);
+    expect(() => authority.writer.request(() => undefined)).toThrow(/foreign or already released/);
     expect(authority.state).toBe('failed');
   });
 });

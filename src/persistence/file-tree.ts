@@ -1,11 +1,11 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
-import { projectConfigSchema } from '../schemas/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { isReadBlocked } from '../workspace/index.js';
 import { observeCanonicalProjectRoot } from './canonical-root-observation.js';
 import { appLogFile, runtimeStateFile, saivageCardsRoot, saivageLocksRoot, saivageLogsRoot, saivageStateRoot, saivageWorkRoot } from './layout.js';
+import { readProjectIdentity } from './project-identity-store.js';
 
 export function readProjectFileAtomic(projectRoot: string, relativePath: string, opts?: { redactSecrets?: boolean }): string {
   const cleanPath = relativePath.replace(/^\.\//, '');
@@ -21,11 +21,6 @@ export function readProjectFileAtomic(projectRoot: string, relativePath: string,
   return content;
 }
 
-function isValidProjectConfig(path: string): boolean {
-  if (!existsSync(path)) return false;
-  try { return projectConfigSchema.safeParse(JSON.parse(readFileSync(path, 'utf-8')) as unknown).success; } catch { return false; }
-}
-
 function validationHint(projectRoot: string): string {
   return `Legacy .saivage state is not supported. Move it aside or let Saivage discard it under ${join(projectRoot, '.saivage.discarded-<timestamp>')} and restart with empty state.`;
 }
@@ -35,7 +30,7 @@ export function explainStateValidationRejection(projectRoot: string, stateKind: 
 }
 
 export function isInitialized(projectRoot: string): boolean {
-  if (!isValidProjectConfig(join(projectRoot, '.saivage', 'project.json'))) return false;
+  try { if (readProjectIdentity(projectRoot) === null) return false; } catch { return false; }
   for (const dir of [saivageCardsRoot(projectRoot), saivageStateRoot(projectRoot), saivageLogsRoot(projectRoot), saivageLocksRoot(projectRoot), saivageWorkRoot(projectRoot)]) {
     try { if (!statSync(dir).isDirectory()) return false; } catch { return false; }
   }

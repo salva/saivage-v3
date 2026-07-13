@@ -4,10 +4,12 @@ import { dirname, join } from 'node:path';
 import { CardStore as ProductionCardStore } from '../../src/cards/card-store.js';
 import { newProjectRootInput } from '../../src/boot/app.js';
 import { classifyPersistenceOpenMode, openProjectPersistenceAuthority, type ProjectPersistenceAuthority } from '../../src/persistence/project-persistence-authority.js';
-import { acquireLock, releaseLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
+import { acquireRuntimeLifecycleLock, bindRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import type { EventBus } from '../../src/events/index.js';
 import type { ReadModelChanges } from '../../src/application/read-model-changes.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
+import { createMutationLane } from '../../src/application/mutation-lane.js';
+import { ProjectIdentityStore, projectIdentityDigest } from '../../src/persistence/project-identity-store.js';
 
 interface TestProjectComposition {
   authority: ProjectPersistenceAuthority;
@@ -20,7 +22,13 @@ function composition(projectRoot: string): TestProjectComposition {
   const existing = projects.get(projectRoot);
   if (existing?.authority.state === 'open') return existing;
   projects.delete(projectRoot);
-  const lock = acquireLock(projectRoot);
+  const projectJson = join(projectRoot, '.saivage', 'project.json');
+  const lock = acquireRuntimeLifecycleLock({ projectRoot, mode: existsSync(projectJson) ? 'bound' : 'init' });
+  if (!existsSync(projectJson)) {
+    const { lane, authority: mutationAuthority } = createMutationLane();
+    const project = new ProjectIdentityStore(projectRoot, lane, mutationAuthority).create(projectRoot.split('/').at(-1) || 'saivage-project');
+    bindRuntimeLifecycleLock(lock, projectIdentityDigest(project));
+  }
   const mode = classifyPersistenceOpenMode(projectRoot, lock, newProjectRootInput(projectRoot));
   const authority = openProjectPersistenceAuthority({ projectRoot, lifecycleLock: lock, mode });
   const created = { authority, lock };
@@ -32,11 +40,9 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
   const alreadyOpen = projects.get(projectRoot)?.authority.state === 'open';
   const opened = composition(projectRoot);
   for (const relative of ['skills', 'config/prompts', 'agents/conversations', 'instructions', 'work/cards', 'work/processes', 'work/tmp/stash']) mkdirSync(join(projectRoot, '.saivage', relative), { recursive: true });
-  const projectJson = join(projectRoot, '.saivage', 'project.json');
-  if (!existsSync(projectJson)) { const stamp = new Date().toISOString(); writeFileSync(projectJson, `${JSON.stringify({ id: 'project', name: projectRoot.split('/').at(-1) || 'saivage-project', context: '', goals_summary: '', constraints: [], planner_enabled: true, created_at: stamp, updated_at: stamp }, null, 2)}\n`); }
   const skills = join(projectRoot, '.saivage', 'skills', 'index.json');
   if (!existsSync(skills)) { mkdirSync(dirname(skills), { recursive: true }); writeFileSync(skills, '[]\n'); }
-  if (!alreadyOpen) { opened.authority.close(); releaseLock(opened.lock); projects.delete(projectRoot); }
+  if (!alreadyOpen) { opened.authority.close(); releaseRuntimeLifecycleLock(opened.lock); projects.delete(projectRoot); }
   return { projectRoot };
 }
 
@@ -59,6 +65,6 @@ export function closeTestProject(projectRoot: string): void {
   const opened = projects.get(projectRoot);
   if (!opened) return;
   opened.authority.close();
-  releaseLock(opened.lock);
+  releaseRuntimeLifecycleLock(opened.lock);
   projects.delete(projectRoot);
 }

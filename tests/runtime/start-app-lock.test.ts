@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { startApp, type App } from '../../src/boot/index.js';
 import { run } from '../../src/cli.js';
 import { isInitialized } from '../../src/persistence/file-tree.js';
+import { acquireRuntimeLifecycleLock, parseRuntimeLockOwnerRecord, releaseRuntimeLifecycleLock, runtimeLifecycleLockRecord } from '../../src/runtime/lock.js';
 
 const roots: string[] = [];
 const apps: App[] = [];
@@ -38,7 +39,10 @@ describe('startApp runtime lock ownership', () => {
     const lockPath = join(root, '.saivage', 'locks', 'runtime.lock');
     mkdirSync(join(lockPath, '..'), { recursive: true });
     const oldStartedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: oldStartedAt }, null, 2) + '\n');
+    const blocker = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
+    const record = { ...runtimeLifecycleLockRecord(blocker), started_at: oldStartedAt };
+    releaseRuntimeLifecycleLock(blocker);
+    writeFileSync(lockPath, JSON.stringify(record, null, 2) + '\n');
 
     await expect(startApp({
       argv: ['node', 'saivage', 'start', '--create-runtime'],
@@ -46,7 +50,7 @@ describe('startApp runtime lock ownership', () => {
     })).rejects.toThrow(/live PID/);
 
     expect(isInitialized(root)).toBe(false);
-    expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual({ pid: process.pid, started_at: oldStartedAt });
+    expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(record);
     expect(readFileSync(promptPath, 'utf8')).toBe('# Locked bootstrap prompt\n');
   });
 
@@ -64,6 +68,9 @@ describe('startApp runtime lock ownership', () => {
     expect(app.server.runtimeApplication.cardStore.recordReader).toBe(app.authority.reader);
     expect((app.server.runtimeApplication.cardStore as unknown as { persistenceWriter: unknown }).persistenceWriter).toBe(app.authority.writer);
     expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(true);
+    const publishedLock = parseRuntimeLockOwnerRecord(JSON.parse(readFileSync(join(root, '.saivage', 'locks', 'runtime.lock'), 'utf8')));
+    expect(publishedLock.lock_state).toBe('bound');
+    expect(publishedLock.control_endpoint).toEqual({ origin: `http://127.0.0.1:${(app.server.fastify.server.address() as { port: number }).port}`, auth: 'bearer' });
     expect(readFileSync(promptPath, 'utf8')).toBe('# Locked bootstrap prompt\n');
     await expect(startApp({ argv: ['node', 'saivage', 'start', '--create-runtime'], env: { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_API_TOKEN: 'lock-test-token', SAIVAGE_PORT: '0' } })).rejects.toThrow(/Runtime lock is held/);
 
