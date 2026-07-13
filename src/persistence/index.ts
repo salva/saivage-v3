@@ -4,6 +4,7 @@ export { appendSyncIdempotentByKey } from './raw-jsonl.js';
 export { fsyncDir, fsyncDirAsync, writeFileAtomic, writeFileSyncDurable } from './durable-write.js';
 export {
   cleanupDurableReplacementTemporaries,
+  durableReplacementTemporaryTargetBasename,
   durablyReplaceFile,
   publishDirectory,
 } from './durable-file-replacement.js';

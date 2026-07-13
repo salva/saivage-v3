@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -23,9 +23,16 @@ type Immutable<T> = T extends string | number | boolean | null | undefined
     : { readonly [Key in keyof T]: Immutable<T[Key]> };
 
 export interface ObservedProjectRoot {
+  readonly cardsPath: string;
   readonly selected: Immutable<CardVersionArtifact>;
   readonly artifacts: readonly Immutable<CardVersionArtifact>[];
   readonly indexDiagnostic: Immutable<RootIndexDiagnostic>;
+}
+
+const issuedObservations = new WeakSet<object>();
+
+export function assertIssuedProjectRootObservation(observation: ObservedProjectRoot): void {
+  if (!issuedObservations.has(observation)) throw new Error('Canonical store restabilization requires an issued project-root observation.');
 }
 
 function parseJson(path: string): unknown {
@@ -94,9 +101,12 @@ export function observeCanonicalProjectRoot(cardsPath: string): ObservedProjectR
   }
 
   const indexPath = join(cardsPath, 'project', 'card', 'index.json');
-  return deepFreeze({
+  const observation = deepFreeze({
+    cardsPath: realpathSync(cardsPath),
     selected,
     artifacts: [...artifacts].sort((left, right) => left.version - right.version),
     indexDiagnostic: diagnoseIndex(indexPath, artifacts, selected),
   }) as ObservedProjectRoot;
+  issuedObservations.add(observation);
+  return observation;
 }

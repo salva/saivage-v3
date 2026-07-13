@@ -16,6 +16,7 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { IndeterminatePublicationError } from './errors.js';
 
 const TEMPORARY_UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const TEMPORARY_NAME_PATTERN = new RegExp(`^\\.(.+)\\.saivage-write-${TEMPORARY_UUID_PATTERN}\\.tmp$`);
 const CLEANUP_ERRORS_PROPERTY = 'cleanupErrors';
 
 export type DurableFileReplacementOptions = {
@@ -81,6 +82,18 @@ function escapeRegularExpression(value: string): string {
 
 function temporaryNamePattern(targetBasename: string): RegExp {
   return new RegExp(`^\\.${escapeRegularExpression(targetBasename)}\\.saivage-write-${TEMPORARY_UUID_PATTERN}\\.tmp$`);
+}
+
+export function durableReplacementTemporaryTargetBasename(entryName: string): string | null {
+  const match = TEMPORARY_NAME_PATTERN.exec(entryName);
+  if (!match) return null;
+  const targetBasename = match[1]!;
+  try {
+    validateTargetBasename(targetBasename);
+  } catch {
+    return null;
+  }
+  return targetBasename;
 }
 
 function validateTargetBasename(targetBasename: string): void {
