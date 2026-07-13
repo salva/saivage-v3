@@ -24,8 +24,8 @@ import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { ReadModelChanges } from './read-model-changes.js';
-import { createProviderExchangeMutationPort } from '../persistence/provider-exchange-mutation-port.js';
-import { createConversationMutationPort, type ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
+import { ConversationStore } from '../persistence/conversation-store.js';
+import type { AppLogStore } from '../persistence/app-log.js';
 import type { CompositionMutationAuthority } from './mutation-authority.js';
 import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
 import type { MutationLane } from './mutation-lane.js';
@@ -40,7 +40,8 @@ export interface RuntimeApiFactoryDeps {
   processRunner: ProcessRunner;
   runtimeGate: RuntimeGate;
   mcpManagerProvider?: () => McpManager | undefined;
-  conversations: ConversationMutationPort;
+  conversations: ConversationStore;
+  appLogs: AppLogStore;
   readModelChanges: ReadModelChanges;
 }
 
@@ -62,6 +63,7 @@ export interface RuntimeApplicationServices {
   eventBus: EventBus;
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
+  appLogs: AppLogStore;
   cardStore: CardStoreRepository;
   authProfiles: AuthProfileRepository;
   mutationLane: MutationLane;
@@ -81,8 +83,9 @@ function buildAnalystDeps(input: {
   invocationService: InvocationService;
   processRunner: ProcessRunner;
   mcpManager?: McpManager;
-  conversations: ConversationMutationPort;
+  conversations: ConversationStore;
   configAuthority: ResolvedConfigAuthority;
+  appLogs: AppLogStore;
 }): AnalystRuntimeDeps {
   return {
     configAuthority: input.configAuthority,
@@ -96,6 +99,7 @@ function buildAnalystDeps(input: {
     analystProcessRootScope: input.processRunner.analystRootScope,
     mcpManager: input.mcpManager,
     conversations: input.conversations,
+    appLogs: input.appLogs,
   };
 }
 
@@ -110,7 +114,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore, restartServerAvailable = false, restartPort } = services;
   const candidateAvailability = new CandidateAvailabilityStore(projectRoot, services.mutationLane, config.runtime.candidateAvailabilityCompactBytes);
   candidateAvailability.restabilize(services.compositionAuthority);
-  const conversations = createConversationMutationPort(projectRoot, services.readModelChanges);
+  const conversations = new ConversationStore(projectRoot, services.mutationLane, services.readModelChanges);
+  conversations.restabilize(services.compositionAuthority);
   let mcpManager: McpManager | undefined;
 
   const registry = new ProviderRegistry(config);
@@ -125,7 +130,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     router,
     eventLogger,
     candidateAvailability,
-    providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, services.readModelChanges),
+    appLogs: services.appLogs,
     authProfiles: services.authProfiles,
   });
   const processRegistry = new ManagedProcessGroupRegistry();
@@ -138,7 +143,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, compositionAuthority: services.compositionAuthority, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, readModelChanges: services.readModelChanges }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, compositionAuthority: services.compositionAuthority, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges }),
     eventLogger,
     errorLogger,
     eventBus,
@@ -160,6 +165,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       mcpManager,
       conversations,
       configAuthority: services.configAuthority,
+      appLogs: services.appLogs,
     });
     return analystDepsCache;
   };

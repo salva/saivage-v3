@@ -8,10 +8,10 @@ import type { CandidateAvailability } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
 import { ProviderTurnFailure, type LlmCallFn, type ProviderTurnCompletion, type ResponsesReplayProjection, type ToolDefinition } from './llm-contracts.js';
-import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
+import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
-import { readProviderExchangeLogEntries } from '../persistence/provider-exchange-log.js';
-import type { ProviderExchangeMutationPort } from '../persistence/provider-exchange-mutation-port.js';
+import { providerExchangeAppLogEntry } from '../persistence/provider-exchange-log.js';
+import type { AppLogStore } from '../persistence/app-log.js';
 import type { MutationAuthority } from '../application/mutation-authority.js';
 import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
 
@@ -55,7 +55,7 @@ export interface InvocationServiceConfig {
   eventLogger?: EventLogger;
   candidateAvailability: CandidateAvailability;
   llmCallFn?: LlmCallFn;
-  providerExchangeMutations: ProviderExchangeMutationPort;
+  appLogs: AppLogStore;
   authProfiles: AuthProfileRepository;
 }
 
@@ -67,7 +67,7 @@ export class InvocationService {
   private readonly maxRecoveryRetries: number;
   private readonly llmGateway: AgentLlmInvocationGateway;
   private readonly llmCallFn?: LlmCallFn;
-  private readonly providerExchangeMutations: ProviderExchangeMutationPort;
+  private readonly appLogs: AppLogStore;
 
   constructor(config: InvocationServiceConfig) {
     this.projectRoot = config.projectRoot;
@@ -83,7 +83,7 @@ export class InvocationService {
       authProfiles: config.authProfiles,
     });
     this.llmCallFn = config.llmCallFn;
-    this.providerExchangeMutations = config.providerExchangeMutations;
+    this.appLogs = config.appLogs;
   }
 
   async resolveCandidates(role: OperationalAgentRole, capabilityRequest: CapabilityRequest): Promise<Candidate[]> {
@@ -112,7 +112,6 @@ export class InvocationService {
   }
 
   async invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion> {
-    const persisted = new ProviderExchangeAppender(this.projectRoot, request.sessionId, request.inputId, this.providerExchangeMutations);
     const settled: ProviderExchangeAttempt[] = [];
     let lastFailure: unknown = null;
     const deadlineMs = Date.now() + LLM_UNAVAILABILITY_TIMEOUT_MS;
@@ -145,8 +144,7 @@ export class InvocationService {
       }
         try {
           const result = await this.invokeCall(request, candidate);
-          const persistedAttempts = persisted.appendAll(result.provider_exchanges);
-          settled.push(...persistedAttempts);
+          settled.push(...indexProviderExchangeAttempts(request.inputId, settled.length, result.provider_exchanges));
           this.candidateAvailability.markSucceeded(request.mutationAuthority, candidate);
           return { result: result.result, provider_exchanges: settled, provider_private_context: result.provider_private_context };
         } catch (err) {
@@ -167,7 +165,7 @@ export class InvocationService {
           });
           if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
             if (err.provider_exchanges.length === 0) throw new Error(`Provider attempt for input '${request.inputId}' settled without a provider_exchange envelope.`);
-            settled.push(...persisted.appendAll(err.provider_exchanges));
+            settled.push(...indexProviderExchangeAttempts(request.inputId, settled.length, err.provider_exchanges));
           }
           if (decision.markFailed && decision.availability) this.candidateAvailability.markFailed(request.mutationAuthority, candidate, decision.availability);
           if (decision.action === 'abort_without_retry' || decision.action === 'fail_invocation') {
@@ -197,8 +195,12 @@ export class InvocationService {
     }
   }
 
-  async flushRecorders(): Promise<void> {
-    await this.llmGateway.flushRecorders();
+  projectProviderExchanges(authority: MutationAuthority, sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void {
+    for (const attempt of attempts) {
+      if (attempt.attempt_index === undefined) throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
+      const payload = providerExchangePayloadSchema.parse(attempt.status === 'ok' ? { ...attempt, assistant_output_ids: assistantOutputIds } : attempt);
+      this.appLogs.append(authority, providerExchangeAppLogEntry({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload }));
+    }
   }
 
   private throwNoCandidates(request: InvocationRequest, settled: ProviderExchangeAttempt[]): never {
@@ -292,41 +294,8 @@ function isAbortFromSignal(error: unknown, signal?: AbortSignal): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-class ProviderExchangeAppender {
-  private nextAttemptIndex: number;
-  private readonly identities = new Set<string>();
-
-  constructor(private readonly projectRoot: string, private readonly sessionId: string, private readonly sourceInputId: string, private readonly mutations: ProviderExchangeMutationPort) {
-    const existing = readProviderExchangeLogEntries(projectRoot, sessionId).filter((entry) => entry.source_input_id === sourceInputId);
-    for (const entry of existing) this.identities.add(this.identity(entry.attempt_index));
-    this.nextAttemptIndex = existing.length === 0 ? 0 : Math.max(...existing.map((entry) => entry.attempt_index)) + 1;
-  }
-
-  appendAll(attempts: ProviderExchangeAttempt[]): ProviderExchangeAttempt[] {
-    return attempts.map((attempt) => this.append(attempt));
-  }
-
-  private append(attempt: ProviderExchangeAttempt): ProviderExchangeAttempt {
-    const indexed = { ...attempt, source_input_id: this.sourceInputId, attempt_index: this.nextAttemptIndex++ };
-    const identity = this.identity(indexed.attempt_index);
-    if (this.identities.has(identity)) throw new Error(`Duplicate provider_exchange identity '${identity}'.`);
-    this.identities.add(identity);
-    const payload = indexed.status === 'ok'
-      ? { ...indexed, assistant_output_ids: [] }
-      : indexed;
-    this.mutations.append({
-      session_id: this.sessionId,
-      source_input_id: this.sourceInputId,
-      attempt_index: indexed.attempt_index,
-      timestamp: indexed.completed_at,
-      payload,
-    });
-    return indexed;
-  }
-
-  private identity(attemptIndex: number): string {
-    return `${this.sessionId}:${this.sourceInputId}:${attemptIndex}`;
-  }
+function indexProviderExchangeAttempts(sourceInputId: string, offset: number, attempts: ProviderExchangeAttempt[]): ProviderExchangeAttempt[] {
+  return attempts.map((attempt, index) => ({ ...attempt, source_input_id: sourceInputId, attempt_index: offset + index }));
 }
 
 function genericContextMessagesForRequest(request: InvocationRequest): AgentMessage[] {

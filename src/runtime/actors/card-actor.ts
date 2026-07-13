@@ -17,7 +17,8 @@ import { deferred, type Deferred } from './deferred.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
-import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
+import type { ConversationStore } from '../../persistence/conversation-store.js';
+import type { AppLogStore } from '../../persistence/app-log.js';
 import type { RecordProjection } from '../../persistence/project-persistence-authority.js';
 import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 import type { CardStore } from '../../cards/card-store.js';
@@ -108,7 +109,8 @@ export interface CardActorDeps {
   notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
   lookup: Map<string, CardActor>;
   conversationPublisher?: ConversationChangePublisher;
-  conversations: ConversationMutationPort;
+  conversations: ConversationStore;
+  appLogs: AppLogStore;
   snapshots: ActorSnapshotStore;
 }
 
@@ -470,6 +472,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       children: { get: (childId) => owner.childCardActor(childId) },
       provider: owner.deps.provider,
       conversations: owner.deps.conversations,
+      appLogs: owner.deps.appLogs,
       snapshots: owner.deps.snapshots,
       gate: owner.deps.gate,
       notifyCard: owner.deps.notifyCard,
@@ -487,6 +490,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
     cardId: card.id,
     provider: owner.deps.provider,
     conversations: owner.deps.conversations,
+    appLogs: owner.deps.appLogs,
     snapshots: owner.deps.snapshots,
     processRunner: owner.deps.processRunner,
     gate: owner.deps.gate,

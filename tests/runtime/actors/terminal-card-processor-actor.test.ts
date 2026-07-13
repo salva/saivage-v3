@@ -7,7 +7,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 
-import { CardActor, TerminalCardProcessorActor, readActorSnapshots, type CardActorDeps, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { CardActor, readActorSnapshots, type CardActorDeps, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { TestTerminalCardProcessorActor as TerminalCardProcessorActor } from '../../helpers/app-log-actors.js';
+import { testAppLogs } from '../../helpers/app-logs.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import type { MutationAuthority } from '../../../src/application/mutation-authority.js';
@@ -114,7 +116,7 @@ function providerTurnFailure(message: string): ProviderTurnFailure {
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort, runner = processRunner(projectRoot)): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: runner, notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), appLogs: testAppLogs(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: runner, notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function actorFromCard(projectRoot: string, store: CardStore, card: ReturnType<typeof setup>['card'], processor: TerminalCardProcessorActor, provider: LLMProviderPort, runner?: ProcessRunner): CardActor {

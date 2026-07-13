@@ -1,9 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, truncateSync, writeSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { z } from 'zod';
-import { JsonlLedger } from './jsonl-ledger.js';
-import { ProjectLock } from './project-lock.js';
-import { appLogFile, appLogLockFile } from './layout.js';
+import { appLogFile } from './layout.js';
+import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
+import type { MutationLane } from '../application/mutation-lane.js';
+import type { ReadModelChanges } from '../application/read-model-changes.js';
+import { IndeterminatePublicationError } from './errors.js';
 
 export const appLogEntryTypeSchema = z.enum([
   'event',
@@ -24,31 +26,76 @@ export const appLogEntrySchema = z.object({
 export type AppLogEntry = z.infer<typeof appLogEntrySchema>;
 export type AppLogEntryType = z.infer<typeof appLogEntryTypeSchema>;
 
-export function appLogLedger(projectRoot: string): JsonlLedger<AppLogEntry> {
-  return new JsonlLedger(appLogFile(projectRoot), appLogEntrySchema, new ProjectLock(appLogLockFile(projectRoot)), { version: null });
-}
+export class AppLogStore {
+  #failed = false;
 
-export function appendAppLogEntry(projectRoot: string, type: AppLogEntryType, data: unknown, timestamp = new Date().toISOString()): AppLogEntry {
-  const entry: AppLogEntry = { id: randomUUID(), timestamp, type, data };
-  const lock = new ProjectLock(appLogLockFile(projectRoot));
-  const lockedLedger = new JsonlLedger(appLogFile(projectRoot), appLogEntrySchema, lock, { version: null });
-  lock.withLockSync((handle) => lockedLedger.appendSync(handle, entry));
-  return entry;
+  constructor(readonly projectRoot: string, private readonly lane: MutationLane, private readonly changes?: ReadModelChanges) {}
+
+  restabilize(authority: CompositionMutationAuthority): void {
+    const result = this.lane.apply(authority, 'app log restabilization', () => restabilizeAppLog(this.projectRoot));
+    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  }
+
+  append(authority: MutationAuthority, entry: AppLogEntry): AppLogEntry {
+    if (this.#failed) throw new Error('App log store has failed and requires restart.');
+    const parsed = appLogEntrySchema.parse(entry);
+    const result = this.lane.apply(authority, 'app log append', () => {
+      const existing = readAppLogEntries(this.projectRoot).find((row) => row.id === parsed.id);
+      if (existing) {
+        if (JSON.stringify(existing) !== JSON.stringify(parsed)) throw new Error(`App log entry '${parsed.id}' already exists with different content.`);
+        return { entry: existing, appended: false };
+      }
+      try { appendDurably(appLogFile(this.projectRoot), `${JSON.stringify(parsed)}\n`); }
+      catch (error) { this.#failed = true; throw new IndeterminatePublicationError(appLogFile(this.projectRoot), { cause: error }); }
+      return { entry: parsed, appended: true };
+    });
+    if (!result.applied) throw new Error('App log mutation authority is stale.');
+    if (result.value.appended) this.changes?.agentsChanged();
+    return result.value.entry;
+  }
 }
 
 export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): AppLogEntry[] {
   const path = appLogFile(projectRoot);
   if (!existsSync(path)) return [];
-  const raw = readFileSync(path, 'utf-8').trim();
+  const raw = readFileSync(path, 'utf-8');
   if (!raw) return [];
+  if (!raw.endsWith('\n')) throw new Error(`App log '${path}' has an incomplete final row.`);
   const entries: AppLogEntry[] = [];
   for (const line of raw.split('\n').filter(Boolean)) {
     try {
-      const parsed = appLogEntrySchema.safeParse(JSON.parse(line));
-      if (parsed.success && (!type || parsed.data.type === type)) entries.push(parsed.data);
-    } catch {
-      // Ignore malformed app-log lines for read projections.
+      const parsed = appLogEntrySchema.parse(JSON.parse(line));
+      if (!type || parsed.type === type) entries.push(parsed);
+    } catch (error) {
+      throw new Error(`App log '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   return entries;
+}
+
+function restabilizeAppLog(projectRoot: string): void {
+  const path = appLogFile(projectRoot);
+  if (!existsSync(path)) return;
+  const content = readFileSync(path);
+  if (content.length > 0 && content[content.length - 1] !== 0x0a) {
+    const lastNewline = content.lastIndexOf(0x0a);
+    truncateSync(path, lastNewline < 0 ? 0 : lastNewline + 1);
+    const fd = openSync(path, 'r');
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+  }
+  readAppLogEntries(projectRoot);
+}
+
+function appendDurably(path: string, content: string): void {
+  const directory = dirname(path);
+  mkdirSync(directory, { recursive: true });
+  const fd = openSync(path, 'a');
+  try {
+    const bytes = Buffer.from(content);
+    let offset = 0;
+    while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
+    fsyncSync(fd);
+  } finally { closeSync(fd); }
+  const directoryFd = openSync(directory, 'r');
+  try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
 }

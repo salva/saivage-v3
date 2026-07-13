@@ -7,6 +7,7 @@ import { CardStore, closeTestProject, initProjectTree, testConfigAuthority } fro
 import { get_card, get_tree } from '../../src/tools/analyst-card-tools.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) { closeTestProject(root); rmSync(root, { recursive: true, force: true }); } });
@@ -31,7 +32,7 @@ describe('canonical persisted subtree ordering', () => {
     store = new CardStore(root);
     expect(store.listChildren(parent.id)).toEqual(expected);
     const processRunner = createTestProcessRunner(root);
-    const context = { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst' as const, surface: 'web-chat' as const, restartServerAvailable: false };
+    const context = { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst' as const, surface: 'web-chat' as const, restartServerAvailable: false, appLogs: testAppLogs(root) };
     const detail = await get_card(context, { id: parent.id });
     const tree = await get_tree(context, { rootId: parent.id });
     expect(detail.success).toBe(true);

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { operatorRouteInventory } from '../../src/contracts/operator-api.js';
-import { EventLogger } from '../../src/observability/index.js';
+import { TestEventLogger as EventLogger } from '../helpers/observability.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';

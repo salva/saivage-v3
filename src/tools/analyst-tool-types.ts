@@ -4,6 +4,7 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 import type { ControlActionSurface } from '../schemas/index.js';
 import type { ActorRole } from '../agents/authz.js';
 import type { EventBus } from '../events/index.js';
+import type { AppLogStore } from '../persistence/app-log.js';
 import type { ToolResult } from './invocation.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
@@ -31,4 +32,5 @@ export interface ToolContext {
   actor: ActorRole;
   surface: ControlActionSurface;
   eventBus?: EventBus;
+  appLogs: AppLogStore;
 }

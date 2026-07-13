@@ -8,6 +8,7 @@ import { MCP_INVOKE_TIMEOUT_MS, type McpServerStatus, type McpToolDefinition } f
 import { loadMcpServersFromConfig, type McpServerConfig } from './server-registry.js';
 import { McpServerRuntime } from './server-runtime.js';
 import { buildMcpToolsReadModel } from './status-projection.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 export type { McpServerConfig, McpServerHandle } from './server-registry.js';
 export type { McpTransport, McpStatus, McpServerStatus, McpToolAnnotations, McpToolDefinition, McpJsonRpcRequest, McpJsonRpcResponse, McpJsonRpcError, ListToolsResult, McpInitializeParams, ToolsCallResult } from './protocol.js';
@@ -17,7 +18,7 @@ export { McpInvokeError, ServerNotRunningError, ToolNotFoundError, InvalidArgume
 export interface McpStatusProvider { getStatus(): McpServerStatus[] }
 export interface McpToolsReadModelProvider { getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel> }
 export type McpToolCapability = ReturnType<typeof buildMcpToolsReadModel>['serverDetails'][number]['tools'][number] & { serverName: string };
-export interface McpToolInvocationPort { getServerTools(name: string): McpToolDefinition[] | undefined; findToolCapability(serverName: string, toolName: string): McpToolCapability | null; invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> }
+export interface McpToolInvocationPort { getServerTools(name: string): McpToolDefinition[] | undefined; findToolCapability(serverName: string, toolName: string): McpToolCapability | null; invokeTool(authority: MutationAuthority, serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> }
 
 export interface McpReconciliationReport {
   converged: boolean;
@@ -84,10 +85,10 @@ export class McpManager implements McpReconciliationPort {
   getServerTools(name: string): McpToolDefinition[] | undefined { return this.runtimes.get(name)?.getTools(); }
   getToolServers(): string[] { return [...this.runtimes.values()].filter((runtime) => runtime.getTools() !== undefined).map((runtime) => runtime.name); }
 
-  async invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> {
+  async invokeTool(authority: MutationAuthority, serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> {
     const runtime = this.runtimes.get(serverName);
     if (!runtime) throw new ServerNotRunningError(serverName);
-    return runtime.invokeTool(toolName, args, options);
+    return runtime.invokeTool(authority, toolName, args, options);
   }
 
   async healthCheck(name: string): Promise<boolean> { return this.runtimes.get(name)?.healthCheck() ?? false; }

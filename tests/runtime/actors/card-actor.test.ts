@@ -2,6 +2,7 @@ import { initProjectTree, CardStore, testCompositionAuthority } from '../../help
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
+import { testAppLogs } from '../../helpers/app-logs.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,7 +41,7 @@ function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled'
 const processorLifecycle = () => ({ disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []), pendingJoinTaskCount: jest.fn(() => 0) });
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), appLogs: testAppLogs(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function cardActive(cardId: string): Record<string, unknown> {
@@ -348,7 +349,7 @@ describe('CardActor', () => {
     readModelChanges.subscribe({ runtimeChanged, cardStateChanged: jest.fn(), agentsChanged: jest.fn(), conversationChanged: jest.fn() });
     const runtime = createSupervisorRuntimeApi({
       readModelChanges,
-      projectRoot, conversations: testConversationMutations(projectRoot),
+      projectRoot, conversations: testConversationMutations(projectRoot), appLogs: testAppLogs(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store.repository,
       compositionAuthority: testCompositionAuthority(projectRoot),
@@ -372,7 +373,7 @@ describe('CardActor', () => {
     createProject(store);
     const runtime = createSupervisorRuntimeApi({
       readModelChanges: new ReadModelChangeBroadcaster(),
-      projectRoot, conversations: testConversationMutations(projectRoot),
+      projectRoot, conversations: testConversationMutations(projectRoot), appLogs: testAppLogs(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store.repository,
       compositionAuthority: testCompositionAuthority(projectRoot),

@@ -1,17 +1,11 @@
-import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { redactForOutbound } from '../redaction/index.js';
 import { EventBus } from '../events/index.js';
-import { registerErrorLogProjection } from '../projections/index.js';
-import { readAppLogEntries } from '../persistence/app-log.js';
-import { appLogFile, saivageLogsRoot } from '../persistence/layout.js';
+import { readAppLogEntries, type AppLogStore } from '../persistence/app-log.js';
+import { appLogFile } from '../persistence/layout.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 // ── Constants ─────────────────────────────────────────────────
-
-function errorsPath(saivageDir: string): string {
-  const projectRoot = saivageDir.endsWith('/.saivage') ? saivageDir.slice(0, -'/.saivage'.length) : saivageDir;
-  return appLogFile(projectRoot);
-}
 
 // ── Error ID Generator ────────────────────────────────────────
 
@@ -71,24 +65,21 @@ export interface ErrorFilter {
 // ── ErrorLogger ───────────────────────────────────────────────
 
 export class ErrorLogger {
-  private saivageDir: string;
+  private projectRoot: string;
   private logPath: string;
   private readonly eventBus: EventBus;
 
-  constructor(saivageDir: string, eventBus = new EventBus()) {
-    this.saivageDir = saivageDir;
-    this.logPath = errorsPath(saivageDir);
+  constructor(projectRoot: string, private readonly appLogs: AppLogStore, eventBus = new EventBus()) {
+    this.projectRoot = projectRoot;
+    this.logPath = appLogFile(projectRoot);
     this.eventBus = eventBus;
-    registerErrorLogProjection(this.eventBus, this.saivageDir);
-
-    mkdirSync(saivageLogsRoot(this.saivageDir.endsWith('/.saivage') ? this.saivageDir.slice(0, -'/.saivage'.length) : this.saivageDir), { recursive: true });
   }
 
   /**
    * Append an error to the log. The error gets an auto-generated id
    * and timestamp if not already provided. Returns the full ErrorRecord.
    */
-  appendError(error: ErrorInput): ErrorRecord {
+  appendError(authority: MutationAuthority, error: ErrorInput): ErrorRecord {
     const record: ErrorRecord = redactForOutbound({
       ...error,
       kind: 'error',
@@ -100,6 +91,7 @@ export class ErrorLogger {
       phase: error.phase,
     }, 'error.log', { source: 'error-logger' }) as ErrorRecord;
 
+    this.appLogs.append(authority, { id: record.id, timestamp: record.timestamp, type: 'error', data: record });
     this.eventBus.emit('error_log_record_appended', { record: record as unknown as Record<string, unknown> });
     return record;
   }
@@ -109,8 +101,7 @@ export class ErrorLogger {
    * Reads from the persisted file, so it reflects all written errors.
    */
   getErrors(filter?: ErrorFilter): ErrorRecord[] {
-    const projectRoot = this.saivageDir.endsWith('/.saivage') ? this.saivageDir.slice(0, -'/.saivage'.length) : this.saivageDir;
-    let errors = readAppLogEntries(projectRoot, 'error').map((entry) => entry.data as ErrorRecord);
+    let errors = readAppLogEntries(this.projectRoot, 'error').map((entry) => entry.data as ErrorRecord);
 
     // Apply filters
     if (filter) {

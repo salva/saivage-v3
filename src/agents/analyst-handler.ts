@@ -24,7 +24,8 @@ import { buildResponsesReplayProjection } from './llm-openai-responses-mapper.js
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { createConversationChangePublisher } from '../runtime/actors/conversation-publisher.js';
-import type { ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
+import type { ConversationStore } from '../persistence/conversation-store.js';
+import type { AppLogStore } from '../persistence/app-log.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
@@ -94,7 +95,8 @@ export interface AnalystRuntimeDeps {
   provider: LLMProviderPort;
   processRunner: ProcessRunner;
   analystProcessRootScope: ManagedProcessScope;
-  conversations: ConversationMutationPort;
+  conversations: ConversationStore;
+  appLogs: AppLogStore;
 }
 
 export interface AnalystTurnInput {
@@ -155,7 +157,7 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
 }
 
 function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardStore; mutationAuthority: () => AnalystTurnAuthority; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
-  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, mutationAuthority: args.mutationAuthority, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
+  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, mutationAuthority: args.mutationAuthority, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs };
 }
 
 type PendingAnalystTurn = {
@@ -294,7 +296,7 @@ export class AnalystSessionActor extends BaseActor {
     };
     const store = this.args.runtimeDeps.cardStore.authorize(mutationAuthority);
     const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store, mutationAuthority, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
-    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
+    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, mutationAuthority: ctx.mutationAuthority, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
     const previousToolCallFingerprints = new Set<string>();
     let noProgressDirectiveSent = false;
     const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(input.workspaceContext));
@@ -401,9 +403,9 @@ export class AnalystSessionActor extends BaseActor {
 
   private scheduleConfirmedRestart(input: AnalystTurnInput): AnalystResponse {
     if (!this.args.restartServerAvailable || !this.args.restartPort) throw new Error('Restart confirmation is unavailable without authenticated operator restart capability.');
-    const appended = appendCanonicalUserText(this.args.runtimeDeps.conversations, this.sessionId, input.userContent);
+    const appended = appendCanonicalUserText(this.args.runtimeDeps.conversations, this.mutationAuthority(), this.sessionId, input.userContent);
     this.llm.conversationPublisher?.entryAppended(appended);
-    recordControlAction(this.args.projectRoot, {
+    recordControlAction(this.args.runtimeDeps.appLogs, this.mutationAuthority(), {
       actor: 'analyst', surface: this.args.surface ?? 'web-chat', action: 'runtime.restart_server', target_kind: 'runtime', target_id: 'server',
       params_summary: JSON.stringify({ session_id: this.sessionId, operator_authority: 'global' }), safety_class: 'destructive', outcome: 'ok', outcome_summary: 'restart accepted and scheduled',
     }, this.args.runtimeDeps.eventBus);
@@ -474,7 +476,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private logBoundaryDiagnostic(phase: string, err: unknown): void {
     try {
-      this.args.runtimeDeps.eventLogger?.appendEvent(buildRuntimeDiagnosticEvent({ phase, error: err }));
+      this.args.runtimeDeps.eventLogger?.appendEvent(this.mutationAuthority(), buildRuntimeDiagnosticEvent({ phase, error: err }));
     } catch {
       /* best-effort diagnostics; never fail the analyst response path */
     }
@@ -492,7 +494,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations, input?: LlmInvocationInput): AnalystResponse {
     if (input) {
-      const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, this.errorMessage(err));
+      const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, this.mutationAuthority(), input, this.errorMessage(err));
       this.llm.conversationPublisher?.entryAppended(message.appendResult);
     }
     return this.response(toolInvocations);
@@ -505,7 +507,7 @@ export class AnalystSessionActor extends BaseActor {
   private persistAssistantNotice(content: string): void {
     const input = this.llm.input;
     if (!input) return;
-    const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, content);
+    const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, this.mutationAuthority(), input, content);
     this.llm.conversationPublisher?.entryAppended(message.appendResult);
   }
 
@@ -597,7 +599,7 @@ export class AnalystRuntime {
     try {
       const catalogStore = this.args.runtimeDeps.cardStore.authorize(() => { throw new Error('Tool catalog has no mutation authority.'); });
       const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store: catalogStore, mutationAuthority: () => { throw new Error('Tool catalog has no mutation authority.'); }, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
-      return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
+      return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, mutationAuthority: ctx.mutationAuthority, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
     } finally {
       this.args.runtimeDeps.processRunner.closeScope(processScope);
     }

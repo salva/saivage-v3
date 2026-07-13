@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { Environment } from '../../config/index.js';
 import type { SaivageConfig } from '../../agents/config-api.js';
@@ -21,6 +20,7 @@ import type { ProjectPersistenceAuthority } from '../../persistence/project-pers
 import type { CompositionMutationAuthority } from '../../application/mutation-authority.js';
 import type { MutationLane } from '../../application/mutation-lane.js';
 import { AuthProfileRepository } from '../../auth/auth-profile-store.js';
+import { AppLogStore } from '../../persistence/app-log.js';
 
 export interface ServerServices {
   projectRoot: string;
@@ -30,6 +30,7 @@ export interface ServerServices {
   eventBus: EventBus;
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
+  appLogs: AppLogStore;
   cardStore: CardStoreRepository;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
@@ -97,17 +98,18 @@ export async function createServerServices(input: {
   const fastify = await createFastifyApp(environment);
   const eventBus = new EventBus();
   setProjectNotificationEventBus(projectRoot, eventBus);
-  const saivageDir = join(projectRoot, '.saivage');
-  const eventLogger = new EventLogger(saivageDir);
-  const errorLogger = new ErrorLogger(saivageDir);
   const readModelChanges = new ReadModelChangeBroadcaster();
+  const appLogs = new AppLogStore(projectRoot, input.mutationLane, readModelChanges);
+  appLogs.restabilize(input.compositionAuthority);
+  const eventLogger = new EventLogger(projectRoot, appLogs, eventBus);
+  const errorLogger = new ErrorLogger(projectRoot, appLogs, eventBus);
   const cardStore = new CardStoreRepository({ projectRoot, reader: input.authority.reader, writer: input.authority.writer, eventBus, readModelChanges });
   const authProfiles = new AuthProfileRepository(projectRoot, input.mutationLane);
   authProfiles.restabilize(input.compositionAuthority);
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, cardStore, authProfiles, mutationLane: input.mutationLane, compositionAuthority: input.compositionAuthority, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, appLogs, cardStore, authProfiles, mutationLane: input.mutationLane, compositionAuthority: input.compositionAuthority, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
 
@@ -129,6 +131,7 @@ export async function createServerServices(input: {
     eventBus,
     eventLogger,
     errorLogger,
+    appLogs,
     cardStore,
     runtimeApplication,
     mcpManager,

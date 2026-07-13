@@ -5,11 +5,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { appendAppLogEntry } from '../../src/persistence/app-log.js';
-import { appendProviderExchangeLogEntry } from '../../src/persistence/provider-exchange-log.js';
+import { providerExchangeAppLogEntry } from '../../src/persistence/provider-exchange-log.js';
+import { testAppLogAuthority, testAppLogs } from '../helpers/app-logs.js';
 import { initRuntimeState, runtimeStatePath, updateRuntimeState } from '../../src/runtime/state.js';
 
-import { appendConversationMessage, buildContextTextMessage } from '../../src/runtime/actors/index.js';
+import { buildContextTextMessage } from '../../src/runtime/actors/index.js';
+import { appendTestConversationMessage as appendConversationMessage } from '../helpers/conversation-mutations.js';
 import {
   AgentOperatorReadModelService,
   buildCardRunsResponse,
@@ -165,7 +166,7 @@ describe('application read models', () => {
   it('reads canonical analyst segment entries and debug jsonl projections', () => {
     appendConversationMessage(root, { ...buildContextTextMessage('analyst:global', 'system', 'system prompt'), id: 'msg-1', kind: 'system_prompt', timestamp: '2026-01-01T00:00:00.000Z' });
     appendConversationMessage(root, { ...buildContextTextMessage('analyst:global', 'user', 'hi'), id: 'msg-2', timestamp: '2026-01-01T00:00:01.000Z' });
-    appendAppLogEntry(root, 'error', { id: 'err-1', kind: 'error', timestamp: '2026-01-01T00:00:02.000Z', message: 'apiKey=secret' }, '2026-01-01T00:00:02.000Z');
+    testAppLogs(root).append(testAppLogAuthority(root), { id: 'err-1', type: 'error', data: { id: 'err-1', kind: 'error', timestamp: '2026-01-01T00:00:02.000Z', message: 'apiKey=secret' }, timestamp: '2026-01-01T00:00:02.000Z' });
 
     const chat = new AgentOperatorReadModelService(root).getConversation('analyst:global').body as { entries: Array<{ kind: string }> };
     const debug = new DebugReadModelService(root, new CardStore(root)).getErrors() as { errors: unknown[]; total: number };
@@ -187,7 +188,7 @@ describe('application read models', () => {
 
   it('derives latest session model from app-log provider exchange entries', () => {
     appendConversationMessage(root, buildContextTextMessage('planner:project', 'user', 'hello'));
-    appendProviderExchangeLogEntry(root, {
+    testAppLogs(root).append(testAppLogAuthority(root), providerExchangeAppLogEntry({
       session_id: 'planner:project',
       source_input_id: 'planner:project:1',
       attempt_index: 0,
@@ -207,7 +208,7 @@ describe('application read models', () => {
         terminal_tool_fired: null,
         assistant_output_ids: ['planner:project:1:message'],
       },
-    });
+    }));
 
     const { sessions } = new AgentOperatorReadModelService(root).listSessions();
 

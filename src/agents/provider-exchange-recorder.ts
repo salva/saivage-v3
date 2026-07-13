@@ -29,7 +29,6 @@ export interface BeginProviderExchangeInput {
 export interface ProviderExchangeRecorder {
   beginExchange(meta: BeginProviderExchangeInput): Promise<ProviderExchangeHandle>;
   settledAttempts(): ProviderExchangeAttempt[];
-  flush(): Promise<void>;
 }
 
 export interface CreateProviderExchangeRecorderOptions {
@@ -89,7 +88,6 @@ export function createProviderExchangeRecorder(_opts: CreateProviderExchangeReco
   return {
     beginExchange,
     settledAttempts: () => attempts.map((attempt) => ({ ...attempt })),
-    async flush(): Promise<void> {},
   };
 }
 

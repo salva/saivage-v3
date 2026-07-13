@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 
 import { EventBus, toEventLogRecord, type DomainEvent } from '../../../src/events/index.js';
-import { appendConversationMessage, buildContextTextMessage, createConversationChangePublisher, readConversationMessages } from '../../../src/runtime/actors/index.js';
+import { buildContextTextMessage, createConversationChangePublisher, readConversationMessages } from '../../../src/runtime/actors/index.js';
+import { appendTestConversationMessage as appendConversationMessage } from '../../helpers/conversation-mutations.js';
 import { mapLiveSyncEvent } from '../../../src/server/sync-hub.js';
 
 describe('conversation change publisher', () => {

@@ -10,7 +10,7 @@ import type { BufferSizeEstimator, CompactionConfig } from './compaction/compact
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import { listConversationSessionIds, readConversationMessages, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import type { AgentMessage } from '../../schemas/index.js';
-import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
+import type { ConversationStore } from '../../persistence/conversation-store.js';
 import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 import type { MutationAuthority } from '../../application/mutation-authority.js';
 
@@ -22,13 +22,13 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   readonly summarizerProvider?: LLMProviderPort;
   readonly bufferSizeEstimator?: BufferSizeEstimator;
   readonly conversationPublisher?: ConversationChangePublisher;
-  readonly conversations: ConversationMutationPort;
+  readonly conversations: ConversationStore;
   readonly mutationAuthority: () => MutationAuthority;
   readonly activeLlmActors = new Map<string, LLMActor>();
   #invocationInputCounter = 0;
   #joiningLlmActors: readonly LLMActor[] | null = null;
 
-  protected constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationMutationPort; mutationAuthority: () => MutationAuthority; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  protected constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationStore; mutationAuthority: () => MutationAuthority; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.provider = args.provider;
     this.conversations = args.conversations;

@@ -12,7 +12,8 @@ import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
 import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
-import type { ConversationMutationPort } from '../persistence/conversation-mutation-port.js';
+import type { ConversationStore } from '../persistence/conversation-store.js';
+import type { AppLogStore } from '../persistence/app-log.js';
 import type { ReadModelChanges } from './read-model-changes.js';
 import type { CompositionMutationAuthority } from './mutation-authority.js';
 
@@ -28,7 +29,8 @@ export interface MicroActorRuntimeApiFactoryDeps {
   runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   now?: () => string;
-  conversations: ConversationMutationPort;
+  conversations: ConversationStore;
+  appLogs: AppLogStore;
   readModelChanges: ReadModelChanges;
 }
 
@@ -51,6 +53,7 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     mcpManagerProvider: deps.mcpManagerProvider,
     now: deps.now,
     conversations: deps.conversations,
+    appLogs: deps.appLogs,
     readModelChanges: deps.readModelChanges,
   });
 }
@@ -101,5 +104,6 @@ export function createInvocationServiceProvider(invocationService: InvocationSer
       capabilityRequest: input.capabilityRequest,
       abortSignal: signal,
     }),
+    projectProviderExchanges: (authority, sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(authority, sessionId, sourceInputId, attempts, assistantOutputIds),
   };
 }

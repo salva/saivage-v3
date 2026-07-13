@@ -1,11 +1,11 @@
 import { initProjectTree, testCompositionAuthority } from '../../../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { testConversationMutations } from '../../../helpers/conversation-mutations.js';
+import { appendTestConversationMessage as appendConversationMessage, testConversationMutations } from '../../../helpers/conversation-mutations.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { appendActivationMarker, appendConversationMessage, conversationMessagesForModel, readActiveVersionMessages } from '../../../../src/runtime/actors/conversation-store.js';
+import { appendActivationMarker, conversationMessagesForModel, readActiveVersionMessages } from '../../../../src/runtime/actors/conversation-store.js';
 import { readConversationIndex } from '../../../../src/runtime/actors/conversation-index.js';
 import { compact, shouldCompact, type BufferSizeEstimator, type CompactionConfig } from '../../../../src/runtime/actors/compaction/compactor.js';
 import { summaryCachePath } from '../../../../src/runtime/actors/compaction/summary-cache.js';
@@ -46,7 +46,7 @@ function input(contextMessages: AgentMessage[]): LlmInvocationInput {
 }
 
 function appendRound(projectRoot: string, ordinal: number, content: string): void {
-  appendActivationMarker(testConversationMutations(projectRoot), 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: `turn-${ordinal}` });
+  appendActivationMarker(testConversationMutations(projectRoot), testCompositionAuthority(projectRoot), 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: `turn-${ordinal}` });
   const timestamp = new Date().toISOString();
   appendConversationMessage(projectRoot, { id: `planner:project:text:${ordinal}`, session_id: 'planner:project', role: 'user', kind: 'text', content, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp });
 }
@@ -70,7 +70,7 @@ describe('conversation compactor orchestration', () => {
     const { rows } = await compact({ projectRoot, conversations, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), mutationAuthority: testCompositionAuthority(projectRoot), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80), signal: new AbortController().signal });
 
     expect(replaceActiveVersion).toHaveBeenCalledTimes(1);
-    expect(Object.keys(replaceActiveVersion.mock.calls[0]![0])).toEqual(['sessionId', 'sourceVersion', 'content', 'compactedThrough', 'summaryIds', 'compactionGeneration', 'bands']);
+    expect(Object.keys(replaceActiveVersion.mock.calls[0]![1])).toEqual(['sessionId', 'sourceVersion', 'sourceDigest', 'content', 'compactedThrough', 'summaryIds', 'compactionGeneration', 'bands']);
     expect(rows.every((row) => row.kind !== 'activity')).toBe(true);
     const summaries = rows.filter((row) => row.kind === 'context_compaction');
     expect(summaries.length).toBeGreaterThan(0);

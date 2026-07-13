@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 
-import { PlanningCardProcessorActor, type CardActivationInput, type LLMProviderPort, type LlmInvocationInput } from '../../../src/runtime/actors/index.js';
+import { type CardActivationInput, type LLMProviderPort, type LlmInvocationInput } from '../../../src/runtime/actors/index.js';
+import { TestPlanningCardProcessorActor as PlanningCardProcessorActor } from '../../helpers/app-log-actors.js';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 
 import type { CardRecord } from '../../../src/schemas/index.js';

@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { appendSyncIdempotentByKey } from '../../../persistence/index.js';
 import type { AgentMessage } from '../../../schemas/index.js';
 import { conversationDir } from '../conversation-index.js';
 import type { RecoverableEvidenceDescriptor } from './result-dropping.js';
@@ -47,18 +46,6 @@ export function readSummaryCache(projectRoot: string, sessionId: string): Summar
 
 export function getSummaryCacheEntry(projectRoot: string, sessionId: string, cacheKey: string): SummaryCacheEntry | undefined {
   return readSummaryCache(projectRoot, sessionId).find((entry) => entry.cache_key === cacheKey);
-}
-
-export function appendSummaryCacheEntry(projectRoot: string, sessionId: string, entry: Omit<SummaryCacheEntry, 'created_at'> & { created_at?: string }): SummaryCacheEntry {
-  const parsed = summaryCacheEntrySchema.parse({ ...entry, created_at: entry.created_at ?? new Date().toISOString() });
-  const existing = getSummaryCacheEntry(projectRoot, sessionId, parsed.cache_key);
-  if (existing) {
-    const comparableExisting = { ...existing, created_at: parsed.created_at };
-    if (JSON.stringify(comparableExisting) !== JSON.stringify(parsed)) throw new Error(`Summary cache entry '${parsed.cache_key}' already exists and is immutable.`);
-    return existing;
-  }
-  appendSyncIdempotentByKey(summaryCachePath(projectRoot, sessionId), parsed, 'cache_key');
-  return parsed;
 }
 
 export function renderRecoverableEvidenceSection(descriptors: readonly RecoverableEvidenceDescriptor[]): string {

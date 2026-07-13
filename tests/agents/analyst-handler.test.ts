@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
 
-import { appendConversationMessage, readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
-import { activeVersionPath, conversationDir, writeConversationIndex } from '../../src/runtime/actors/conversation-index.js';
+import { readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
+import { activeVersionPath, conversationDir } from '../../src/runtime/actors/conversation-index.js';
+import { appendTestConversationMessage as appendConversationMessage, writeTestConversationIndex as writeConversationIndex } from '../helpers/conversation-mutations.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
@@ -171,7 +172,7 @@ describe('AnalystHandler F05 contract', () => {
     try {
       const diagnostics: Array<Record<string, unknown>> = [];
       const runtimeDeps = createTestAnalystRuntime({ projectRoot: root });
-      runtimeDeps.eventLogger = { appendEvent: (event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
+      runtimeDeps.eventLogger = { appendEvent: (_authority: unknown, event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
       let call = 0;
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
         call += 1;
@@ -196,7 +197,7 @@ describe('AnalystHandler F05 contract', () => {
     try {
       const diagnostics: Array<Record<string, unknown>> = [];
       const runtimeDeps = createTestAnalystRuntime({ projectRoot: root });
-      runtimeDeps.eventLogger = { appendEvent: (event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
+      runtimeDeps.eventLogger = { appendEvent: (_authority: unknown, event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
       let call = 0;
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
         call += 1;

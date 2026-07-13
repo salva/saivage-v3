@@ -1,7 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { writeFileSyncDurable } from '../../persistence/index.js';
 import { saivageCardsRoot } from '../../persistence/layout.js';
 import { cardIdFromSessionId } from './ids.js';
 
@@ -75,75 +74,8 @@ export function versionExists(projectRoot: string, sessionId: string, version: n
   return existsSync(activeVersionPath(projectRoot, sessionId, version));
 }
 
-export function writeConversationIndex(projectRoot: string, sessionId: string, index: ConversationIndex): void {
-  if (index.session_id !== sessionId) throw new Error(`Conversation index session '${index.session_id}' does not match '${sessionId}'.`);
-  const parsed = conversationIndexSchema.parse(index);
-  writeFileSyncDurable(conversationIndexPath(projectRoot, sessionId), JSON.stringify(parsed, null, 2) + '\n');
-}
-
-export function writeConversationVersion(projectRoot: string, sessionId: string, version: number, content: string): void {
-  mkdirSync(conversationDir(projectRoot, sessionId), { recursive: true });
-  writeFileSyncDurable(activeVersionPath(projectRoot, sessionId, version), content);
-}
-
-export function writeCompactedConversationVersion(args: {
-  projectRoot: string;
-  sessionId: string;
-  sourceVersion: number;
-  content: string;
-  compactedThrough: { message_id: string; round_id: string; timestamp: string };
-  summaryIds: string[];
-  compactionGeneration: number;
-  bands: { merge_line: number; summary_line: number; trigger: number; snap: 'keep_straddler_verbatim' | 'compact_straddler' };
-}): { index: ConversationIndex; versionReplacement: ConversationVersionReplacement } {
-  const index = ensureConversationIndex(args.projectRoot, args.sessionId);
-  if (index.active_version !== args.sourceVersion) throw new Error(`Conversation '${args.sessionId}' active version changed from ${args.sourceVersion} to ${index.active_version} during compaction.`);
-  const sourceEntry = index.versions[String(args.sourceVersion)];
-  if (!sourceEntry || sourceEntry.status !== 'active') throw new Error(`Conversation '${args.sessionId}' source version ${args.sourceVersion} is not active.`);
-
-  const nextVersion = Math.max(...Object.keys(index.versions).map(Number)) + 1;
-  writeConversationVersion(args.projectRoot, args.sessionId, nextVersion, args.content);
-  const frozenAt = new Date().toISOString();
-  const sourceSize = statSync(activeVersionPath(args.projectRoot, args.sessionId, args.sourceVersion)).size;
-  const nextIndex: ConversationIndex = {
-    ...index,
-    active_version: nextVersion,
-    versions: {
-      ...index.versions,
-      [String(args.sourceVersion)]: {
-        ...sourceEntry,
-        status: 'frozen',
-        frozen_at: frozenAt,
-        size_bytes: sourceSize,
-      },
-      [String(nextVersion)]: {
-        status: 'active',
-        opened_at: frozenAt,
-        source_version: args.sourceVersion,
-        compaction_generation: args.compactionGeneration,
-        compacted_through: args.compactedThrough,
-        summary_ids: args.summaryIds,
-        bands: args.bands,
-      },
-    },
-  };
-  writeConversationIndex(args.projectRoot, args.sessionId, nextIndex);
-  return {
-    index: nextIndex,
-    versionReplacement: {
-      sessionId: args.sessionId,
-      activeVersion: nextVersion,
-      compactedThrough: args.compactedThrough,
-      compactionGeneration: args.compactionGeneration,
-    },
-  };
-}
-
 export function readConversationIndex(projectRoot: string, sessionId: string): ConversationIndex | null {
-  const index = readValidatedConversationIndex(projectRoot, sessionId);
-  if (!index) return null;
-  cleanupOrphanJsonl(projectRoot, sessionId, index);
-  return index;
+  return readValidatedConversationIndex(projectRoot, sessionId);
 }
 
 export function readValidatedConversationIndex(projectRoot: string, sessionId: string): ConversationIndex | null {
@@ -152,23 +84,6 @@ export function readValidatedConversationIndex(projectRoot: string, sessionId: s
   const raw = readRawIndex(path);
   const index = parseV2Index(path, raw);
   if (index.session_id !== sessionId) throw new Error(`Conversation index '${path}' is for session '${index.session_id}', not '${sessionId}'.`);
-  return index;
-}
-
-export function ensureConversationIndex(projectRoot: string, sessionId: string): ConversationIndex {
-  const existing = readConversationIndex(projectRoot, sessionId);
-  if (existing) return existing;
-  mkdirSync(conversationDir(projectRoot, sessionId), { recursive: true });
-  writeFileSyncDurable(activeVersionPath(projectRoot, sessionId, 1), '');
-  const now = new Date().toISOString();
-  const index: ConversationIndex = {
-    schema_version: 2,
-    session_id: sessionId,
-    active_version: 1,
-    versions: { '1': { status: 'active', opened_at: now } },
-  };
-  writeConversationIndex(projectRoot, sessionId, index);
-  cleanupOrphanJsonl(projectRoot, sessionId, index);
   return index;
 }
 
@@ -185,17 +100,5 @@ function parseV2Index(path: string, raw: unknown): ConversationIndex {
     return conversationIndexSchema.parse(raw);
   } catch (error) {
     throw new Error(`Conversation index '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-function cleanupOrphanJsonl(projectRoot: string, sessionId: string, index: ConversationIndex): void {
-  const dir = conversationDir(projectRoot, sessionId);
-  const referenced = new Set(Object.keys(index.versions).map((version) => `${version}.jsonl`));
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isFile()) continue;
-    if (entry.name === 'summaries.jsonl') continue;
-    const isConversationJsonl = conversationVersionFileNameSchema.safeParse(entry.name).success;
-    if (!isConversationJsonl || referenced.has(entry.name)) continue;
-    unlinkSync(join(dir, entry.name));
   }
 }

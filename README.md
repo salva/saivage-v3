@@ -85,6 +85,8 @@ curl http://localhost:8080/health
 
 Startup recovery currently includes a nested actor consistency pass: card status remains the outer durable truth, active-version conversations are classified per planner/reviewer/executor session, unrelinked dangling tool calls receive explicit failed `tool_result` rows, and runtime state remains a minimal current-status/cursor record rather than command/run/activation ledgers.
 
+Conversation and app-log mutation are composition-owned synchronous `MutationLane` stores. Conversation writes use exact-authority atomic batches and digest-preconditioned compaction; OpenAI Responses private and visible rows commit together. Provider success metadata is projected independently only after the conversation completion is durable. App-log writers share one strict append store with incomplete-tail startup repair and no app-log PID lock or event-bus persistence projection.
+
 ## Key concepts
 
 | Link | Authority status | Reader guidance |

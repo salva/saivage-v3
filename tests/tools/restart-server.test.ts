@@ -11,11 +11,12 @@ import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { restart_server } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { createAnalystControlProvider } from '../../src/tools/analyst-control-provider.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 
 function context(projectRoot: string, restartServerAvailable: boolean): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
   const store = new CardStore(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable, appLogs: testAppLogs(projectRoot) };
 }
 
 describe('restart_server', () => {

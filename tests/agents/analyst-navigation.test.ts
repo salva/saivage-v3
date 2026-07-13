@@ -9,6 +9,7 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 
@@ -26,7 +27,7 @@ describe('analyst navigation tools', () => {
   function ctx(root: string, actor: ToolContext['actor'] = 'analyst'): ToolContext {
     const processRunner = createTestProcessRunner(root);
     const store = new CardStore(root);
-    return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor, surface: 'web-chat', restartServerAvailable: false };
+    return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor, surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
   }
 
   it('returns a structured navigate_workspace intent for analyst callers', async () => {

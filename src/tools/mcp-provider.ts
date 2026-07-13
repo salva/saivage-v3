@@ -2,10 +2,12 @@ import { z } from 'zod';
 
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import { defineTool, type ToolProvider } from './invocation.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 export interface McpProviderContext {
   readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   readonly agentRole: 'executor' | 'reviewer' | 'analyst';
+  readonly mutationAuthority: () => MutationAuthority;
 }
 
 const mcpToolCallSchema = z.object({
@@ -35,7 +37,7 @@ export function createMcpProvider(ctx: McpProviderContext): ToolProvider {
             const manager = ctx.mcpManagerProvider();
             if (!manager) return { success: false, error: 'MCP manager is not available for this runtime.' };
             assertReviewerMayCall(ctx, args.serverName, args.toolName, manager);
-            return { success: true, data: await manager.invokeTool(args.serverName, args.toolName, args.args ?? {}) };
+            return { success: true, data: await manager.invokeTool(ctx.mutationAuthority(), args.serverName, args.toolName, args.args ?? {}) };
           } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : String(error) };
           }

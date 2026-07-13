@@ -1,6 +1,7 @@
 import { initProjectTree, CardStore, testCompositionAuthority } from '../../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
+import { testAppLogs } from '../../helpers/app-logs.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,6 +37,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       const runtime = createSupervisorRuntimeApi({
         projectRoot: root,
         conversations: testConversationMutations(root),
+        appLogs: testAppLogs(root),
         readModelChanges: changes,
         actorStore: new CardStore(root).repository,
         compositionAuthority: testCompositionAuthority(root),
@@ -69,6 +71,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       const runtime = createSupervisorRuntimeApi({
         projectRoot: root,
         conversations: testConversationMutations(root),
+        appLogs: testAppLogs(root),
         readModelChanges: new ReadModelChangeBroadcaster(),
         actorStore: store.repository,
         compositionAuthority: testCompositionAuthority(root),
@@ -113,6 +116,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       const runtime = createSupervisorRuntimeApi({
         projectRoot: root,
         conversations: testConversationMutations(root),
+        appLogs: testAppLogs(root),
         readModelChanges: new ReadModelChangeBroadcaster(),
         actorStore: store.repository,
         compositionAuthority: testCompositionAuthority(root),

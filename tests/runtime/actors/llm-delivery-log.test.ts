@@ -1,14 +1,20 @@
-import { initProjectTree } from '../../helpers/canonical-project.js';
+import { initProjectTree, testCompositionAuthority } from '../../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
-import { testConversationMutations } from '../../helpers/conversation-mutations.js';
+import { appendTestConversationMessage as appendConversationMessage, testConversationMutations, writeTestCompactedConversationVersion as writeCompactedConversationVersion } from '../../helpers/conversation-mutations.js';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { abandonStalePendingToolCalls, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalProjectedToolResult, appendToolErrorSettlementResults, loggedToolCallKey, readLoggedToolCall, sourceInputIdFromToolCallMessageId, sourceInputIdFromToolErrorMessageId, sourceInputIdFromToolResultMessageId } from '../../../src/runtime/actors/llm-delivery-log.js';
-import { appendConversationMessage, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
-import { activeVersionPath, writeCompactedConversationVersion } from '../../../src/runtime/actors/conversation-index.js';
+import { abandonStalePendingToolCalls as productionAbandonStalePendingToolCalls, appendLlmTurnFinished as productionAppendLlmTurnFinished, appendLlmTurnMessageBatch, appendLlmTurnStarted as productionAppendLlmTurnStarted, appendTerminalProjectedToolResult as productionAppendTerminalProjectedToolResult, appendToolErrorSettlementResults as productionAppendToolErrorSettlementResults, loggedToolCallKey, readLoggedToolCall, sourceInputIdFromToolCallMessageId, sourceInputIdFromToolErrorMessageId, sourceInputIdFromToolResultMessageId } from '../../../src/runtime/actors/llm-delivery-log.js';
+import { buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
+
+const appendLlmTurnStarted = (conversations: ReturnType<typeof testConversationMutations>, input: LlmInvocationInput, options?: { includeSystemPrompt?: boolean }) => productionAppendLlmTurnStarted(conversations, testCompositionAuthority(conversations.projectRoot), input, options);
+const appendLlmTurnFinished = (conversations: ReturnType<typeof testConversationMutations>, input: LlmInvocationInput, result: Parameters<typeof productionAppendLlmTurnFinished>[3]) => productionAppendLlmTurnFinished(conversations, testCompositionAuthority(conversations.projectRoot), input, result);
+const appendTerminalProjectedToolResult = (conversations: ReturnType<typeof testConversationMutations>, record: Parameters<typeof productionAppendTerminalProjectedToolResult>[2]) => productionAppendTerminalProjectedToolResult(conversations, testCompositionAuthority(conversations.projectRoot), record);
+const appendToolErrorSettlementResults = (projectRoot: string, conversations: ReturnType<typeof testConversationMutations>) => productionAppendToolErrorSettlementResults(projectRoot, conversations, testCompositionAuthority(projectRoot));
+const abandonStalePendingToolCalls = (projectRoot: string, conversations: ReturnType<typeof testConversationMutations>, reason?: string, preserveKeys?: ReadonlySet<string>) => productionAbandonStalePendingToolCalls(projectRoot, conversations, testCompositionAuthority(projectRoot), reason, preserveKeys);
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-delivery-log-'));
@@ -64,6 +70,14 @@ function toolResults(projectRoot: string, sessionId: string): AgentToolResult[] 
 type AgentToolResult = ReturnType<typeof readConversationMessages>[number] & { kind: 'tool_result' };
 
 describe('llm delivery log recovery helpers', () => {
+  it('commits OpenAI Responses private and visible rows as one idempotent batch', () => withTempProject((projectRoot) => {
+    const conversations = testConversationMutations(projectRoot);
+    const turn = input('planner:G-1:responses');
+    const privateContext = { kind: 'openai_responses' as const, source_input_id: turn.inputId, provider: 'openai', model: 'gpt-5.6', output: [{ type: 'reasoning', encrypted_content: 'opaque' }] };
+    expect(appendLlmTurnMessageBatch(conversations, testCompositionAuthority(projectRoot), turn, 'visible', privateContext).appendResult.appended).toBe(true);
+    expect(appendLlmTurnMessageBatch(conversations, testCompositionAuthority(projectRoot), turn, 'visible', privateContext).appendResult.appended).toBe(false);
+    expect(readConversationMessages(projectRoot, turn.sessionId).map((row) => row.kind)).toEqual(['provider_private', 'text']);
+  }));
   it('logs the outbound system prompt before turn activity when requested', () => withTempProject((projectRoot) => {
     appendLlmTurnStarted(testConversationMutations(projectRoot), input());
     appendLlmTurnStarted(testConversationMutations(projectRoot), input('planner:G-1:2'), { includeSystemPrompt: false });

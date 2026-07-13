@@ -5,11 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 
-import { appendConversationMessage, buildContextTextMessage } from '../../src/runtime/actors/index.js';
+import { buildContextTextMessage } from '../../src/runtime/actors/index.js';
+import { appendTestConversationMessage as appendConversationMessage } from '../helpers/conversation-mutations.js';
 import { list_agent_sessions, mcp_reconcile, read_agent_session, reconfigure } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 
 let root: string;
 let ctx: ToolContext;
@@ -19,7 +21,7 @@ beforeEach(() => {
   initProjectTree(root);
   const processRunner = createTestProcessRunner(root);
   const store = new CardStore(root);
-  ctx = { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+  ctx = { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
 });
 
 afterEach(() => {

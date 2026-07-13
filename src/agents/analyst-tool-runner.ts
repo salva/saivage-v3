@@ -20,16 +20,16 @@ export async function runAuditedAnalystTool<P extends Record<string, unknown>>(c
   const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });
   const auditBase = { actor: ctx.actor, surface: ctx.surface, action: spec.action, target_kind: spec.target_kind, target_id: spec.getTargetId(params), params_summary: paramsSummary(params), safety_class: spec.safety_class };
   if (verdict === 'deny') {
-    recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' }, ctx.eventBus);
+    recordControlAction(ctx.appLogs, ctx.mutationAuthority(), { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' }, ctx.eventBus);
     return toolFailure(`Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.`, { action: spec.action, safety_class: spec.safety_class });
   }
   const permission = spec.permissionCheck?.(ctx, params);
   if (permission && !permission.allowed) {
-    recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: `permission denied: ${permission.reason}` }, ctx.eventBus);
+    recordControlAction(ctx.appLogs, ctx.mutationAuthority(), { ...auditBase, outcome: 'denied', outcome_summary: `permission denied: ${permission.reason}` }, ctx.eventBus);
     return toolFailure(`Denied by permission policy for ${spec.action}: ${permission.reason}.`, { action: spec.action, reason: permission.reason });
   }
   const result = await spec.run(ctx, params);
-  recordControlAction(ctx.projectRoot, {
+  recordControlAction(ctx.appLogs, ctx.mutationAuthority(), {
     ...auditBase,
     outcome: result.success ? 'ok' : 'error',
     outcome_summary: result.success ? spec.successSummary ?? 'mutation applied' : result.error,

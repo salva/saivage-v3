@@ -21,7 +21,8 @@ import { buildResponsesReplayProjection } from '../../agents/llm-openai-response
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
-import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
+import type { ConversationStore } from '../../persistence/conversation-store.js';
+import type { AppLogStore } from '../../persistence/app-log.js';
 import type { ActorSnapshotStore } from './snapshots.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' | 'blocked' }>;
@@ -41,13 +42,15 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly processRunner: ProcessRunner;
   private readonly promptTemplates: PromptTemplateRegistry;
+  private readonly appLogs: AppLogStore;
 
-  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationMutationPort; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardRecordStore; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationStore; appLogs: AppLogStore; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardRecordStore; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super({ ...args, mutationAuthority: () => args.store.currentMutationAuthority() });
     this.store = args.store;
     this.processRunner = args.processRunner;
     this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
     this.promptTemplates = args.promptTemplates;
+    this.appLogs = args.appLogs;
   }
 
   _on_enter__executing(): void {
@@ -124,9 +127,10 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const sessionId = executorActorId(this.cardId);
     const loadedRows = readActiveVersionMessages(this.projectRoot, sessionId);
     const loaded = conversationMessagesForModel(loadedRows);
-    this.conversationPublisher?.entryAppended(appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId }));
+    const authority = this.mutationAuthority();
+    this.conversationPublisher?.entryAppended(appendActivationMarker(this.conversations, authority, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId }));
     const notifications = this.notificationContext(input, inputId).map((message, index) => {
-      const result = appendUserContextMessage(this.conversations, sessionId, inputId, 'notification', index, message);
+      const result = appendUserContextMessage(this.conversations, authority, sessionId, inputId, 'notification', index, message);
       this.conversationPublisher?.entryAppended(result);
       return result.message;
     });
@@ -160,7 +164,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private executorInvocationSurface(processOwnerId: string, processScope: ManagedProcessScope): InvocationSurface {
-    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, store: this.store, processRunner: this.processRunner, processScope, mcpManagerProvider: this.mcpManagerProvider });
+    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, store: this.store, processRunner: this.processRunner, processScope, mcpManagerProvider: this.mcpManagerProvider, appLogs: this.appLogs, mutationAuthority: () => this.mutationAuthority() });
   }
 
   private validateExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): string | null {
@@ -174,7 +178,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, sessionId: string): void {
-    const result = appendTerminalProjectedToolResult(this.conversations, {
+    const result = appendTerminalProjectedToolResult(this.conversations, this.mutationAuthority(), {
       sessionId,
       sourceInputId: outcome.inputId,
       toolCallId: outcome.toolCallId,

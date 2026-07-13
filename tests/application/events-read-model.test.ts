@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventsReadModelService } from '../../src/application/read-models/index.js';
-import { EventLogger } from '../../src/observability/index.js';
+import { TestEventLogger as EventLogger } from '../helpers/observability.js';
 
 const timestamp = '2026-01-01T00:00:00.000Z';
 

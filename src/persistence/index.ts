@@ -47,6 +47,6 @@ export type { AuthoredRecordSlot, RecordSlotIndexArtifact, RecordVersionArtifact
 export { observeCanonicalProjectRoot } from './canonical-root-observation.js';
 export type { ObservedProjectRoot, RootIndexDiagnostic } from './canonical-root-observation.js';
 export { listControlActions, recordControlAction, stableStringify } from './control-action-audit.js';
-export { appendAppLogEntry, appLogLedger, readAppLogEntries, appLogEntrySchema } from './app-log.js';
+export { AppLogStore, readAppLogEntries, appLogEntrySchema } from './app-log.js';
 export type { AppLogEntry, AppLogEntryType } from './app-log.js';
 export { readDeletedCardIds } from './deleted-card-ids.js';

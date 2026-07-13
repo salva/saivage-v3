@@ -25,7 +25,7 @@ import * as YAML from 'yaml';
 
 import { readProjectFileAtomic } from '../../src/persistence/file-tree.js';
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
-import { quarantineContent, recordContentPass } from '../../src/workspace/quarantine.js';
+import { quarantineContent, recordContentPass } from '../helpers/content-review.js';
 import {
   getSafeFileForAgent,
   isSensitivePath,

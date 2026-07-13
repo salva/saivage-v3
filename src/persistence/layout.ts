@@ -44,10 +44,6 @@ export function runtimeStateLockFile(projectRoot: string): string {
   return join(saivageLocksRoot(projectRoot), 'state.lock');
 }
 
-export function appLogLockFile(projectRoot: string): string {
-  return join(saivageLocksRoot(projectRoot), 'app-log.lock');
-}
-
 export function actorSnapshotsLockFile(projectRoot: string): string {
   return join(saivageLocksRoot(projectRoot), 'actor-snapshots.lock');
 }

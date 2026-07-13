@@ -1,15 +1,15 @@
 import { initProjectTree, testCompositionAuthority } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { testConversationMutations } from '../../helpers/conversation-mutations.js';
+import { appendTestConversationMessage as appendConversationMessage, testConversationMutations, writeTestConversationIndex as writeConversationIndex } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { ActorSnapshotStore, appendActivationMarker, appendConversationMessage, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, ConversationLLMActor as ProductionConversationLLMActor, createConversationChangePublisher, LLMActor as ProductionLLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { ActorSnapshotStore, appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, ConversationLLMActor as ProductionConversationLLMActor, createConversationChangePublisher, LLMActor as ProductionLLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 import { EventBus } from '../../../src/events/index.js';
-import { activeVersionPath, readConversationIndex, writeConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
+import { activeVersionPath, readConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
 import { conversationDir } from '../../../src/runtime/actors/conversation-store.js';
 import { compact } from '../../../src/runtime/actors/compaction/compactor.js';
 import type { ConversationChangePublisher } from '../../../src/runtime/actors/conversation-publisher.js';
@@ -20,6 +20,9 @@ import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletio
 import type { InvocationSurface } from '../../../src/tools/invocation.js';
 import type { CompactionConfig } from '../../../src/runtime/actors/compaction/compactor.js';
 import { readAppLogEntries } from '../../../src/persistence/app-log.js';
+
+const appendActivationMarker = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, payload: Parameters<typeof productionAppendActivationMarker>[3]) => productionAppendActivationMarker(conversations, testCompositionAuthority(conversations.projectRoot), sessionId, payload);
+const appendUserContextMessage = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, inputId: string, category: Parameters<typeof productionAppendUserContextMessage>[4], ordinal: number, message: Parameters<typeof productionAppendUserContextMessage>[6]) => productionAppendUserContextMessage(conversations, testCompositionAuthority(conversations.projectRoot), sessionId, inputId, category, ordinal, message);
 
 class LLMActor extends ProductionLLMActor {
   constructor(args: Omit<ConstructorParameters<typeof ProductionLLMActor>[0], 'mutationAuthority'>) {
@@ -129,6 +132,20 @@ async function eventually(assertion: () => void, attempts = 20): Promise<void> {
 }
 
 describe('LLMActor', () => {
+  it('projects provider success only after the visible conversation completion is durable', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const projection = jest.fn((_authority, sessionId: string, sourceInputId: string) => {
+      expect(readConversationMessages(projectRoot, sessionId).map((row) => row.id)).toContain(`${sourceInputId}:message`);
+    });
+    const provider: LLMProviderPort = {
+      completeTurn: async () => ({ result: { kind: 'message', content: 'done' }, provider_exchanges: [{ contract_id: 'planner.v1', contract_name: 'planner', transport: 'generic', provider: 'test', model: 'model', source_input_id: 'turn-1', attempt_index: 0, request_params: {}, started_at: '2026-07-13T00:00:00.000Z', completed_at: '2026-07-13T00:00:01.000Z', status: 'ok', terminal_tool_fired: null }] }),
+      projectProviderExchanges: projection,
+    };
+    const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
+    actor.start();
+    await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result' });
+    expect(projection).toHaveBeenCalledTimes(1);
+  }));
   it('defines only live LLM turn states and transitions', () => {
     expect(LLMActor._actor.states).toEqual({
       idle: { parked: true, on: { turn: 'calling_provider' } },
@@ -272,10 +289,11 @@ describe('LLMActor', () => {
     writeFileSync(activeVersionPath(projectRoot, sessionId, 2), JSON.stringify(row(activeKind, 2)) + '\n');
     writeFileSync(activeVersionPath(projectRoot, sessionId, 3), JSON.stringify({ ...row('text', 3), id: 'orphan' }) + '\n');
     writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
+    const conversations = testConversationMutations(projectRoot);
     const before = sessionSnapshot(projectRoot, sessionId);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
-    const actor = LLMActor.fromActiveReconstruction({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
+    const actor = LLMActor.fromActiveReconstruction({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations, agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
     const factory = jest.fn(() => input('must-not-run'));
     const harness = new InitialOutcomeHarness(projectRoot, provider);
     const pendingFailure = expect(actor.awaitPendingTurn()).rejects.toThrow(/expected 'system_prompt'/);
@@ -301,10 +319,11 @@ describe('LLMActor', () => {
     writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
     writeFileSync(activeVersionPath(projectRoot, sessionId, 3), JSON.stringify({ ...wrong, id: 'orphan' }) + '\n');
     writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
+    const conversations = testConversationMutations(projectRoot);
     const before = sessionSnapshot(projectRoot, sessionId);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
-    const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
+    const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations, agentId: sessionId, provider, conversationPublisher: publisher });
     actor.start();
 
     await expect(actor.turn(input())).rejects.toThrow(/expected 'system_prompt'/);
@@ -750,10 +769,11 @@ describe('LLMActor', () => {
 
   it('rejects the pending turn when entering provider call throws before provider registration', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
+    const conversations = testConversationMutations(projectRoot);
     corruptActorMessages(projectRoot);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'unused' })) };
-    const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
+    const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations, agentId: 'planner:project', provider });
     actor.start();
 
     await expect(actor.turn(input())).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);

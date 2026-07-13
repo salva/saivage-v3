@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
-import { createConversationMutationPort } from '../../src/persistence/conversation-mutation-port.js';
+import { ConversationStore } from '../../src/persistence/conversation-store.js';
+import { createMutationLane } from '../../src/application/mutation-lane.js';
 import { createServingRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
 import { ActorSnapshotStore } from '../../src/runtime/actors/snapshots.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
@@ -21,18 +22,32 @@ function typescriptFiles(root: string): string[] {
 }
 
 describe('live-update semantic-owner inventory', () => {
+  it('keeps every conversation and app-log store mutation at the reviewed call sites', () => {
+    const files = typescriptFiles(sourceRoot);
+    const owners = (pattern: RegExp) => files.filter((path) => pattern.test(readFileSync(path, 'utf8'))).map((path) => relative(process.cwd(), path)).sort();
+    expect(owners(/\.appendBatch\(/)).toEqual([
+      'src/runtime/actors/actor-recovery.ts',
+      'src/runtime/actors/conversation-store.ts',
+      'src/runtime/actors/llm-delivery-log.ts',
+    ]);
+    expect(owners(/\.replaceActiveVersion\(/)).toEqual(['src/runtime/actors/compaction/compactor.ts']);
+    expect(owners(/(?:appLogs|\.appLogs)\.append\(/)).toEqual([
+      'src/agents/invocation-service.ts',
+      'src/observability/error-logger.ts',
+      'src/observability/event-logger.ts',
+      'src/persistence/control-action-audit.ts',
+      'src/workspace/quarantine.ts',
+    ]);
+  });
+
   it('keeps conversation and provider exchange raw writers behind their singular mutation ports', () => {
     const inventory = [
-      { symbol: 'appendConversationMessage', owners: ['src/persistence/conversation-mutation-port.ts'] },
-      { symbol: 'writeCompactedConversationVersion', owners: ['src/persistence/conversation-mutation-port.ts'] },
+      { symbol: 'appendBatch', owners: [] },
+      { symbol: 'replaceActiveVersion', owners: [] },
       {
         symbol: 'appendProviderExchangeLogEntry',
         roots: [sourceRoot, join(process.cwd(), 'tests')],
-        owners: [
-          'src/persistence/provider-exchange-mutation-port.ts',
-          'tests/application/read-models.test.ts',
-          'tests/server/operator-agent-llm-exchange.test.ts',
-        ],
+        owners: [],
       },
     ];
 
@@ -72,7 +87,10 @@ describe('server-composed semantic delivery', () => {
       const subscription = changes.subscribe(hub);
 
       createServingRuntimeStateMutationPort(root, changes).apply({ kind: 'patchRuntimeState', patch: { status: 'paused' } });
-      createConversationMutationPort(root, changes).append(message('planner:project'));
+      const mutation = createMutationLane();
+      const conversations = new ConversationStore(root, mutation.lane, changes);
+      conversations.restabilize(mutation.authority);
+      conversations.appendBatch(mutation.authority, [message('planner:project')]);
       new ActorSnapshotStore(root, changes).save({
         actor_id: 'processor:project', actor_kind: 'processor', state_value: 'idle', context: {}, updated_at: '2026-07-13T00:00:00.000Z',
       });

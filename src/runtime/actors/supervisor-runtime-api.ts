@@ -23,7 +23,8 @@ import { RuntimeGate } from '../runtime-gate.js';
 import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from '../runtime-control-state.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import { createConversationChangePublisher } from './conversation-publisher.js';
-import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
+import type { ConversationStore } from '../../persistence/conversation-store.js';
+import type { AppLogStore } from '../../persistence/app-log.js';
 import type { CardStore, CardStoreRepository } from '../../cards/card-store.js';
 import { AutonomousCardCurrentness } from '../card-currentness.js';
 import type { CompositionMutationAuthority } from '../../application/mutation-authority.js';
@@ -40,7 +41,8 @@ export interface SupervisorRuntimeApiOptions {
   actorStore: CardStoreRepository;
   compositionAuthority: CompositionMutationAuthority;
   provider: LLMProviderPort;
-  conversations: ConversationMutationPort;
+  conversations: ConversationStore;
+  appLogs: AppLogStore;
   readModelChanges: ReadModelChanges;
   compactor?: CompactorPort;
   compactionConfig?: CompactionConfig;
@@ -95,6 +97,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       store: this.compositionStore,
       generatedAt: this.now(),
       conversations: this.options.conversations,
+      mutationAuthority: this.options.compositionAuthority,
       snapshots: this.snapshots,
     });
     if (this.hasRunningRecoveryWork(recoveryPlan)) {
@@ -357,6 +360,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       lookup: this.cardActors,
       conversationPublisher: createConversationChangePublisher(this.eventBus),
       conversations: this.options.conversations,
+      appLogs: this.options.appLogs,
       snapshots: this.snapshots,
     };
   }

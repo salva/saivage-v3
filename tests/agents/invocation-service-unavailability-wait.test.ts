@@ -8,7 +8,7 @@ import { InvocationService, type InvocationRequest } from '../../src/agents/invo
 import { ProviderTurnFailure, type LlmCallFn } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
-import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestAuthProfileRepository } from '../helpers/mutation-composition.js';
 import { issueCompositionMutationAuthority } from '../../src/application/mutation-authority.js';
 
@@ -36,7 +36,7 @@ function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvai
   const chain = args.chain ?? [candidate];
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-'));
   return new InvocationService({
-    providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
+    appLogs: testAppLogs(projectRoot),
     projectRoot,
     saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-state-')),
     registry: {} as never,

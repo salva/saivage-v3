@@ -4,10 +4,6 @@ export interface InvocationLease {
   readonly [INVOCATION_LEASE]: true;
 }
 
-export interface CompletionPersistenceAdmission {
-  admit<T>(invocation: InvocationLease, persist: () => Promise<T>): Promise<T>;
-}
-
 export class InvocationInterruptedError extends Error {
   constructor(message: string) {
     super(message);
@@ -103,16 +99,14 @@ export class ActivationOperationTracker {
 }
 
 /** Owns provider-turn admission and all Saivage callbacks caused by those turns. */
-export class InvocationLifecycle implements CompletionPersistenceAdmission {
+export class InvocationLifecycle {
   #turn = 0;
   #current: OwnedInvocationLease | null = null;
   #controller: AbortController | null = null;
   #admissionOpen = true;
-  readonly #admittedPersistence = new WeakSet<InvocationLease>();
   readonly #wrappers = new Set<Promise<unknown>>();
   readonly #consumers = new Set<Promise<unknown>>();
   readonly #deliveryAcknowledgements: Array<() => void> = [];
-  readonly #persistence = new Set<Promise<unknown>>();
   readonly #abandonedRaw = new Set<Promise<unknown>>();
   #interruptionReason: unknown = new InvocationInterruptedError('Invocation lifecycle was revoked.');
   #failure: unknown;
@@ -200,27 +194,6 @@ export class InvocationLifecycle implements CompletionPersistenceAdmission {
     return result;
   }
 
-  admit<T>(invocation: InvocationLease, persist: () => Promise<T>): Promise<T> {
-    this.#ownedCurrent(invocation);
-    if (!this.#admissionOpen) throw this.#interruptionReason;
-    if (this.#admittedPersistence.has(invocation)) throw new Error('Completion persistence was already admitted for this invocation.');
-    this.#admittedPersistence.add(invocation);
-
-    let resolveOperation!: (value: T | PromiseLike<T>) => void;
-    let rejectOperation!: (error: unknown) => void;
-    const operation = new Promise<T>((resolve, reject) => {
-      resolveOperation = resolve;
-      rejectOperation = reject;
-    });
-    this.#track(this.#persistence, operation, true);
-    try {
-      Promise.resolve(persist()).then(resolveOperation, rejectOperation);
-    } catch (error) {
-      rejectOperation(error);
-    }
-    return operation;
-  }
-
   settle(invocation: InvocationLease): void {
     this.assertCurrent(invocation);
     this.#current = null;
@@ -245,7 +218,7 @@ export class InvocationLifecycle implements CompletionPersistenceAdmission {
 
   async join(): Promise<InvocationJoinOutcome> {
     if (this.#admissionOpen) throw new Error('Invocation lifecycle must be revoked before join.');
-    await Promise.all([...this.#wrappers, ...this.#consumers, ...this.#persistence].map((operation) => operation.catch(() => undefined)));
+    await Promise.all([...this.#wrappers, ...this.#consumers].map((operation) => operation.catch(() => undefined)));
     if (this.#failure !== undefined) throw this.#failure;
     await Promise.resolve();
     return this.#abandonedRaw.size === 0
@@ -254,7 +227,7 @@ export class InvocationLifecycle implements CompletionPersistenceAdmission {
   }
 
   pendingCount(): number {
-    return this.#wrappers.size + this.#consumers.size + this.#persistence.size;
+    return this.#wrappers.size + this.#consumers.size;
   }
 
   #ownedCurrent(invocation: InvocationLease): OwnedInvocationLease {

@@ -14,6 +14,8 @@ import { createProcessProvider } from './process-provider.js';
 import { createSkillProvider } from './skill-provider.js';
 import { createWebProvider, type WebProviderContext } from './web-tools.js';
 import { createPatchProvider, createWorkspaceProvider, type WorkspaceProviderContext } from './workspace-provider.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
+import type { AppLogStore } from '../persistence/app-log.js';
 
 export type RoleSurfaceRole = Extract<AgentRole, 'planner' | 'reviewer' | 'executor' | 'analyst'>;
 type ProviderName = 'plannerControl' | 'analystControl' | 'cardInspection' | 'workspace' | 'patch' | 'process' | 'cardHistory' | 'web' | 'skill' | 'mcp';
@@ -31,6 +33,8 @@ export interface RoleSurfaceContext {
   children?: PlannerControlProviderContext['children'];
   notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
   toolContext?: ToolContext;
+  mutationAuthority?: () => MutationAuthority;
+  appLogs?: AppLogStore;
 }
 
 export const ROLE_PROVIDER_ORDER: Readonly<Record<RoleSurfaceRole, readonly ProviderName[]>> = {
@@ -48,6 +52,8 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     store: ctx.store as PlannerControlProviderContext['store'],
     children: ctx.children!,
     notifyCard: ctx.notifyCard,
+    appLogs: ctx.appLogs!,
+    mutationAuthority: ctx.mutationAuthority!,
   }),
   analystControl: (ctx) => createAnalystControlProvider(ctx.toolContext!),
   cardInspection: (ctx, role) => createCardInspectionProvider({
@@ -85,7 +91,7 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     notifyCard: role === 'analyst' ? ctx.notifyCard : undefined,
   }),
   skill: (ctx, role) => createSkillProvider({ projectRoot: ctx.projectRoot, agentRole: role as SkillMcpRole }),
-  mcp: (ctx, role) => createMcpProvider({ mcpManagerProvider: ctx.mcpManagerProvider!, agentRole: role as SkillMcpRole }),
+  mcp: (ctx, role) => createMcpProvider({ mcpManagerProvider: ctx.mcpManagerProvider!, mutationAuthority: ctx.mutationAuthority!, agentRole: role as SkillMcpRole }),
 };
 
 export function buildRoleSurface(role: RoleSurfaceRole, ctx: RoleSurfaceContext): InvocationSurface {

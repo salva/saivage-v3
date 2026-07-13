@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach, jest } from '@jest/globals';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { EventLogger } from '../../src/observability/event-logger.js';
+import { TestEventLogger as EventLogger } from '../helpers/observability.js';
 
 const timestamp = '2025-01-01T00:00:00.000Z';
 
@@ -30,12 +30,12 @@ describe('EventLogger runtime event validation', () => {
     }
   });
 
-  it('uses tolerant historical parsing and skips unknown-kind records without failing the whole log', () => {
+  it('fails on malformed complete historical rows', () => {
     const saivageDir = makeSaivageDir();
     const logger = new EventLogger(saivageDir);
     try {
-      writeFileSync(
-        logger.getLogPath(),
+      mkdirSync(dirname(logger.getLogPath()), { recursive: true });
+      writeFileSync(logger.getLogPath(),
         [
           JSON.stringify({ id: 'app-known', timestamp, type: 'event', data: { id: 'evt-known', kind: 'runtime_diagnostic', timestamp, error_message: 'known' } }),
           JSON.stringify({ id: 'app-old', timestamp, type: 'event', data: { id: 'evt-old', kind: 'legacy_historical_kind', timestamp, old_payload: true } }),
@@ -44,8 +44,7 @@ describe('EventLogger runtime event validation', () => {
         ].join('\n'),
       );
 
-      const events = logger.getEvents();
-      expect(events.map((event) => event.kind)).toEqual(['runtime_diagnostic']);
+      expect(() => logger.getEvents()).toThrow(/malformed/);
     } finally {
     }
   });

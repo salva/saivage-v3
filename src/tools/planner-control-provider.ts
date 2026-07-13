@@ -9,6 +9,8 @@ import type { CardNotification } from '../runtime/actors/card-actor.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { cardActivationOutcomePatch, type CardActivationOutcome } from '../runtime/actors/card-actor.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
+import type { AppLogStore } from '../persistence/app-log.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 interface PlannerChildActor {
   activate(input: { kind: 'parent'; cardId: string; sessionId: string }, parentAdmit: () => void): Promise<CardActivationOutcome>;
@@ -34,6 +36,8 @@ export interface PlannerControlProviderContext {
   readonly store: PlannerControlStore;
   readonly children: { get(cardId: string): PlannerChildActor | null };
   readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
+  readonly appLogs: AppLogStore;
+  readonly mutationAuthority: () => MutationAuthority;
 }
 
 const createCardSchema = z.object({
@@ -122,7 +126,7 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof edi
 function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof reorderChildSchema>): ToolResult {
   if (!ctx.store.reorderChildren) throw new Error('Planner reorder_child requires a mutable card store.');
   const result = ctx.store.reorderChildren(ctx.parentCardId, record.orderedChildIds, { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
-  recordControlAction(ctx.projectRoot, {
+  recordControlAction(ctx.appLogs, ctx.mutationAuthority(), {
     actor: 'planner',
     surface: 'runtime',
     action: 'card.reorder_child',
@@ -143,7 +147,7 @@ function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.inf
   const queued = queueNotification(ctx.projectRoot, recipient, record.kind, record.body, { actor: 'planner', surface: 'runtime' }, ctx.store as CardStore, ctx.notifyCard);
   const targetId = recipient.kind === 'card' ? recipient.cardId : recipient.kind === 'role' ? recipient.role : recipient.sessionId;
   const missingCards = queued.cardDeliveries.filter((delivery) => !delivery.result.ok && delivery.result.reason === 'missing_card').map((delivery) => delivery.cardId);
-  recordControlAction(ctx.projectRoot, {
+  recordControlAction(ctx.appLogs, ctx.mutationAuthority(), {
     actor: 'planner',
     surface: 'runtime',
     action: 'notification.queue',

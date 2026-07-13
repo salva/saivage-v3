@@ -11,6 +11,7 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 
 const roots: string[] = [];
 
@@ -83,7 +84,7 @@ describe('role invocation surfaces', () => {
     const store = new CardStore(projectRoot);
     const processRunner = createTestProcessRunner(projectRoot);
     const processScope = processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session');
-    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope, store, sessionId: 'analyst:test', actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope, store, sessionId: 'analyst:test', actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
     const surface = buildRoleSurface('analyst', {
       projectRoot,
       toolContext: ctx,
@@ -93,6 +94,8 @@ describe('role invocation surfaces', () => {
       sessionId: ctx.sessionId,
       ownerId: ctx.sessionId,
       mcpManagerProvider: () => undefined,
+      mutationAuthority: ctx.mutationAuthority,
+      appLogs: ctx.appLogs,
     });
 
     expect(names(surface)).toEqual([

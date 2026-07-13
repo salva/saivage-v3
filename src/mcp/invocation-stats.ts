@@ -1,4 +1,5 @@
 import type { EventLogger } from '../observability/index.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 export interface McpInvocationStat { total: number; success: number; error: number; lastInvokedAt?: string }
 
@@ -18,9 +19,9 @@ export class McpInvocationStatsRecorder {
     this.stats.set(key, current);
   }
 
-  log(server: string, tool: string, success: boolean, durationMs: number, error?: string): void {
+  log(authority: MutationAuthority, server: string, tool: string, success: boolean, durationMs: number, error?: string): void {
     if (!this.eventLogger) return;
-    this.eventLogger.appendEvent({ kind: 'mcp_tool_invocation' as import('../schemas/types.js').EventKind, server, tool, success, duration_ms: durationMs, error });
+    this.eventLogger.appendEvent(authority, { kind: 'mcp_tool_invocation' as import('../schemas/types.js').EventKind, server, tool, success, duration_ms: durationMs, error });
   }
 
   snapshot(): Record<string, McpInvocationStat> {

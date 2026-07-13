@@ -1,16 +1,17 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { agentMessageSchema, type AgentMessage } from '../../../schemas/index.js';
 import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import { genericContextMessagesForInvocation } from '../llm-invocation.js';
 import { conversationMessagesForModel, readActiveVersionMessages } from '../conversation-store.js';
-import { ensureConversationIndex } from '../conversation-index.js';
+import { activeVersionPath, readConversationIndex } from '../conversation-index.js';
 import type { ConversationVersionReplacement } from '../conversation-index.js';
-import type { ConversationMutationPort } from '../../../persistence/conversation-mutation-port.js';
+import { conversationContentDigest, type ConversationStore } from '../../../persistence/conversation-store.js';
 import { computeCompactionBands, type BandConfig, type SnapPolicy } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedRound } from './round-classifier.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors, type RecoverableEvidenceDescriptor } from './result-dropping.js';
-import { appendSummaryCacheEntry, contentHashForMessages, readSummaryCache, renderRecoverableEvidenceSection, type SummaryCacheEntry } from './summary-cache.js';
+import { contentHashForMessages, readSummaryCache, renderRecoverableEvidenceSection, type SummaryCacheEntry } from './summary-cache.js';
 import { summarizeMerge, summarizeRound, type SummarizerProviderPort } from './summarizer.js';
 import { buildResponsesReplayProjection } from '../../../agents/llm-openai-responses-mapper.js';
 import type { MutationAuthority } from '../../../application/mutation-authority.js';
@@ -43,7 +44,7 @@ export function shouldCompact(input: LlmInvocationInput, config: CompactionConfi
 
 export async function compact(args: {
   projectRoot: string;
-  conversations: ConversationMutationPort;
+  conversations: ConversationStore;
   sessionId: string;
   input: LlmInvocationInput;
   mutationAuthority: MutationAuthority;
@@ -55,7 +56,9 @@ export async function compact(args: {
   if (!args.config.enabled) throw new Error('Compaction was invoked while disabled.');
   if (!args.config.summarizer_model || args.config.summarizer_model.trim().length === 0) throw new Error('Compaction is enabled but compaction.summarizer_model is unset.');
 
-  const index = ensureConversationIndex(args.projectRoot, args.sessionId);
+  const index = readConversationIndex(args.projectRoot, args.sessionId);
+  if (!index) throw new Error(`Conversation '${args.sessionId}' does not exist.`);
+  const sourceDigest = conversationContentDigest(readFileSync(activeVersionPath(args.projectRoot, args.sessionId, index.active_version), 'utf8'));
   const generation = nextCompactionGeneration(index);
   const activeRows = readActiveVersionMessages(args.projectRoot, args.sessionId);
   const measured = args.bufferSizeEstimator.estimate(args.input);
@@ -83,9 +86,10 @@ export async function compact(args: {
   const content = rows.map((row) => JSON.stringify(agentMessageSchema.parse(row))).join('\n') + (rows.length === 0 ? '' : '\n');
   args.signal.throwIfAborted();
   const compactedThrough = compactedThroughFor(rows, activeRows);
-  const writeResult = args.conversations.replaceActiveVersion({
+  const writeResult = args.conversations.replaceActiveVersion(args.mutationAuthority, {
     sessionId: args.sessionId,
     sourceVersion: index.active_version,
+    sourceDigest,
     content,
     compactedThrough,
     summaryIds,
@@ -98,6 +102,7 @@ export async function compact(args: {
 async function buildCompactedRows(args: {
   projectRoot: string;
   sessionId: string;
+  conversations: ConversationStore;
   input: LlmInvocationInput;
   mutationAuthority: MutationAuthority;
   config: CompactionConfig;
@@ -149,7 +154,7 @@ async function buildCompactedRows(args: {
   return { rows, summaryIds, bands: { merge_line: args.mergeLine, summary_line: args.summaryLine, trigger: args.config.trigger_fraction, snap: args.snap } };
 }
 
-async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: string; config: CompactionConfig; summarizerProvider: SummarizerProviderPort; signal: AbortSignal; mutationAuthority: MutationAuthority }, round: ClassifiedRound, cache: Map<string, SummaryCacheEntry>): Promise<SummaryCacheEntry> {
+async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: string; conversations: ConversationStore; config: CompactionConfig; summarizerProvider: SummarizerProviderPort; signal: AbortSignal; mutationAuthority: MutationAuthority }, round: ClassifiedRound, cache: Map<string, SummaryCacheEntry>): Promise<SummaryCacheEntry> {
   const rows = conversationMessagesForModel(round.rows.map((row) => row.message));
   const hash = contentHashForMessages(rows);
   const cacheKey = `${round.round_id}:${hash}`;
@@ -159,7 +164,7 @@ async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: s
   const dropped = dropRecoverableResultBodies(rows);
   const summaryText = await summarizeRound({ round_id: round.round_id, rows: dropped, summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model as string, signal: args.signal, mutationAuthority: args.mutationAuthority });
   args.signal.throwIfAborted();
-  const entry = appendSummaryCacheEntry(args.projectRoot, args.sessionId, {
+  const entry = args.conversations.appendSummaryCacheEntry(args.mutationAuthority, args.sessionId, {
     cache_key: cacheKey,
     round_id: round.round_id,
     content_hash: hash,

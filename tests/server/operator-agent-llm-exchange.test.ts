@@ -5,14 +5,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 
-import { appendProviderExchangeLogEntry } from '../../src/persistence/provider-exchange-log.js';
+import { providerExchangeAppLogEntry } from '../../src/persistence/provider-exchange-log.js';
+import { testAppLogAuthority, testAppLogs } from '../helpers/app-logs.js';
 import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
 
 describe('agents.llmExchange handler', () => {
   it('returns the latest app-log-backed provider exchange payload without changing response shape', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-agent-llm-exchange-'));
     initProjectTree(projectRoot);
-    appendProviderExchangeLogEntry(projectRoot, {
+    testAppLogs(projectRoot).append(testAppLogAuthority(projectRoot), providerExchangeAppLogEntry({
       session_id: 'planner:project',
       source_input_id: 'planner:project:1',
       attempt_index: 0,
@@ -32,7 +33,7 @@ describe('agents.llmExchange handler', () => {
         terminal_tool_fired: null,
         assistant_output_ids: ['planner:project:1:message'],
       },
-    });
+    }));
     const handler = buildAgentOperatorContractHandlers({ projectRoot })['agents.llmExchange']!;
 
     const result = await handler({

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
-import { appendConversationMessage } from '../../src/runtime/actors/conversation-store.js';
+import { appendTestConversationMessage as appendConversationMessage } from '../helpers/conversation-mutations.js';
 
 describe('agent operator read model privacy', () => {
   it('omits OpenAI Responses private rows and visible marker internals from conversation API entries', () => {

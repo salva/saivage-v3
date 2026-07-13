@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 
 
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
-import { quarantineContent } from '../../src/workspace/quarantine.js';
+import { quarantineContent } from '../helpers/content-review.js';
 import { isStashPathAllowed, getSafeFileForAgent } from '../../src/workspace/file-access-security.js';
 
 describe('Security — Auth, Path Traversal, and Redaction', () => {

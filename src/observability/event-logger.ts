@@ -1,19 +1,13 @@
-import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { LoggedEvent, EventKind } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { loggedEventSchema } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
-import { registerEventLogProjection } from '../projections/index.js';
-import { readAppLogEntries } from '../persistence/app-log.js';
-import { appLogFile, saivageLogsRoot } from '../persistence/layout.js';
+import { readAppLogEntries, type AppLogStore } from '../persistence/app-log.js';
+import { appLogFile } from '../persistence/layout.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 // ── Constants ─────────────────────────────────────────────────
-
-function eventsPath(saivageDir: string): string {
-  const projectRoot = saivageDir.endsWith('/.saivage') ? saivageDir.slice(0, -'/.saivage'.length) : saivageDir;
-  return appLogFile(projectRoot);
-}
 
 // ── Event ID Generator ───────────────────────────────────────
 
@@ -79,24 +73,21 @@ function getSessionId(e: LoggedEvent): string | undefined {
 // ── EventLogger ──────────────────────────────────────────────
 
 export class EventLogger {
-  private saivageDir: string;
+  private projectRoot: string;
   private logPath: string;
   private readonly eventBus: EventBus;
 
-  constructor(saivageDir: string, eventBus = new EventBus()) {
-    this.saivageDir = saivageDir;
-    this.logPath = eventsPath(saivageDir);
+  constructor(projectRoot: string, private readonly appLogs: AppLogStore, eventBus = new EventBus()) {
+    this.projectRoot = projectRoot;
+    this.logPath = appLogFile(projectRoot);
     this.eventBus = eventBus;
-    registerEventLogProjection(this.eventBus, this.saivageDir, ['event_log_record_appended']);
-
-    mkdirSync(saivageLogsRoot(this.saivageDir.endsWith('/.saivage') ? this.saivageDir.slice(0, -'/.saivage'.length) : this.saivageDir), { recursive: true });
   }
 
   /**
    * Append an event to the log. The event gets an auto-generated id and
    * timestamp if not already provided. Returns the full event object.
    */
-  appendEvent(event: AppendEventInput): LoggedEvent {
+  appendEvent(authority: MutationAuthority, event: AppendEventInput): LoggedEvent {
     const fullEvent: LoggedEvent = redactForOutbound({
       ...event,
       id: event.id ?? nextEventId(),
@@ -108,6 +99,7 @@ export class EventLogger {
       throw new Error(`LoggedEvent validation failed for kind '${event.kind}': ${parsed.error.message}`);
     }
 
+    this.appLogs.append(authority, { id: parsed.data.id, timestamp: parsed.data.timestamp, type: 'event', data: parsed.data });
     this.eventBus.emit('event_log_record_appended', { record: parsed.data as unknown as Record<string, unknown> });
     return parsed.data;
   }
@@ -124,8 +116,7 @@ export class EventLogger {
    * Events are returned in file order (chronological, oldest first).
    */
   getEvents(filter?: EventFilter): LoggedEvent[] {
-    const projectRoot = this.saivageDir.endsWith('/.saivage') ? this.saivageDir.slice(0, -'/.saivage'.length) : this.saivageDir;
-    let events = readAppLogEntries(projectRoot, 'event')
+    let events = readAppLogEntries(this.projectRoot, 'event')
       .map((entry) => loggedEventSchema.safeParse(entry.data))
       .filter((parsed) => parsed.success)
       .map((parsed) => parsed.data);

@@ -1,14 +1,13 @@
-import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testCompositionAuthority } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { testConversationMutations } from '../../helpers/conversation-mutations.js';
+import { appendTestConversationMessage as appendConversationMessage, testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 import {
   buildActorRecoveryPlan,
-  appendConversationMessage,
-  appendLlmTurnFinished,
+  appendLlmTurnFinished as productionAppendLlmTurnFinished,
   projectActorRecovery,
   readConversationMessages,
   recoverActorStartupOutcomes,
@@ -19,6 +18,8 @@ import {
   recoveryDiagnosticsPath,
       writeRecoveryDiagnostics,
 } from '../../../src/runtime/actors/index.js';
+
+const appendLlmTurnFinished = (conversations: ReturnType<typeof testConversationMutations>, input: Parameters<typeof productionAppendLlmTurnFinished>[2], result: Parameters<typeof productionAppendLlmTurnFinished>[3]) => productionAppendLlmTurnFinished(conversations, testCompositionAuthority(conversations.projectRoot), input, result);
 
 
 
@@ -94,7 +95,7 @@ function reviewerCorrections(_evidenceId: string, summary = 'needs correction'):
 
 function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
   return {
-    projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot),
+    projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), mutationAuthority: testCompositionAuthority(projectRoot),
     store,
     generatedAt: '2026-06-12T00:00:00.000Z',
   };

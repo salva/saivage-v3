@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { providerExchangePayloadSchema, type ProviderExchangePayload } from '../contracts/provider-exchange.js';
-import { appendAppLogEntry, readAppLogEntries, type AppLogEntry } from './app-log.js';
+import { readAppLogEntries, type AppLogEntry } from './app-log.js';
 
 export const providerExchangeLogDataSchema = z.object({
   session_id: z.string().min(1),
@@ -12,9 +12,9 @@ export const providerExchangeLogDataSchema = z.object({
 
 export type ProviderExchangeLogData = z.infer<typeof providerExchangeLogDataSchema>;
 
-export function appendProviderExchangeLogEntry(projectRoot: string, data: ProviderExchangeLogData): AppLogEntry {
+export function providerExchangeAppLogEntry(data: ProviderExchangeLogData): AppLogEntry {
   const parsed = providerExchangeLogDataSchema.parse(data);
-  return appendAppLogEntry(projectRoot, 'provider_exchange', parsed, parsed.timestamp);
+  return { id: `provider-exchange:${encodeURIComponent(parsed.session_id)}:${encodeURIComponent(parsed.source_input_id)}:${parsed.attempt_index}`, timestamp: parsed.timestamp, type: 'provider_exchange', data: parsed };
 }
 
 export function readProviderExchangeLogEntries(projectRoot: string, sessionId: string): ProviderExchangeLogData[] {

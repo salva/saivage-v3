@@ -36,9 +36,6 @@ export class AgentLlmInvocationGateway {
     return createProviderExchangeRecorder({ sessionId, eventLogger: toProviderExchangeRecorderLogger(this.eventLogger) });
   }
 
-  async flushRecorders(): Promise<void> {
-  }
-
   createLlmCallFn(): LlmCallFn {
     return async (candidate: Candidate, systemPrompt: string, genericContextMessages: AgentMessage[], activeConversationReplayOrSessionId: ResponsesReplayProjection | string, sessionIdOrOpts: string | LlmCompleteOptions, maybeOpts: LlmCompleteOptions | undefined, mutationAuthority: MutationAuthority): Promise<ProviderTurnCompletion> => {
       const { activeConversationReplay, sessionId, opts } = parseCompleteInvocationArgs(genericContextMessages, activeConversationReplayOrSessionId, sessionIdOrOpts, maybeOpts);

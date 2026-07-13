@@ -10,6 +10,7 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 
@@ -27,7 +28,7 @@ describe('Audited analyst tool runner', () => {
   function ctx(root: string): ToolContext {
     const processRunner = createTestProcessRunner(root);
     const store = new CardStore(root);
-    return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+    return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
   }
 
   it('records schema-safe audit entries for allowed mutations', async () => {

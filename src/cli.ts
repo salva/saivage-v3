@@ -15,6 +15,8 @@ import { deriveCurrentCardId } from './runtime/current-run.js';
 import { readRuntimeLockStatus } from './runtime/lock.js';
 import { runtimeProcessLockFile } from './persistence/layout.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
+import { AppLogStore } from './persistence/app-log.js';
+import type { ControlActionAuditEntry } from './schemas/index.js';
 
 interface CliOptions { force?: boolean; port?: string; host?: string; config?: string; 'project-root'?: string; 'create-runtime'?: boolean; }
 const USAGE = `Saivage v3 CLI
@@ -59,7 +61,14 @@ async function handleInit(options: CliOptions): Promise<void> {
 async function handleStart(_options: CliOptions, args: string[]): Promise<void> { const app = await startApp({ argv: args }); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
 async function handleStatus(): Promise<void> { const projectRoot = findProjectRoot(); if (projectRoot === null) { console.log('Not in a Saivage project'); return; } const state = readRuntimeState(projectRoot); const lock = readRuntimeLockStatus(projectRoot); if (state === null) { console.log(`Project root: ${projectRoot}`); console.log('Runtime state: not initialized (missing runtime state file .saivage/state/runtime.json)'); } else { console.log(`Project root: ${projectRoot}`); console.log(`Status:       ${state.status}`); console.log(`Current card: ${deriveCurrentCardId(state) ?? '(none)'}`); console.log(`Started at:   ${state.started_at}`); } if (lock.kind === 'missing') console.log('Runtime lock: not present'); else { console.log(`Runtime lock: ${lock.kind.replace('_', '/')}`); console.log(`PID:          ${lock.kind === 'malformed_unreadable' ? '(unknown)' : lock.record.pid}`); if (lock.kind !== 'live') console.log(lock.repairInstruction); } }
 async function restBaseUrl(projectRoot: string): Promise<string> { const cfgPath = join(projectRoot, '.saivage', 'saivage.yaml'); let host = '127.0.0.1'; let port = 8080; if (existsSync(cfgPath)) { try { const cfg = YAML.parse(readFileSync(cfgPath, 'utf-8')) as { server?: { host?: string; port?: number } }; host = cfg.server?.host === '0.0.0.0' ? '127.0.0.1' : (cfg.server?.host ?? host); port = cfg.server?.port ?? port; } catch { void 0; } } return `http://${host}:${port}`; }
-async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resume'): Promise<void> { const verdict = evaluateAuthz({ actor: 'user', surface: 'cli', safety_class: 'low' }); if (verdict === 'deny') { recordControlAction(projectRoot, { actor: 'user', surface: 'cli', action: `runtime.${action}`, target_kind: 'runtime', target_id: 'project', params_summary: stableStringify({ action }), outcome: 'denied', outcome_summary: 'authz denied' }); throw new Error('Denied by authorization policy.'); }
+function recordCliControlAction(projectRoot: string, entry: Omit<ControlActionAuditEntry, 'id' | 'created_at'>): void {
+  withDirectMutationComposition(projectRoot, 'bound', (composition) => {
+    const appLogs = new AppLogStore(composition.projectRoot, composition.lane);
+    appLogs.restabilize(composition.authority);
+    recordControlAction(appLogs, composition.authority, entry);
+  });
+}
+async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resume'): Promise<void> { const verdict = evaluateAuthz({ actor: 'user', surface: 'cli', safety_class: 'low' }); if (verdict === 'deny') throw new Error('Denied by authorization policy.');
   if (isLocked(projectRoot)) {
     const base = await restBaseUrl(projectRoot);
     const token = process.env['SAIVAGE_API_TOKEN'];
@@ -70,7 +79,7 @@ async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resum
     return;
   }
   const result = action === 'pause' ? pauseRuntimeControl({ projectRoot }) : resumeRuntimeControl({ projectRoot });
-  recordControlAction(projectRoot, { actor: 'user', surface: 'cli', action: `runtime.${action}`, target_kind: 'runtime', target_id: 'project', params_summary: stableStringify({ action, liveRuntimeUpdated: false }), outcome: result.ok ? 'ok' : 'error', outcome_summary: result.ok ? 'persisted-only mutation applied (server not running)' : (result.message ?? result.error ?? 'mutation failed'), ...(result.ok ? {} : { error: result.message ?? result.error ?? 'mutation failed' }) });
+  recordCliControlAction(projectRoot, { actor: 'user', surface: 'cli', action: `runtime.${action}`, target_kind: 'runtime', target_id: 'project', params_summary: stableStringify({ action, liveRuntimeUpdated: false }), outcome: result.ok ? 'ok' : 'error', outcome_summary: result.ok ? 'persisted-only mutation applied (server not running)' : (result.message ?? result.error ?? 'mutation failed'), ...(result.ok ? {} : { error: result.message ?? result.error ?? 'mutation failed' }) });
   if (!result.ok) throw new Error(result.message ?? result.error ?? `Failed to ${action} runtime`);
   console.log(`Notice: server not running; updated persisted runtime state only.`);
 }

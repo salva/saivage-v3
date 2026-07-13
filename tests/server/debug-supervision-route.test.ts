@@ -9,7 +9,7 @@ import { join } from 'node:path';
 
 import { registerInternalDebugRoutes } from '../../src/server/routes/chats-files-debug.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
-import { quarantineContent, recordContentPass } from '../../src/workspace/quarantine.js';
+import { quarantineContent, recordContentPass } from '../helpers/content-review.js';
 
 let root: string;
 let app: FastifyInstance;

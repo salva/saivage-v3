@@ -7,6 +7,7 @@ import { McpInvocationStatsRecorder } from './invocation-stats.js';
 import { buildMcpServerStatus } from './status-projection.js';
 import { discoverStreamableHttpTools, healthStreamableHttpServer, invokeStreamableHttpTool, probeStreamableHttpStartup } from './streamable-http-transport.js';
 import { discoverStdioTools, invokeStdioTool } from './stdio-transport.js';
+import type { MutationAuthority } from '../application/mutation-authority.js';
 
 export interface McpJsonRpcIdProvider { next(): number | string }
 
@@ -90,7 +91,7 @@ export class McpServerRuntime {
 
   dispose(): Promise<void> { return this.stop(); }
 
-  invokeTool(toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> {
+  invokeTool(authority: MutationAuthority, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> {
     return this.admit(async (generation, signal) => {
       const cfg = this.config;
       const handle = this.handle;
@@ -111,14 +112,14 @@ export class McpServerRuntime {
         this.assertCurrent(generation, signal);
         const durationMs = Date.now() - startTime;
         this.options.invocationStats.record(this.name, toolName, true);
-        this.options.invocationStats.log(this.name, toolName, true, durationMs);
+        this.options.invocationStats.log(authority, this.name, toolName, true, durationMs);
         return result;
       } catch (err) {
         if (generation === this.generation) {
           const durationMs = Date.now() - startTime;
           const errorMsg = err instanceof Error ? err.message : String(err);
           this.options.invocationStats.record(this.name, toolName, false);
-          this.options.invocationStats.log(this.name, toolName, false, durationMs, errorMsg);
+          this.options.invocationStats.log(authority, this.name, toolName, false, durationMs, errorMsg);
         }
         throw err;
       }

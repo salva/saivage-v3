@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { controlActionAuditEntrySchema } from '../../src/schemas/validators.js';
 import { listControlActions, recordControlAction } from '../../src/persistence/control-action-audit.js';
+import { testAppLogAuthority, testAppLogs } from '../helpers/app-logs.js';
 
 
 let projectRoot: string;
@@ -20,7 +21,7 @@ afterEach(() => {
 
 describe('control action audit persistence', () => {
   it('appends and reloads validated redacted audit entries after recreation', () => {
-    const created = recordControlAction(projectRoot, {
+    const created = recordControlAction(testAppLogs(projectRoot), testAppLogAuthority(projectRoot), {
       id: 'audit-1',
       created_at: '2026-01-01T00:00:00.000Z',
       actor: 'analyst',
@@ -53,7 +54,7 @@ describe('control action audit persistence', () => {
   });
 
   it('ignores malformed jsonl entries while preserving valid latest entries across reopen', () => {
-    recordControlAction(projectRoot, {
+    recordControlAction(testAppLogs(projectRoot), testAppLogAuthority(projectRoot), {
       id: 'audit-1',
       created_at: '2026-01-01T00:00:00.000Z',
       actor: 'analyst',
@@ -90,12 +91,6 @@ describe('control action audit persistence', () => {
     ].join('');
     writeFileSync(auditPath, appended, 'utf-8');
 
-    const reloaded = listControlActions(projectRoot);
-    expect(reloaded.map((entry) => entry.id)).toEqual(['audit-2', 'audit-1']);
-    expect(reloaded[0]?.params_summary).toContain('[REDACTED]');
-    expect(reloaded[0]?.params_summary).not.toContain('swordfish');
-    for (const entry of reloaded) {
-      expect(controlActionAuditEntrySchema.parse(entry)).toEqual(entry);
-    }
+    expect(() => listControlActions(projectRoot)).toThrow(/malformed/);
   });
 });

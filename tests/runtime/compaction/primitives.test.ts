@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { AgentMessage } from '../../../src/schemas/index.js';
-import { ensureConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
+import { ensureTestConversationIndex as ensureConversationIndex, appendTestSummaryCacheEntry as appendSummaryCacheEntry } from '../../helpers/conversation-mutations.js';
 import { computeCompactionBands } from '../../../src/runtime/actors/compaction/bands.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors, type RecoverableEvidenceDescriptor } from '../../../src/runtime/actors/compaction/result-dropping.js';
 import { classifyConversationRounds, type ClassifiedRound, type PositionedMessage } from '../../../src/runtime/actors/compaction/round-classifier.js';
-import { appendSummaryCacheEntry, contentHashForMessages, renderRecoverableEvidenceSection, summaryCacheKey } from '../../../src/runtime/actors/compaction/summary-cache.js';
+import { contentHashForMessages, renderRecoverableEvidenceSection, summaryCacheKey } from '../../../src/runtime/actors/compaction/summary-cache.js';
 import { summarizeMerge, summarizeRound, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { issueCompositionMutationAuthority } from '../../../src/application/mutation-authority.js';
 

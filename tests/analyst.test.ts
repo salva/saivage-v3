@@ -34,6 +34,7 @@ import {
 import type { ToolContext } from '../src/tools/analyst-tool-types.js';
 import { ProcessRunner } from '../src/runtime/process-runner.js';
 import { createTestProcessRunner } from './helpers/test-process-runner.js';
+import { testAppLogs } from './helpers/app-logs.js';
 
 const TEST_BRIEF = '# Goal\n\nTest card goal\n\n# Instructions\n\nFollow the test setup.\n\n# Acceptance Criteria\n\nAssertions pass.\n';
 
@@ -116,12 +117,12 @@ function setupTestProject(projectRoot: string): CardStore {
 
 function ctx(projectRoot: string, store: CardStore): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
 }
 
 function testToolContext(projectRoot: string, store: CardStore): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-runtime', 'operator_session'), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-runtime', 'operator_session'), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
 }
 
 describe('Analyst Tool Definitions', () => {

@@ -9,7 +9,8 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ErrorLogger, type ErrorRecord, type ErrorInput } from '../../src/observability/error-logger.js';
+import { type ErrorRecord, type ErrorInput } from '../../src/observability/error-logger.js';
+import { TestErrorLogger as ErrorLogger } from '../helpers/observability.js';
 
 describe('ErrorLogger', () => {
   let tmpDir: string;
@@ -214,16 +215,14 @@ describe('ErrorLogger', () => {
     expect(ids.size).toBe(100);
   });
 
-  it('skips malformed lines in the file', () => {
+  it('fails on malformed complete lines in the file', () => {
     errorLogger.appendError({ message: 'Valid error' });
 
     const logPath = errorLogger.getErrorsPath();
     const existing = readFileSync(logPath, 'utf-8');
     writeFileSync(logPath, existing + 'NOT VALID JSON\n');
 
-    const errors = errorLogger.getErrors();
-    expect(errors.length).toBe(1);
-    expect(errors[0].message).toBe('Valid error');
+    expect(() => errorLogger.getErrors()).toThrow(/malformed/);
   });
 
   it('filter combinations AND together', () => {

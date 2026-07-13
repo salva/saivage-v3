@@ -15,12 +15,11 @@ import { createInvocationServiceProvider } from '../../src/application/micro-act
 
 import { LLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { readActorSnapshots } from '../../src/runtime/actors/snapshots.js';
-import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
-import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
-import type { ProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestAuthProfileRepository } from '../helpers/mutation-composition.js';
 import { issueCompositionMutationAuthority } from '../../src/application/mutation-authority.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
+import { readProviderExchangeLogEntries } from '../../src/persistence/provider-exchange-log.js';
 
 const candidates: Candidate[] = [
   { provider: 'a', account: null, model: 'm-a' },
@@ -65,7 +64,7 @@ describe('InvocationService provider exchange accumulation', () => {
   it('accumulates failed attempts before later success and normalizes attempt indexes', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-test-'));
     const service = new InvocationService({
-      providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
+      appLogs: testAppLogs(projectRoot),
       projectRoot,
       saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-state-')),
       registry: {} as never,
@@ -78,44 +77,18 @@ describe('InvocationService provider exchange accumulation', () => {
       },
     });
 
-    const completion = await service.invokeWithRecovery(request());
+    const invocation = request();
+    const completion = await service.invokeWithRecovery(invocation);
     expect(completion.provider_exchanges.map((exchange) => [exchange.provider, exchange.status, exchange.attempt_index])).toEqual([
       ['a', 'error', 0],
       ['b', 'ok', 1],
     ]);
-  });
-
-  it('appends multi-row provider results in order and stops at the first persistence error', async () => {
-    const appended: string[] = [];
-    const persistenceError = new Error('provider exchange persistence failed');
-    const abortController = new AbortController();
-    const providerExchangeMutations: ProviderExchangeMutationPort = {
-      append(data) {
-        appended.push(data.payload.provider);
-        if (data.payload.provider === 'b') {
-          abortController.abort(persistenceError);
-          throw persistenceError;
-        }
-        return {} as never;
-      },
-    };
-    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-test-'));
-    const service = new InvocationService({
-      providerExchangeMutations,
-      projectRoot,
-      saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-state-')),
-      registry: {} as never,
-      router: { resolve: async () => candidates, getLastCapabilitySkips: () => [] } as never,
-      authProfiles: createTestAuthProfileRepository(projectRoot).repository,
-      candidateAvailability: new MemoryCandidateAvailability(),
-      llmCallFn: async () => ({
-        result: { kind: 'message', content: 'ok' },
-        provider_exchanges: [attempt('a', 'error'), attempt('b', 'error'), attempt('c', 'ok')],
-      }),
-    });
-
-    await expect(service.invokeWithRecovery({ ...request(), abortSignal: abortController.signal })).rejects.toBe(persistenceError);
-    expect(appended).toEqual(['a', 'b']);
+    expect(readProviderExchangeLogEntries(projectRoot, invocation.sessionId)).toEqual([]);
+    service.projectProviderExchanges(invocation.mutationAuthority, invocation.sessionId, invocation.inputId, completion.provider_exchanges, [`${invocation.inputId}:message`]);
+    expect(readProviderExchangeLogEntries(projectRoot, invocation.sessionId).map((exchange) => [exchange.payload.provider, exchange.payload.status === 'ok' ? exchange.payload.assistant_output_ids : null])).toEqual([
+      ['a', null],
+      ['b', [`${invocation.inputId}:message`]],
+    ]);
   });
 
   it('settles the real InvocationService malformed-attempt rejection through the LLM actor', async () => {
@@ -125,7 +98,7 @@ describe('InvocationService provider exchange accumulation', () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const service = new InvocationService({
-        providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
+        appLogs: testAppLogs(projectRoot),
         projectRoot,
         saivageDir,
         registry: {} as never,

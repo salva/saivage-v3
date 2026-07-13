@@ -20,9 +20,8 @@ import type { CardNotification } from '../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from './test-process-runner.js';
 import { createTestPromptTemplateRegistry } from './prompt-template-registry.js';
-import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
-import { createProviderExchangeMutationPort } from '../../src/persistence/provider-exchange-mutation-port.js';
 import { testConversationMutations } from './conversation-mutations.js';
+import { testAppLogs } from './app-logs.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -109,7 +108,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
   const availability = new MemoryCandidateAvailability();
   const registry = new ProviderRegistry(config);
   const invocationService = new InvocationService({
-    providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
+    appLogs: testAppLogs(projectRoot),
     projectRoot,
     saivageDir: join(projectRoot, '.saivage'),
     registry,
@@ -129,6 +128,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     analystProcessRootScope: processRunner.analystRootScope,
     mcpManager: analystRuntime.mcpManager,
     conversations: testConversationMutations(projectRoot),
+    appLogs: testAppLogs(projectRoot),
   };
 }
 
@@ -159,7 +159,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       const availability = new MemoryCandidateAvailability();
       const registry = new ProviderRegistry(config);
       const invocationService = new InvocationService({
-        providerExchangeMutations: createProviderExchangeMutationPort(projectRoot, new ReadModelChangeBroadcaster()),
+        appLogs: testAppLogs(projectRoot),
         projectRoot,
         saivageDir: join(projectRoot, '.saivage'),
         registry,
@@ -179,6 +179,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         analystProcessRootScope: processRunner.analystRootScope,
         mcpManager: analystRuntime.mcpManager,
         conversations: testConversationMutations(projectRoot),
+        appLogs: testAppLogs(projectRoot),
       };
     },
     get analystRuntime() {

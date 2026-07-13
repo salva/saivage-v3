@@ -11,7 +11,9 @@ import { tmpdir } from 'node:os';
 import { clearProjectNotificationDeliveryAdapters, clearProjectNotificationEventBus, NotificationDeliveryService, setProjectNotificationDeliveryAdapters, setProjectNotificationEventBus, type NotificationDeliveryContext, type NotificationQueueEntry } from '../src/notifications/index.js';
 import { queueNotification, resolveRecipient } from '../src/notifications/notification-triggers.js';
 import { EventBus } from '../src/events/index.js';
-import { CardActor, PlanningCardProcessorActor, type CardActorDeps } from '../src/runtime/actors/index.js';
+import { CardActor, type CardActorDeps } from '../src/runtime/actors/index.js';
+import { TestPlanningCardProcessorActor as PlanningCardProcessorActor } from './helpers/app-log-actors.js';
+import { testAppLogs } from './helpers/app-logs.js';
 import { ProcessRunner } from '../src/runtime/process-runner.js';
 import { createTestProcessRunner } from './helpers/test-process-runner.js';
 import { queue_notification } from '../src/tools/analyst-misc-tools.js';
@@ -35,7 +37,7 @@ function notificationIdFromCall(call: unknown): string {
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort): CardActorDeps {
-  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+  return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), appLogs: testAppLogs(projectRoot), storeForCard: () => store, currentness: { enterChild: () => ({}) as never, resumeParent() {} }, provider, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
 }
 
 function makeCard(overrides: Partial<NewCardInput> & { id?: string; type: NewCardInput['type']; title: string }): NewCardInput & { id?: string } {
@@ -189,6 +191,8 @@ describe('queueNotification recipient resolution', () => {
       store,
       children: { get: () => null },
       notifyCard: () => ({ ok: false, reason: 'missing_card', cardId: goal.id }),
+      appLogs: testAppLogs(projectRoot),
+      mutationAuthority: () => store.currentMutationAuthority(),
     });
     const tool = provider.tools.find((item) => item.name === 'queue_notification');
 
@@ -210,7 +214,7 @@ describe('queueNotification recipient resolution', () => {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
     const deps = createTestAnalystRuntime({ projectRoot, cardStore: store });
-    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner: deps.processRunner, processScope: deps.processRunner.createDirectScope(deps.processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false };
+    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner: deps.processRunner, processScope: deps.processRunner.createDirectScope(deps.processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
 
     const result = await queue_notification(ctx, { recipient: goal.id, kind: 'review_update', body: 'reviewer left actionable feedback' });
 

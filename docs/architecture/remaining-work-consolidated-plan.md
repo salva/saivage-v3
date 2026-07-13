@@ -345,9 +345,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    `PersistentQueue` is never used in production. `appendSyncIdempotent` (entry-id variant) is dead. `JsonlLedger` read API is test-only (production reads bypass it). `byIdDir`/`historyDir` are dead and identical. `loadProjectConfig`/`findSaivageDir` are test-only.
 
-3. **Remove no-op logger lifecycle methods.**
+3. **Remove no-op logger lifecycle methods. — Completed.**
 
-   `EventLogger` and `ErrorLogger` `flush`/`flushSync`/`close` are empty bodies with live callers. Delete the methods and all call sites, including `src/application/runtime-composition.ts:151-152` and `src/application/read-models/events-read-model.ts:40`.
+   `EventLogger` and `ErrorLogger` no longer expose no-op `flush`/`flushSync`/`close` methods, and event reads no longer construct a writer-capable logger.
 
 4. **Remove dead server barrels and exports.**
 

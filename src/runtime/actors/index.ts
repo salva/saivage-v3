@@ -8,8 +8,6 @@ export {
   activeVersionPath,
   versionExists,
   readConversationIndex,
-  writeConversationIndex,
-  ensureConversationIndex,
   conversationIndexSchema,
   conversationVersionEntrySchema,
 } from './conversation-index.js';

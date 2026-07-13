@@ -10,13 +10,14 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 
 function setup(root: string): CardStore {
   initProjectTree(root);
   return new CardStore(root);
 }
 
-function ctx(root: string, store: CardStore): ToolContext { const processRunner = createTestProcessRunner(root); return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-executor', 'runtime_card'), store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1', restartServerAvailable: false }; }
+function ctx(root: string, store: CardStore): ToolContext { const processRunner = createTestProcessRunner(root); return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-executor', 'runtime_card'), store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1', restartServerAvailable: false, appLogs: testAppLogs(root) }; }
 
 describe('card history and notes tools', () => {
   it('lists history, gets an entry, diffs versions, without audit writes', async () => {

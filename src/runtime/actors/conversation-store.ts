@@ -1,22 +1,21 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { appendSyncIdempotentByKey } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
-import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
+import type { ConversationStore, ConversationAppendResult } from '../../persistence/conversation-store.js';
+import type { MutationAuthority } from '../../application/mutation-authority.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import { saivageCardsRoot } from '../../persistence/layout.js';
 import {
   activeVersionPath,
-  ensureConversationIndex,
   readConversationIndex,
   readValidatedConversationIndex,
 } from './conversation-index.js';
 
 export { conversationDir, conversationIndexPath } from './conversation-index.js';
 
-export type ConversationAppendResult = { message: AgentMessage; appended: boolean };
+export type { ConversationAppendResult } from '../../persistence/conversation-store.js';
 
 export function readConversationMessages(projectRoot: string, sessionId: string): AgentMessage[] {
   return readActiveVersionMessages(projectRoot, sessionId);
@@ -27,7 +26,7 @@ export function readActiveVersionMessages(projectRoot: string, sessionId: string
   if (!index) return [];
   const path = activeVersionPath(projectRoot, sessionId, index.active_version);
   if (!existsSync(path)) throw new Error(`Conversation active version '${index.active_version}' for '${sessionId}' was not found.`);
-  return readConversationVersion(path);
+  return readConversationVersionMessages(path);
 }
 
 export function hasIndexedConversationMessageOfKind(projectRoot: string, sessionId: string, messageId: string, expectedKind: AgentMessage['kind']): boolean {
@@ -38,7 +37,7 @@ export function hasIndexedConversationMessageOfKind(projectRoot: string, session
   for (const version of Object.keys(index.versions).map(Number).sort((left, right) => left - right)) {
     const path = activeVersionPath(projectRoot, sessionId, version);
     if (!existsSync(path)) throw new Error(`Conversation indexed version '${path}' was not found.`);
-    for (const message of readConversationVersion(path)) {
+    for (const message of readConversationVersionMessages(path)) {
       if (message.id !== messageId) continue;
       if (message.kind !== expectedKind) {
         throw new Error(`Conversation indexed version '${path}' has '${messageId}' with kind '${message.kind}', expected '${expectedKind}'.`);
@@ -55,17 +54,13 @@ export function listConversationSessionIds(projectRoot: string): string[] {
     .sort();
 }
 
-export function appendConversationMessage(projectRoot: string, message: AgentMessage): ConversationAppendResult {
-  const parsed = agentMessageSchema.parse(message);
-  return { message: parsed, appended: appendSyncIdempotentByKey(activeConversationVersionPath(projectRoot, parsed.session_id), parsed, 'id') };
-}
-
 export type UserContextMessageCategory = 'notification' | 'reviewer_descendant' | 'continuation_hook';
 
 export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
 
 export function appendUserContextMessage(
-  conversations: ConversationMutationPort,
+  conversations: ConversationStore,
+  authority: MutationAuthority,
   sessionId: string,
   inputId: string,
   category: UserContextMessageCategory,
@@ -86,13 +81,14 @@ export function appendUserContextMessage(
     block_index: 0,
     timestamp,
   });
-  return conversations.append(message);
+  const result = conversations.appendBatch(authority, [message]);
+  return { message, appended: result.appended };
 }
 
-export function appendActivationMarker(conversations: ConversationMutationPort, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): ConversationAppendResult {
+export function appendActivationMarker(conversations: ConversationStore, authority: MutationAuthority, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): ConversationAppendResult {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
-  return conversations.append(agentMessageSchema.parse({
+  const message = agentMessageSchema.parse({
     id: `${sessionId}:activation:${createHash('sha256').update(seed).digest('hex').slice(0, 16)}`,
     session_id: sessionId,
     role: 'system',
@@ -102,7 +98,9 @@ export function appendActivationMarker(conversations: ConversationMutationPort, 
     message_index: 0,
     block_index: 0,
     timestamp,
-  }));
+  });
+  const result = conversations.appendBatch(authority, [message]);
+  return { message, appended: result.appended };
 }
 
 export function buildContextTextMessage(sessionId: string, role: Extract<MessageRole, 'user' | 'system'>, content: string): AgentMessage {
@@ -121,8 +119,10 @@ export function buildContextTextMessage(sessionId: string, role: Extract<Message
   });
 }
 
-export function appendCanonicalUserText(conversations: ConversationMutationPort, sessionId: string, content: string): ConversationAppendResult {
-  return conversations.append(buildContextTextMessage(sessionId, 'user', content));
+export function appendCanonicalUserText(conversations: ConversationStore, authority: MutationAuthority, sessionId: string, content: string): ConversationAppendResult {
+  const message = buildContextTextMessage(sessionId, 'user', content);
+  const result = conversations.appendBatch(authority, [message]);
+  return { message, appended: result.appended };
 }
 
 export function conversationMessagesForModel(messages: AgentMessage[]): AgentMessage[] {
@@ -137,14 +137,7 @@ export function isConversationBudgetVisible(message: AgentMessage): boolean {
   return isModelVisibleConversationMessage(message);
 }
 
-function activeConversationVersionPath(projectRoot: string, sessionId: string): string {
-  const index = ensureConversationIndex(projectRoot, sessionId);
-  const path = activeVersionPath(projectRoot, sessionId, index.active_version);
-  if (!existsSync(path)) throw new Error(`Conversation active version '${index.active_version}' for '${sessionId}' was not found.`);
-  return path;
-}
-
-function readConversationVersion(path: string): AgentMessage[] {
+export function readConversationVersionMessages(path: string): AgentMessage[] {
   try {
     return readFileSync(path, 'utf-8')
       .split('\n')

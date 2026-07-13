@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 
-import { quarantineContent, recordContentPass, listRecentReviews } from '../../src/workspace/quarantine.js';
+import { listRecentReviews } from '../../src/workspace/quarantine.js';
+import { quarantineContent, recordContentPass } from '../helpers/content-review.js';
 import type { ContentReview } from '../../src/schemas/types.js';
 
 let root: string;

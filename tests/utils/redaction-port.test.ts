@@ -13,8 +13,7 @@ import {
   redactSnippetForOutbound,
   redactTextForOutbound,
 } from '../../src/redaction/index.js';
-import { EventLogger } from '../../src/observability/event-logger.js';
-import { ErrorLogger } from '../../src/observability/error-logger.js';
+import { TestEventLogger as EventLogger, TestErrorLogger as ErrorLogger } from '../helpers/observability.js';
 import { sendToClient } from '../../src/server/websocket.js';
 import type { WsEnvelope } from '../../src/contracts/operator-events.js';
 import { TelegramBot } from '../../src/telegram/bot.js';

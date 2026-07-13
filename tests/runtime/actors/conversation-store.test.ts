@@ -1,13 +1,17 @@
 import { describe, expect, it } from '@jest/globals';
-import { testConversationMutations } from '../../helpers/conversation-mutations.js';
+import { appendTestConversationMessage as appendConversationMessage, testConversationMutations, writeTestConversationIndex as writeConversationIndex } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendActivationMarker, appendConversationMessage, appendUserContextMessage, conversationDir, conversationMessagesForModel, hasIndexedConversationMessageOfKind, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
-import { activeVersionPath, conversationIndexPath, writeConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
+import { appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, conversationDir, conversationMessagesForModel, hasIndexedConversationMessageOfKind, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import { activeVersionPath, conversationIndexPath } from '../../../src/runtime/actors/conversation-index.js';
 import { codexMessages } from '../../../src/agents/llm-openai-codex-gateway.js';
 import { buildOpenAIChatRequest } from '../../../src/agents/llm-openai-chat-gateway.js';
 import type { AgentMessage } from '../../../src/schemas/index.js';
+import { testCompositionAuthority } from '../../helpers/canonical-project.js';
+
+const appendActivationMarker = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, payload: Parameters<typeof productionAppendActivationMarker>[3]) => productionAppendActivationMarker(conversations, testCompositionAuthority(conversations.projectRoot), sessionId, payload);
+const appendUserContextMessage = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, inputId: string, category: Parameters<typeof productionAppendUserContextMessage>[4], ordinal: number, message: Parameters<typeof productionAppendUserContextMessage>[6]) => productionAppendUserContextMessage(conversations, testCompositionAuthority(conversations.projectRoot), sessionId, inputId, category, ordinal, message);
 
 function makeMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
   return {
@@ -40,7 +44,7 @@ describe('conversation-store', () => {
     expect(existsSync(join(dir, 'seg-001.jsonl'))).toBe(true);
   });
 
-  it('canonical transcript reads only active version rows and removes orphan version files on load', () => {
+  it('canonical transcript reads only active version rows without mutating orphan files', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     const sessionId = 'planner:project';
     const dir = conversationDir(root, sessionId);
@@ -70,7 +74,7 @@ describe('conversation-store', () => {
     expect(active.map((message) => message.id)).toEqual(['shared', 'active-1']);
     expect(all.map((message) => message.id)).toEqual(['shared', 'active-1']);
     expect(all.find((message) => message.id === 'shared')?.content).toBe('dedupe from active');
-    expect(existsSync(join(dir, '3.jsonl'))).toBe(false);
+    expect(existsSync(join(dir, '3.jsonl'))).toBe(true);
   });
 
   it('reads exact prompt identity from indexed history without cleaning an orphan', () => {

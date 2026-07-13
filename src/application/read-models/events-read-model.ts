@@ -1,7 +1,5 @@
-import { join } from 'node:path';
-import { EventLogger } from '../../observability/index.js';
-import type { EventFilter } from '../../observability/index.js';
-import type { EventKind, LoggedEvent } from '../../schemas/index.js';
+import { readAppLogEntries } from '../../persistence/app-log.js';
+import { loggedEventSchema, type LoggedEvent } from '../../schemas/index.js';
 import type { EventsListResponse, EventsQuery } from '../../contracts/index.js';
 
 function parseLimit(raw: string | undefined): number {
@@ -16,21 +14,15 @@ function parseOffset(raw: string | undefined): number {
 }
 
 export class EventsReadModelService {
-  private readonly eventLogger: EventLogger;
-
-  constructor(projectRoot: string) {
-    this.eventLogger = new EventLogger(join(projectRoot, '.saivage'));
-  }
+  constructor(private readonly projectRoot: string) {}
 
   listEvents(query: EventsQuery = {}): EventsListResponse {
     const limit = parseLimit(query.limit);
     const offset = parseOffset(query.offset);
-    const contentFilter: EventFilter = {};
-    if (query.kind) contentFilter.kind = query.kind as EventKind;
-    if (query.goal_id) contentFilter.goal_id = query.goal_id;
-    if (query.session_id) contentFilter.session_id = query.session_id;
-
-    const allMatching = this.eventLogger.getEvents(contentFilter);
+    let allMatching = readAppLogEntries(this.projectRoot, 'event').map((entry) => loggedEventSchema.parse(entry.data));
+    if (query.kind) allMatching = allMatching.filter((event) => event.kind === query.kind);
+    if (query.goal_id) allMatching = allMatching.filter((event) => 'goal_id' in event && event.goal_id === query.goal_id);
+    if (query.session_id) allMatching = allMatching.filter((event) => 'session_id' in event && event.session_id === query.session_id);
     const total = allMatching.length;
     const events = allMatching.slice(offset, offset + limit);
     return { events: events as LoggedEvent[], total };
