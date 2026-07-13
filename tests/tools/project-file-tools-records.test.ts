@@ -1,4 +1,4 @@
-import { CardStore, closeOpenRecordSlot, initProjectTree, readClosedRecordSlotMetadata } from '../helpers/canonical-project.js';
+import { CardStore, initProjectTree } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,11 +18,17 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 
 function recordCtx(projectRoot: string, agentRole: 'planner' | 'reviewer' | 'executor', cardId = 'project') { return { projectRoot, cardId, agentRole, store: new CardStore(projectRoot) }; }
 
+function closeRecord(store: CardStore, cardId: string, filename: string, writer: 'planner' | 'reviewer' | 'executor' = 'planner', cardVersionSeq = 1): void {
+  const open = store.readRecord(cardId, filename, 'open');
+  store.closeRecord(cardId, filename, open.version, writer, cardVersionSeq);
+}
+
 describe('project file tools record enforcement', () => {
   it('returns normalized record urls for allowed record writes and reads', async () => withTempProject(async (projectRoot) => {
-    const write = await writeProject(recordCtx(projectRoot, 'planner'), { path: 'record:///status.md?v=next', content: 'planner status' });
+    const ctx = recordCtx(projectRoot, 'planner');
+    const write = await writeProject(ctx, { path: 'record:///status.md?v=next', content: 'planner status' });
     expect(write).toMatchObject({ record_url: 'record:///status.md?card=project&v=1', written: true });
-    closeOpenRecordSlot(projectRoot, { cardId: 'project', filename: 'status.md' });
+    closeRecord(ctx.store, 'project', 'status.md');
 
     const read = await readProject(recordCtx(projectRoot, 'reviewer'), { path: 'record:///status.md?card=project' });
     expect(read).toMatchObject({ record_url: 'record:///status.md?card=project&v=1', content: 'planner status' });
@@ -50,12 +56,13 @@ describe('project file tools record enforcement', () => {
   }));
 
   it('exposes metadata for closed record documents without exposing internal card storage', async () => withTempProject(async (projectRoot) => {
-    await writeProject(recordCtx(projectRoot, 'executor'), { path: 'record:///status.md?v=next', content: 'executor status' });
-    closeOpenRecordSlot(projectRoot, { cardId: 'project', filename: 'status.md', writer: 'executor', cardVersionSeq: 1 });
+    const ctx = recordCtx(projectRoot, 'executor');
+    await writeProject(ctx, { path: 'record:///status.md?v=next', content: 'executor status' });
+    closeRecord(ctx.store, 'project', 'status.md', 'executor');
 
     await expect(readProject(recordCtx(projectRoot, 'executor'), { path: 'record:///card.json?card=project&v=1' })).rejects.toThrow('internal');
-    const metadata = readClosedRecordSlotMetadata(projectRoot, { cardId: 'project', filename: 'status.md', version: 1 });
-    expect(metadata).toMatchObject({ url: 'record:///status.md?card=project&v=1', writer: 'executor', size: 15, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 1 });
+    const metadata = ctx.store.readRecord('project', 'status.md', 1);
+    expect(metadata).toMatchObject({ recordUrl: 'record:///status.md?card=project&v=1', artifact: { writer: 'executor', content: 'executor status', format: 'markdown', schema: 'record.status.markdown.v1', card_version_seq: 1 } });
   }));
 
   it('allows executor project writes but rejects planner project writes', async () => withTempProject(async (projectRoot) => {
@@ -74,8 +81,9 @@ describe('project file tools record enforcement', () => {
   }));
 
   it('greps the latest closed record versions by card id without redaction', async () => withTempProject(async (projectRoot) => {
-    await writeProject(recordCtx(projectRoot, 'planner'), { path: 'record:///brief.md?v=next', content: '# Goal\n\nFind the needle.\n' });
-    closeOpenRecordSlot(projectRoot, { cardId: 'project', filename: 'brief.md', writer: 'planner' });
+    const ctx = recordCtx(projectRoot, 'planner');
+    await writeProject(ctx, { path: 'record:///brief.md?v=next', content: '# Goal\n\nFind the needle.\n' });
+    closeRecord(ctx.store, 'project', 'brief.md');
 
     const result = await grepProject(recordCtx(projectRoot, 'planner'), { path: 'record:///project', pattern: 'needle' }) as { matches: Array<{ path: string; line: number; preview: string }>; truncated: boolean };
 

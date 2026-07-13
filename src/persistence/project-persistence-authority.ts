@@ -62,6 +62,40 @@ export type PersistenceOpenMode =
   | { readonly kind: 'normal' }
   | { readonly kind: 'bootstrap'; readonly root: NewProjectRootInput };
 
+function canonicalRootPublicationState(projectRoot: string): 'unpublished' | 'published-or-malformed' {
+  const pathSegments = ['.saivage', 'cards', 'project', 'card', 'versions'];
+  let current = projectRoot;
+  for (const segment of pathSegments) {
+    current = join(current, segment);
+    if (!existsSync(current)) return 'unpublished';
+    if (!lstatSync(current).isDirectory()) return 'published-or-malformed';
+  }
+  const entries = readdirSync(current, { withFileTypes: true });
+  if (entries.length === 0) return 'unpublished';
+  for (const entry of entries) {
+    if (!entry.isFile()) return 'published-or-malformed';
+    const temporaryTarget = durableReplacementTemporaryTargetBasename(entry.name);
+    if (temporaryTarget === null || !/^\d+\.json$/u.test(temporaryTarget)) return 'published-or-malformed';
+  }
+  return 'unpublished';
+}
+
+/** Read-only startup classifier for commands that are explicitly allowed to bootstrap. */
+export function classifyPersistenceOpenMode(
+  projectRoot: string,
+  lifecycleLock: RuntimeLifecycleLockHandle,
+  root: NewProjectRootInput,
+): PersistenceOpenMode {
+  assertRuntimeLifecycleLock(lifecycleLock, projectRoot);
+  if (canonicalRootPublicationState(projectRoot) === 'published-or-malformed') return { kind: 'normal' };
+  try {
+    verifyBootstrapEligibleLayout(projectRoot, lifecycleLock);
+    return { kind: 'bootstrap', root };
+  } catch {
+    return { kind: 'normal' };
+  }
+}
+
 export type PersistenceAuthorityState = 'closed' | 'exclusive-restabilization' | 'open' | 'failed';
 
 export interface ProjectPersistenceAuthority {

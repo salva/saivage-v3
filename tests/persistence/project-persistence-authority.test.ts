@@ -6,11 +6,13 @@ import { dirname, join } from 'node:path';
 import type { CardRecord } from '../../src/schemas/index.js';
 import { IndeterminatePublicationError } from '../../src/persistence/errors.js';
 import {
+  classifyPersistenceOpenMode,
   openProjectPersistenceAuthority,
   verifyBootstrapEligibleLayout,
   type ProjectPersistenceAuthority,
 } from '../../src/persistence/project-persistence-authority.js';
 import { acquireLock, releaseLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 const stamp = '2026-07-13T12:00:00.000Z';
 const roots: string[] = [];
@@ -33,6 +35,13 @@ function rootCard(): CardRecord {
 
 function rootInput() {
   return { card: rootCard(), brief: '# Goal\n\nBuild the project.' };
+}
+
+function childCard(id: string, versionSeq = 1): CardRecord {
+  return {
+    ...rootCard(), id, type: 'goal', parent: 'project', depth: 1, title: id, position: 0,
+    version_seq: versionSeq, updated_at: versionSeq === 1 ? stamp : '2026-07-13T12:00:01.000Z',
+  };
 }
 
 function writeJson(path: string, value: unknown): void {
@@ -121,6 +130,42 @@ describe('bootstrap eligibility', () => {
     expect(() => verifyBootstrapEligibleLayout(other, lock)).toThrow(/belongs to/);
     releaseLock(lock);
     expect(() => verifyBootstrapEligibleLayout(root, lock)).toThrow(/live runtime lifecycle lock/);
+  });
+});
+
+describe('bootstrap-capable command mode classification', () => {
+  it('selects bootstrap only for an unpublished root whose complete layout is eligible', () => {
+    const root = makeRoot();
+    const lock = acquire(root);
+    const before = snapshot(root);
+    expect(classifyPersistenceOpenMode(root, lock, rootInput())).toEqual({ kind: 'bootstrap', root: rootInput() });
+    expect(snapshot(root)).toEqual(before);
+    releaseLock(lock);
+  });
+
+  it('selects normal without invoking bootstrap mutation for malformed canonical root evidence', () => {
+    const root = makeRoot();
+    const lock = acquire(root);
+    mkdirSync(join(root, '.saivage', 'cards', 'project', 'card', 'versions'), { recursive: true });
+    writeFileSync(join(root, '.saivage', 'cards', 'project', 'card', 'versions', '1.json'), '{malformed');
+    const before = snapshot(root);
+    expect(classifyPersistenceOpenMode(root, lock, rootInput())).toEqual({ kind: 'normal' });
+    expect(snapshot(root)).toEqual(before);
+    expect(() => openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'normal' } })).toThrow(/Failed to parse JSON/);
+    expect(snapshot(root)).toEqual(before);
+    releaseLock(lock);
+  });
+
+  it('selects normal mutation-free when the root is missing from a nonfresh generated layout', () => {
+    const root = makeRoot();
+    const lock = acquire(root);
+    mkdirSync(join(root, '.saivage', 'logs'), { recursive: true });
+    writeFileSync(join(root, '.saivage', 'logs', 'app.jsonl'), 'authored evidence\n');
+    const before = snapshot(root);
+    expect(classifyPersistenceOpenMode(root, lock, rootInput())).toEqual({ kind: 'normal' });
+    expect(() => openProjectPersistenceAuthority({ projectRoot: root, lifecycleLock: lock, mode: { kind: 'normal' } })).toThrow(/Cannot enumerate canonical project/);
+    expect(snapshot(root)).toEqual(before);
+    releaseLock(lock);
   });
 });
 
@@ -217,6 +262,87 @@ describe('authority admission and failure behavior', () => {
     expect(order).toEqual(['first', 'second']);
     expect(() => authority.writer.request(() => authority.writer.request(() => undefined))).toThrow(/Recursive/);
     expect(authority.state).toBe('open');
+    releaseLock(lock);
+  });
+
+  it('injects the exact authority reader and writer into the CardStore composition', () => {
+    const { authority, lock } = opened();
+    const store = new CardStore({ projectRoot: authority.projectRoot, reader: authority.reader, writer: authority.writer });
+    expect(store.recordReader).toBe(authority.reader);
+    expect((store as unknown as { persistenceWriter: unknown }).persistenceWriter).toBe(authority.writer);
+    authority.close();
+    releaseLock(lock);
+  });
+
+  it('runs a real multi-artifact CardStore request without recursive admission', () => {
+    const { authority, lock } = opened();
+    const store = new CardStore({ projectRoot: authority.projectRoot, reader: authority.reader, writer: authority.writer });
+    const card = store.create({ type: 'goal', parent: 'project', title: 'Composite', brief: 'Initial', status: 'backlog', depth: 1, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+    store.runPersistenceRequest(() => {
+      const open = store.openRecord(card.id, 'status.md');
+      store.editRecord(card.id, 'status.md', open.version, 'composite status');
+      store.closeRecord(card.id, 'status.md', open.version, 'planner', card.version_seq);
+      store.mutateCard(card.id, { priority: 2 }, { actor: 'planner', surface: 'runtime', reason: 'composite test' });
+    });
+    expect(authority.reader.record(card.id, 'status.md').artifact.content).toBe('composite status');
+    expect(authority.generation.cards.get(card.id)?.current.card).toMatchObject({ priority: 2, version_seq: 2 });
+    authority.close();
+    releaseLock(lock);
+  });
+
+  it('checks expected card versions in the admitted turn against the latest generation', () => {
+    const { authority, lock } = opened();
+    const first = new CardStore({ projectRoot: authority.projectRoot, reader: authority.reader, writer: authority.writer });
+    const card = first.create({ type: 'goal', parent: 'project', title: 'Before', brief: 'brief', status: 'backlog', depth: 1, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+    const stale = new CardStore({ projectRoot: authority.projectRoot, reader: authority.reader, writer: authority.writer });
+    first.mutateCard(card.id, { title: 'First accepted update' }, { actor: 'planner', surface: 'runtime', reason: 'first' });
+    expect(() => stale.mutateCard(card.id, { title: 'Stale update' }, { actor: 'planner', surface: 'runtime', reason: 'stale' })).toThrow(/expected version 3/);
+    expect(authority.state).toBe('open');
+    authority.close();
+    releaseLock(lock);
+  });
+
+  it('invalidates the authority after a real canonical publication failure', () => {
+    const { authority, lock } = opened();
+    const target = join(authority.projectRoot, '.saivage', 'cards', 'project', 'status', 'versions', '1.json');
+    mkdirSync(target, { recursive: true });
+    expect(() => authority.writer.request((writer) => writer.openRecord('project', 'status.md'))).toThrow();
+    expect(authority.state).toBe('failed');
+    expect(() => authority.writer.request(() => undefined)).toThrow(/failed/);
+    releaseLock(lock);
+  });
+
+  it('invalidates after post-publication index failure and normal reopen reaches the canonical fixed point', () => {
+    const { authority, lock } = opened();
+    const store = new CardStore({ projectRoot: authority.projectRoot, reader: authority.reader, writer: authority.writer });
+    const card = store.create({ type: 'goal', parent: 'project', title: 'Before', brief: 'brief', status: 'backlog', depth: 1, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+    const indexPath = join(authority.projectRoot, '.saivage', 'cards', card.id, 'card', 'index.json');
+    rmSync(indexPath);
+    mkdirSync(indexPath);
+    expect(() => store.mutateCard(card.id, { title: 'Published before index failure' }, { actor: 'planner', surface: 'runtime', reason: 'fault injection' })).toThrow();
+    expect(authority.state).toBe('failed');
+    expect(existsSync(join(authority.projectRoot, '.saivage', 'cards', card.id, 'card', 'versions', '2.json'))).toBe(true);
+    releaseLock(lock);
+
+    rmSync(indexPath, { recursive: true });
+    const reopenLock = acquire(authority.projectRoot);
+    const reopened = openProjectPersistenceAuthority({ projectRoot: authority.projectRoot, lifecycleLock: reopenLock, mode: { kind: 'normal' } });
+    expect(reopened.generation.cards.get(card.id)?.current.card).toMatchObject({ title: 'Published before index failure', version_seq: 2 });
+    expect(lstatSync(indexPath).isFile()).toBe(true);
+    reopened.close();
+    releaseLock(reopenLock);
+  });
+
+  it('creates no card, project, slot, or per-file lock during canonical mutations', () => {
+    const { authority, lock } = opened();
+    authority.writer.request((writer) => writer.createCard(childCard('card-lock'), 'brief', 'planner'));
+    authority.writer.request((writer) => {
+      const open = writer.openRecord('card-lock', 'status.md');
+      writer.editRecord('card-lock', 'status.md', open.version, 'status');
+      writer.closeRecord('card-lock', 'status.md', open.version, 'planner', 1);
+    });
+    expect(readdirSync(join(authority.projectRoot, '.saivage', 'locks'))).toEqual(['runtime.lock']);
+    authority.close();
     releaseLock(lock);
   });
 

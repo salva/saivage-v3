@@ -518,7 +518,7 @@ Implemented in `src/runtime/records/record-slots.ts` and `src/tools/project-file
 3. Closed/latest numeric reads work through the file tools.
 4. `tmp://{cardId}/{relative}` resolves to `.saivage/work/cards/{cardId}/tmp/{relative}`.
 5. `project://` and absolute project paths keep the existing project-file safety policy.
-6. Stale/open record discard support exists through `discardOpenRecordSlot`, but reviewer currentness does not call it yet.
+6. Stale/open record discard support exists through the injected `CardStore.discardRecord` authority path, but reviewer currentness does not call it yet.
 7. Focused tests cover open/reuse/close, discard without advancing `latest`, normalized record URLs, and role write enforcement.
 
 Remaining follow-up:
@@ -556,7 +556,7 @@ Remaining follow-up:
 
 1. Capture a reviewer currentness snapshot: reviewed subtree card versions/statuses plus latest closed record versions included in context.
 2. Before accepting the reviewer result, compare the snapshot with current state.
-3. On stale review, call `discardOpenRecordSlot(..., reason: 'stale_review')`, do not advance `latest`, and relaunch the reviewer with fresh context.
+3. On stale review, call `CardStore.discardRecord(..., reason: 'stale_review')`, do not advance `latest`, and relaunch the reviewer with fresh context.
 4. Replace the standalone notification-pending invalidation check with currentness. It still exists in `PlanningCardProcessorActor.reviewPlannerDone(...)` and must be removed only when currentness is wired.
 5. Pass the normalized concrete review URL into planner correction context when reviewer returns `rework`.
 6. Add focused actor tests for missing-review repair, stale-review relaunch/discard, childless review skip, reviewer-relaunch budget exhaustion, and planner correction context.

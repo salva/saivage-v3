@@ -294,7 +294,7 @@ No version is committed if authorization, format validation, or schema validatio
 
 ### Existing Open/Close Terminal Records
 
-Keep the existing `openRecordSlot` / `closeOpenRecordSlot` terminal-tool flow for `status.md?v=next` and `review.md?v=next`, but make close/finalization share validation, metadata, audit, and hook internals with `commitRecord`.
+Keep the logical `record:///status.md?v=next` and `record:///review.md?v=next` terminal-tool flow through the injected `CardStore` and authority session; close/finalization shares canonical validation and metadata with all record commits.
 
 The split is:
 

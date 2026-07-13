@@ -7,8 +7,8 @@ import * as YAML from 'yaml';
 import { evaluateAuthz } from './agents/tool-api.js';
 import { startApp } from './boot/index.js';
 import { newProjectRootInput } from './boot/app.js';
-import { recordControlAction, stableStringify, isInitialized, findProjectRoot, observeCanonicalProjectRoot } from './persistence/index.js';
-import { openProjectPersistenceAuthority, verifyBootstrapEligibleLayout } from './persistence/project-persistence-authority.js';
+import { recordControlAction, stableStringify, isInitialized, findProjectRoot } from './persistence/index.js';
+import { classifyPersistenceOpenMode, openProjectPersistenceAuthority } from './persistence/project-persistence-authority.js';
 import { isLocked, pauseRuntimeControl, resumeRuntimeControl } from './runtime/control-api.js';
 import { readRuntimeState } from './runtime/state-api.js';
 import { readLiveLockHolder } from './runtime/control-api.js';
@@ -50,12 +50,7 @@ async function handleInit(options: CliOptions): Promise<void> {
   const lifecycleLock = acquireLock(projectRoot);
   try {
     if (!options.force && isInitialized(projectRoot)) { console.log(`Project already initialized at ${projectRoot}`); return; }
-    let mode: { kind: 'normal' } | { kind: 'bootstrap'; root: ReturnType<typeof newProjectRootInput> } = { kind: 'normal' };
-    try { observeCanonicalProjectRoot(join(projectRoot, '.saivage', 'cards')); }
-    catch {
-      try { verifyBootstrapEligibleLayout(projectRoot, lifecycleLock); mode = { kind: 'bootstrap', root: newProjectRootInput(projectRoot) }; }
-      catch { mode = { kind: 'normal' }; }
-    }
+    const mode = classifyPersistenceOpenMode(projectRoot, lifecycleLock, newProjectRootInput(projectRoot));
     openProjectPersistenceAuthority({ projectRoot, lifecycleLock, mode }).close();
     console.log(`Project initialized at ${projectRoot}`);
   } finally { releaseLock(lifecycleLock); }

@@ -1,6 +1,6 @@
-import { initProjectTree, CardStore, closeOpenRecordSlot, openRecordSlot } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,11 +10,9 @@ import { join } from 'node:path';
 import { buildInvocationSurface, invokeTool, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES } from '../../src/tools/tool-definition.js';
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 function setup(root: string): CardStore {
   initProjectTree(root);
-  materializeProjectCard(root);
   return new CardStore(root);
 }
 
@@ -40,9 +38,9 @@ describe('CardInspectionProvider', () => {
       const store = setup(root);
       const goal = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'goal', status: 'backlog', depth: 1, tags: ['g'], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
       const child = store.create({ type: 'code', parent: goal.id, title: 'Code', brief: 'code', status: 'backlog', depth: 2, tags: ['c'], priority: 2, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
-      const open = openRecordSlot(root, { cardId: goal.id, filename: 'status.md' });
-      writeFileSync(open.absolutePath, 'status record', 'utf8');
-      closeOpenRecordSlot(root, { cardId: goal.id, filename: 'status.md', writer: 'planner', cardVersionSeq: goal.version_seq });
+      const open = store.openRecord(goal.id, 'status.md');
+      store.editRecord(goal.id, 'status.md', open.version, 'status record');
+      store.closeRecord(goal.id, 'status.md', open.version, 'planner', goal.version_seq);
       const surface = buildInvocationSurface('analyst', [createCardInspectionProvider({ projectRoot: root, store, agentRole: 'analyst' })]);
 
       const list = await invokeTool(surface, 'list_cards', {});

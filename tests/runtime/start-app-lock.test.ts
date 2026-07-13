@@ -61,6 +61,8 @@ describe('startApp runtime lock ownership', () => {
     apps.push(app);
 
     expect(isInitialized(root)).toBe(true);
+    expect(app.server.runtimeApplication.cardStore.recordReader).toBe(app.authority.reader);
+    expect((app.server.runtimeApplication.cardStore as unknown as { persistenceWriter: unknown }).persistenceWriter).toBe(app.authority.writer);
     expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(true);
     expect(readFileSync(promptPath, 'utf8')).toBe('# Locked bootstrap prompt\n');
     await expect(startApp({ argv: ['node', 'saivage', 'start', '--create-runtime'], env: { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_API_TOKEN: 'lock-test-token', SAIVAGE_PORT: '0' } })).rejects.toThrow(/Runtime lock is held/);
@@ -68,6 +70,32 @@ describe('startApp runtime lock ownership', () => {
     await app.stop();
     apps.pop();
     expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
+  });
+
+  it('keeps plain start in normal mode and never bootstraps a missing root', async () => {
+    const { root, promptPath } = makeDurableOnlyProject();
+    await expect(startApp({
+      argv: ['node', 'saivage', 'start'],
+      env: { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_API_TOKEN: 'lock-test-token', SAIVAGE_PORT: '0' },
+    })).rejects.toThrow(/Cannot enumerate canonical project/);
+    expect(isInitialized(root)).toBe(false);
+    expect(existsSync(join(root, '.saivage', 'cards'))).toBe(false);
+    expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
+    expect(readFileSync(promptPath, 'utf8')).toBe('# Locked bootstrap prompt\n');
+  });
+
+  it('keeps --create-runtime in normal mode when canonical root evidence is malformed', async () => {
+    const { root, promptPath } = makeDurableOnlyProject();
+    const artifactPath = join(root, '.saivage', 'cards', 'project', 'card', 'versions', '1.json');
+    mkdirSync(join(artifactPath, '..'), { recursive: true });
+    writeFileSync(artifactPath, '{malformed canonical root');
+    await expect(startApp({
+      argv: ['node', 'saivage', 'start', '--create-runtime'],
+      env: { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_API_TOKEN: 'lock-test-token', SAIVAGE_PORT: '0' },
+    })).rejects.toThrow(/Failed to parse JSON/);
+    expect(readFileSync(artifactPath, 'utf8')).toBe('{malformed canonical root');
+    expect(readFileSync(promptPath, 'utf8')).toBe('# Locked bootstrap prompt\n');
+    expect(existsSync(join(root, '.saivage', 'state'))).toBe(false);
   });
 
   it('makes reset refuse without mutation while a real started app owns the same lock, then allows reset after stop', async () => {

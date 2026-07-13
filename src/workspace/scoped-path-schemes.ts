@@ -1,8 +1,8 @@
 import { relative, resolve } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
-import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, type OpenRecordSlot } from '../runtime/records/record-slots.js';
-import type { ProjectCardRecordReader } from '../persistence/project-persistence-authority.js';
+import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot } from '../runtime/records/record-slots.js';
+import type { ProjectCardRecordReader, RecordProjection } from '../persistence/project-persistence-authority.js';
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
@@ -10,7 +10,7 @@ import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layou
 export type ScopedPathMode = 'read' | 'write' | 'search';
 export type ScopedPathErrorFactory = (message: string) => Error;
 export type ScopedAgentContext = { cardId?: string; agentRole?: AgentRole };
-export type ResolvedScopedPath = { kind: 'project' | 'tmp' | 'system' | 'work'; absolutePath: string; relativePath: string; workRoot?: string } | ({ kind: 'record' } & OpenRecordSlot);
+export type ResolvedScopedPath = { kind: 'project' | 'tmp' | 'system' | 'work'; absolutePath: string; relativePath: string; workRoot?: string } | ({ kind: 'record' } & RecordProjection);
 
 export interface ResolveScopedPathContext {
   projectRoot: string;
@@ -80,7 +80,7 @@ export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: str
   return { agent, filename, cardId, version, recordUrl: `${buildScopedPathUrl('record', [filename])}?card=${encodeURIComponent(cardId)}&v=${encodeURIComponent(version)}` };
 }
 
-export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): OpenRecordSlot {
+export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): RecordProjection {
   if (!ctx.records) throw ctx.fail('Record reads require an injected persistence reader.');
   const agent = requireAgent(ctx, 'record:///');
   let parsed: ParsedScopedPathUrl;
@@ -110,7 +110,7 @@ export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: stri
   }
   const numeric = Number(version);
   if (!Number.isInteger(numeric) || numeric < 1) throw ctx.fail(`Invalid record version '${version}'.`);
-  let record: OpenRecordSlot;
+  let record: RecordProjection;
   try { record = concreteRecordSlot(ctx.records, { cardId, filename, version: numeric }); } catch (error) { throw ctx.fail(toolFacingErrorMessage(error)); }
   if (record.artifact.state !== 'closed' && !(record.artifact.state === 'open' && cardId === agent.cardId && exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole!))) throw ctx.fail('Only closed records are readable outside the owning open slot.');
   return record;

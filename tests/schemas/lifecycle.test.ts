@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, cardByIdPath } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

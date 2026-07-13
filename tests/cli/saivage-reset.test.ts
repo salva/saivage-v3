@@ -238,4 +238,21 @@ describe('saivage init', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('does not bootstrap a nonfresh missing-root project even with --force', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-init-nonfresh-'));
+    const cwd = process.cwd();
+    const evidencePath = join(root, '.saivage', 'logs', 'app.jsonl');
+    try {
+      mkdirSync(join(root, '.saivage', 'logs'), { recursive: true });
+      writeFileSync(evidencePath, 'authored runtime evidence\n');
+      process.chdir(root);
+      await expect(run(['node', 'cli', 'init', '--force'])).rejects.toThrow(/Cannot enumerate canonical project/);
+      expect(readFileSync(evidencePath, 'utf8')).toBe('authored runtime evidence\n');
+      expect(existsSync(join(root, '.saivage', 'cards'))).toBe(false);
+    } finally {
+      process.chdir(cwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

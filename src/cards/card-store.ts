@@ -1,8 +1,4 @@
-// F13 r5 (Batch 2b deviation: sync API) — thin façade over CardStoreState
-// (in-memory reads) and applyMutationSync (durable writes). Mutations are
-// synchronous: in-process serialization is provided by the JS event loop (no
-// awaits in the mutation body); cross-process serialization is provided by
-// `withLockSync` inside `applyMutationSync`.
+// In-memory card façade over the composition-owned canonical persistence authority.
 
 import type {
   CardHistoryEntry,

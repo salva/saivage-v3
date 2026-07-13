@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
 
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
@@ -22,7 +21,6 @@ function setupRoot(analystModels: string[] = [TEST_MODEL]): string {
   const sd = join(root, '.saivage');
   initProjectTree(root);
   writeConfig(root, analystModels);
-  materializeProjectCard(root);
   return root;
 }
 

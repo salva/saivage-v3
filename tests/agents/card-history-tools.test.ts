@@ -1,11 +1,10 @@
-import { initProjectTree, CardStore, closeOpenRecordSlot, openRecordSlot } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, it, expect } from '@jest/globals';
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { list_card_history, get_card_history_entry, diff_card, get_card } from '../../src/tools/analyst-card-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
@@ -13,7 +12,6 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 function setup(root: string): CardStore {
   initProjectTree(root);
-  materializeProjectCard(root);
   return new CardStore(root);
 }
 
@@ -24,7 +22,7 @@ describe('card history and notes tools', () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-f-history-tools-'));
     try {
       const store = setup(root);
-      const goal = store.create({ type: 'goal', parent: 'project', depth: 0, title: 'goal', brief: '', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 } as any);
+      const goal = store.create({ type: 'goal', parent: 'project', depth: 0, title: 'goal', brief: 'Goal brief.', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 } as any);
       const code = store.create({ type: 'code', parent: goal.id, depth: 0, title: 'before', brief: 'old', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 } as any);
       store.mutateCard(code.id, { title: 'after', priority: 2 }, { actor: 'analyst', surface: 'web-chat', reason: 'operator edit' });
       const toolCtx = ctx(root, store);
@@ -56,9 +54,9 @@ describe('card history and notes tools', () => {
     try {
       const store = setup(root);
       const code = store.create({ type: 'code', parent: 'project', depth: 0, title: 'task', brief: 'brief body', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 } as any);
-      const openStatus = openRecordSlot(root, { cardId: code.id, filename: 'status.md' });
-      writeFileSync(openStatus.absolutePath, 'latest status narrative', 'utf-8');
-      closeOpenRecordSlot(root, { cardId: code.id, filename: 'status.md', writer: 'executor', cardVersionSeq: code.version_seq });
+      const openStatus = store.openRecord(code.id, 'status.md');
+      store.editRecord(code.id, 'status.md', openStatus.version, 'latest status narrative');
+      store.closeRecord(code.id, 'status.md', openStatus.version, 'executor', code.version_seq);
 
       const result = await get_card(ctx(root, store), { id: code.id });
 

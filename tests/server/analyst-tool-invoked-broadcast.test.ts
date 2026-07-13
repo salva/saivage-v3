@@ -8,7 +8,6 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 
@@ -30,7 +29,6 @@ function setupRoot(): string {
     models: { default: ['test-model'], analyst: ['test-model'] },
     providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }));
-  materializeProjectCard(root);
   new CardStore(root).create({ type: 'code', parent: 'project', title: 'card', brief: 'card', status: 'backlog', depth: 0, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
   initRuntimeState(root);
   return root;

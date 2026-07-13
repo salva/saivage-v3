@@ -36,9 +36,9 @@ describe('CardActor ownership construction', () => {
   it('constructs only direct child actors and registers a multi-level tree in the shared lookup', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
-    const project = store.read('project') ?? store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
-    const goal = store.create({ type: 'goal', parent: project.id, depth: 1, title: 'goal', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
-    const terminal = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'code', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+    const project = store.read('project') ?? store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: 'Project brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+    const goal = store.create({ type: 'goal', parent: project.id, depth: 1, title: 'goal', brief: 'Goal brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+    const terminal = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'code', brief: 'Code brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     const lookup = new Map<string, CardActor>();
     const root = CardActor.fromCard({ card: project, deps: deps(projectRoot, store, lookup) });
 

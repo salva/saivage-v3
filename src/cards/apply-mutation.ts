@@ -1,7 +1,4 @@
-// F13 r5 §"On-disk write sequence" + §"Boot recovery" — the canonical sync
-// card mutation step machine. Owns the cross-process withLock, writes versioned
-// card.json records, updates `CardStoreState`, releases the lock, and emits a
-// `card_history_appended` event AFTER the lock drops.
+// Applies card mutations through the composition-owned persistence authority.
 
 import { randomUUID } from 'node:crypto';
 import { EventBus } from '../events/index.js';
@@ -79,13 +76,6 @@ function buildHistoryEntry(
   return entry;
 }
 
-/**
- * Per F13 r5 §"On-disk write sequence" steps 1–10 for a single-card mutation.
- * For `create`, no history row is written and no event is emitted.
- *
- * JavaScript single-thread serialization protects the sync body, and
- * `withLockSync` provides cross-process serialization.
- */
 export function applyMutationSync(
   deps: ApplyMutationDeps,
   op: ApplyMutationOp,

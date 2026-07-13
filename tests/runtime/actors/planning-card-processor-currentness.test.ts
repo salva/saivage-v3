@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, readRecordSlotIndex } from '../../helpers/canonical-project.js';
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
@@ -87,10 +87,10 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok' });
     expect(reviewerAttempt).toBe(2);
-    const index = readRecordSlotIndex(projectRoot, project.id, 'review');
-    expect(index.latest).toBe(2);
-    expect(index.versions['1']).toMatchObject({ status: 'discarded', reason: 'stale_review' });
-    expect(index.versions['2']).toMatchObject({ status: 'closed' });
+    const slot = store.recordReader.generation().cards.get(project.id)!.records.review;
+    expect(slot.latest?.version).toBe(2);
+    expect(slot.artifacts.find(({ version }) => version === 1)).toMatchObject({ state: 'discarded', reason: 'stale_review' });
+    expect(slot.artifacts.find(({ version }) => version === 2)).toMatchObject({ state: 'closed' });
   }));
 
   it('does not use pending notification state or reviewer notification context as reviewer currentness', async () => withTempProject(async (projectRoot) => {
@@ -133,9 +133,9 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       expect(contextText).not.toContain('notification-currentness');
       expect(contextText).not.toContain('invalidation signal');
     }
-    const index = readRecordSlotIndex(projectRoot, project.id, 'review');
-    expect(index.versions['1']).toMatchObject({ status: 'closed' });
-    expect(index.latest).toBe(1);
+    const slot = store.recordReader.generation().cards.get(project.id)!.records.review;
+    expect(slot.artifacts.find(({ version }) => version === 1)).toMatchObject({ state: 'closed' });
+    expect(slot.latest?.version).toBe(1);
   }));
 
   it('repairs a missing review file in the same reviewer session before currentness acceptance', async () => withTempProject(async (projectRoot) => {
@@ -159,9 +159,9 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const outcome = await actor.activate(activateInput(project), new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok' });
-    const index = readRecordSlotIndex(projectRoot, project.id, 'review');
-    expect(index.latest).toBe(1);
-    expect(index.versions['1']).toMatchObject({ status: 'closed' });
+    const slot = store.recordReader.generation().cards.get(project.id)!.records.review;
+    expect(slot.latest?.version).toBe(1);
+    expect(slot.artifacts.find(({ version }) => version === 1)).toMatchObject({ state: 'closed' });
   }));
 
   it('fails after the stale-review relaunch budget is exhausted', async () => withTempProject(async (projectRoot) => {
@@ -191,10 +191,8 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
     expect(outcome.summary).toContain('Reviewer currentness relaunch budget exhausted');
     expect(reviewerAttempt).toBe(3);
-    const index = readRecordSlotIndex(projectRoot, project.id, 'review');
-    expect(index.latest).toBeNull();
-    expect(index.versions['1']).toMatchObject({ status: 'discarded', reason: 'stale_review' });
-    expect(index.versions['2']).toMatchObject({ status: 'discarded', reason: 'stale_review' });
-    expect(index.versions['3']).toMatchObject({ status: 'discarded', reason: 'stale_review' });
+    const slot = store.recordReader.generation().cards.get(project.id)!.records.review;
+    expect(slot.latest).toBeNull();
+    for (const version of [1, 2, 3]) expect(slot.artifacts.find((artifact) => artifact.version === version)).toMatchObject({ state: 'discarded', reason: 'stale_review' });
   }));
 });

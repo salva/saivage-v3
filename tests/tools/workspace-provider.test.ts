@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, closeOpenRecordSlot, readRecordSlotIndex } from '../helpers/canonical-project.js';
+import { closeTestProject, initProjectTree, CardStore } from '../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,7 +9,6 @@ import { join } from 'node:path';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 import { writeProject } from '../../src/tools/project-file-tools.js';
 
@@ -26,7 +25,6 @@ function markFailed(store: CardStore, id: string): void {
 function setupProject(): { root: string; store: CardStore } {
   const root = mkdtempSync(join(tmpdir(), 'workspace-provider-'));
   initProjectTree(root);
-  materializeProjectCard(root);
   initRuntimeState(root);
   return { root, store: new CardStore(root) };
 }
@@ -128,7 +126,7 @@ describe('workspace and patch providers', () => {
       const result = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
 
       expect(result.success).toBe(true);
-      const latest = readRecordSlotIndex(root, card.id, 'brief').latest!;
+      const latest = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
       expect(latest).toBe(2);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latest}` });
       expect(store.readRecord(card.id, 'brief.md', latest).artifact.content).toBe(VALID_BRIEF);
@@ -137,6 +135,31 @@ describe('workspace and patch providers', () => {
       expect(store.read('project')?.status).toBe('running');
       expect((notifyCard.mock.calls as unknown as Array<[string, unknown]>).map((call) => call[0])).toEqual([parent.id, 'project']);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports accepted partial Analyst propagation and performs no propagation replay on canonical reopen', async () => {
+    const { root, store } = setupProject();
+    try {
+      const parent = store.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'parent', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+      const card = store.create({ type: 'code', parent: parent.id, title: 'Child', brief: 'old', status: 'backlog', depth: 2, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+      markDone(store, parent.id);
+      const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard: () => { throw new Error('notification unavailable'); } })]);
+
+      const result = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
+
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data).toMatchObject({ written: true, propagation: { ok: false, partial: true, error: 'notification unavailable' } });
+      expect(store.readRecord(card.id, 'brief.md').artifact.content).toBe(VALID_BRIEF);
+      expect(store.read(parent.id)?.status).toBe('changed');
+      const parentVersion = store.read(parent.id)!.version_seq;
+      closeTestProject(root);
+      const reopened = new CardStore(root);
+      expect(reopened.readRecord(card.id, 'brief.md').artifact.content).toBe(VALID_BRIEF);
+      expect(reopened.read(parent.id)).toMatchObject({ status: 'changed', version_seq: parentVersion });
+    } finally {
+      closeTestProject(root);
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -155,16 +178,16 @@ describe('workspace and patch providers', () => {
         store.setStatus(card.id, 'running');
         store.setStatus(card.id, 'cancelled');
       }
-      const latestBefore = readRecordSlotIndex(root, card.id, 'brief').latest;
+      const latestBefore = store.recordReader.generation().cards.get(card.id)!.records.brief.latest?.version ?? null;
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard: () => ({ ok: true }) })]);
 
       const result = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
 
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error).toContain('status backlog, done, failed, or running');
-      const index = readRecordSlotIndex(root, card.id, 'brief');
-      expect(index.latest).toBe(latestBefore);
-      expect(index.open).toBeNull();
+      const slot = store.recordReader.generation().cards.get(card.id)!.records.brief;
+      expect(slot.latest?.version ?? null).toBe(latestBefore);
+      expect(slot.open).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -289,16 +312,17 @@ describe('workspace and patch providers', () => {
     try {
       const card = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'old', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
       await writeProject({ projectRoot: root, cardId: card.id, agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: VALID_BRIEF });
-      closeOpenRecordSlot(root, { cardId: card.id, filename: 'brief.md', writer: 'planner' });
+      const initialOpen = store.readRecord(card.id, 'brief.md', 'open');
+      store.closeRecord(card.id, 'brief.md', initialOpen.version, 'planner', store.read(card.id)!.version_seq);
       markDone(store, card.id);
-      const latestBefore = readRecordSlotIndex(root, card.id, 'brief').latest!;
+      const latestBefore = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
       const notifyCard = jest.fn(() => ({ ok: false as const, reason: 'missing_card' as const, cardId: card.id }));
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard })]);
 
       const result = await invokeTool(surface, 'edit', { path: `record:///brief.md?card=${card.id}&v=next`, old_string: 'Do the work.', new_string: 'Do the updated work.' });
 
       expect(result.success).toBe(true);
-      const latestAfter = readRecordSlotIndex(root, card.id, 'brief').latest!;
+      const latestAfter = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
       expect(latestAfter).toBe(latestBefore + 1);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latestAfter}` });
       expect(store.readRecord(card.id, 'brief.md', latestAfter).artifact.content).toContain('Do the updated work.');
@@ -315,17 +339,18 @@ describe('workspace and patch providers', () => {
       const parent = store.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'parent', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
       const card = store.create({ type: 'code', parent: parent.id, title: 'Backlog child', brief: 'old', status: 'backlog', depth: 2, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
       await writeProject({ projectRoot: root, cardId: card.id, agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: VALID_BRIEF });
-      closeOpenRecordSlot(root, { cardId: card.id, filename: 'brief.md', writer: 'planner' });
+      const initialOpen = store.readRecord(card.id, 'brief.md', 'open');
+      store.closeRecord(card.id, 'brief.md', initialOpen.version, 'planner', store.read(card.id)!.version_seq);
       store.setStatus('project', 'running');
       markDone(store, parent.id);
-      const latestBefore = readRecordSlotIndex(root, card.id, 'brief').latest!;
+      const latestBefore = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
       const notifyCard = jest.fn(() => ({ ok: true as const }));
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard })]);
 
       const result = await invokeTool(surface, 'edit', { path: `record:///brief.md?card=${card.id}&v=next`, old_string: 'Do the work.', new_string: 'Do the updated work.' });
 
       expect(result.success).toBe(true);
-      const latestAfter = readRecordSlotIndex(root, card.id, 'brief').latest!;
+      const latestAfter = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
       expect(latestAfter).toBe(latestBefore + 1);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latestAfter}` });
       expect(store.readRecord(card.id, 'brief.md', latestAfter).artifact.content).toContain('Do the updated work.');

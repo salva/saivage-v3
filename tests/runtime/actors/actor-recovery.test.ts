@@ -1,6 +1,6 @@
-import { initProjectTree, CardStore, openRecordSlot, recordSlotDir } from '../../helpers/canonical-project.js';
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -70,8 +70,10 @@ function appendLoggedToolCall(projectRoot: string, cardId: string, role: 'planne
   const sessionId = role === 'reviewer' ? `reviewer:${cardId}:${assessmentId}` : agentId;
   appendLlmTurnFinished(testConversationMutations(projectRoot), { inputId, agentId, role, sessionId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: role === 'reviewer' ? { cardId, assessmentId } : { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
   if (!writeRequiredRecord) return;
-  const record = openRecordSlot(projectRoot, { cardId, filename: role === 'reviewer' ? 'review.md' : 'status.md' });
-  new CardStore(projectRoot).editRecord(cardId, role === 'reviewer' ? 'review.md' : 'status.md', record.version, `${role} recovery record`);
+  const store = new CardStore(projectRoot);
+  const filename = role === 'reviewer' ? 'review.md' : 'status.md';
+  const record = store.openRecord(cardId, filename);
+  store.editRecord(cardId, filename, record.version, `${role} recovery record`);
 }
 
 function toolMessageKinds(projectRoot: string, sessionId: string): string[] {
@@ -101,13 +103,13 @@ function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
 function createRunningGoal(projectRoot: string): { store: CardStore; cardId: string } {
   initProjectTree(projectRoot);
   const store = new CardStore(projectRoot);
-  const card = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'goal', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  const card = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'goal', brief: 'Goal brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   store.setStatus(card.id, 'running');
   return { store, cardId: card.id };
 }
 
 function createDoneEvidence(store: CardStore, parent: string): string {
-  const card = store.create({ type: 'code', parent, depth: 2, title: 'evidence', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  const card = store.create({ type: 'code', parent, depth: 2, title: 'evidence', brief: 'Evidence brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
   return card.id;
 }
@@ -115,7 +117,7 @@ function createDoneEvidence(store: CardStore, parent: string): string {
 function createRunningTerminalCard(projectRoot: string): { store: CardStore; cardId: string } {
   initProjectTree(projectRoot);
   const store = new CardStore(projectRoot);
-  const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'code', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'code', brief: 'Code brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   store.setStatus(card.id, 'running');
   return { store, cardId: card.id };
 }
@@ -375,8 +377,7 @@ describe('actor recovery plan', () => {
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
     saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
     appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'blocked', summary: 'needs operator' }, 'call-1', false);
-    const record = openRecordSlot(projectRoot, { cardId, filename: 'status.md' });
-    writeFileSync(record.absolutePath, '', 'utf8');
+    store.openRecord(cardId, 'status.md');
 
     expect(recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
     expect(store.read(cardId)?.status).toBe('running');
@@ -463,7 +464,7 @@ describe('actor recovery plan', () => {
 
   it('refuses planner done recovery when descendants are incomplete', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    const incomplete = store.create({ type: 'code', parent: cardId, depth: 2, title: 'incomplete', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+    const incomplete = store.create({ type: 'code', parent: cardId, depth: 2, title: 'incomplete', brief: 'Incomplete brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
     saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
@@ -516,7 +517,7 @@ describe('actor recovery plan', () => {
 
   it('preserves an existing activation wait for a compatible running child', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    const child = store.create({ type: 'code', parent: cardId, depth: 2, title: 'child', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+    const child = store.create({ type: 'code', parent: cardId, depth: 2, title: 'child', brief: 'Child brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     store.setStatus(child.id, 'running');
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
@@ -533,7 +534,7 @@ describe('actor recovery plan', () => {
 
   it('fails a running child activation wait when the parent LLM continuation is absent', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    const child = store.create({ type: 'code', parent: cardId, depth: 2, title: 'child', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+    const child = store.create({ type: 'code', parent: cardId, depth: 2, title: 'child', brief: 'Child brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     store.setStatus(child.id, 'running');
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
@@ -599,7 +600,7 @@ describe('actor recovery plan', () => {
 
   it('recovers an interrupted activate_card wait from a settled child card', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    const child = store.create({ type: 'code', parent: cardId, depth: 2, title: 'child', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+    const child = store.create({ type: 'code', parent: cardId, depth: 2, title: 'child', brief: 'Child brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'child done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' }, status_text: 'child done' });
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
@@ -643,7 +644,7 @@ describe('actor recovery plan', () => {
 
   it('does not alter non-running cards during startup outcome recovery', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    const done = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'done', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+    const done = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'done', brief: 'Done brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     store.commitTerminalLifecyclePatch(done.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
     saveSnapshot(projectRoot, `planner:${done.id}`, 'llm', 'calling_provider', { cardId: done.id, active_reconstruction: llmActive(done.id) });
     expect(recoverActorStartupOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);

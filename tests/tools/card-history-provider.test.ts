@@ -8,11 +8,9 @@ import { tmpdir } from 'node:os';
 
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createCardHistoryProvider } from '../../src/tools/card-history-provider.js';
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 function setup(root: string): CardStore {
   initProjectTree(root);
-  materializeProjectCard(root);
   return new CardStore(root);
 }
 

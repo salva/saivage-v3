@@ -7,11 +7,10 @@ jest.unstable_mockModule('node:dns/promises', () => ({
   lookup: jest.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
 }));
 
-const { CardStore, initProjectTree, readRecordSlotIndex } = await import('../helpers/canonical-project.js');
+const { CardStore, initProjectTree } = await import('../helpers/canonical-project.js');
 const { buildInvocationSurface, invokeTool } = await import('../../src/tools/invocation.js');
 const { createWebProvider } = await import('../../src/tools/web-tools.js');
 const { initRuntimeState, updateRuntimeState } = await import('../../src/runtime/state.js');
-const { materializeProjectCard } = await import('../helpers/materialize-project-card.js');
 
 function mockFetch(text = 'fetched body'): jest.SpiedFunction<typeof fetch> {
   return jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(text, { status: 200, headers: { 'content-type': 'text/plain' } }));
@@ -24,7 +23,6 @@ describe('webfetch save_as scoped URLs', () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'saivage-web-save-as-'));
     initProjectTree(root);
-    materializeProjectCard(root);
     baseStore = new CardStore(root);
     baseStore.create({ type: 'code', parent: 'project', title: 'Card 1', brief: 'Test card', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   });
@@ -102,7 +100,6 @@ describe('webfetch save_as scoped URLs', () => {
 
   it('allows analyst explicit record://brief.md save_as when runtime is paused', async () => {
     initProjectTree(root);
-    materializeProjectCard(root);
     initRuntimeState(root);
     updateRuntimeState(root, { status: 'paused' });
     const store = new CardStore(root);
@@ -135,7 +132,6 @@ describe('webfetch save_as scoped URLs', () => {
 
   it('allows analyst record://brief.md save_as to backlog cards without notifying the target', async () => {
     initProjectTree(root);
-    materializeProjectCard(root);
     initRuntimeState(root);
     updateRuntimeState(root, { status: 'paused' });
     const store = new CardStore(root);
@@ -189,7 +185,6 @@ describe('webfetch save_as scoped URLs', () => {
 
   it('denies analyst record://brief.md save_as to unsupported statuses before fetch or slot open', async () => {
     initProjectTree(root);
-    materializeProjectCard(root);
     initRuntimeState(root);
     updateRuntimeState(root, { status: 'paused' });
     const store = new CardStore(root);
@@ -210,7 +205,7 @@ describe('webfetch save_as scoped URLs', () => {
     });
     store.setStatus(card.id, 'running');
     store.setStatus(card.id, 'changed');
-    const latestBefore = readRecordSlotIndex(root, card.id, 'brief').latest;
+    const latestBefore = store.recordReader.generation().cards.get(card.id)!.records.brief.latest?.version ?? null;
     const fetchSpy = mockFetch('# Goal\n\nFetched.\n\n# Instructions\n\nUse it.\n\n# Acceptance Criteria\n\nDone.\n');
     const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard: () => ({ ok: true }) })]);
 
@@ -219,8 +214,8 @@ describe('webfetch save_as scoped URLs', () => {
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain('status backlog, done, failed, or running');
     expect(fetchSpy).not.toHaveBeenCalled();
-    const index = readRecordSlotIndex(root, card.id, 'brief');
-    expect(index.latest).toBe(latestBefore);
-    expect(index.open).toBeNull();
+    const slot = store.recordReader.generation().cards.get(card.id)!.records.brief;
+    expect(slot.latest?.version ?? null).toBe(latestBefore);
+    expect(slot.open).toBeNull();
   });
 });

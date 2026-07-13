@@ -111,7 +111,7 @@ Revise these original ideas before implementing anything, because the architectu
 
    Original idea: introduce a named `commitRecord` primitive.
 
-   Current implementation: equivalent behavior is split across `writeCardRecordVersion`, `writeBriefRecordVersion`, `openRecordSlot`, `closeOpenRecordSlot`, and `discardOpenRecordSlot`.
+   Current implementation: equivalent behavior is owned by the injected `CardStore` façade and its singular authority session (`createCard`, `writeCard`, `openRecord`, `editRecord`, `closeRecord`, and `discardRecord`).
 
    Decision: do not create `commitRecord` just to match an old plan. Extract a shared primitive only if duplication, audit requirements, or bugs make the need concrete.
 

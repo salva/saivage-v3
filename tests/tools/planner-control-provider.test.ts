@@ -19,7 +19,7 @@ function withRoot<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | 
 }
 
 function createChild(store: CardStore, status: CardRecord['status'] = 'backlog'): CardRecord {
-  const child = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'child', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  const child = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'child', brief: 'Child brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   if (status === 'done') return store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'child done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
   if (status !== 'backlog') return store.setStatus(child.id, status);
   return child;

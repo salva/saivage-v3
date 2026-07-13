@@ -1,4 +1,4 @@
-import { CardStore, closeOpenRecordSlot, initProjectTree } from '../helpers/canonical-project.js';
+import { CardStore, initProjectTree } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -110,7 +110,8 @@ describe('workspace VFS', () => {
   it('keeps record document and card-id namespaces distinct', async () => withTempProject(async (projectRoot) => {
     const store = new CardStore(projectRoot);
     await writeProject({ projectRoot, cardId: 'project', agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: 'brief one' });
-    closeOpenRecordSlot(projectRoot, { cardId: 'project', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
+    const first = store.readRecord('project', 'brief.md', 'open');
+    store.closeRecord('project', 'brief.md', first.version, 'planner', 1);
 
     const recordCtx = { projectRoot, records: store.recordReader, agent: { cardId: 'project', agentRole: 'planner' as const }, fail };
     const document = resolveScopedPath(recordCtx, 'record:///brief.md?card=project&v=2', 'read');
@@ -130,7 +131,8 @@ describe('workspace VFS', () => {
   it('collects only latest closed exposed record slots', async () => withTempProject(async (projectRoot) => {
     const store = new CardStore(projectRoot);
     await writeProject({ projectRoot, cardId: 'project', agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: 'brief one' });
-    closeOpenRecordSlot(projectRoot, { cardId: 'project', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
+    const first = store.readRecord('project', 'brief.md', 'open');
+    store.closeRecord('project', 'brief.md', first.version, 'planner', 1);
     await writeProject({ projectRoot, cardId: 'project', agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: 'brief two open' });
 
     const entries = await collect(projectRoot, 'record:///project');
@@ -143,7 +145,8 @@ describe('workspace VFS', () => {
   it('does not apply project hidden-path filtering to logical record entries', async () => withTempProject(async (projectRoot) => {
     const store = new CardStore(projectRoot);
     await writeProject({ projectRoot, cardId: 'project', agentRole: 'planner', store }, { path: 'record:///brief.md?v=next', content: 'brief one' });
-    closeOpenRecordSlot(projectRoot, { cardId: 'project', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
+    const first = store.readRecord('project', 'brief.md', 'open');
+    store.closeRecord('project', 'brief.md', first.version, 'planner', 1);
 
     await expect(collect(projectRoot, 'record:///project')).resolves.toHaveLength(1);
   }));

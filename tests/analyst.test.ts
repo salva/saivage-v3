@@ -12,7 +12,6 @@ import { tmpdir } from 'node:os';
 
 
 
-import { materializeProjectCard } from './helpers/materialize-project-card.js';
 import { createTestRestartPort } from './helpers/restart-port.js';
 import { listControlActions } from '../src/persistence/index.js';
 import {
@@ -75,7 +74,6 @@ function setupProject(projectRoot: string): void {
       providers: {},
     }),
   );
-  materializeProjectCard(projectRoot);
   initRuntimeState(projectRoot);
 }
 

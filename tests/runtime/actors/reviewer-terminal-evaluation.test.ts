@@ -25,7 +25,7 @@ function createProject(store: CardStore): CardRecord {
 }
 
 function createDoneChild(store: CardStore, parent: string): CardRecord {
-  const child = store.create({ type: 'goal', parent, depth: 1, title: 'child', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  const child = store.create({ type: 'goal', parent, depth: 1, title: 'child', brief: 'Child brief.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   return store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'child done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
 }
 

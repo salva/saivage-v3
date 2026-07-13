@@ -1,11 +1,10 @@
 import { loadEnvironment, type Environment } from '../config/index.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
-import { observeCanonicalProjectRoot } from '../persistence/index.js';
-import { openProjectPersistenceAuthority, verifyBootstrapEligibleLayout, type NewProjectRootInput, type ProjectPersistenceAuthority } from '../persistence/project-persistence-authority.js';
+import { classifyPersistenceOpenMode, openProjectPersistenceAuthority, type NewProjectRootInput, type ProjectPersistenceAuthority } from '../persistence/project-persistence-authority.js';
 import { acquireLock, releaseLock } from '../runtime/lock.js';
 import { startServer, type ServerInstance } from '../server/server.js';
 import { createRestartPort } from './restart-port.js';
-import { basename, join, resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import type { CardRecord } from '../schemas/index.js';
 
 export interface App {
@@ -66,19 +65,9 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   let authority: ProjectPersistenceAuthority;
   const restartPort = createRestartPort({ dispose: async () => { await scope.dispose(); }, exit: (code) => process.exit(code) });
   try {
-    let mode: { kind: 'normal' } | { kind: 'bootstrap'; root: NewProjectRootInput } = { kind: 'normal' };
-    if (prelock.createRuntime) {
-      try {
-        observeCanonicalProjectRoot(join(prelock.projectRoot, '.saivage', 'cards'));
-      } catch {
-        try {
-          verifyBootstrapEligibleLayout(prelock.projectRoot, lifecycleLock);
-          mode = { kind: 'bootstrap', root: newProjectRootInput(prelock.projectRoot) };
-        } catch {
-          mode = { kind: 'normal' };
-        }
-      }
-    }
+    const mode = prelock.createRuntime
+      ? classifyPersistenceOpenMode(prelock.projectRoot, lifecycleLock, newProjectRootInput(prelock.projectRoot))
+      : { kind: 'normal' } as const;
     authority = openProjectPersistenceAuthority({ projectRoot: prelock.projectRoot, lifecycleLock, mode });
     scope.add({ dispose: () => authority.close() }, { name: 'project-persistence-authority' });
     environment = loadEnvironment(options.argv, env);

@@ -7,6 +7,10 @@ const forbidden = [
   ['allocate', 'global', 'record', 'seq'].join(''),
   ['next', 'global', 'record', 'seq'].join(''),
   ['.saivage/cards/', 'index.json'].join(''),
+  ['open', 'record', 'slot'].join(''),
+  ['close', 'open', 'record', 'slot'].join(''),
+  ['discard', 'open', 'record', 'slot'].join(''),
+  ['test-record-', 'bodies'].join(''),
 ];
 const violations = [];
 for (const path of tracked) {

@@ -7,7 +7,6 @@ import * as YAML from 'yaml';
 
 
 
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { ANALYST_CONTROL_TOOLS, ANALYST_SHARED_PROVIDER_TOOL_NAMES, ANALYST_TOOL_DEFINITIONS } from '../../src/tools/analyst-tool-registry.js';
 import { cancel_card, create_card, delete_card, reorder_child } from '../../src/tools/analyst-card-tools.js';
@@ -70,7 +69,6 @@ function setupRoot(): string {
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     server: { port: 8080, host: '127.0.0.1' },
   }));
-  materializeProjectCard(root);
   initRuntimeState(root);
   return root;
 }

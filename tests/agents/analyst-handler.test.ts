@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
 
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { appendConversationMessage, readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
 import { activeVersionPath, conversationDir, writeConversationIndex } from '../../src/runtime/actors/conversation-index.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
@@ -26,7 +25,6 @@ function setupRoot(): string {
     models: { default: [TEST_MODEL], analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }, null, 2));
-  materializeProjectCard(root);
   return root;
 }
 

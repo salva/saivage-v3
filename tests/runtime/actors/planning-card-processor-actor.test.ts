@@ -1,8 +1,8 @@
-import { initProjectTree, CardStore, closeOpenRecordSlot, openRecordSlot } from '../../helpers/canonical-project.js';
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -38,10 +38,10 @@ function createCode(store: CardStore, parent = 'project'): CardRecord {
   return store.create({ type: 'code', parent, depth: parent === 'project' ? 1 : 2, title: 'code', brief: 'code', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
 }
 
-function writeBrief(projectRoot: string, cardId: string, content: string, cardVersionSeq = 1): void {
-  const slot = openRecordSlot(projectRoot, { cardId, filename: 'brief.md' });
-  writeFileSync(slot.absolutePath, content, 'utf-8');
-  closeOpenRecordSlot(projectRoot, { cardId, filename: 'brief.md', writer: 'planner', cardVersionSeq });
+function writeBrief(store: CardStore, cardId: string, content: string, cardVersionSeq = 1): void {
+  const slot = store.openRecord(cardId, 'brief.md');
+  store.editRecord(cardId, 'brief.md', slot.version, content);
+  store.closeRecord(cardId, 'brief.md', slot.version, 'planner', cardVersionSeq);
 }
 
 function markDone(store: CardStore, card: CardRecord): CardRecord {
@@ -324,7 +324,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
-    writeBrief(projectRoot, project.id, '# Goal\n\nPlan from brief record.\n\n# Acceptance Criteria\n\nReview from brief record.\n', project.version_seq);
+    writeBrief(store, project.id, '# Goal\n\nPlan from brief record.\n\n# Acceptance Criteria\n\nReview from brief record.\n', project.version_seq);
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
       if (input.role === 'reviewer') {
         expect(input.systemPrompt).toContain('Plan from brief record.');

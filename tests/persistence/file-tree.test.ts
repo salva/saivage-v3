@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,7 +17,8 @@ describe('canonical initialization boundary', () => {
     try {
       mkdirSync(join(root, '.saivage', 'agents'), { recursive: true });
       const evidence = join(root, '.saivage', 'agents', 'evidence.json'); writeFileSync(evidence, '{}');
-      expect(() => initProjectTree(root)).toThrow(/non-bootstrap evidence|not empty|Unknown bootstrap/);
+      expect(() => initProjectTree(root)).toThrow(/Cannot enumerate canonical project/);
+      expect(readFileSync(evidence, 'utf8')).toBe('{}');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -19,8 +19,6 @@ export interface RecordSlotDefinition {
   exposed: boolean;
 }
 
-export type OpenRecordSlot = RecordProjection;
-
 export type RecordSlotCloseFailureReason = 'missing_open' | 'empty_open';
 export class ExpectedRecordSlotCloseError extends Error {
   constructor(public readonly reason: RecordSlotCloseFailureReason, message: string) { super(message); this.name = 'ExpectedRecordSlotCloseError'; }

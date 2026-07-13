@@ -1,8 +1,8 @@
-import { initProjectTree, CardStore, closeOpenRecordSlot, openRecordSlot } from '../../helpers/canonical-project.js';
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { testConversationMutations } from '../../helpers/conversation-mutations.js';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,10 +30,10 @@ function setup(projectRoot: string) {
   return { store, card };
 }
 
-function writeBrief(projectRoot: string, cardId: string, content: string, cardVersionSeq = 1): void {
-  const slot = openRecordSlot(projectRoot, { cardId, filename: 'brief.md' });
-  writeFileSync(slot.absolutePath, content, 'utf-8');
-  closeOpenRecordSlot(projectRoot, { cardId, filename: 'brief.md', writer: 'planner', cardVersionSeq });
+function writeBrief(store: CardStore, cardId: string, content: string, cardVersionSeq = 1): void {
+  const slot = store.openRecord(cardId, 'brief.md');
+  store.editRecord(cardId, 'brief.md', slot.version, content);
+  store.closeRecord(cardId, 'brief.md', slot.version, 'planner', cardVersionSeq);
 }
 
 function executorResult(cardId: string, statusText: string, status: 'done' | 'failed' | 'blocked' = 'done') {
@@ -191,7 +191,7 @@ describe('TerminalCardProcessorActor', () => {
 
   it('builds executor prompts from the latest brief record', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
-    writeBrief(projectRoot, card.id, '# Goal\n\nUse the brief record only.\n\n# Acceptance Criteria\n\nBrief acceptance.\n', card.version_seq);
+    writeBrief(store, card.id, '# Goal\n\nUse the brief record only.\n\n# Acceptance Criteria\n\nBrief acceptance.\n', card.version_seq);
     const provider = withExecutorStatusRecord((input: LlmInvocationInput) => {
       expect(input.systemPrompt).toContain('Use the brief record only.');
       expect(input.systemPrompt).toContain('Brief acceptance.');

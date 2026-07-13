@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardStore, initProjectTree, readRecordSlotIndex } from '../helpers/canonical-project.js';
+import { CardStore, initProjectTree } from '../helpers/canonical-project.js';
 
 function withProject(run: (root: string, store: CardStore) => void): void {
   const root = mkdtempSync(join(tmpdir(), 'saivage-record-slots-'));
@@ -11,13 +11,13 @@ function withProject(run: (root: string, store: CardStore) => void): void {
 }
 
 describe('canonical authored record slots', () => {
-  it('opens, edits, closes, and projects a slot-local version', () => withProject((root, store) => {
+  it('opens, edits, closes, and projects a slot-local version', () => withProject((_root, store) => {
     const open = store.openRecord('project', 'status.md');
     expect(store.openRecord('project', 'status.md').version).toBe(open.version);
     store.editRecord('project', 'status.md', open.version, 'done');
     const closed = store.closeRecord('project', 'status.md', open.version, 'planner', 1);
     expect(closed.artifact).toMatchObject({ state: 'closed', content: 'done', writer: 'planner', card_version_seq: 1, committed_at: expect.any(String) });
-    expect(readRecordSlotIndex(root, 'project', 'status')).toMatchObject({ latest: 1, open: null });
+    expect(store.recordReader.generation().cards.get('project')?.records.status).toMatchObject({ latest: expect.objectContaining({ version: 1 }), open: null });
   }));
 
   it('discards an open artifact without changing latest closed authority', () => withProject((_root, store) => {
