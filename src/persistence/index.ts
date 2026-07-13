@@ -1,20 +1,11 @@
-export { AtomicJsonFile } from './atomic-json-file.js';
-export { JsonlLedger } from './jsonl-ledger.js';
-export { appendSyncIdempotentByKey } from './raw-jsonl.js';
-export { fsyncDir, fsyncDirAsync, writeFileAtomic, writeFileSyncDurable } from './durable-write.js';
 export {
   cleanupDurableReplacementTemporaries,
   durableReplacementTemporaryTargetBasename,
   durablyReplaceFile,
   publishDirectory,
 } from './durable-file-replacement.js';
-export { ProjectLock } from './project-lock.js';
-export type { LockHandle } from './project-lock.js';
 export {
-  LockOwnershipError,
   IndeterminatePublicationError,
-  StaleLockError,
-  LockTimeoutError,
   PersistenceError,
   PersistenceReadError,
   PersistenceValidationError,

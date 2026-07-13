@@ -1,5 +1,3 @@
-import type { LockMetadata } from './project-lock.js';
-
 export class PersistenceError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -37,26 +35,5 @@ export class PersistenceVersionMismatch extends PersistenceReadError {
       path,
       `schema version mismatch: expected version ${expectedVersion}, found ${String(actualVersion)}. Reset .saivage runtime state and restart.`,
     );
-  }
-}
-
-export class LockTimeoutError extends PersistenceError {
-  constructor(readonly lockPath: string, timeoutMs: number) {
-    super(`Timed out waiting ${timeoutMs}ms for project lock ${lockPath}`);
-  }
-}
-
-export class LockOwnershipError extends PersistenceError {
-  constructor(message = 'Persistence write attempted without an active project lock handle') {
-    super(message);
-  }
-}
-
-export class StaleLockError extends PersistenceError {
-  constructor(readonly lockPath: string, readonly metadata: LockMetadata | null, reason = 'stale lock detected') {
-    const holder = metadata
-      ? `held by PID ${metadata.pid} on ${metadata.hostname} since ${metadata.acquired_at}`
-      : 'metadata unreadable or invalid';
-    super(`Stale lock at ${lockPath}: ${reason}; ${holder}`);
   }
 }

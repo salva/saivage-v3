@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { writeFileAtomic } from '../../src/persistence/durable-write.js';
 import { readRuntimeState, RuntimeStateInvariantError } from '../../src/runtime/state.js';
 import { initRuntimeState, saveRuntimeState, updateRuntimeState } from '../helpers/runtime-state.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
@@ -44,7 +43,7 @@ function corruptStoppedState(): RuntimeState {
     active_card_run: runningRun(),
     updated_at: new Date().toISOString(),
   };
-  writeFileAtomic(statePath(), JSON.stringify({ version: 1, data: corrupted }, null, 2) + '\n');
+  writeFileSync(statePath(), JSON.stringify({ version: 1, data: corrupted }, null, 2) + '\n', 'utf-8');
   return corrupted;
 }
 
@@ -132,7 +131,11 @@ describe('RuntimeState stopped active_card_run invariant', () => {
     writeFileSync(statePath(), '{bad', 'utf-8');
     expect(() => readRuntimeState(root)).toThrow(/malformed JSON/);
 
-    writeFileAtomic(statePath(), JSON.stringify({ version: 1, data: { status: 'stopped', project_id: 'project' } }, null, 2) + '\n');
+    writeFileSync(
+      statePath(),
+      JSON.stringify({ version: 1, data: { status: 'stopped', project_id: 'project' } }, null, 2) + '\n',
+      'utf-8',
+    );
     expect(() => readRuntimeState(root)).toThrow(/validation failed/);
   });
 
