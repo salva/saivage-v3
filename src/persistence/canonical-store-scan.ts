@@ -186,7 +186,7 @@ function incompleteNamespaceEntries(namespacePath: string): string[] {
   return results;
 }
 
-function validateIncompleteNamespace(namespacePath: string, cardId: string): void {
+export function validateIncompleteCardNamespace(namespacePath: string, cardId: string): void {
   const allowedDirectories = new Set(['card', 'card/versions', 'brief', 'brief/versions']);
   for (const relative of incompleteNamespaceEntries(namespacePath)) {
     const path = join(namespacePath, relative);
@@ -212,7 +212,7 @@ function validateIncompleteNamespace(namespacePath: string, cardId: string): voi
   }
 }
 
-function hasCanonicalCardArtifact(namespacePath: string): boolean {
+export function hasCanonicalCardArtifact(namespacePath: string): boolean {
   const versionsPath = join(namespacePath, 'card', 'versions');
   if (!existsSync(versionsPath)) return false;
   for (const entry of readdirSync(versionsPath, { withFileTypes: true })) {
@@ -232,10 +232,15 @@ function cleanupIncompleteNamespaces(cardsPath: string): void {
     const namespacePath = join(cardsPath, entry.name);
     if (!entry.isDirectory()) throw new Error(`Card namespace is not a directory: '${namespacePath}'.`);
     if (hasCanonicalCardArtifact(namespacePath)) continue;
-    validateIncompleteNamespace(namespacePath, entry.name);
-    rmSync(namespacePath, { recursive: true });
-    synchronizeDirectory(cardsPath);
+    discardIncompleteCardNamespace(cardsPath, entry.name);
   }
+}
+
+export function discardIncompleteCardNamespace(cardsPath: string, cardId: string): void {
+  const namespacePath = join(cardsPath, cardId);
+  validateIncompleteCardNamespace(namespacePath, cardId);
+  rmSync(namespacePath, { recursive: true });
+  synchronizeDirectory(cardsPath);
 }
 
 function scanCard(cardsPath: string, cardId: string): ScannedCard {
