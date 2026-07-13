@@ -16,6 +16,7 @@ import type { BufferSizeEstimator, CompactionConfig } from './compaction/compact
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationVersionReplacement } from './conversation-index.js';
 import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
+import { InvocationLifecycle, type CompletionPersistenceAdmission, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -28,8 +29,13 @@ export interface LLMProviderPort {
 
 export interface CompactorPort {
   shouldCompact(input: LlmInvocationInput, config: CompactionConfig, estimator: BufferSizeEstimator): { shouldCompact: boolean };
-  compact(args: { projectRoot: string; conversations: ConversationMutationPort; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; bufferSizeEstimator: BufferSizeEstimator; signal?: AbortSignal }): Promise<{ rows: unknown[]; versionReplacement: ConversationVersionReplacement }>;
+  compact(args: { projectRoot: string; conversations: ConversationMutationPort; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; bufferSizeEstimator: BufferSizeEstimator; signal: AbortSignal }): Promise<{ rows: unknown[]; versionReplacement: ConversationVersionReplacement }>;
 }
+
+type PersistedProviderCompletion =
+  | { kind: 'message'; input: LlmInvocationInput; completion: ProviderTurnCompletion; appended: ReturnType<typeof appendLlmTurnMessageBatch> }
+  | { kind: 'tool_call'; input: LlmInvocationInput; completion: ProviderTurnCompletion; appended: ReturnType<typeof appendLlmTurnToolCallBatch> }
+  | { kind: 'invalid_tool_calls'; input: LlmInvocationInput; completion: ProviderTurnCompletion; error: string; appended: ReturnType<typeof appendLlmTurnError> };
 
 type WaitingToolCall = {
   sourceInputId: string;
@@ -70,6 +76,10 @@ export class ConversationLLMActor extends BaseActor {
   #toolDeliveryCounter = 0;
   #systemPromptLoggedSessionIds = new Set<string>();
   #providerBoundaryEntered = false;
+  #completionPersistenceEntered = false;
+  readonly #invocations = new InvocationLifecycle();
+  readonly #completionPersistence: CompletionPersistenceAdmission = this.#invocations;
+  #currentInvocation: InvocationLease | null = null;
 
   readonly conversationPublisher?: ConversationChangePublisher;
   readonly conversations: ConversationMutationPort;
@@ -105,6 +115,7 @@ export class ConversationLLMActor extends BaseActor {
   }
 
   appendToolResult(toolCallId: string, result: ToolResult, signal?: AbortSignal, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
+    signal?.throwIfAborted();
     let waiting: WaitingToolCall;
     try {
       waiting = this.requireWaitingTool(toolCallId);
@@ -164,6 +175,7 @@ export class ConversationLLMActor extends BaseActor {
   }
 
   continueAfterPlainText(repairDirective: string, signal?: AbortSignal, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
+    signal?.throwIfAborted();
     if (this.state() !== 'idle') return Promise.reject(new Error(`LLMActor '${this.agentId}' cannot continue a plain-text result from '${this.state()}'.`));
     if (this.#result) return Promise.reject(new Error(`LLMActor '${this.agentId}' already has a pending turn.`));
     if (this.outcome?.type !== 'result') return Promise.reject(new Error(`LLMActor '${this.agentId}' has no plain-text result to continue.`));
@@ -203,47 +215,70 @@ export class ConversationLLMActor extends BaseActor {
 
   _on_enter__calling_provider(): void {
     this.#providerBoundaryEntered = false;
+    this.#completionPersistenceEntered = false;
     try {
       const input = this.requireInput();
       this.runTask(async (signal) => {
-        if (!this.#systemPromptLoggedSessionIds.has(input.sessionId)
-          && hasIndexedConversationMessageOfKind(this.projectRoot, input.sessionId, `${this.agentId}:system-prompt`, 'system_prompt')) {
-          this.#systemPromptLoggedSessionIds.add(input.sessionId);
-        }
-        const invocationSignal = this.createInvocationSignal(signal);
+        const invocation = this.#invocations.begin(this.createInvocationSignal(signal));
+        this.#currentInvocation = invocation;
+        const invocationSignal = this.#invocations.signal(invocation);
         this.#currentInvocationSignal = invocationSignal;
-        const hookInput = await this.onBeforeProviderCall(input, invocationSignal);
-        const effectiveInput = hookInput ?? input;
-        if (hookInput) this.input = effectiveInput;
-        const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(effectiveInput.sessionId);
-        for (const result of appendLlmTurnStarted(this.conversations, effectiveInput, { includeSystemPrompt })) this.conversationPublisher?.entryAppended(result);
-        if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(effectiveInput.sessionId);
-        const providerInput = this.consumeTurnMessages(effectiveInput);
-        this.input = providerInput;
-        this.onTurnStateUpdated({ input: providerInput, waitingToolCall: null });
-        await this.gate.waitUntilOpen(signal);
-        this.#providerBoundaryEntered = true;
-        return this.provider.completeTurn(providerInput, invocationSignal);
-      }, {
-        on_done: (completion) => {
-          try {
-            const effectiveInput = this.requireInput();
-            this.completeWithProviderCompletion(effectiveInput, completion);
-          } catch (error) {
-            this.failPendingTurnFatally(error);
+        const persisted = await this.#invocations.runExternal(invocation, async (exactSignal) => {
+          if (!this.#systemPromptLoggedSessionIds.has(input.sessionId)
+            && hasIndexedConversationMessageOfKind(this.projectRoot, input.sessionId, `${this.agentId}:system-prompt`, 'system_prompt')) {
+            this.#systemPromptLoggedSessionIds.add(input.sessionId);
           }
+          const hookInput = await this.onBeforeProviderCall(input, exactSignal);
+          this.#invocations.assertCurrent(invocation);
+          const effectiveInput = hookInput ?? input;
+          if (hookInput) this.input = effectiveInput;
+          const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(effectiveInput.sessionId);
+          for (const result of appendLlmTurnStarted(this.conversations, effectiveInput, { includeSystemPrompt })) this.conversationPublisher?.entryAppended(result);
+          if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(effectiveInput.sessionId);
+          const providerInput = this.consumeTurnMessages(effectiveInput);
+          this.input = providerInput;
+          this.onTurnStateUpdated({ input: providerInput, waitingToolCall: null });
+          await this.gate.waitUntilOpen(exactSignal);
+          this.#invocations.assertCurrent(invocation);
+          this.#providerBoundaryEntered = true;
+          const completion = await this.provider.completeTurn(providerInput, exactSignal);
+          this.#invocations.assertCurrent(invocation);
+          this.#completionPersistenceEntered = true;
+          return this.#completionPersistence.admit(invocation, () => Promise.resolve(this.persistProviderCompletion(providerInput, completion)));
+        });
+        return { invocation, persisted };
+      }, {
+        on_done: ({ invocation, persisted }) => {
+          void this.#invocations.trackConsumer(() => {
+            try {
+              this.#invocations.assertCurrent(invocation);
+              this.completeWithProviderCompletion(persisted);
+              this.#invocations.settle(invocation);
+              this.#currentInvocation = null;
+            } catch (error) {
+              this.failPendingTurnFatally(error);
+            }
+          });
         },
         on_failed: (error) => {
-          try {
-            if (this.isCurrentTurnAborted(error)) {
-              this.completeWithCancellation(error);
-              return;
+          void this.#invocations.trackConsumer(() => {
+            try {
+              const invocation = this.#currentInvocation;
+              if (this.isCurrentTurnAborted(error)) {
+                if (invocation) this.#invocations.cancelCurrent(invocation, error);
+                this.#currentInvocation = null;
+                this.completeWithCancellation(error);
+                return;
+              }
+              if (this.#completionPersistenceEntered) throw error;
+              if (!this.#providerBoundaryEntered) throw error instanceof Error ? error : new Error(String(error));
+              this.completeProviderFailure(this.requireInput(), error);
+              if (invocation) this.#invocations.settle(invocation);
+              this.#currentInvocation = null;
+            } catch (fatal) {
+              this.failPendingTurnFatally(fatal);
             }
-            if (!this.#providerBoundaryEntered) throw error instanceof Error ? error : new Error(String(error));
-            this.completeProviderFailure(this.requireInput(), error);
-          } catch (fatal) {
-            this.failPendingTurnFatally(fatal);
-          }
+          });
         },
       });
     } catch (error) {
@@ -251,11 +286,24 @@ export class ConversationLLMActor extends BaseActor {
     }
   }
 
-  private completeWithProviderCompletion(input: LlmInvocationInput, completion: ProviderTurnCompletion): void {
+  private persistProviderCompletion(input: LlmInvocationInput, completion: ProviderTurnCompletion): PersistedProviderCompletion {
     const result = completion.result;
     if (result.kind === 'message') {
-      const message = appendLlmTurnMessageBatch(this.conversations, input, result.content, completion.provider_private_context);
-      this.conversationPublisher?.entryAppended(message.appendResult);
+      return { kind: 'message', input, completion, appended: appendLlmTurnMessageBatch(this.conversations, input, result.content, completion.provider_private_context) };
+    }
+    if (result.tool_calls.length !== 1) {
+      const error = `Provider returned ${result.tool_calls.length} tool calls; exactly one supported tool call is required.`;
+      return { kind: 'invalid_tool_calls', input, completion, error, appended: appendLlmTurnError(this.conversations, input, error) };
+    }
+    const [call] = result.tool_calls;
+    return { kind: 'tool_call', input, completion, appended: appendLlmTurnToolCallBatch(this.conversations, input, call, completion.provider_private_context) };
+  }
+
+  private completeWithProviderCompletion(persisted: PersistedProviderCompletion): void {
+    const { input, completion } = persisted;
+    const result = completion.result;
+    if (persisted.kind === 'message' && result.kind === 'message') {
+      this.conversationPublisher?.entryAppended(persisted.appended.appendResult);
       const activeRows = readActiveVersionMessages(this.projectRoot, input.sessionId);
       this.input = { ...input, genericContextMessages: conversationMessagesForModel(activeRows), contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }], activeConversationReplay: buildResponsesReplayProjection(input.sessionId, activeRows) };
       this.outcome = { type: 'result', agentId: this.agentId, result };
@@ -267,15 +315,14 @@ export class ConversationLLMActor extends BaseActor {
       this.sendEvent('done');
       return;
     }
-    if (result.tool_calls.length !== 1) {
-      const error = `Provider returned ${result.tool_calls.length} tool calls; exactly one supported tool call is required.`;
-      this.conversationPublisher?.entryAppended(appendLlmTurnError(this.conversations, input, error).appendResult);
-      this.settleWithError(error);
+    if (persisted.kind === 'invalid_tool_calls') {
+      this.conversationPublisher?.entryAppended(persisted.appended.appendResult);
+      this.settleWithError(persisted.error);
       return;
     }
+    if (result.kind !== 'tool_calls') throw new Error('Persisted provider completion kind changed before delivery.');
     const [call] = result.tool_calls;
-    const message = appendLlmTurnToolCallBatch(this.conversations, input, call, completion.provider_private_context);
-    this.conversationPublisher?.entryAppended(message.appendResult);
+    this.conversationPublisher?.entryAppended(persisted.appended.appendResult);
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
     this.onTurnStateUpdated({ input, waitingToolCall: this.waitingToolCall });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
@@ -331,6 +378,17 @@ export class ConversationLLMActor extends BaseActor {
     this.sendEvent('failed');
     pending.reject(fatal);
     console.error(`LLMActor '${this.agentId}' fatal handler failure`, fatal);
+  }
+
+  disposeInvocations(reason: unknown): void {
+    this.#invocations.revoke(reason);
+    this.#currentInvocation = null;
+  }
+
+  async joinInvocationSettlement(): Promise<InvocationJoinOutcome> {
+    const outcome = await this.#invocations.join();
+    await this.awaitLifecycleSettlement();
+    return outcome;
   }
 
   private continueAfterTool(nextInput = this.requireInput(), signal?: AbortSignal): Promise<LLMActorOutcome> {

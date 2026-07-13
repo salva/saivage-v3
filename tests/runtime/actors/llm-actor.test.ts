@@ -224,6 +224,7 @@ describe('LLMActor', () => {
       config: compactionConfig,
       summarizerProvider: provider,
       bufferSizeEstimator: { estimate: (candidate) => ({ estimatedTokens: candidate.contextMessages.some((message) => typeof message === 'object' && message !== null && 'kind' in message && message.kind === 'context_compaction') ? 1 : 100, bufferTokens: 100 }) },
+      signal: new AbortController().signal,
     });
     const index = readConversationIndex(projectRoot, sessionId);
     expect(index?.versions['1']?.status).toBe('frozen');
@@ -310,7 +311,9 @@ describe('LLMActor', () => {
     const changed = jest.fn();
     eventBus.subscribe('conversation_changed', (event) => { changed(event); });
     const conversations = testConversationMutations(projectRoot);
-    const actor = new LLMActor({ projectRoot, conversations, snapshots: testActorSnapshots(projectRoot), agentId: 'planner:project', provider, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) }, conversationPublisher: createConversationChangePublisher(eventBus) });
+    const gate = new RuntimeGate();
+    const gateWait = jest.spyOn(gate, 'waitUntilOpen');
+    const actor = new LLMActor({ projectRoot, conversations, snapshots: testActorSnapshots(projectRoot), agentId: 'planner:project', provider, gate, compactor, compactionConfig: config, summarizerProvider: provider, bufferSizeEstimator: { estimate: () => ({ estimatedTokens: 100, bufferTokens: 100 }) }, conversationPublisher: createConversationChangePublisher(eventBus) });
     actor.start();
 
     const outcome = await actor.turn({ ...input(), contextMessages: [{ ...compacted, id: 'raw', kind: 'text', content: 'raw context before compaction', round_id: 'r-user-00000000000000000000000000000001' }] });
@@ -319,6 +322,9 @@ describe('LLMActor', () => {
     expect(compactor.compact).toHaveBeenCalledTimes(1);
     expect(compactor.compact).toHaveBeenCalledWith(expect.objectContaining({ projectRoot, conversations }));
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ contextMessages: [compacted] }), expect.any(AbortSignal));
+    const invocationSignal = ((compactor.compact as jest.Mock).mock.calls[0]![0] as { signal: AbortSignal }).signal;
+    expect(gateWait.mock.calls[0]![0]).toBe(invocationSignal);
+    expect((provider.completeTurn as jest.Mock).mock.calls[0]![1]).toBe(invocationSignal);
     expect(changed).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ mutation: 'version_replaced', session_id: 'planner:project', active_version: 2 }) }));
     expect(changed.mock.calls.filter(([event]) => (event as { payload: { mutation: string } }).payload.mutation === 'version_replaced')).toHaveLength(1);
     expect(outcome).toMatchObject({ type: 'result', result: { content: expect.stringContaining('saw:1:[Compacted prior conversation') } });
@@ -823,6 +829,26 @@ describe('LLMActor', () => {
     await expect(pending).rejects.toBe(reason);
     await eventually(() => expect(actor.state()).toBe('idle'));
     expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.kind === 'model_issue')).toBe(false);
+  }));
+
+  it('fences a late noncooperative provider completion and reports external abandonment', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const activation = new AbortController();
+    let finish!: () => void;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<ProviderTurnCompletion>((resolve) => { finish = () => resolve(completion({ kind: 'message', content: 'late' })); })) };
+    const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider });
+    actor.start();
+    const pending = actor.turn(input(), activation.signal);
+    await eventually(() => expect(provider.completeTurn).toHaveBeenCalledTimes(1));
+    const reason = new Error('cancel noncooperative turn');
+    activation.abort(reason);
+    await expect(pending).rejects.toBe(reason);
+    actor.disposeInvocations(reason);
+
+    await expect(actor.joinInvocationSettlement()).resolves.toEqual({ status: 'external_dependency_abandoned', abandonedCount: 1 });
+    finish();
+    await Promise.resolve();
+    expect(readConversationMessages(projectRoot, 'planner:project').some((message) => message.kind === 'text' && message.content === 'late')).toBe(false);
   }));
 
   it('classifies compaction summarizer aborts before the provider boundary as cancellation', async () => withTempProject(async (projectRoot) => {

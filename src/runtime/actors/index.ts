@@ -17,6 +17,7 @@ export type { ConversationIndex, ConversationVersionEntry } from './conversation
 export * from './actor-recovery.js';
 export * from './active-reconstruction.js';
 export * from './llm-invocation.js';
+export * from './invocation-lifecycle.js';
 export * from './llm-actor.js';
 export * from './invocation-provider-turn.js';
 export * from './card-actor.js';

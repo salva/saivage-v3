@@ -1,6 +1,6 @@
-// BaseActor design and implementation are frozen. Do not modify this file.
-// If a limitation or bug is found, report it to the user so they can decide
-// whether and how the frozen micro-actor core should change.
+// BaseActor design and implementation are frozen except for the explicitly
+// authorized lifecycle-settlement snapshot hook. Any further core change
+// requires user approval.
 
 import type { ActorDefinition, CompiledActorDefinition, CompiledStateDefinition } from './types.js';
 
@@ -64,7 +64,11 @@ type Task<Result = unknown> = {
 export abstract class BaseActor {
   #definition: CompiledActorDefinition | undefined;
   #currentState: string | undefined;
-  #nextEvent: string | undefined;
+  #nextEvent: { name: string; sequence: number } | undefined;
+  #queuedEventSequence = 0;
+  #settledEventSequence = 0;
+  #eventSettlementFailure: { sequence: number; error: unknown } | undefined;
+  #eventSettlementWaiters = new Set<{ sequence: number; resolve: () => void; reject: (error: unknown) => void }>();
   #nextTaskId = 1;
   #stateTasks = new Map<number, Task<any>>();
   #actorMainPromise: Promise<void> | undefined;
@@ -103,9 +107,10 @@ export abstract class BaseActor {
 
   protected sendEvent(name: string): void {
     if (this.#nextEvent !== undefined) {
-      throw new InternalActorError(`Actor already has pending event "${this.#nextEvent}", cannot send "${name}"`);
+      throw new InternalActorError(`Actor already has pending event "${this.#nextEvent.name}", cannot send "${name}"`);
     }
-    this.#nextEvent = name;
+    this.#queuedEventSequence++;
+    this.#nextEvent = { name, sequence: this.#queuedEventSequence };
   }
 
   protected parkedSendEvent(name: string): void {
@@ -138,6 +143,16 @@ export abstract class BaseActor {
     this.#stateTasks.set(id, { id, controller, promise, on_done, on_failed, on_timeout });
   }
 
+  protected awaitLifecycleSettlement(): Promise<void> {
+    const sequence = this.#queuedEventSequence;
+    const failure = this.#eventSettlementFailure;
+    if (failure && failure.sequence <= sequence) return Promise.reject(failure.error);
+    if (this.#settledEventSequence >= sequence) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      this.#eventSettlementWaiters.add({ sequence, resolve, reject });
+    });
+  }
+
   protected _on_state_changed(_oldState: string | undefined, _newState: string): void {
   }
 
@@ -168,7 +183,16 @@ export abstract class BaseActor {
         const event = this.#nextEvent;
         if (event !== undefined) {
           this.#nextEvent = undefined;
-          this.#dispatchEvent(event);
+          try {
+            this.#dispatchEvent(event.name);
+            this.#settledEventSequence = event.sequence;
+          } catch (error) {
+            this.#settledEventSequence = event.sequence;
+            this.#eventSettlementFailure = { sequence: event.sequence, error };
+            throw error;
+          } finally {
+            this.#settleLifecycleWaiters();
+          }
           continue;
         }
 
@@ -200,6 +224,16 @@ export abstract class BaseActor {
       console.error('BaseActor main loop failed', error);
     } finally {
       this.#actorMainRunning = false;
+    }
+  }
+
+  #settleLifecycleWaiters(): void {
+    const failure = this.#eventSettlementFailure;
+    for (const waiter of this.#eventSettlementWaiters) {
+      if (waiter.sequence > this.#settledEventSequence) continue;
+      this.#eventSettlementWaiters.delete(waiter);
+      if (failure && failure.sequence <= waiter.sequence) waiter.reject(failure.error);
+      else waiter.resolve();
     }
   }
 

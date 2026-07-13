@@ -58,7 +58,7 @@ function markBlocked(store: CardStore, card: CardRecord): CardRecord {
 }
 
 function terminalProcessor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): CardProcessorActor {
-  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>> };
+  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>, disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []) };
 }
 
 function cardActorDeps(projectRoot: string, store: CardStore): CardActorDeps {
@@ -578,7 +578,7 @@ describe('PlanningCardProcessorActor', () => {
     const project = createProject(store);
     const child = createGoal(store);
     let finish!: () => void;
-    const childActor = makeChildActor(projectRoot, store, child, { activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = () => resolve({ status: 'blocked', summary: 'still blocked', result: { kind: 'blocked', summary: 'still blocked', resume_reason: 'test' } }); })) });
+    const childActor = makeChildActor(projectRoot, store, child, { activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = () => resolve({ status: 'blocked', summary: 'still blocked', result: { kind: 'blocked', summary: 'still blocked', resume_reason: 'test' } }); })), disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []) });
     const childActivation = childActor.activate({ kind: 'parent', cardId: project.id });
     await eventually(() => expect(store.read(child.id)?.status).toBe('running'));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult

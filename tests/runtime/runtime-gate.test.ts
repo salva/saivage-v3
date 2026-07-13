@@ -22,4 +22,18 @@ describe('RuntimeGate', () => {
     await expect(gate.waitUntilOpen(abort.signal)).rejects.toThrow('already cancelled');
     gate.open();
   });
+
+  it('terminally rejects current and future waiters and cannot reopen', async () => {
+    const gate = new RuntimeGate(false);
+    const current = gate.waitUntilOpen(new AbortController().signal);
+    const reason = new Error('runtime disposed');
+
+    gate.dispose(reason);
+
+    await expect(current).rejects.toBe(reason);
+    await expect(gate.waitUntilOpen(new AbortController().signal)).rejects.toBe(reason);
+    expect(() => gate.open()).toThrow(/terminally closed/);
+    expect(() => gate.setOpen(true)).toThrow(/terminally closed/);
+    gate.dispose(new Error('ignored repeated disposal'));
+  });
 });

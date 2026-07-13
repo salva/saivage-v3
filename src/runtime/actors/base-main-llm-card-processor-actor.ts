@@ -11,6 +11,7 @@ import type { ConversationChangePublisher } from './conversation-publisher.js';
 import { listConversationSessionIds, readConversationMessages, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
+import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
@@ -23,6 +24,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   readonly conversations: ConversationMutationPort;
   readonly activeLlmActors = new Map<string, LLMActor>();
   #invocationInputCounter = 0;
+  #joiningLlmActors: readonly LLMActor[] | null = null;
 
   protected constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationMutationPort; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
@@ -51,6 +53,22 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
 
   listLlmActors(): readonly LLMActor[] {
     return [...this.activeLlmActors.values()];
+  }
+
+  override disposeActivation(reason: unknown): void {
+    if (this.#joiningLlmActors) return;
+    this.#joiningLlmActors = [...this.activeLlmActors.values()];
+    for (const llm of this.#joiningLlmActors) llm.disposeInvocations(reason);
+    super.disposeActivation(reason);
+  }
+
+  override async joinActivation(): Promise<readonly InvocationJoinOutcome[]> {
+    const actors = this.#joiningLlmActors;
+    if (!actors) throw new Error(`Processor '${this.cardId}' must dispose activation admission before join.`);
+    const outcomes = await Promise.all(actors.map((llm) => llm.joinInvocationSettlement()));
+    const processorOutcomes = await super.joinActivation();
+    this.activeLlmActors.clear();
+    return [...outcomes, ...processorOutcomes];
   }
 
   override recoverActive(state: string, input: CardActivationInput, signal: AbortSignal): Promise<CardProcessorOutcome> {
@@ -122,6 +140,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   protected abstract recoverableLlmAgentIds(): readonly string[];
 
   protected override onActivationSettled(_outcome: CardProcessorOutcome): void {
+    if (this.#joiningLlmActors) return;
     for (const llm of this.activeLlmActors.values()) llm.abandonParkedTurn();
     this.activeLlmActors.clear();
   }

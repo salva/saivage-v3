@@ -39,6 +39,7 @@ import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prom
 import type { RestartPort } from '../boot/restart-port.js';
 import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
 import { recordControlAction } from '../persistence/index.js';
+import { ActivationOperationTracker, type InvocationJoinOutcome } from '../runtime/actors/invocation-lifecycle.js';
 
 
 export interface WorkspaceContext {
@@ -182,6 +183,8 @@ export class AnalystSessionActor extends BaseActor {
   private lastOutcome: AnalystSessionReadModel['lastOutcome'] = null;
   private pendingRestartConfirmation = false;
   private readonly processScope: ManagedProcessScope;
+  private operationTracker: ActivationOperationTracker | null = null;
+  private readonly retiredOperationTrackers: ActivationOperationTracker[] = [];
 
   constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
     super();
@@ -204,6 +207,7 @@ export class AnalystSessionActor extends BaseActor {
     if (this.state() !== 'idle' || this.result) return Promise.reject(new Error(`Analyst session '${this.sessionId}' already has an active turn.`));
     this.pendingTurn = { input, onActivity };
     this.result = deferred<AnalystTurnResult>();
+    this.operationTracker = new ActivationOperationTracker();
     this.parkedSendEvent('submit');
     return this.result.promise;
   }
@@ -212,6 +216,7 @@ export class AnalystSessionActor extends BaseActor {
     const result = this.result;
     if (this.state() !== 'conversing' || !result) return false;
     this.cancellationReason = reason;
+    this.operationTracker?.revoke(new Error(reason));
     this.turnAbort?.abort(new Error(reason));
     this.pendingTurn = null;
     this.result = null;
@@ -234,32 +239,40 @@ export class AnalystSessionActor extends BaseActor {
     this.turnAbort = turnAbort;
     this.cancellationReason = null;
     this.toolInFlight = null;
-    this.runTask(() => this.runAnalystLoop(turn.input, turnAbort.signal), {
+    const tracker = this.operationTracker;
+    if (!tracker) throw new Error(`Analyst session '${this.sessionId}' entered conversing without an operation tracker.`);
+    this.runTask((taskSignal) => tracker.run(AbortSignal.any([turnAbort.signal, taskSignal]), (operationSignal) => this.runAnalystLoop(turn.input, operationSignal)), {
       on_done: (response) => {
-        this.cleanupTurnState();
-        if (this.cancellationReason !== null) {
-          this.resetCancellationState();
-          return;
-        }
-        if (this.result !== result) return;
-        this.pendingTurn = null;
-        this.result = null;
-        this.lastOutcome = 'completed';
-        result.resolve(response);
-        this.sendEvent('done');
+        void tracker.trackConsumer(() => {
+          this.retireOperationTracker(tracker);
+          this.cleanupTurnState();
+          if (this.cancellationReason !== null) {
+            this.resetCancellationState();
+            return;
+          }
+          if (this.result !== result) return;
+          this.pendingTurn = null;
+          this.result = null;
+          this.lastOutcome = 'completed';
+          result.resolve(response);
+          this.sendEvent('done');
+        });
       },
       on_failed: (error) => {
-        this.cleanupTurnState();
-        if (this.cancellationReason !== null) {
-          this.resetCancellationState();
-          return;
-        }
-        if (this.result !== result) return;
-        this.pendingTurn = null;
-        this.result = null;
-        this.lastOutcome = 'failed';
-        result.reject(error);
-        this.sendEvent('failed');
+        void tracker.trackConsumer(() => {
+          this.retireOperationTracker(tracker);
+          this.cleanupTurnState();
+          if (this.cancellationReason !== null) {
+            this.resetCancellationState();
+            return;
+          }
+          if (this.result !== result) return;
+          this.pendingTurn = null;
+          this.result = null;
+          this.lastOutcome = 'failed';
+          result.reject(error);
+          this.sendEvent('failed');
+        });
       },
     });
   }
@@ -523,6 +536,26 @@ export class AnalystSessionActor extends BaseActor {
     this.args.runtimeDeps.processRunner.closeScope(this.processScope);
     const report = await this.args.runtimeDeps.processRunner.terminateScopeTree({ rootScope: this.processScope, categories: ['operator_session'], reason: 'session closed', graceMs: 5_000 });
     if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
+  }
+
+  disposeSession(reason: unknown): void {
+    this.operationTracker?.revoke(reason);
+    this.llm.disposeInvocations(reason);
+  }
+
+  async joinSession(): Promise<readonly InvocationJoinOutcome[]> {
+    const trackers = new Set(this.retiredOperationTrackers);
+    if (this.operationTracker) trackers.add(this.operationTracker);
+    const outcomes = await Promise.all([...trackers].map((tracker) => tracker.join()));
+    outcomes.push(await this.llm.joinInvocationSettlement());
+    await this.awaitLifecycleSettlement();
+    return outcomes;
+  }
+
+  private retireOperationTracker(tracker: ActivationOperationTracker): void {
+    tracker.revoke(new Error('Analyst turn settled.'));
+    if (!this.retiredOperationTrackers.includes(tracker)) this.retiredOperationTrackers.push(tracker);
+    if (this.operationTracker === tracker) this.operationTracker = null;
   }
 }
 

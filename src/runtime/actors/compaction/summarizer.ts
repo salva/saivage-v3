@@ -15,7 +15,7 @@ export async function summarizeRound(args: {
   rows: AgentMessage[];
   summarizerProvider: SummarizerProviderPort;
   modelSpec: SummarizerModelSpec;
-  signal?: AbortSignal;
+  signal: AbortSignal;
 }): Promise<string> {
   validateNoCompactionRows(args.rows, 'summarizeRound');
   const completion = await args.summarizerProvider.completeTurn(buildSummaryInput({
@@ -24,7 +24,8 @@ export async function summarizeRound(args: {
     modelSpec: args.modelSpec,
     systemPrompt: 'Summarize this Saivage conversation round as concise prose. Do not include recoverable-evidence pointer sections.',
     contextMessages: args.rows,
-  }), args.signal ?? new AbortController().signal);
+  }), args.signal);
+  args.signal.throwIfAborted();
   return validateSummaryResult(completion.result, 'summarizeRound');
 }
 
@@ -32,7 +33,7 @@ export async function summarizeMerge(args: {
   entries: SummaryCacheEntry[];
   summarizerProvider: SummarizerProviderPort;
   modelSpec: SummarizerModelSpec;
-  signal?: AbortSignal;
+  signal: AbortSignal;
 }): Promise<string> {
   if (args.entries.length === 0) throw new Error('summarizeMerge requires at least one cached summary entry.');
   const contextMessages = args.entries.map((entry, index) => ({
@@ -52,7 +53,8 @@ export async function summarizeMerge(args: {
     modelSpec: args.modelSpec,
     systemPrompt: 'Merge these cached Saivage round summaries into one concise prose summary. Do not include recoverable-evidence pointer sections.',
     contextMessages,
-  }), args.signal ?? new AbortController().signal);
+  }), args.signal);
+  args.signal.throwIfAborted();
   return validateSummaryResult(completion.result, 'summarizeMerge');
 }
 

@@ -481,6 +481,90 @@ describe('parked states', () => {
   });
 });
 
+describe('lifecycle settlement acknowledgement', () => {
+  class SettlementActor extends BaseActor {
+    static _actor = {
+      initial: 'idle',
+      states: {
+        idle: { parked: true, on: { go: 'running', unknown: 'idle' } },
+        running: { on: { finish: 'done' } },
+        done: { terminal: true },
+      },
+    };
+    log: string[] = [];
+    taskSignal: AbortSignal | undefined;
+    failEnter = false;
+
+    go() { this.parkedSendEvent('go'); }
+    unknown() { this.parkedSendEvent('missing'); }
+    settle() { return this.awaitLifecycleSettlement(); }
+    _on_leave__idle() { this.log.push('leave'); }
+    override _on_state_changed(_oldState: string | undefined, next: string) { this.log.push(`state:${next}`); }
+    _on_enter__running() {
+      this.log.push('enter');
+      if (this.failEnter) throw new Error('enter failed');
+      this.runTask((signal) => { this.taskSignal = signal; return Promise.resolve(); }, { on_done_event: 'finish' });
+    }
+  }
+
+  it('resolves immediately with no queued event and snapshots a complete dispatch', async () => {
+    const actor = new SettlementActor();
+    actor.start();
+    await actor.settle();
+    actor.log.length = 0;
+
+    actor.go();
+    await actor.settle();
+
+    expect(actor.log.slice(0, 3)).toEqual(['leave', 'state:running', 'enter']);
+  });
+
+  it('acknowledges unknown and self transitions without lifecycle hooks', async () => {
+    const actor = new SettlementActor(); actor.start(); actor.log.length = 0;
+    actor.unknown();
+    await actor.settle();
+    expect(actor.state()).toBe('idle');
+    expect(actor.log).toEqual([]);
+  });
+
+  it('rejects the captured snapshot with the dispatch failure', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const actor = new SettlementActor(); actor.start(); actor.failEnter = true; actor.log.length = 0;
+      actor.go();
+      await expect(actor.settle()).rejects.toThrow('enter failed');
+      await expect(actor.settle()).rejects.toThrow('enter failed');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('acknowledges leave, old-task abort, state assignment, and enter in dispatch order', async () => {
+    class OrderedActor extends BaseActor {
+      static _actor = { states: { running: { on: { finish: 'done' } }, done: { terminal: true } } };
+      readonly trigger = createDeferred<void>();
+      log: string[] = [];
+      settlement: Promise<void> | null = null;
+      _on_enter__running() {
+        this.runTask(() => this.trigger.promise, { on_done: () => {
+          this.sendEvent('finish');
+          this.settlement = this.awaitLifecycleSettlement();
+        } });
+        this.runTask((signal) => new Promise<void>(() => {
+          signal.addEventListener('abort', () => this.log.push('abort'), { once: true });
+        }));
+      }
+      _on_leave__running() { this.log.push('leave'); }
+      override _on_state_changed(_old: string | undefined, next: string) { if (next === 'done') this.log.push('state'); }
+      _on_enter__done() { this.log.push('enter'); }
+    }
+    const actor = new OrderedActor(); actor.start(); actor.trigger.resolve();
+    await eventually(() => expect(actor.settlement).not.toBeNull());
+    await actor.settlement;
+    expect(actor.log).toEqual(['leave', 'abort', 'state', 'enter']);
+  });
+});
+
 type Deferred<T> = {
   promise: Promise<T>;
   resolve(value: T): void;

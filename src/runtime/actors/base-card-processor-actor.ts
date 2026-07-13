@@ -4,6 +4,7 @@ import { processorActorId } from './ids.js';
 import type { ActorSnapshotStore } from './snapshots.js';
 import type { ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { deferred, type Deferred } from './deferred.js';
+import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
 
 export type CardProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -17,6 +18,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   #activationInput: CardActivationInput | null = null;
   #activationSignal: AbortSignal | null = null;
   #activationCounter = 0;
+  #operationTracker: ActivationOperationTracker | null = null;
 
   protected constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore }) {
     super();
@@ -46,9 +48,11 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     if (!this.#result || !this.#activationInput || !this.#activationSignal) throw new Error(`${this.processorLabel} '${this.cardId}' entered ${stateLabel} without activation input.`);
     const input = this.#activationInput;
     const signal = this.#activationSignal;
-    this.runTask(() => run(input, signal), {
-      on_done: (outcome) => this.finishActivation(outcome),
-      on_failed: (error) => this.finishActivation(this.activationFailureOutcome(error.message)),
+    const tracker = this.#operationTracker;
+    if (!tracker) throw new Error(`${this.processorLabel} '${this.cardId}' has no activation operation tracker.`);
+    this.runTask((taskSignal) => tracker.run(AbortSignal.any([signal, taskSignal]), (operationSignal) => run(input, operationSignal)), {
+      on_done: (outcome) => { void tracker.trackConsumer(() => this.finishActivation(outcome)); },
+      on_failed: (error) => { void tracker.trackConsumer(() => this.finishActivation(this.activationFailureOutcome(error.message))); },
     });
   }
 
@@ -84,6 +88,21 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
 
   protected abstract activationFailureOutcome(error: string): CardProcessorOutcome;
 
+  disposeActivation(reason: unknown): void {
+    this.#operationTracker?.revoke(reason);
+  }
+
+  async joinActivation(): Promise<readonly InvocationJoinOutcome[]> {
+    const tracker = this.#operationTracker;
+    if (!tracker) {
+      await this.awaitLifecycleSettlement();
+      return [];
+    }
+    const outcome = await tracker.join();
+    await this.awaitLifecycleSettlement();
+    return [outcome];
+  }
+
   protected onActivationSettled(_outcome: CardProcessorOutcome): void {
   }
 
@@ -91,6 +110,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     this.#activationCounter++;
     this.#activationInput = input;
     this.#activationSignal = signal;
+    this.#operationTracker = new ActivationOperationTracker();
     this.#result = deferred<CardProcessorOutcome>();
     this.activeReconstruction = {
       schema_version: 1,

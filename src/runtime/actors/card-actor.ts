@@ -19,6 +19,7 @@ import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationMutationPort } from '../../persistence/conversation-mutation-port.js';
 import type { RecordProjection } from '../../persistence/project-persistence-authority.js';
+import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 
 export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
 
@@ -67,7 +68,14 @@ export interface CardProcessorActor {
   start?(): void;
   recoverActive?(state: string, input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
   activate(input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
+  disposeActivation(reason: unknown): void;
+  joinActivation(): Promise<readonly InvocationJoinOutcome[]>;
 }
+
+export type ActorJoinOutcome =
+  | { status: 'joined' }
+  | { status: 'external_dependency_abandoned'; abandonedCount: number }
+  | { status: 'timed_out'; pendingTaskCount: number };
 
 export interface CardActorStorePort {
   read(cardId: string): CardRecord | null;
@@ -279,6 +287,7 @@ export class CardActor extends BaseActor {
     this.cancelDescendants();
     this.activeReconstruction = null;
     this.writeStoreStatus('cancelled');
+    this.processor.disposeActivation(new Error(reason.reason));
     this.#activationAbort?.abort(new Error(reason.reason));
     this.#result?.resolve({ status: 'cancelled', summary: reason.reason });
     this.#result = null;
@@ -288,6 +297,24 @@ export class CardActor extends BaseActor {
     if (this.state() === 'running') this.sendEvent('cancel');
     else this.parkedSendEvent('cancel');
     this.persist();
+  }
+
+  async join(options: { timeoutMs: number }): Promise<ActorJoinOutcome> {
+    const settlement = (async (): Promise<ActorJoinOutcome> => {
+      const processorOutcomes = await this.processor.joinActivation();
+      await this.awaitLifecycleSettlement();
+      const abandonedCount = processorOutcomes.reduce((count, outcome) => count + (outcome.status === 'external_dependency_abandoned' ? outcome.abandonedCount : 0), 0);
+      return abandonedCount === 0 ? { status: 'joined' } : { status: 'external_dependency_abandoned', abandonedCount };
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<ActorJoinOutcome>((resolve) => {
+      timer = setTimeout(() => resolve({ status: 'timed_out', pendingTaskCount: 1 }), options.timeoutMs);
+    });
+    try {
+      return await Promise.race([settlement, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   _on_enter__running(): void {

@@ -110,6 +110,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: completionGateFailure }, signal, (inputId) => this.notificationContext(input, inputId)));
         }
         const projected = await this.projectPlannerTerminal(input, terminalOutcome, signal, contract);
+        signal.throwIfAborted();
         if (projected.result.kind === 'rework') {
           if (reviewerReworkAttempts >= MAX_REVIEWER_REWORK_ATTEMPTS) {
             this.markTerminalProjected(terminalOutcome, plannerActorId(this.cardId));
@@ -124,6 +125,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       },
       onNonTerminalTool: async (toolOutcome) => {
         const toolResult = await this.handleToolCall(surface, toolOutcome, signal);
+        signal.throwIfAborted();
         return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (inputId) => this.notificationContext(input, inputId));
       },
     });
@@ -250,6 +252,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         },
         onNonTerminalTool: async (toolOutcome) => {
           const toolResult = await this.handleReviewerToolCall(surface, sessionId, toolOutcome, signal);
+          signal.throwIfAborted();
           return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal);
         },
       });

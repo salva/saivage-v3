@@ -6,7 +6,7 @@ Status: current frozen implementation contract.
 
 ## Freeze Policy
 
-`src/runtime/micro-actor/micro-actor.ts` is frozen. Do not modify the `BaseActor` design or implementation directly. If a limitation or bug is found, report it to the user; the user decides whether and how the frozen core changes.
+`src/runtime/micro-actor/micro-actor.ts` is frozen except for the explicitly authorized protected lifecycle-settlement snapshot hook described below. Do not move runtime cancellation, lease, timeout, or disposal policy into this module. Any further core change requires user approval.
 
 ## Purpose
 
@@ -84,6 +84,8 @@ protected runTask<Result>(
 `parkedSendEvent(name)` is for actor public methods that need to advance from a parked state. It verifies the current state is parked, queues the event with the same single-slot event rules as `sendEvent(name)`, and ensures the actor pump is running so the transition is handled. It is still protected; external callers use domain-specific actor methods rather than raw event names.
 
 `runTask(...)` starts state-scoped async work. It returns `void`. Task completion is routed back through the actor main loop. It rejects tasks started from terminal or parked states.
+
+`awaitLifecycleSettlement()` is protected observation for subclasses. It snapshots the highest event sequence queued before the call and resolves after that event's complete dispatch decision, including leave handling, old-state task abort/removal, state assignment, `_on_state_changed`, and enter handling when the state changes. Unknown and self transitions acknowledge without lifecycle hooks. Events queued later belong to a later snapshot. Dispatch or handler failure rejects the captured acknowledgement. The hook does not queue cancellation, expose tasks, or define runtime policy.
 
 ## Task Options
 

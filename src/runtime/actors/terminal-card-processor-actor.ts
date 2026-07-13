@@ -104,6 +104,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         },
         onNonTerminalTool: async (toolOutcome) => {
           const toolResult = await this.handleToolCall(toolOutcome, surface, signal);
+          signal.throwIfAborted();
           return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (inputId) => this.notificationContext(input, inputId));
         },
       });

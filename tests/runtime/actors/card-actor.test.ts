@@ -34,8 +34,10 @@ function createGoal(store: CardStore, parent = 'project'): CardRecord {
 }
 
 function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): CardProcessorActor {
-  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>> };
+  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>, disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []) };
 }
+
+const processorLifecycle = () => ({ disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []) });
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
   return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
@@ -112,6 +114,7 @@ describe('CardActor', () => {
     const project = createProject(store);
     let finish!: () => void;
     const fakeProcessor: CardProcessorActor = {
+      ...processorLifecycle(),
       activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => {
         finish = () => resolve({ status: 'done', summary: 'project done', result: { kind: 'done', summary: 'project done' } });
       })),
@@ -262,6 +265,7 @@ describe('CardActor', () => {
     const project = createProject(store);
     const deliveredIds: string[] = [];
     const fakeProcessor: CardProcessorActor = {
+      ...processorLifecycle(),
       activate: jest.fn(async (input: CardActivationInput) => {
         deliveredIds.push(...input.notificationDelivery.deliverNotificationsForInput('planner:project:1').map((item) => item.id));
         return { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } };
@@ -429,6 +433,7 @@ describe('CardActor', () => {
     const goal = createGoal(store);
     let finish!: (outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => void;
     const runningProcessor: CardProcessorActor = {
+      ...processorLifecycle(),
       activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = resolve; })),
     };
     const actor = actorFromCard(projectRoot, store, goal, runningProcessor);
@@ -455,6 +460,7 @@ describe('CardActor', () => {
     const project = createProject(store);
     let actor!: CardActor;
     const fakeProcessor: CardProcessorActor = {
+      ...processorLifecycle(),
       activate: jest.fn(async () => {
         actor.enqueueNotification({ id: 'n-late', message: 'late running context', created_at: '2026-06-12T00:00:00.000Z' });
         return { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } };
@@ -475,6 +481,7 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const fakeProcessor: CardProcessorActor = {
+      ...processorLifecycle(),
       activate: jest.fn(async (input: CardActivationInput) => {
         input.notificationDelivery.deliverNotificationsForInput('fake-input');
         return { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } };
@@ -552,6 +559,7 @@ describe('CardActor', () => {
     const terminateScopeTree = jest.spyOn(runner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
     let finish!: (outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => void;
     const runningProcessor: CardProcessorActor = {
+      ...processorLifecycle(),
       activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = resolve; })),
     };
     const actor = CardActor.fromCard({ card: runningGoal, deps: { ...deps(projectRoot, store), processRunner: runner } });

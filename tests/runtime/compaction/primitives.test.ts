@@ -154,9 +154,9 @@ describe('compaction primitives', () => {
       },
     };
 
-    await expect(summarizeRound({ round_id: 'round-1', rows: [msg({ id: 'raw', role: 'user', kind: 'text', content: 'raw' })], summarizerProvider: provider, modelSpec: 'cheap-model' })).resolves.toBe('Plain prose summary.');
-    await expect(summarizeRound({ round_id: 'round-2', rows: [msg({ id: 'summary', role: 'user', kind: 'context_compaction', content: 'old summary' })], summarizerProvider: provider, modelSpec: 'cheap-model' })).rejects.toThrow(/context_compaction/);
-    await expect(summarizeMerge({ entries: [{ cache_key: 'k', round_id: 'r', content_hash: 'h', summary_text: 'Cached prose.', recoverable_evidence: [{ flavor: 'stash', url: 'work:///tmp/stash/a', label: 'stash' }], provenance: { source_message_ids: [] }, created_at: timestamp }], summarizerProvider: provider, modelSpec: 'cheap-model' })).resolves.toBe('Plain prose summary.');
+    await expect(summarizeRound({ round_id: 'round-1', rows: [msg({ id: 'raw', role: 'user', kind: 'text', content: 'raw' })], summarizerProvider: provider, modelSpec: 'cheap-model', signal: new AbortController().signal })).resolves.toBe('Plain prose summary.');
+    await expect(summarizeRound({ round_id: 'round-2', rows: [msg({ id: 'summary', role: 'user', kind: 'context_compaction', content: 'old summary' })], summarizerProvider: provider, modelSpec: 'cheap-model', signal: new AbortController().signal })).rejects.toThrow(/context_compaction/);
+    await expect(summarizeMerge({ entries: [{ cache_key: 'k', round_id: 'r', content_hash: 'h', summary_text: 'Cached prose.', recoverable_evidence: [{ flavor: 'stash', url: 'work:///tmp/stash/a', label: 'stash' }], provenance: { source_message_ids: [] }, created_at: timestamp }], summarizerProvider: provider, modelSpec: 'cheap-model', signal: new AbortController().signal })).resolves.toBe('Plain prose summary.');
 
     expect(JSON.stringify(calls)).not.toContain('Recoverable evidence');
     expect(JSON.stringify(calls)).not.toContain('work:///tmp/stash/a');

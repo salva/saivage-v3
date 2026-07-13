@@ -1,5 +1,7 @@
 export class RuntimeGate {
   #open: boolean;
+  #terminal = false;
+  #terminalReason: unknown;
   #waiters = new Set<{ resolve: () => void; reject: (reason: unknown) => void; signal: AbortSignal; onAbort: () => void }>();
 
   constructor(open = true) {
@@ -15,6 +17,7 @@ export class RuntimeGate {
   }
 
   open(): void {
+    if (this.#terminal) throw new Error('Cannot open a terminally closed RuntimeGate.');
     if (this.#open) return;
     this.#open = true;
     const waiters = [...this.#waiters];
@@ -30,9 +33,20 @@ export class RuntimeGate {
     else this.close();
   }
 
+  dispose(reason: unknown): void {
+    if (this.#terminal) return;
+    this.#terminal = true;
+    this.#terminalReason = reason;
+    this.#open = false;
+    const waiters = [...this.#waiters];
+    this.#waiters.clear();
+    for (const waiter of waiters) waiter.reject(reason);
+  }
+
   waitUntilOpen(signal: AbortSignal): Promise<void> {
-    if (this.#open) return Promise.resolve();
     if (signal.aborted) return Promise.reject(signal.reason);
+    if (this.#terminal) return Promise.reject(this.#terminalReason);
+    if (this.#open) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const waiter = {
         resolve: () => { cleanup(); resolve(); },

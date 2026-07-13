@@ -48,7 +48,7 @@ export async function compact(args: {
   config: CompactionConfig;
   summarizerProvider: SummarizerProviderPort;
   bufferSizeEstimator: BufferSizeEstimator;
-  signal?: AbortSignal;
+  signal: AbortSignal;
 }): Promise<{ rows: AgentMessage[]; versionReplacement: ConversationVersionReplacement }> {
   if (!args.config.enabled) throw new Error('Compaction was invoked while disabled.');
   if (!args.config.summarizer_model || args.config.summarizer_model.trim().length === 0) throw new Error('Compaction is enabled but compaction.summarizer_model is unset.');
@@ -58,6 +58,7 @@ export async function compact(args: {
   const activeRows = readActiveVersionMessages(args.projectRoot, args.sessionId);
   const measured = args.bufferSizeEstimator.estimate(args.input);
   const pass = await buildCompactedRows({ ...args, activeRows, bufferTokens: measured.bufferTokens, generation, mergeLine: args.config.merge_line_fraction, summaryLine: args.config.summary_line_fraction, snap: args.config.snap });
+  args.signal.throwIfAborted();
   let rows = pass.rows;
   let summaryIds = pass.summaryIds;
   let bands = pass.bands;
@@ -67,6 +68,7 @@ export async function compact(args: {
   const targetTokens = Math.floor(after.bufferTokens * Math.max(0, args.config.trigger_fraction - args.config.completion_reserve_fraction));
   if (after.estimatedTokens > targetTokens) {
     const escalated = await buildCompactedRows({ ...args, activeRows, bufferTokens: measured.bufferTokens, generation, mergeLine: args.config.escalate_merge_line_fraction, summaryLine: args.config.escalate_summary_line_fraction, snap: 'compact_straddler' });
+    args.signal.throwIfAborted();
     rows = escalated.rows;
     summaryIds = escalated.summaryIds;
     bands = escalated.bands;
@@ -77,6 +79,7 @@ export async function compact(args: {
   }
 
   const content = rows.map((row) => JSON.stringify(agentMessageSchema.parse(row))).join('\n') + (rows.length === 0 ? '' : '\n');
+  args.signal.throwIfAborted();
   const compactedThrough = compactedThroughFor(rows, activeRows);
   const writeResult = args.conversations.replaceActiveVersion({
     sessionId: args.sessionId,
@@ -97,7 +100,7 @@ async function buildCompactedRows(args: {
   config: CompactionConfig;
   summarizerProvider: SummarizerProviderPort;
   bufferSizeEstimator: BufferSizeEstimator;
-  signal?: AbortSignal;
+  signal: AbortSignal;
   activeRows: AgentMessage[];
   bufferTokens: number;
   generation: number;
@@ -143,7 +146,7 @@ async function buildCompactedRows(args: {
   return { rows, summaryIds, bands: { merge_line: args.mergeLine, summary_line: args.summaryLine, trigger: args.config.trigger_fraction, snap: args.snap } };
 }
 
-async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: string; config: CompactionConfig; summarizerProvider: SummarizerProviderPort; signal?: AbortSignal }, round: ClassifiedRound, cache: Map<string, SummaryCacheEntry>): Promise<SummaryCacheEntry> {
+async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: string; config: CompactionConfig; summarizerProvider: SummarizerProviderPort; signal: AbortSignal }, round: ClassifiedRound, cache: Map<string, SummaryCacheEntry>): Promise<SummaryCacheEntry> {
   const rows = conversationMessagesForModel(round.rows.map((row) => row.message));
   const hash = contentHashForMessages(rows);
   const cacheKey = `${round.round_id}:${hash}`;
@@ -152,6 +155,7 @@ async function getOrCreateRoundSummary(args: { projectRoot: string; sessionId: s
   const evidence = recoverableEvidenceDescriptors(rows);
   const dropped = dropRecoverableResultBodies(rows);
   const summaryText = await summarizeRound({ round_id: round.round_id, rows: dropped, summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model as string, signal: args.signal });
+  args.signal.throwIfAborted();
   const entry = appendSummaryCacheEntry(args.projectRoot, args.sessionId, {
     cache_key: cacheKey,
     round_id: round.round_id,
