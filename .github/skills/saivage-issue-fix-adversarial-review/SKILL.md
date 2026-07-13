@@ -1,6 +1,6 @@
 ---
 name: saivage-issue-fix-adversarial-review
-description: 'Mandatory Saivage v3 issue-fixing workflow. Use when fixing bugs, regressions, review findings, design flaws, architectural issues, or behavior gaps: create a docs/working design+plan, run two independent reviewers concurrently, triage their union, then implement via the dedicated issue-fix subagents.'
+description: 'Mandatory Saivage v3 issue-fixing workflow. Use when fixing bugs, regressions, review findings, design flaws, architectural issues, or behavior gaps: create a docs/working design+plan, run adversarial subagent review, critically validate findings, then implement via the dedicated issue-fix subagents.'
 ---
 
 # Saivage Issue Fix Adversarial Review
@@ -18,29 +18,27 @@ Apply the project rules in `AGENTS.md` throughout design, review, implementation
 The primary agent owns this workflow and does not design, review, or implement directly. It drives the specialist subagents:
 
 - **`designer`** (`openai/gpt-5.6-sol`) — writes and revises the design/plan, including revisions driven by implementation feedback.
-- **`reviewer`** (`openai/gpt-5.6-sol`) — first independent adversarial review of the design/plan.
-- **`reviewer-2`** (`nvidia/z-ai/glm-5.2`) — second independent adversarial review under the same review contract.
+- **`reviewer`** (`openai/gpt-5.6-sol`) — adversarial review of the design/plan.
 - **`implementation-manager`** (`openai/gpt-5.6-sol`) — decomposes the approved plan into tasks, drives them to completion, and reports divergences and learnings; the only agent that spawns the `developer`.
 - **`developer`** (`openai/gpt-5.6-sol`) — leaf implementer of individual plan tasks.
 
 ## Objectives
 
 - Prevent local band-aids by designing the fix before editing implementation code.
-- Force two independent, model-diverse skeptical reviews before implementation.
+- Force a skeptical second pass before implementation.
 - Treat adversarial findings as hypotheses, not truth: confirm each finding is sound and real before changing the design.
-- Repeat paired review and revision until neither review has a confirmed material finding.
+- Repeat review and revision until no confirmed material finding remains.
 - Keep working artifacts out of Git while keeping main docs synchronized with implemented behavior.
 
 ## Required Working Files
 
-Create a working directory under `docs/working/` for the issue, for example `docs/working/<date>-<issue-slug>/`, holding the current design/plan and three files per adversarial review round: one verbatim raw response from each reviewer and a separate union-triage synthesis.
+Create a working directory under `docs/working/` for the issue, for example `docs/working/<date>-<issue-slug>/`, holding the current design/plan and one file per adversarial review round.
 
 Rules:
 
 - `docs/working/` is ignored and must not be committed. Its files are temporary working documents only, not main documentation and not a substitute for updating the canonical main docs: `docs/spec/system-specification.md`, `docs/spec/operator-ui.md`, `docs/architecture/system-architecture.md`, and `README.md`.
 - Keep each revised design/plan self-contained. Do not require readers to diff prior rounds to understand the current plan.
-- Store each raw reviewer output verbatim in a distinct reviewer-attributed file such as `round-<n>-reviewer.md` and `round-<n>-reviewer-2.md`. Never summarize, combine, edit, or normalize these raw responses.
-- Put classifications, deduplication, and remediation decisions only in `round-<n>-synthesis.md`, citing both raw artifacts when they identify the same issue and preserving meaningful evidence differences.
+- Keep review files factual and actionable. Do not preserve weak or speculative critiques as required work.
 
 ## Design And Plan Requirements
 
@@ -65,14 +63,12 @@ The first design/plan must include:
 
 ## Adversarial Review And Revision Loop
 
-Enter this loop, using the `designer` subagent for all plan authoring and both reviewer subagents for every review round:
+Enter this loop, using the `designer` subagent for all plan authoring and the `reviewer` subagent for all review:
 
 1. Have the `designer` subagent write or revise the self-contained design/plan under `docs/working/` (see Designer Subagent below). For revisions, pass the designer the material findings to address.
-2. Finish the complete plan revision before dispatch. Emit independent Task calls for `reviewer` and `reviewer-2` in the same assistant turn, using the available parallel mechanism or wrapper, with the same absolute plan path and verification request. Neither review receives the other's output. Do not invent a batch Task schema and do not fall back to sequential calls.
-3. Wait for both calls, then persist each raw response verbatim in its own reviewer-attributed artifact. Create a separate synthesis artifact and triage the union per Finding Triage. Deduplicate only remediation items, cite both sources, preserve meaningful evidence differences, and validate conflicts against repository evidence rather than voting.
-4. Decide whether to run another paired round: if either review contains a confirmed material finding, loop back to step 1. Stop and implement only when neither review has a confirmed material finding. A clean review cannot cancel the other's material finding. Before looping back, check Reassessment On Repeated Review Loops below.
-
-One round means one completed plan revision and its pair of concurrent reviews, not each reviewer output. If concurrent Task dispatch is unavailable, or either required call cannot launch or return, fail fast under Escalation And Blockers; do not serialize the calls or treat one result as a passing round.
+2. Launch the `reviewer` subagent on the current design/plan (see Reviewer Subagent below).
+3. Triage every finding per Finding Triage.
+4. Decide whether to run another round: if any finding was material, loop back to step 1; if every finding was false or minor, stop and implement. Before looping back, check Reassessment On Repeated Review Loops below.
 
 ### Reassessment On Repeated Review Loops
 
@@ -81,17 +77,15 @@ issue is aimed at the wrong level/layer/component, the root cause is not being s
 at the right place, or the plan is over-complicated. Repeated rounds are a signal to
 step back, not just to keep revising the same plan.
 
-The primary agent — not the `designer` or either reviewer — runs this reassessment, because
-only the primary synthesizes the combined triage history across rounds. Trigger it when any of these is
+The primary agent — not the `designer` or `reviewer` — runs this reassessment, because
+only the primary synthesizes findings across rounds. Trigger it when any of these is
 true:
 
-- Roughly three or more paired review rounds have returned material findings.
-- The same or closely related findings recur in either review stream after being addressed.
+- Roughly three or more review rounds have returned material findings.
+- The same or closely related findings recur across rounds after being addressed.
 - Each revision keeps widening scope or shifting the fix rather than converging it.
 
 When triggered, pause the loop and re-evaluate the overall approach along these axes:
-
-First synthesize agreements, complementary findings, conflicts, and recurring themes across both reviewers and all prior paired rounds. Give the designer one consolidated re-aimed framing; do not privilege one review stream or count the two outputs as separate rounds.
 
 - **Layer/component fit**: is the fix applied at the layer or component where the
   root cause actually lives, or is it patching a symptom one level away?
@@ -133,11 +127,11 @@ Write the self-contained plan to <absolute-path>, satisfying the
 Design And Plan Requirements in this skill.
 ```
 
-### Reviewer Subagents
+### Reviewer Subagent
 
-Use both of the project's read-only reviewer subagents for every plan revision: `.opencode/agents/reviewer.md`, pinned to `openai/gpt-5.6-sol`, and `.opencode/agents/reviewer-2.md`, pinned to `nvidia/z-ai/glm-5.2`. They have equivalent review checklists, evidence requirements, permissions, and verdict formats. Neither can mutate the repository or spawn a task.
+Use the project's read-only `reviewer` subagent (`.opencode/agents/reviewer.md`, pinned to `openai/gpt-5.6-sol`) for adversarial review. It applies the `AGENTS.md` rules, review checklist, evidence requirements, and verdict format.
 
-Invoke them through two independent Task calls emitted in the same assistant turn, one with `subagent_type: "reviewer"` and one with `subagent_type: "reviewer-2"`. Use the available parallel mechanism or wrapper, without prescribing a fabricated batch payload. Give both the same prompt containing the absolute path to the current design/plan, for example:
+Invoke it via the Task tool with `subagent_type: "reviewer"` and a prompt containing the absolute path to the current design/plan, for example:
 
 ```text
 Review the Saivage v3 issue-fix design/plan at <absolute-path>.
@@ -145,11 +139,11 @@ Read it fully, verify its claims against current code and docs, and return
 your findings plus your verdict.
 ```
 
-Save both outputs verbatim and separately, then write the distinct synthesis artifact described above.
+Save or summarize each reviewer output in the working directory.
 
 ### Finding Triage
 
-Do not blindly accept adversarial findings and do not resolve conflicts by vote. Classify every finding in the union:
+Do not blindly accept adversarial findings. Classify every reported finding:
 
 - **False**: speculative, preference-only, contradicted by current project rules, or outside the agreed scope. Reject it.
 - **Minor**: factually correct but too small to affect the design or plan (e.g. wording, a clarifying note, a low-impact cleanup). Note it and proceed; it does not force another review round and need not block implementation.
@@ -160,11 +154,10 @@ Do not blindly accept adversarial findings and do not resolve conflicts by vote.
 
 - Stop and ask the user if the loop reaches repeated disagreement, unclear scope, or a tradeoff that needs operator choice. Run Reassessment On Repeated Review Loops first; escalate here only when re-aiming cannot resolve the tradeoff.
 - If the subagent tooling is unavailable, report that blocker explicitly, do not claim that adversarial review passed, and proceed only when the user has directed you to continue despite the blocker, or the change is needed to repair the review workflow itself.
-- If the environment cannot dispatch both reviewer calls concurrently, or either reviewer cannot launch or return, stop and report the blocker. Never serialize the pair, substitute one reviewer, or approve a round from one output.
 
 ## Implementation
 
-Only after the design/plan has passed the paired review loop, hand it to the `implementation-manager` subagent, which decomposes the plan into ordered tasks and drives them to completion via the `developer` subagent (see Implementation Manager Subagent below). The `designer` and reviewer subagents are for planning and review only; the primary agent does not implement directly.
+Only after the design/plan has passed the review loop, hand it to the `implementation-manager` subagent, which decomposes the plan into ordered tasks and drives them to completion via the `developer` subagent (see Implementation Manager Subagent below). The `designer` and `reviewer` subagents are for planning and review only; the primary agent does not implement directly.
 
 ### Implementation Manager Subagent
 
@@ -190,8 +183,7 @@ Run validation appropriate to the change, using `saivage-development-validation`
 Final report should include:
 
 - The issue fixed and the core design choice.
-- Confirmation that both adversarial reviews were completed concurrently and the final union had no confirmed material finding, or a clear blocker if either review could not run.
-- The two reviewer-attributed raw artifact paths and their separate synthesis artifact path.
+- Confirmation that adversarial review was completed and the final verdict, or a clear blocker if review could not run.
 - Confirmed findings that changed the plan, if any.
 - Main docs updated.
 - Validation commands run and their results.

@@ -1,5 +1,5 @@
 ---
-description: Independent adversarial reviewer for Saivage v3 issue-fix design/plan documents. Use as the second concurrent review when a design or plan under docs/working/ needs skeptical review before implementation.
+description: Optional independent adversarial reviewer for Saivage v3 issue-fix design/plan documents. Use when a separate GLM-based review is explicitly requested.
 mode: subagent
 model: nvidia/z-ai/glm-5.2
 temperature: 0.2

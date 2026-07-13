@@ -17,6 +17,6 @@ Apply the project rules in `AGENTS.md` throughout (clean architecture; no backwa
 
 Documentation updates are implementation work: execute the plan's documentation-update tasks alongside the code changes, not as a separate phase.
 
-Keep the change scoped to the approved plan. If implementation reveals that the plan is wrong in a material way — a different design is needed — stop, do not improvise a replacement, and report back so the `designer` can revise the plan and the concurrent `reviewer` plus `reviewer-2` workflow can re-review it before implementation continues.
+Keep the change scoped to the approved plan. If implementation reveals that the plan is wrong in a material way — a different design is needed — stop, do not improvise a replacement, and report back so the `designer` can revise the plan and the `reviewer` can re-review it before implementation continues.
 
 When done, run the focused validation from the plan's validation section and report the commands and results.
