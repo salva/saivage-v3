@@ -391,6 +391,10 @@ export class ConversationLLMActor extends BaseActor {
     return outcome;
   }
 
+  pendingInvocationCount(): number {
+    return this.#invocations.pendingCount();
+  }
+
   private continueAfterTool(nextInput = this.requireInput(), signal?: AbortSignal): Promise<LLMActorOutcome> {
     this.input = nextInput;
     if (signal) this.#activationSignal = signal;

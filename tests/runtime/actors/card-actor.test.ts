@@ -34,10 +34,10 @@ function createGoal(store: CardStore, parent = 'project'): CardRecord {
 }
 
 function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): CardProcessorActor {
-  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>, disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []) };
+  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>, disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []), pendingJoinTaskCount: jest.fn(() => 0) };
 }
 
-const processorLifecycle = () => ({ disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []) });
+const processorLifecycle = () => ({ disposeActivation: jest.fn(), joinActivation: jest.fn(async () => []), pendingJoinTaskCount: jest.fn(() => 0) });
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
   return { projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), store, provider: { completeTurn: jest.fn() as never }, promptTemplates: createTestPromptTemplateRegistry(), processRunner: createTestProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };

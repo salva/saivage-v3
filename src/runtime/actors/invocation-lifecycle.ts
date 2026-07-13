@@ -91,6 +91,10 @@ export class ActivationOperationTracker {
     return this.#abandonedRaw.size === 0 ? { status: 'joined' } : { status: 'external_dependency_abandoned', abandonedCount: this.#abandonedRaw.size };
   }
 
+  pendingCount(): number {
+    return this.#operations.size + this.#consumers.size;
+  }
+
   #track(set: Set<Promise<unknown>>, operation: Promise<unknown>, recordFailure: boolean): void {
     set.add(operation);
     if (recordFailure) void operation.catch((error) => { this.#failure ??= error; });
@@ -247,6 +251,10 @@ export class InvocationLifecycle implements CompletionPersistenceAdmission {
     return this.#abandonedRaw.size === 0
       ? { status: 'joined' }
       : { status: 'external_dependency_abandoned', abandonedCount: this.#abandonedRaw.size };
+  }
+
+  pendingCount(): number {
+    return this.#wrappers.size + this.#consumers.size + this.#persistence.size;
   }
 
   #ownedCurrent(invocation: InvocationLease): OwnedInvocationLease {

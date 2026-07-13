@@ -71,6 +71,10 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     return [...outcomes, ...processorOutcomes];
   }
 
+  override pendingJoinTaskCount(): number {
+    return super.pendingJoinTaskCount() + (this.#joiningLlmActors ?? []).reduce((count, llm) => count + llm.pendingInvocationCount(), 0);
+  }
+
   override recoverActive(state: string, input: CardActivationInput, signal: AbortSignal): Promise<CardProcessorOutcome> {
     this.seedInvocationInputCounterFromConversations();
     this.adoptRecoveredLlmSnapshots();

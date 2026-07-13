@@ -70,6 +70,7 @@ export interface CardProcessorActor {
   activate(input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
   disposeActivation(reason: unknown): void;
   joinActivation(): Promise<readonly InvocationJoinOutcome[]>;
+  pendingJoinTaskCount(): number;
 }
 
 export type ActorJoinOutcome =
@@ -300,15 +301,18 @@ export class CardActor extends BaseActor {
   }
 
   async join(options: { timeoutMs: number }): Promise<ActorJoinOutcome> {
+    let awaitingLifecycle = false;
     const settlement = (async (): Promise<ActorJoinOutcome> => {
       const processorOutcomes = await this.processor.joinActivation();
+      awaitingLifecycle = true;
       await this.awaitLifecycleSettlement();
+      awaitingLifecycle = false;
       const abandonedCount = processorOutcomes.reduce((count, outcome) => count + (outcome.status === 'external_dependency_abandoned' ? outcome.abandonedCount : 0), 0);
       return abandonedCount === 0 ? { status: 'joined' } : { status: 'external_dependency_abandoned', abandonedCount };
     })();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<ActorJoinOutcome>((resolve) => {
-      timer = setTimeout(() => resolve({ status: 'timed_out', pendingTaskCount: 1 }), options.timeoutMs);
+      timer = setTimeout(() => resolve({ status: 'timed_out', pendingTaskCount: awaitingLifecycle ? 1 : this.processor.pendingJoinTaskCount() }), options.timeoutMs);
     });
     try {
       return await Promise.race([settlement, timeout]);

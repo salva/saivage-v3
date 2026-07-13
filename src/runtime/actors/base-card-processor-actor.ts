@@ -103,6 +103,10 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     return [outcome];
   }
 
+  pendingJoinTaskCount(): number {
+    return this.#operationTracker?.pendingCount() ?? 0;
+  }
+
   protected onActivationSettled(_outcome: CardProcessorOutcome): void {
   }
 
