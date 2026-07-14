@@ -13,6 +13,7 @@ import { RuntimeInterventionBinding } from '../../src/application/intervention-r
 import { ProjectIdentityStore, projectIdentityDigest } from '../../src/persistence/project-identity-store.js';
 import { AuthProfileRepository } from '../../src/auth/auth-profile-store.js';
 import { createAnalystMutationServices, type AnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
+import { RuntimeStateStore } from '../../src/runtime/state.js';
 
 interface TestProjectComposition {
   authority: ProjectStoreRepository;
@@ -45,6 +46,7 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });
   const alreadyOpen = projects.has(projectRoot);
   const opened = composition(projectRoot);
+  new RuntimeStateStore(projectRoot, opened.persistenceHealth).initialize();
   for (const relative of ['skills', 'config/prompts', 'agents/conversations', 'instructions', 'work/cards', 'work/processes', 'work/tmp/stash']) mkdirSync(join(projectRoot, '.saivage', relative), { recursive: true });
   const skills = join(projectRoot, '.saivage', 'skills', 'index.json');
   if (!existsSync(skills)) { mkdirSync(dirname(skills), { recursive: true }); writeFileSync(skills, '[]\n'); }
