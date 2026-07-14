@@ -224,4 +224,35 @@ describe('webfetch save_as scoped URLs', () => {
     expect(slot.latest?.version ?? null).toBe(latestBefore);
     expect(slot.open).toBeNull();
   });
+
+  it('orders overlapping Analyst brief fetch preparations by fresh no-yield commit tails', async () => {
+    initRuntimeState(root);
+    updateRuntimeState(root, { status: 'paused' });
+    const store = baseStore;
+    const card = store.read('card-1')!;
+    const firstBrief = '# Goal\n\nFirst.\n\n# Instructions\n\nFirst.\n\n# Acceptance Criteria\n\nFirst.\n';
+    const secondBrief = '# Goal\n\nSecond.\n\n# Instructions\n\nSecond.\n\n# Acceptance Criteria\n\nSecond.\n';
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const firstReady = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const secondReady = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/first')) { await firstReady; return new Response(firstBrief, { status: 200, headers: { 'content-type': 'text/plain' } }); }
+      await secondReady;
+      return new Response(secondBrief, { status: 200, headers: { 'content-type': 'text/plain' } });
+    });
+    const target = `record:///brief.md?card=${card.id}&v=next`;
+    const firstSurface = buildInvocationSurface('analyst', [analystProvider(root, store, () => ({ ok: true }))]);
+    const secondSurface = buildInvocationSurface('analyst', [analystProvider(root, store, () => ({ ok: true }))]);
+
+    const first = invokeTool(firstSurface, 'webfetch', { url: 'https://example.com/first', save_as: target });
+    const second = invokeTool(secondSurface, 'webfetch', { url: 'https://example.com/second', save_as: target });
+    releaseSecond();
+    await expect(second).resolves.toMatchObject({ success: true, data: { saved_as: `record:///brief.md?card=${card.id}&v=2` } });
+    releaseFirst();
+    await expect(first).resolves.toMatchObject({ success: true, data: { saved_as: `record:///brief.md?card=${card.id}&v=3` } });
+    expect(store.readRecord(card.id, 'brief.md', 2).artifact.content).toBe(secondBrief);
+    expect(store.readRecord(card.id, 'brief.md', 3).artifact.content).toBe(firstBrief);
+  });
 });
