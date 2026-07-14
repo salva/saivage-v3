@@ -34,18 +34,18 @@ export function readActiveVersionMessages(projectRoot: string, sessionId: string
   return readConversationVersionMessages(path);
 }
 
-export function hasIndexedConversationMessageOfKind(projectRoot: string, sessionId: string, messageId: string, expectedKind: AgentMessage['kind']): boolean {
+export function hasConversationMessageOfKind(projectRoot: string, sessionId: string, messageId: string, expectedKind: AgentMessage['kind']): boolean {
   const inventory = readConversationInventory(projectRoot, sessionId);
   if (!inventory) return false;
 
   let found = false;
   for (const version of inventory.versions) {
     const path = activeVersionPath(projectRoot, sessionId, version);
-    if (!existsSync(path)) throw new Error(`Conversation indexed version '${path}' was not found.`);
+    if (!existsSync(path)) throw new Error(`Conversation version '${path}' was not found.`);
     for (const message of readConversationVersionMessages(path)) {
       if (message.id !== messageId) continue;
       if (message.kind !== expectedKind) {
-        throw new Error(`Conversation indexed version '${path}' has '${messageId}' with kind '${message.kind}', expected '${expectedKind}'.`);
+        throw new Error(`Conversation version '${path}' has '${messageId}' with kind '${message.kind}', expected '${expectedKind}'.`);
       }
       found = true;
     }

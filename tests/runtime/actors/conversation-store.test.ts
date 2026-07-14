@@ -3,7 +3,7 @@ import { appendTestConversationMessage as appendConversationMessage, testConvers
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, conversationDir, conversationMessagesForModel, hasIndexedConversationMessageOfKind, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import { appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, conversationDir, conversationMessagesForModel, hasConversationMessageOfKind, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { activeVersionPath, parseConversationSessionId, readConversationInventory } from '../../../src/runtime/actors/conversation-inventory.js';
 import { codexMessages } from '../../../src/agents/llm-openai-codex-gateway.js';
 import { buildOpenAIChatRequest } from '../../../src/agents/llm-openai-chat-gateway.js';
@@ -39,7 +39,7 @@ describe('conversation-store', () => {
     const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
     const before = snapshot();
 
-    expect(hasIndexedConversationMessageOfKind(root, sessionId, 'planner:project:system-prompt', 'system_prompt')).toBe(true);
+    expect(hasConversationMessageOfKind(root, sessionId, 'planner:project:system-prompt', 'system_prompt')).toBe(true);
 
     expect(snapshot()).toEqual(before);
   });
@@ -54,7 +54,7 @@ describe('conversation-store', () => {
     const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
     const before = snapshot();
 
-    expect(() => hasIndexedConversationMessageOfKind(root, sessionId, 'planner:project:system-prompt', 'system_prompt')).toThrow(/expected 'system_prompt'/);
+    expect(() => hasConversationMessageOfKind(root, sessionId, 'planner:project:system-prompt', 'system_prompt')).toThrow(/expected 'system_prompt'/);
 
     expect(snapshot()).toEqual(before);
   });

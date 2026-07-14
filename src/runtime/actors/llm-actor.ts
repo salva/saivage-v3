@@ -6,7 +6,7 @@ import { genericContextMessagesForInvocation, type LlmInvocationInput } from './
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import type { ActorSnapshotStore } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
-import { appendUserContextMessage, hasIndexedConversationMessageOfKind, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
+import { appendUserContextMessage, hasConversationMessageOfKind, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
@@ -226,7 +226,7 @@ export class ConversationLLMActor extends BaseActor {
         this.#currentInvocationSignal = invocationSignal;
         const persisted = await this.#invocations.runExternal(invocation, async (exactSignal) => {
           if (!this.#systemPromptLoggedSessionIds.has(input.sessionId)
-            && hasIndexedConversationMessageOfKind(this.projectRoot, input.sessionId, `${this.agentId}:system-prompt`, 'system_prompt')) {
+            && hasConversationMessageOfKind(this.projectRoot, input.sessionId, `${this.agentId}:system-prompt`, 'system_prompt')) {
             this.#systemPromptLoggedSessionIds.add(input.sessionId);
           }
           const hookInput = await this.onBeforeProviderCall(input, exactSignal);

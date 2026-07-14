@@ -67,7 +67,7 @@ export class ConversationStore {
         this.replace(activeVersionPath(this.projectRoot, sessionId, 1), serializeMessages(parsed));
         outcome = { messages: parsed, appended: true };
       } else {
-        const existing = this.indexedMessages(sessionId, inventory);
+        const existing = this.messagesById(sessionId, inventory);
         const matchedRows = parsed.map((message) => {
           const rows = existing.get(message.id) ?? [];
           if (rows.some((row) => comparableMessage(row) !== comparableMessage(message))) throw new Error(`Conversation message '${message.id}' conflicts with indexed canonical content.`);
@@ -138,11 +138,11 @@ export class ConversationStore {
     durablyReplaceFile(path, Buffer.from(content));
   }
 
-  private indexedMessages(sessionId: string, inventory: ConversationInventory): Map<string, AgentMessage[]> {
+  private messagesById(sessionId: string, inventory: ConversationInventory): Map<string, AgentMessage[]> {
     const messages = new Map<string, AgentMessage[]>();
     for (const version of inventory.versions) {
       const path = activeVersionPath(this.projectRoot, sessionId, version);
-      if (!existsSync(path)) throw new Error(`Conversation indexed version '${path}' was not found.`);
+      if (!existsSync(path)) throw new Error(`Conversation version '${path}' was not found.`);
       for (const message of readConversationVersionMessages(path)) {
         const rows = messages.get(message.id) ?? [];
         rows.push(message);
