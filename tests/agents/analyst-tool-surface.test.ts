@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testAuthProfiles, testCardRepository, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testAnalystMutationServices, testAuthProfiles, testCardRepository, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -121,7 +121,7 @@ function setCardStatusForTest(store: CardStore, cardId: string, status: CardStat
 
 function toolCtx(root: string, store: CardStore, overrides: Partial<ToolContext> = {}): ToolContext {
   const processRunner = overrides.processRunner ?? createTestProcessRunner(root);
-  return { projectRoot: root, configAuthority: overrides.configAuthority ?? testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), processRunner, processScope: overrides.processScope ?? processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root), ...overrides };
+  return { projectRoot: root, configAuthority: overrides.configAuthority ?? testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), processRunner, processScope: overrides.processScope ?? processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root), analystMutations: testAnalystMutationServices(root, store), ...overrides };
 }
 
 function toolResponse(tool: string, args: Record<string, unknown>): Response {

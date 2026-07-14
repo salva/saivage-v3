@@ -25,6 +25,7 @@ import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/p
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationStore } from '../../persistence/conversation-store.js';
 import type { AppLogStore } from '../../persistence/app-log.js';
+import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
 import type { ActorSnapshotStore } from './snapshots.js';
 import type { CardStore } from '../../cards/card-store.js';
 
@@ -58,8 +59,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly promptTemplates: PromptTemplateRegistry;
   private readonly appLogs: AppLogStore;
+  private readonly persistenceHealth?: ApplicationPersistenceHealth;
 
-  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; store: CardStore; children: PlannerChildActorPort; provider: LLMProviderPort; conversations: ConversationStore; appLogs: AppLogStore; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; store: CardStore; children: PlannerChildActorPort; provider: LLMProviderPort; conversations: ConversationStore; appLogs: AppLogStore; persistenceHealth?: ApplicationPersistenceHealth; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
@@ -67,6 +69,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
     this.promptTemplates = args.promptTemplates;
     this.appLogs = args.appLogs;
+    this.persistenceHealth = args.persistenceHealth;
   }
 
   _on_enter__planning(): void {
@@ -172,7 +175,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private plannerInvocationSurface(parentCardId: string) {
-    return buildRoleSurface('planner', { projectRoot: this.projectRoot, cardId: parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children, notifyCard: this.notifyCard, appLogs: this.appLogs });
+    return buildRoleSurface('planner', { projectRoot: this.projectRoot, cardId: parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children, notifyCard: this.notifyCard, appLogs: this.appLogs, persistenceHealth: this.persistenceHealth });
   }
 
   private async projectPlannerTerminal(input: CardActivationInput, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal, contract = createPlannerContract()): Promise<PlannerProcessorOutcome> {
@@ -443,7 +446,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private reviewerInvocationSurface(cardId: string, sessionId: string) {
-    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store.records(), mcpManagerProvider: this.mcpManagerProvider });
+    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store.records(), mcpManagerProvider: this.mcpManagerProvider, persistenceHealth: this.persistenceHealth });
   }
 
   protected get processorLabel(): string {

@@ -83,3 +83,54 @@ export function llmAnalystToolDefinition(tool: UnifiedToolDefinition): LlmToolDe
 }
 
 export const ANALYST_TOOL_DEFINITIONS: readonly LlmToolDefinition[] = ANALYST_CONTROL_TOOLS.map(llmAnalystToolDefinition);
+
+export type AnalystToolEffectClass = 'read_only' | 'ordinary_mutation' | 'external_workspace_mutation' | 'external_process_mutation' | 'disposable_external_output' | 'rejection_only' | 'special_owner';
+export interface AnalystToolEffectBranch { readonly branch: string; readonly effect: AnalystToolEffectClass; readonly owner: string; }
+
+export const ANALYST_TOOL_EFFECT_INVENTORY: Readonly<Record<string, readonly AnalystToolEffectBranch[]>> = {
+  create_card: [{ branch: 'all', effect: 'ordinary_mutation', owner: 'AnalystCardMutationService' }],
+  reorder_child: [{ branch: 'all', effect: 'ordinary_mutation', owner: 'AnalystCardMutationService' }],
+  queue_notification: [{ branch: 'all', effect: 'ordinary_mutation', owner: 'AnalystNotificationMutationService' }],
+  get_status: [{ branch: 'all', effect: 'read_only', owner: 'read-model' }],
+  start_project: [{ branch: 'all', effect: 'special_owner', owner: 'RuntimeControlService' }],
+  pause_runtime: [{ branch: 'all', effect: 'special_owner', owner: 'RuntimeControlService' }],
+  resume_runtime: [{ branch: 'all', effect: 'special_owner', owner: 'RuntimeControlService' }],
+  restart_server: [{ branch: 'confirmation_intent', effect: 'read_only', owner: 'analyst-adapter' }, { branch: 'confirmed', effect: 'special_owner', owner: 'RestartPort' }],
+  navigate_workspace: [{ branch: 'all', effect: 'read_only', owner: 'navigation-intent' }],
+  navigate_back: [{ branch: 'all', effect: 'read_only', owner: 'navigation-intent' }],
+  show_config: [{ branch: 'all', effect: 'read_only', owner: 'config-read-facet' }],
+  reconfigure: [{ branch: 'non_mcp', effect: 'ordinary_mutation', owner: 'AnalystConfigMutationService' }, { branch: 'mcp_add_edit_remove', effect: 'rejection_only', owner: 'analyst-adapter' }],
+  mcp_reconcile: [{ branch: 'all', effect: 'rejection_only', owner: 'analyst-adapter' }],
+  read_runtime_events: [{ branch: 'all', effect: 'read_only', owner: 'app-log-read-facet' }],
+  read_runtime_errors: [{ branch: 'all', effect: 'read_only', owner: 'app-log-read-facet' }],
+  read_control_actions: [{ branch: 'all', effect: 'read_only', owner: 'app-log-read-facet' }],
+  list_processes_tool: [{ branch: 'all', effect: 'read_only', owner: 'process-read-facet' }],
+  list_agent_sessions: [{ branch: 'all', effect: 'read_only', owner: 'agent-read-model' }],
+  read_agent_session: [{ branch: 'all', effect: 'read_only', owner: 'agent-read-model' }],
+  cancel_card: [{ branch: 'all', effect: 'ordinary_mutation', owner: 'AnalystCardMutationService' }],
+  delete_card: [{ branch: 'all', effect: 'ordinary_mutation', owner: 'AnalystCardMutationService' }],
+  list_cards: [{ branch: 'all', effect: 'read_only', owner: 'card-read-facet' }],
+  get_card: [{ branch: 'all', effect: 'read_only', owner: 'card-read-facet' }],
+  get_tree: [{ branch: 'all', effect: 'read_only', owner: 'card-read-facet' }],
+  list_card_history: [{ branch: 'all', effect: 'read_only', owner: 'card-read-facet' }],
+  get_card_history_entry: [{ branch: 'all', effect: 'read_only', owner: 'card-read-facet' }],
+  diff_card: [{ branch: 'all', effect: 'read_only', owner: 'card-read-facet' }],
+  read: [{ branch: 'all', effect: 'read_only', owner: 'workspace-read-owner' }],
+  write: [{ branch: 'record_brief', effect: 'ordinary_mutation', owner: 'AnalystBriefRecordMutationService' }, { branch: 'project_tmp_system', effect: 'external_workspace_mutation', owner: 'workspace-file-owner' }],
+  edit: [{ branch: 'record_brief', effect: 'ordinary_mutation', owner: 'AnalystBriefRecordMutationService' }, { branch: 'project_tmp_system', effect: 'external_workspace_mutation', owner: 'workspace-file-owner' }],
+  apply_patch: [{ branch: 'all', effect: 'external_workspace_mutation', owner: 'workspace-file-owner' }],
+  glob: [{ branch: 'all', effect: 'read_only', owner: 'workspace-read-owner' }],
+  grep: [{ branch: 'all', effect: 'read_only', owner: 'workspace-read-owner' }],
+  run_command: [{ branch: 'all', effect: 'external_process_mutation', owner: 'ProcessRunner' }],
+  wait_process: [{ branch: 'all', effect: 'read_only', owner: 'ProcessRunner' }],
+  kill_process: [{ branch: 'all', effect: 'external_process_mutation', owner: 'ProcessRunner' }],
+  websearch: [{ branch: 'all', effect: 'read_only', owner: 'web-read-client' }],
+  webfetch: [
+    { branch: 'no_save_inline_metadata_error_binary', effect: 'read_only', owner: 'web-read-client' },
+    { branch: 'no_save_oversized_text', effect: 'disposable_external_output', owner: 'existing-webfetch-stash-path' },
+    { branch: 'save_as_record_brief', effect: 'ordinary_mutation', owner: 'AnalystBriefRecordMutationService' },
+    { branch: 'save_as_project_tmp_system', effect: 'external_workspace_mutation', owner: 'workspace-file-owner' },
+  ],
+  skill: [{ branch: 'all', effect: 'read_only', owner: 'skill-read-provider' }],
+  mcp_tool_call: [{ branch: 'all', effect: 'special_owner', owner: 'McpManager.invokeTool' }],
+} as const;

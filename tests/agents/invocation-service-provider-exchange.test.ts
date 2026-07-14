@@ -18,6 +18,7 @@ import { readActorSnapshots } from '../../src/runtime/actors/snapshots.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestAuthProfileRepository } from '../helpers/mutation-composition.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 import { readProviderExchangeLogEntries } from '../../src/persistence/provider-exchange-log.js';
 
 const candidates: Candidate[] = [
@@ -59,6 +60,24 @@ function request(): InvocationRequest {
 }
 
 describe('InvocationService provider exchange accumulation', () => {
+  it('rejects a provider completion that arrives after persistence became unhealthy', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-health-'));
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const health = new ApplicationPersistenceHealth();
+    const service = new InvocationService({
+      appLogs: testAppLogs(projectRoot), projectRoot, saivageDir: projectRoot, registry: {} as never,
+      router: { resolve: async () => candidates, getLastCapabilitySkips: () => [] } as never,
+      authProfiles: createTestAuthProfileRepository(projectRoot).repository,
+      candidateAvailability: new MemoryCandidateAvailability(), persistenceHealth: health,
+      llmCallFn: async () => { await waiting; return { result: { kind: 'message', content: 'late' }, provider_exchanges: [attempt('a', 'ok')] }; },
+    });
+    const result = service.invokeCall(request(), candidates[0]!);
+    expect(() => health.reportUncertainFailure({ target: 'test', operation: 'append', error: new Error('uncertain') })).toThrow();
+    release();
+    await expect(result).rejects.toThrow('mutation-unhealthy');
+  });
+
   it('accumulates failed attempts before later success and normalizes attempt indexes', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-test-'));
     const service = new InvocationService({

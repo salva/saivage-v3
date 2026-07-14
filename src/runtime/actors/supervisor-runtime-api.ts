@@ -384,6 +384,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       conversations: this.options.conversations,
       appLogs: this.options.appLogs,
       snapshots: this.snapshots,
+      persistenceHealth: this.options.persistenceHealth,
     };
   }
 

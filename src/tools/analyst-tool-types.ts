@@ -11,6 +11,8 @@ import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { InterventionReadinessFacet } from '../application/intervention-readiness.js';
 import type { RuntimeControlApplicationPort } from '../application/runtime-control-service.js';
+import type { AnalystMutationServices } from '../application/analyst-mutation-services.js';
+import type { AnalystPreparationReadServices } from '../application/analyst-prepare/webfetch.js';
 
 export type { ToolResult };
 
@@ -37,4 +39,6 @@ export interface ToolContext {
   surface: ControlActionSurface;
   eventBus?: EventBus;
   appLogs: AppLogStore;
+  analystMutations?: AnalystMutationServices;
+  analystPreparation?: AnalystPreparationReadServices;
 }

@@ -29,7 +29,7 @@ Audit compacted history under the session's owner root: Analyst sessions use `.s
 
 Provider exchange auditing is backed by sanitized `provider_exchange` metadata entries in `.saivage/logs/app.jsonl`, surfaced through the Raw LLM Exchange UI and `GET /api/agents/:id/llm-exchange`. Conversation JSONL contains no `provider_exchange` rows, there is no `.saivage/agents/llm-exchanges` side-file tree, and raw HTTP request/response bodies are not persisted.
 
-Do not manually delete stash files or process logs referenced by live conversation versions. Compacted summaries include `Recoverable evidence` pointers to `work:///tmp/stash/...` and `work:///processes/...` URLs, and cleanup preserves those files while the pointers remain referenced. Manual deletion can strand a compacted summary and prevent the model or operator from recovering dropped evidence.
+Stash files and process logs under `.saivage/work` are disposable operational output, even when a live conversation or compacted `Recoverable evidence` section contains a `work:///` pointer. Stopped-runtime cleanup/reset may remove them; stale pointers may then stop resolving. There is no reference-based retention or recovery protocol for oversized webfetch stashes.
 
 There is no per-session index rollback. Durable-format cutovers are reset-only: stop the service, preserve configuration, credentials, operator inputs, source, and documentation, reset generated persistence, and start the current binary. Do not rename or remove individual numeric versions to select an older transcript.
 

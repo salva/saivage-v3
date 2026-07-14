@@ -3,6 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import type { McpToolInvocationPort } from '../../src/mcp/mcp-manager.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createMcpProvider } from '../../src/tools/mcp-provider.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 
 function manager(input: { annotations?: Record<string, unknown>; result?: unknown } = {}): McpToolInvocationPort {
   return {
@@ -30,5 +31,18 @@ describe('McpProvider', () => {
     const destructive = buildInvocationSurface('reviewer', [createMcpProvider({ agentRole: 'reviewer', mcpManagerProvider: () => manager({ annotations: { readOnlyHint: true, destructiveHint: true } }) })]);
     const result = await invokeTool(destructive, 'mcp_tool_call', { serverName: 'svc', toolName: 'write' });
     expect(result).toEqual({ success: false, error: "Reviewer cannot call destructive MCP tool 'svc/write'." });
+  });
+
+  it('drops MCP transport delivery when persistence becomes unhealthy while awaiting it', async () => {
+    let release!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const health = new ApplicationPersistenceHealth();
+    const mcp = manager();
+    mcp.invokeTool = async () => pending;
+    const surface = buildInvocationSurface('analyst', [createMcpProvider({ agentRole: 'analyst', mcpManagerProvider: () => mcp, persistenceHealth: health })]);
+    const invocation = invokeTool(surface, 'mcp_tool_call', { serverName: 'svc', toolName: 'write' });
+    expect(() => health.reportUncertainFailure({ target: 'test', operation: 'append', error: new Error('uncertain') })).toThrow();
+    release({ changed: true });
+    await expect(invocation).resolves.toMatchObject({ success: false, error: expect.stringContaining('mutation-unhealthy') });
   });
 });

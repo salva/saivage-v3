@@ -38,6 +38,7 @@ export interface ResolvedConfigAuthority {
   restabilize(): void;
   initializeCanonicalDefaultIfMissing(): void;
   applyChange(mutation: ConfigMutation): ConfigMutationResult;
+  validateChange(mutation: ConfigMutation): ConfigMutationResult;
 }
 
 const RUNTIME_KEYS = new Set(['continuous_improvement', 'max_review_retries', 'process_timeouts']);
@@ -145,6 +146,15 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
       const failure = error as Error & { fieldPath?: string };
       return { success: false as const, fieldPath: failure.fieldPath ?? '/', message: failure.message };
     }
+  }
+
+  validateChange(mutation: ConfigMutation): ConfigMutationResult {
+    const document = this.readDocument();
+    const raw = documentObject(document);
+    const precondition = this.applyMutation(document, raw, mutation);
+    if (precondition) return precondition;
+    const effective = this.validateDocument(document);
+    return { success: true, config: effective.config, warnings: effective.warnings, requires_restart: mutation.kind === 'set_server_setting' };
   }
 
   private applyMutation(document: ConfigDocument, raw: RawConfig, mutation: ConfigMutation): ConfigMutationResult | void {

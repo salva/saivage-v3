@@ -1,7 +1,5 @@
 import { z } from 'zod';
-import { queueNotification, resolveRecipient } from '../notifications/index.js';
 import { redactAnalystSecretValue } from '../workspace/file-access-security.js';
-import type { ConfigMutation } from '../config/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../agents/session-ids.js';
 import { AgentOperatorReadModelService } from '../application/read-models/index.js';
@@ -9,30 +7,13 @@ import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { describe, emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
+import { commitQueueNotification, commitReconfigure, recheckQueueNotification, recheckReconfigure } from '../application/analyst-mutation-operations.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
 
 export async function queue_notification(ctx: ToolContext, params: { recipient: string; kind: string; body: string }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, { recipient: params.recipient, kind: params.kind }, { action: 'notification.queue', safety_class: 'low', target_kind: 'session', getTargetId: () => params.recipient, lifecycle: 'intervention_ready', recheck: () => ({ allowed: true }), commit: () => {
-    const resolved = resolveRecipient(ctx.projectRoot, ctx.store, params.recipient);
-    if (resolved === null) return toolFailure(`Unknown notification recipient '${params.recipient}'.`, { reason: 'unknown_recipient', recipient: params.recipient });
-    const queued = queueNotification(ctx.projectRoot, resolved, params.kind, params.body, { actor: 'analyst', surface: ctx.surface }, ctx.store, ctx.runtime?.notifyCard);
-    if (!queued.ok) {
-      const missingCards = queued.cardDeliveries.filter((delivery) => !delivery.result.ok && delivery.result.reason === 'missing_card').map((delivery) => delivery.cardId);
-      return toolFailure(`Notification delivery failed for missing card(s): ${missingCards.join(', ')}.`, {
-        reason: 'missing_card',
-        recipient: params.recipient,
-        cardIds: missingCards,
-        notificationId: queued.notificationId,
-        sessionDeliveries: queued.sessionDeliveries,
-        deliveryFailures: queued.cardDeliveries
-          .filter((delivery) => !delivery.result.ok)
-          .map((delivery) => ({ cardId: delivery.cardId, reason: delivery.result.ok ? null : delivery.result.reason })),
-      });
-    }
-    return { success: true, data: { queued: true, recipient: params.recipient } };
-  } });
+  return runAuditedAnalystTool(ctx, params, { action: 'notification.queue', safety_class: 'low', target_kind: 'session', getTargetId: () => params.recipient, lifecycle: 'intervention_ready', recheck: recheckQueueNotification, commit: commitQueueNotification });
 }
 
 export async function show_config(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
@@ -47,26 +28,7 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
     return toolFailure('MCP desired-config mutation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
   }
   const actionName = `reconfigure.${params.action.replace(/^set_/, 'set_')}`;
-  return runAuditedAnalystTool(ctx, params as ReconfigureParams & Record<string, unknown>, { action: actionName, safety_class: 'low', target_kind: 'config', getTargetId: () => params.name ?? params.role ?? params.key ?? params.action, lifecycle: 'intervention_ready', recheck: () => ({ allowed: true }), commit: () => {
-    const invalid = (fieldPath: string, detail: string): ToolResult => toolFailure(detail, { reason: 'invalid_argument', fieldPath, detail });
-    let mutation: ConfigMutation;
-    switch (params.action) {
-      case 'set_role_routing': mutation = { kind: 'set_role_routing', role: params.role!, modelCandidate: params.model_candidate! }; break;
-      case 'set_failover_chain': mutation = { kind: 'set_failover_chain', forModel: params.for_model!, orderedFailoverModels: params.ordered_failover_models! }; break;
-      case 'mcp_add': mutation = { kind: 'mcp_add', name: params.name!, command: params.command!, args: params.args, env: params.env }; break;
-      case 'mcp_edit': mutation = { kind: 'mcp_edit', name: params.name!, patch: { command: params.command, args: params.args, env: params.env } }; break;
-      case 'mcp_remove': mutation = { kind: 'mcp_remove', name: params.name! }; break;
-      case 'set_runtime_setting': mutation = { kind: 'set_runtime_setting', key: params.key!, value: params.value }; break;
-      case 'set_server_setting': mutation = { kind: 'set_server_setting', key: params.key!, value: params.value }; break;
-      default: return invalid('action', 'Unknown reconfigure action.');
-    }
-    const result = ctx.configAuthority.applyChange(mutation);
-    if (!result.success) {
-      return invalid(result.fieldPath, result.message);
-    }
-    if (params.action === 'set_server_setting' && result.requires_restart) return { success: true, data: { applied: true, requires_restart: true, key: params.key } };
-    return { success: true, data: { applied: true, action: params.action } };
-  } });
+  return runAuditedAnalystTool(ctx, params as ReconfigureParams & Record<string, unknown>, { action: actionName, safety_class: 'low', target_kind: 'config', getTargetId: () => params.name ?? params.role ?? params.key ?? params.action, lifecycle: 'intervention_ready', recheck: recheckReconfigure, commit: commitReconfigure });
 }
 
 export async function mcp_reconcile(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {

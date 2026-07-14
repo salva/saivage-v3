@@ -23,6 +23,7 @@ import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/p
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationStore } from '../../persistence/conversation-store.js';
 import type { AppLogStore } from '../../persistence/app-log.js';
+import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
 import type { ActorSnapshotStore } from './snapshots.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' | 'blocked' }>;
@@ -43,14 +44,16 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly processRunner: ProcessRunner;
   private readonly promptTemplates: PromptTemplateRegistry;
   private readonly appLogs: AppLogStore;
+  private readonly persistenceHealth?: ApplicationPersistenceHealth;
 
-  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationStore; appLogs: AppLogStore; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardRecordStore; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationStore; appLogs: AppLogStore; persistenceHealth?: ApplicationPersistenceHealth; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardRecordStore; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.processRunner = args.processRunner;
     this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
     this.promptTemplates = args.promptTemplates;
     this.appLogs = args.appLogs;
+    this.persistenceHealth = args.persistenceHealth;
   }
 
   _on_enter__executing(): void {
@@ -163,7 +166,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private executorInvocationSurface(processOwnerId: string, processScope: ManagedProcessScope): InvocationSurface {
-    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, store: this.store, processRunner: this.processRunner, processScope, mcpManagerProvider: this.mcpManagerProvider, appLogs: this.appLogs });
+    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, store: this.store, processRunner: this.processRunner, processScope, mcpManagerProvider: this.mcpManagerProvider, appLogs: this.appLogs, persistenceHealth: this.persistenceHealth });
   }
 
   private validateExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): string | null {

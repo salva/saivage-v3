@@ -2,10 +2,12 @@ import { z } from 'zod';
 
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import { defineTool, type ToolProvider } from './invocation.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 
 export interface McpProviderContext {
   readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   readonly agentRole: 'executor' | 'reviewer' | 'analyst';
+  readonly persistenceHealth?: ApplicationPersistenceHealth;
 }
 
 const mcpToolCallSchema = z.object({
@@ -34,8 +36,11 @@ export function createMcpProvider(ctx: McpProviderContext): ToolProvider {
           try {
             const manager = ctx.mcpManagerProvider();
             if (!manager) return { success: false, error: 'MCP manager is not available for this runtime.' };
+            ctx.persistenceHealth?.assertMutationHealthy();
             assertReviewerMayCall(ctx, args.serverName, args.toolName, manager);
-            return { success: true, data: await manager.invokeTool(args.serverName, args.toolName, args.args ?? {}) };
+            const data = await manager.invokeTool(args.serverName, args.toolName, args.args ?? {});
+            ctx.persistenceHealth?.assertMutationHealthy();
+            return { success: true, data };
           } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : String(error) };
           }

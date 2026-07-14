@@ -12,6 +12,7 @@ import { ApplicationPersistenceHealth } from '../../src/application/persistence-
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { ProjectIdentityStore, projectIdentityDigest } from '../../src/persistence/project-identity-store.js';
 import { AuthProfileRepository } from '../../src/auth/auth-profile-store.js';
+import { createAnalystMutationServices, type AnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 
 interface TestProjectComposition {
   authority: ProjectStoreRepository;
@@ -81,6 +82,10 @@ export function testInterventionReadiness(): RuntimeInterventionBinding {
   const readiness = new RuntimeInterventionBinding();
   readiness.markStoppedReady();
   return readiness;
+}
+
+export function testAnalystMutationServices(projectRoot: string, store: ProductionCardStore = new CardStore(projectRoot), notifyCard?: (...args: any[]) => any): AnalystMutationServices {
+  return createAnalystMutationServices({ projectRoot, store, configAuthority: testConfigAuthority(projectRoot), surface: 'web-chat', notifyCard });
 }
 
 export function testAuthProfiles(projectRoot: string): AuthProfileRepository {

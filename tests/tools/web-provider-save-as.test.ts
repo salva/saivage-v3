@@ -7,13 +7,19 @@ jest.unstable_mockModule('node:dns/promises', () => ({
   lookup: jest.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
 }));
 
-const { CardStore, initProjectTree } = await import('../helpers/canonical-project.js');
+const { CardStore, initProjectTree, testAnalystMutationServices, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } = await import('../helpers/canonical-project.js');
 const { buildInvocationSurface, invokeTool } = await import('../../src/tools/invocation.js');
 const { createWebProvider } = await import('../../src/tools/web-tools.js');
 const { initRuntimeState, updateRuntimeState } = await import('../helpers/runtime-state.js');
+const { testAppLogs } = await import('../helpers/app-logs.js');
 
 function mockFetch(text = 'fetched body'): jest.SpiedFunction<typeof fetch> {
   return jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(text, { status: 200, headers: { 'content-type': 'text/plain' } }));
+}
+
+function analystProvider(root: string, store: InstanceType<typeof CardStore>, notifyCard: (...args: any[]) => any) {
+  const toolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', store, configAuthority: testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), appLogs: testAppLogs(root), analystMutations: testAnalystMutationServices(root, store, notifyCard), restartServerAvailable: false } as any;
+  return createWebProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard, persistenceHealth: toolContext.persistenceHealth, analystToolContext: toolContext });
 }
 
 describe('webfetch save_as scoped URLs', () => {
@@ -121,7 +127,7 @@ describe('webfetch save_as scoped URLs', () => {
     store.repairTerminalLifecycle(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } });
     mockFetch('# Goal\n\nFetched.\n\n# Instructions\n\nUse it.\n\n# Acceptance Criteria\n\nDone.\n');
     const notifyCard = jest.fn(() => ({ ok: true as const }));
-    const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard })]);
+    const surface = buildInvocationSurface('analyst', [analystProvider(root, store, notifyCard)]);
 
     const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/brief.md', save_as: `record:///brief.md?card=${card.id}&v=next` });
 
@@ -170,7 +176,7 @@ describe('webfetch save_as scoped URLs', () => {
     const fetchedBrief = '# Goal\n\nFetched backlog.\n\n# Instructions\n\nUse it.\n\n# Acceptance Criteria\n\nDone.\n';
     mockFetch(fetchedBrief);
     const notifyCard = jest.fn(() => ({ ok: true as const }));
-    const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard })]);
+    const surface = buildInvocationSurface('analyst', [analystProvider(root, store, notifyCard)]);
 
     const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/brief.md', save_as: `record:///brief.md?card=${card.id}&v=next` });
 
@@ -183,7 +189,7 @@ describe('webfetch save_as scoped URLs', () => {
     expect((notifyCard.mock.calls as unknown as Array<[string, unknown]>).map((call) => call[0])).toEqual([parent.id, 'project']);
   });
 
-  it('denies analyst record://brief.md save_as to unsupported statuses before fetch or slot open', async () => {
+  it('denies analyst record://brief.md save_as to unsupported statuses after read-only fetch and before slot open', async () => {
     initProjectTree(root);
     initRuntimeState(root);
     updateRuntimeState(root, { status: 'paused' });
@@ -207,13 +213,13 @@ describe('webfetch save_as scoped URLs', () => {
     store.setStatus(card.id, 'changed');
     const latestBefore = store.recordReader.cardArtifacts(card.id).records.brief.latest?.version ?? null;
     const fetchSpy = mockFetch('# Goal\n\nFetched.\n\n# Instructions\n\nUse it.\n\n# Acceptance Criteria\n\nDone.\n');
-    const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard: () => ({ ok: true }) })]);
+    const surface = buildInvocationSurface('analyst', [analystProvider(root, store, () => ({ ok: true }))]);
 
     const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/brief.md', save_as: `record:///brief.md?card=${card.id}&v=next` });
 
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain('status backlog, done, failed, or running');
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     const slot = store.recordReader.cardArtifacts(card.id).records.brief;
     expect(slot.latest?.version ?? null).toBe(latestBefore);
     expect(slot.open).toBeNull();

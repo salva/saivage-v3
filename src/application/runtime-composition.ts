@@ -156,6 +156,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     candidateAvailability,
     appLogs: services.appLogs,
     authProfiles: services.authProfiles,
+    persistenceHealth: services.persistenceHealth,
   });
   const processRegistry = new ManagedProcessGroupRegistry();
   const processRunner = new ProcessRunner(projectRoot, processRegistry);

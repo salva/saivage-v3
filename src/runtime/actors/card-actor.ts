@@ -20,6 +20,7 @@ import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationStore } from '../../persistence/conversation-store.js';
 import type { AppLogStore } from '../../persistence/app-log.js';
 import type { RecordProjection } from '../../persistence/project-store-repository.js';
+import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
 import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 import type { CardStore } from '../../cards/card-store.js';
 import type { ActiveCardLeaf } from '../active-card-leaf.js';
@@ -112,6 +113,7 @@ export interface CardActorDeps {
   conversations: ConversationStore;
   appLogs: AppLogStore;
   snapshots: ActorSnapshotStore;
+  persistenceHealth?: ApplicationPersistenceHealth;
 }
 
 export class CardActor extends BaseActor {
@@ -483,6 +485,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       bufferSizeEstimator: owner.deps.bufferSizeEstimator,
       promptTemplates: owner.deps.promptTemplates,
       conversationPublisher: owner.deps.conversationPublisher,
+      persistenceHealth: owner.deps.persistenceHealth,
     });
   }
   return new TerminalCardProcessorActor({
@@ -502,6 +505,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
     bufferSizeEstimator: owner.deps.bufferSizeEstimator,
     promptTemplates: owner.deps.promptTemplates,
     conversationPublisher: owner.deps.conversationPublisher,
+    persistenceHealth: owner.deps.persistenceHealth,
   });
 }
 

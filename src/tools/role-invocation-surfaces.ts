@@ -13,8 +13,9 @@ import { createPlannerControlProvider, type PlannerControlProviderContext } from
 import { createProcessProvider } from './process-provider.js';
 import { createSkillProvider } from './skill-provider.js';
 import { createWebProvider, type WebProviderContext } from './web-tools.js';
-import { createPatchProvider, createWorkspaceProvider, type WorkspaceProviderContext } from './workspace-provider.js';
+import { createAnalystPatchProvider, createAnalystWorkspaceProvider, createPatchProvider, createWorkspaceProvider, type WorkspaceProviderContext } from './workspace-provider.js';
 import type { AppLogStore } from '../persistence/app-log.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 
 export type RoleSurfaceRole = Extract<AgentRole, 'planner' | 'reviewer' | 'executor' | 'analyst'>;
 type ProviderName = 'plannerControl' | 'analystControl' | 'cardInspection' | 'workspace' | 'patch' | 'process' | 'cardHistory' | 'web' | 'skill' | 'mcp';
@@ -33,6 +34,7 @@ export interface RoleSurfaceContext {
   notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
   toolContext?: ToolContext;
   appLogs?: AppLogStore;
+  persistenceHealth?: ApplicationPersistenceHealth;
 }
 
 export const ROLE_PROVIDER_ORDER: Readonly<Record<RoleSurfaceRole, readonly ProviderName[]>> = {
@@ -58,18 +60,20 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     store: ctx.store as CardInspectionProviderContext['store'],
     agentRole: role,
   }),
-  workspace: (ctx, role) => createWorkspaceProvider({
+  workspace: (ctx, role) => role === 'analyst' ? createAnalystWorkspaceProvider(ctx.toolContext!) : createWorkspaceProvider({
     projectRoot: ctx.projectRoot,
     cardId: ctx.cardId,
     agentRole: role,
     store: ctx.store as WorkspaceProviderContext['store'],
-    notifyCard: role === 'analyst' ? ctx.notifyCard : undefined,
+    notifyCard: undefined,
+    persistenceHealth: ctx.persistenceHealth,
   }),
-  patch: (ctx, role) => createPatchProvider({
+  patch: (ctx, role) => role === 'analyst' ? createAnalystPatchProvider(ctx.toolContext!) : createPatchProvider({
     projectRoot: ctx.projectRoot,
     cardId: ctx.cardId,
     agentRole: role,
     store: ctx.store as WorkspaceProviderContext['store'],
+    persistenceHealth: ctx.persistenceHealth,
   }),
   process: (ctx, role) => role === 'analyst'
     ? createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, directScope: ctx.processScope!, category: 'operator_session', ownerId: ctx.ownerId ?? ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })
@@ -85,10 +89,12 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     cardId: ctx.cardId,
     agentRole: role,
     store: ctx.store as WebProviderContext['store'],
-    notifyCard: role === 'analyst' ? ctx.notifyCard : undefined,
+    notifyCard: undefined,
+    persistenceHealth: ctx.persistenceHealth,
+    analystToolContext: role === 'analyst' ? ctx.toolContext : undefined,
   }),
   skill: (ctx, role) => createSkillProvider({ projectRoot: ctx.projectRoot, agentRole: role as SkillMcpRole }),
-  mcp: (ctx, role) => createMcpProvider({ mcpManagerProvider: ctx.mcpManagerProvider!, agentRole: role as SkillMcpRole }),
+  mcp: (ctx, role) => createMcpProvider({ mcpManagerProvider: ctx.mcpManagerProvider!, agentRole: role as SkillMcpRole, persistenceHealth: ctx.persistenceHealth }),
 };
 
 export function buildRoleSurface(role: RoleSurfaceRole, ctx: RoleSurfaceContext): InvocationSurface {

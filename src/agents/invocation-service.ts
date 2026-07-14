@@ -13,6 +13,7 @@ import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { providerExchangeAppLogEntry } from '../persistence/provider-exchange-log.js';
 import type { AppLogStore } from '../persistence/app-log.js';
 import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
@@ -55,6 +56,7 @@ export interface InvocationServiceConfig {
   llmCallFn?: LlmCallFn;
   appLogs: AppLogStore;
   authProfiles: AuthProfileRepository;
+  persistenceHealth?: ApplicationPersistenceHealth;
 }
 
 export class InvocationService {
@@ -66,6 +68,7 @@ export class InvocationService {
   private readonly llmGateway: AgentLlmInvocationGateway;
   private readonly llmCallFn?: LlmCallFn;
   private readonly appLogs: AppLogStore;
+  private readonly persistenceHealth?: ApplicationPersistenceHealth;
 
   constructor(config: InvocationServiceConfig) {
     this.projectRoot = config.projectRoot;
@@ -82,6 +85,7 @@ export class InvocationService {
     });
     this.llmCallFn = config.llmCallFn;
     this.appLogs = config.appLogs;
+    this.persistenceHealth = config.persistenceHealth;
   }
 
   async resolveCandidates(role: OperationalAgentRole, capabilityRequest: CapabilityRequest): Promise<Candidate[]> {
@@ -89,8 +93,9 @@ export class InvocationService {
   }
 
   async invokeCall(request: InvocationRequest, candidate: Candidate): Promise<ProviderTurnCompletion> {
+    this.persistenceHealth?.assertMutationHealthy();
     const call = this.llmCallFn ?? this.llmGateway.createLlmCallFn();
-    return call(
+    const completion = await call(
       candidate,
       request.systemPrompt,
       genericContextMessagesForRequest(request),
@@ -106,6 +111,8 @@ export class InvocationService {
         undefined,
       ),
     );
+    this.persistenceHealth?.assertMutationHealthy();
+    return completion;
   }
 
   async invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion> {
@@ -118,6 +125,7 @@ export class InvocationService {
 
     while (true) {
       throwIfAborted(request.abortSignal);
+      this.persistenceHealth?.assertMutationHealthy();
       updateReadyStates(states);
       const next = this.nextCandidateState(states, deadlineMs);
       if (next.kind === 'timeout') {
@@ -193,6 +201,7 @@ export class InvocationService {
   }
 
   projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void {
+    this.persistenceHealth?.assertMutationHealthy();
     for (const attempt of attempts) {
       if (attempt.attempt_index === undefined) throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
       const payload = providerExchangePayloadSchema.parse(attempt.status === 'ok' ? { ...attempt, assistant_output_ids: assistantOutputIds } : attempt);

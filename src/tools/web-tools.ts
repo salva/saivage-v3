@@ -13,6 +13,10 @@ import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
+import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
+import { commitFetchedBrief, recheckFetchedBrief } from '../application/analyst-mutation-operations.js';
+import { prepareAnalystBriefWebfetch, type PreparedFetchedBrief } from '../application/analyst-prepare/webfetch.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -24,6 +28,8 @@ type ReadMode = 'auto' | 'text' | 'multimodal';
 
 export interface WebProviderContext extends WorkspaceContext {
   readonly agentRole: Extract<AgentRole, 'planner' | 'executor' | 'reviewer' | 'analyst'>;
+  readonly persistenceHealth?: ApplicationPersistenceHealth;
+  readonly analystToolContext?: ToolContext;
 }
 
 const websearchSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
@@ -186,6 +192,7 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
     if (!isText) return { success: true, data: { ...metadata, bytes: fetched.body.byteLength, content: null, binary: true } };
     const text = Buffer.from(fetched.body).toString('utf8');
     if (params.save_as) {
+      ctx.persistenceHealth?.assertMutationHealthy();
       const write = await writeProject(ctx, { path: params.save_as, content: text }) as Record<string, unknown>;
       const savedAs = typeof write.record_url === 'string' ? write.record_url : String(write.path);
       return { success: true, data: { ...metadata, saved_as: savedAs, write, bytes: Buffer.byteLength(text, 'utf8') } };
@@ -203,6 +210,20 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
     if (isAbortError(err, signal)) throw err;
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+async function fetchAnalystBrief(input: { url: string; read_mode?: ReadMode; max_bytes?: number }, signal: AbortSignal): Promise<PreparedFetchedBrief> {
+  const url = parseHttpUrl(input.url);
+  const maxBytes = Math.min(Math.max(input.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
+  const fetched = await fetchPublic(url, maxBytes, signal);
+  const headers = headersObject(fetched.response.headers);
+  const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
+  if (!fetched.response.ok) throw new Error(`HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`);
+  const contentType = headers['content-type'] ?? '';
+  const mode = input.read_mode ?? 'auto';
+  const isText = mode === 'text' || (mode === 'auto' && /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType));
+  if (!isText) throw new Error('Analyst brief record webfetch requires a text response.');
+  return { content: Buffer.from(fetched.body).toString('utf8'), metadata };
 }
 
 export async function websearch(_ctx: ToolContext, params: { query: string; max_results?: number }): Promise<AnalystToolResult> {
@@ -231,7 +252,15 @@ export function createWebProvider(ctx: WebProviderContext): ToolProvider {
         name: 'webfetch',
         description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections. Oversized text is stashed as stash_url, a work:///tmp/stash/<file> URL readable with read or grep.',
         inputSchema: webfetchSchema,
-        executor: async (args, signal) => webfetchCore(ctx, args, signal),
+        executor: async (args, signal) => {
+          const analyst = ctx.analystToolContext;
+          if (!analyst || !args.save_as?.startsWith('record:///')) return webfetchCore(ctx, args, signal);
+          const preparedContext: ToolContext = { ...analyst, analystPreparation: { web: { fetchText: (input) => fetchAnalystBrief(input, signal) } } };
+          return runAuditedAnalystTool(preparedContext, { url: args.url, read_mode: args.read_mode, max_bytes: args.max_bytes, save_as: args.save_as }, {
+            action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.save_as, lifecycle: 'intervention_ready',
+            prepare: prepareAnalystBriefWebfetch, recheck: recheckFetchedBrief, commit: commitFetchedBrief,
+          });
+        },
       }),
     ],
   };
