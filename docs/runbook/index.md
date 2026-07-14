@@ -27,11 +27,15 @@ If compaction fails, treat it as a loud provider-turn failure rather than silent
 
 Audit compacted history under the session's owner root: Analyst sessions use `.saivage/agents/conversations/<encoded-session-id>/`, while planner/executor/reviewer card sessions use `.saivage/cards/<cardId>/conversations/<encoded-session-id>/`. Numbered `<N>.jsonl` files form one exact gap-free `1..N` inventory; `N` is active after every version validates. Optional `summaries.jsonl` contains cached per-round summaries. Unknown entries, aliases, gaps, symlinks, and malformed complete versions require operator repair rather than recovery or normalization.
 
+The app log, provider availability, every conversation version, and every summary cache contain newline-terminated strict `{ "version": 1, "type": "rows", "rows": [...] }` envelopes, not bare JSONL rows. The first envelope is atomically published and later writes append only. Startup may remove exact owned replacement temporaries and an exactly empty unpublished conversation session directory, and may truncate only an unterminated final physical suffix. A zero-byte canonical file, empty complete line, malformed complete envelope/row, unknown field, foreign temporary, or non-gap-free version inventory is operator-repair failure and is never deleted or normalized.
+
 Provider exchange auditing is backed by sanitized `provider_exchange` metadata entries in `.saivage/logs/app.jsonl`, surfaced through the Raw LLM Exchange UI and `GET /api/agents/:id/llm-exchange`. Conversation JSONL contains no `provider_exchange` rows, there is no `.saivage/agents/llm-exchanges` side-file tree, and raw HTTP request/response bodies are not persisted.
 
 Stash files and process logs under `.saivage/work` are disposable operational output, even when a live conversation or compacted `Recoverable evidence` section contains a `work:///` pointer. Stopped-runtime cleanup/reset may remove them; stale pointers may then stop resolving. There is no reference-based retention or recovery protocol for oversized webfetch stashes.
 
 There is no per-session index rollback. Durable-format cutovers are reset-only: stop the service, preserve configuration, credentials, operator inputs, source, and documentation, reset generated persistence, and start the current binary. Do not rename or remove individual numeric versions to select an older transcript.
+
+Do not start the current binary against bare-row or mixed-version growing files. Rollback after current-format writes also requires stop/reset; there is no migration, compatibility reader, format probing, or mixed-version support. A clean reset leaves `.saivage/logs/app.jsonl` absent until the first app-log entry atomically publishes it.
 
 Card namespaces are classified tombstone-first. A valid `.saivage/cards/<card-id>/tombstone.json` reserves the id and excludes all retained content beneath that namespace from active cards, conversations, snapshots, recovery, records, history, and file browsing. Retained evidence is opaque; malformed tombstones or unknown immediate namespace entries fail startup.
 

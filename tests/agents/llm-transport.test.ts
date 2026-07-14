@@ -36,7 +36,6 @@ function config(providers: SaivageConfig['providers']): SaivageConfig {
     providers,
     server: { port: 8080, host: '127.0.0.1' },
     runtime: {
-      candidateAvailabilityCompactBytes: 262144,
       continuousImprovement: false,
       maxReviewRetries: 3,
       processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },

@@ -24,7 +24,7 @@ describe('EventLogger runtime event validation', () => {
   it('strictly rejects invalid current appends before persistence', () => {
     const logger = new EventLogger(makeSaivageDir());
     try {
-      expect(() => logger.appendEvent({ kind: 'runtime_diagnostic', timestamp })).toThrow(/LoggedEvent validation failed for kind 'runtime_diagnostic'/);
+      expect(() => logger.appendEvent({ kind: 'runtime_diagnostic', timestamp } as never)).toThrow(/LoggedEvent validation failed for kind 'runtime_diagnostic'/);
       expect(logger.getEvents()).toEqual([]);
     } finally {
     }
@@ -61,7 +61,7 @@ describe('EventLogger runtime event validation', () => {
         session_id: 'planner:secret-variant-test',
         error_message: 'variant redaction test',
         error_name: 'TestError',
-        provider_error: {
+        metadata: { provider_error: {
           api_key: 'SYNTHETIC_API_KEY',
           access_token: 'SYNTHETIC_ACCESS_TOKEN',
           refresh_token: 'SYNTHETIC_REFRESH_TOKEN',
@@ -69,7 +69,7 @@ describe('EventLogger runtime event validation', () => {
           idempotency_token: 'SYNTHETIC_IDEMPOTENCY_TOKEN',
           idempotency_secret: 'SYNTHETIC_IDEMPOTENCY_SECRET',
           safe: 'visible',
-        },
+        } },
       });
       const [event] = logger.getEvents({ kind: 'runtime_diagnostic' });
       const serialized = JSON.stringify(event);
@@ -98,7 +98,7 @@ describe('EventLogger runtime event validation', () => {
           nextAction: 'test',
           idempotency_key: 'run-parent:planner:call-a:code-a',
         },
-      });
+      } as never);
       const [event] = logger.getEvents({ kind: 'runtime_actionable_error' });
       expect((event as any).actionable_error.idempotency_key).toBe('[REDACTED]');
     } finally {

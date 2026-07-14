@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { redactForOutbound } from '../redaction/index.js';
 import { EventBus } from '../events/index.js';
-import { readAppLogEntries, type AppLogStore } from '../persistence/app-log.js';
+import { errorRecordSchema, readAppLogEntries, type AppLogStore, type ErrorInput, type ErrorRecord } from '../persistence/app-log.js';
 import { appLogFile } from '../persistence/layout.js';
 
 // ── Constants ─────────────────────────────────────────────────
@@ -16,37 +16,7 @@ function nextErrorId(): string {
   return `err-${shortId}-${Date.now()}-${errorCounter}`;
 }
 
-// ── Types ─────────────────────────────────────────────────────
-
-/**
- * Input type for appendError. Accepts a message and optional
- * metadata fields (cardId, goalId, phase), plus any additional
- * key-value pairs the caller wants to persist.
- */
-export interface ErrorInput {
-  message: string;
-  cardId?: string;
-  goalId?: string;
-  phase?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-}
-
-/**
- * A persisted error record, with auto-generated id and timestamp
- * if not provided.
- */
-export interface ErrorRecord {
-  id: string;
-  timestamp: string;
-  kind: 'error';
-  message: string;
-  cardId?: string;
-  goalId?: string;
-  phase?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-}
+export type { ErrorInput, ErrorRecord } from '../persistence/app-log.js';
 
 /**
  * Optional filter for getErrors(). Fields are AND-ed together.
@@ -79,7 +49,7 @@ export class ErrorLogger {
    * and timestamp if not already provided. Returns the full ErrorRecord.
    */
   appendError(error: ErrorInput): ErrorRecord {
-    const record: ErrorRecord = redactForOutbound({
+    const record = errorRecordSchema.parse(redactForOutbound({
       ...error,
       kind: 'error',
       id: error.id ?? nextErrorId(),
@@ -88,7 +58,7 @@ export class ErrorLogger {
       cardId: error.cardId,
       goalId: error.goalId,
       phase: error.phase,
-    }, 'error.log', { source: 'error-logger' }) as ErrorRecord;
+    }, 'error.log', { source: 'error-logger' }));
 
     this.appLogs.append({ id: record.id, timestamp: record.timestamp, type: 'error', data: record });
     this.eventBus.emit('error_log_record_appended', { record: record as unknown as Record<string, unknown> });
@@ -100,7 +70,7 @@ export class ErrorLogger {
    * Reads from the persisted file, so it reflects all written errors.
    */
   getErrors(filter?: ErrorFilter): ErrorRecord[] {
-    let errors = readAppLogEntries(this.projectRoot, 'error').map((entry) => entry.data as ErrorRecord);
+    let errors = readAppLogEntries(this.projectRoot, 'error').map((entry) => entry.data);
 
     // Apply filters
     if (filter) {

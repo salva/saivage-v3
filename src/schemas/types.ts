@@ -124,14 +124,14 @@ export { eventKindValues, runtimeEventKindValues, agentEventKindValues, type Eve
 export type RuntimeEventKind = EventKind;
 export type AgentEventKind = EventKind;
 export interface BaseEvent { id: string; kind: EventKind; timestamp: string; session_id?: string; goal_id?: string; card_id?: string; }
-export interface RuntimeDiagnosticEvent extends BaseEvent { kind: 'runtime_diagnostic'; goal_id?: string; card_id?: string; phase?: string; error_message: string; error_name?: string; }
+export interface RuntimeDiagnosticEvent extends BaseEvent { kind: 'runtime_diagnostic'; goal_id?: string; card_id?: string; phase?: string; error_message: string; error_name?: string; metadata?: Record<string, unknown>; }
 export interface RuntimeActionableErrorEvent extends BaseEvent { kind: 'runtime_actionable_error'; actionable_error: ActionableErrorEnvelope; }
 export interface SubscriberErrorEvent extends BaseEvent { kind: 'subscriber_error'; subscription_id: string; source_kind: string; error_message: string; error_name?: string; timed_out?: boolean; }
 export interface CardHistoryAppendedEvent extends BaseEvent { kind: 'card_history_appended'; entry_id: string; entry_kind: CardHistoryKind; card_id: string; version_seq: number; changed_fields: string[]; changed_at: string; }
 export interface NotificationAddedEvent extends Omit<BaseEvent, 'session_id'> { kind: 'notification_added'; session_id: string | null; notification_kind: string; }
 export interface ControlActionRecordedEvent extends BaseEvent { kind: 'control_action_recorded'; id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; created_at: string; actor?: string; surface?: string; }
 export interface AnalystToolInvokedEvent extends BaseEvent { kind: 'analyst_tool_invoked'; sessionId: string; tool: string; success: boolean; summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; }
-export interface McpToolInvocationEvent extends BaseEvent { kind: 'mcp_tool_invocation'; session_id: string; role: AgentRole; server_name: string; tool_name: string; success: boolean; error_message?: string; }
+export interface McpToolInvocationEvent extends BaseEvent { kind: 'mcp_tool_invocation'; server: string; tool: string; success: boolean; duration_ms: number; error?: string; }
 export type LoggedEvent = RuntimeDiagnosticEvent | RuntimeActionableErrorEvent | SubscriberErrorEvent | CardHistoryAppendedEvent | NotificationAddedEvent | ControlActionRecordedEvent | AnalystToolInvokedEvent | McpToolInvocationEvent;
 
 export type LoggedEventByKind = { [K in EventKind]: Extract<LoggedEvent, { kind: K }> };

@@ -70,7 +70,7 @@ describe('CandidateAvailabilityStore', () => {
     mkdirSync(join(projectRoot, '.saivage', 'state'), { recursive: true });
     writeFileSync(path, '{malformed}\n');
     const store = new CandidateAvailabilityStore(projectRoot, new ApplicationPersistenceHealth());
-    expect(() => store.restabilize()).toThrow(/row 1 is malformed/);
+    expect(() => store.restabilize()).toThrow(/envelope 1 is malformed/);
   });
 
 });

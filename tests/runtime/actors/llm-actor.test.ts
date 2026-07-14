@@ -66,8 +66,9 @@ function input(inputId = 'turn-1'): LlmInvocationInput {
 
 function jsonl(path: string): Array<Record<string, unknown>> {
   if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf-8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+  return readFileSync(path, 'utf-8').split('\n').filter(Boolean).flatMap((line) => (JSON.parse(line) as { rows: Array<Record<string, unknown>> }).rows);
 }
+const envelope = (...rows: unknown[]) => `${JSON.stringify({ version: 1, type: 'rows', rows })}\n`;
 
 function completion(result: LlmCompleteResult): ProviderTurnCompletion {
   return { result, provider_exchanges: [] };
@@ -178,8 +179,8 @@ describe('LLMActor', () => {
     const sessionId = 'planner:project';
     const dir = conversationDir(projectRoot, sessionId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), JSON.stringify({ id: 'active-context', session_id: sessionId, role: 'user', kind: 'text', content: 'context', round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), envelope({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }));
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), envelope({ id: 'active-context', session_id: sessionId, role: 'user', kind: 'text', content: 'context', round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: new Date().toISOString() }));
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
     const actor = new ConversationLLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
@@ -199,7 +200,7 @@ describe('LLMActor', () => {
     mkdirSync(dir, { recursive: true });
     const prompt = { id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
     const tail = { ...prompt, id: 'existing-tail', kind: 'text', role: 'user', content: 'tail', message_index: 1 };
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), `${JSON.stringify(prompt)}\n${JSON.stringify(tail)}\n`);
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), envelope(prompt, tail));
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
     const actor = LLMActor.fromActiveReconstruction({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
@@ -220,7 +221,7 @@ describe('LLMActor', () => {
     const sessionId = 'planner:project';
     const dir = conversationDir(projectRoot, sessionId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify({ id: 'executor:other:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'other system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), envelope({ id: 'executor:other:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'other system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }));
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
     const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
@@ -277,9 +278,9 @@ describe('LLMActor', () => {
     const dir = conversationDir(projectRoot, sessionId);
     mkdirSync(dir, { recursive: true });
     const row = (kind: string, version: number) => ({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind, content: `version ${version}`, round_id: `r-pre-${String(version).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp: new Date().toISOString() });
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify(row(frozenKind, 1)) + '\n');
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), JSON.stringify(row(activeKind, 2)) + '\n');
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 3), JSON.stringify({ ...row('text', 3), id: 'orphan' }) + '\n');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), envelope(row(frozenKind, 1)));
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), envelope(row(activeKind, 2)));
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 3), envelope({ ...row('text', 3), id: 'orphan' }));
     const conversations = testConversationMutations(projectRoot);
     const before = sessionSnapshot(projectRoot, sessionId);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
@@ -306,9 +307,9 @@ describe('LLMActor', () => {
     const dir = conversationDir(projectRoot, sessionId);
     mkdirSync(dir, { recursive: true });
     const wrong = { id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'text', content: 'bad', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify(wrong) + '\n');
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), JSON.stringify({ ...wrong, id: 'middle', content: 'middle' }) + '\n');
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 3), JSON.stringify({ ...wrong, id: 'orphan' }) + '\n');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 1), envelope(wrong));
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), envelope({ ...wrong, id: 'middle', content: 'middle' }));
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 3), envelope({ ...wrong, id: 'orphan' }));
     const conversations = testConversationMutations(projectRoot);
     const before = sessionSnapshot(projectRoot, sessionId);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };

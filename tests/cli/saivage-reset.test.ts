@@ -97,7 +97,7 @@ describe('saivage reset', () => {
       expect(isInitialized(root)).toBe(true);
       expect(existsSync(join(root, '.saivage', 'cards', 'project'))).toBe(true);
       expect(existsSync(join(root, '.saivage', 'state', 'runtime.json'))).toBe(true);
-      expect(readFileSync(join(root, '.saivage', 'logs', 'app.jsonl'), 'utf8')).toBe('');
+      expect(existsSync(join(root, '.saivage', 'logs', 'app.jsonl'))).toBe(false);
       expect(existsSync(join(root, '.saivage', 'locks'))).toBe(true);
       expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
       for (const oldRoot of ['runtime', 'tmp', 'archive', 'supervision', 'notes', 'outputs', 'views']) expect(existsSync(join(root, '.saivage', oldRoot))).toBe(false);

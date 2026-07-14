@@ -133,11 +133,11 @@ describe('redacted outbound sinks', () => {
         session_id: 'planner:redaction-port-test',
         error_name: 'TestError',
         error_message: `Provider failed Bearer ${RAW_TOKEN}`,
-        provider_error: { access_token: RAW_ACCESS, safe: 'visible' },
+        metadata: { provider_error: { access_token: RAW_ACCESS, safe: 'visible' } },
       });
       errorLogger.appendError({
         message: `Failure body {"access_token":"${RAW_ACCESS}"}`,
-        provider_error: { authorization: `Bearer ${RAW_TOKEN}`, safe: 'visible' },
+        metadata: { provider_error: { authorization: `Bearer ${RAW_TOKEN}`, safe: 'visible' } },
       });
 
       const [event] = eventLogger.getEvents({ kind: 'runtime_diagnostic' });

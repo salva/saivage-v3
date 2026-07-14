@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { z } from 'zod';
 
@@ -6,6 +6,7 @@ import type { ApplicationPersistenceHealth } from '../application/persistence-he
 import type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry } from '../contracts/candidate-availability.js';
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import { cleanupDurableReplacementTemporaries } from '../persistence/durable-file-replacement.js';
+import { appendEnvelope, parseGrowingFile, publishFirstEnvelope, serializeGrowingEnvelope } from '../persistence/growing-file.js';
 import { providerAvailabilityFile } from '../persistence/layout.js';
 import { discardIncompleteJsonlTail } from '../persistence/store-restabilization.js';
 
@@ -17,11 +18,11 @@ const recordSchema = z.object({
   updatedAtMs: z.number(),
 }).strict();
 
-type AvailabilityRecord = z.infer<typeof recordSchema>;
-
 export class CandidateAvailabilityStore implements CandidateAvailability {
   readonly jsonlPath: string;
   readonly #entries = new Map<string, CandidateAvailabilityEntry>();
+  #loaded = false;
+  #published = false;
 
   constructor(projectRoot: string, private readonly health: ApplicationPersistenceHealth) {
     this.jsonlPath = providerAvailabilityFile(projectRoot);
@@ -33,6 +34,8 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
     cleanupDurableReplacementTemporaries(directory, [basename(this.jsonlPath)]);
     if (existsSync(this.jsonlPath)) discardIncompleteJsonlTail(this.jsonlPath);
     this.replay();
+    this.#published = existsSync(this.jsonlPath);
+    this.#loaded = true;
   }
 
   isAvailable(candidate: Candidate): boolean {
@@ -62,27 +65,13 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
 
   private appendRecord(entry: CandidateAvailabilityEntry): void {
     this.health.assertMutationHealthy();
+    if (!this.#loaded) throw new Error('Provider availability has not been loaded.');
     const record = recordSchema.parse(entry);
-    try { this.append(`${JSON.stringify(record)}\n`); }
-    catch (error) { this.health.reportUncertainFailure({ target: this.jsonlPath, operation: 'append provider availability', error }); }
+    const bytes = serializeGrowingEnvelope([record], recordSchema);
+    if (this.#published) appendEnvelope(this.jsonlPath, bytes, this.health, 'append provider availability');
+    else publishFirstEnvelope(this.jsonlPath, bytes, this.health, 'publish first provider availability envelope');
     this.#entries.set(candidateKey(entry.candidate), entry);
-  }
-
-  private append(line: string): void {
-    mkdirSync(dirname(this.jsonlPath), { recursive: true });
-    const fd = openSync(this.jsonlPath, 'a');
-    try {
-      const bytes = Buffer.from(line);
-      let offset = 0;
-      while (offset < bytes.byteLength) {
-        const written = writeSync(fd, bytes, offset, bytes.byteLength - offset);
-        if (written === 0) throw new Error(`Candidate availability append made no progress at ${this.jsonlPath}.`);
-        offset += written;
-      }
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
+    this.#published = true;
   }
 
   private replay(): void {
@@ -90,14 +79,8 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
     if (!existsSync(this.jsonlPath)) {
       return;
     }
-    const raw = readFileSync(this.jsonlPath, 'utf8');
-    if (raw.length > 0 && !raw.endsWith('\n')) throw new Error(`Candidate availability JSONL has an incomplete tail at ${this.jsonlPath}.`);
-    for (const [index, line] of raw.split('\n').slice(0, -1).entries()) {
-      if (line.length === 0) throw new Error(`Candidate availability JSONL row ${index + 1} is empty at ${this.jsonlPath}.`);
-      let parsed: unknown;
-      try { parsed = JSON.parse(line); }
-      catch (error) { throw new Error(`Candidate availability JSONL row ${index + 1} is malformed at ${this.jsonlPath}.`, { cause: error }); }
-      const record: AvailabilityRecord = recordSchema.parse(parsed);
+    const records = parseGrowingFile(this.jsonlPath, readFileSync(this.jsonlPath, 'utf8'), recordSchema);
+    for (const record of records) {
       this.#entries.set(candidateKey(record.candidate), record);
     }
   }

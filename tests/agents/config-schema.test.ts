@@ -159,7 +159,6 @@ describe('config-schema', () => {
       const { config } = loadConfig(TEST_ROOT);
       expect(config.server.port).toBe(8080);
       expect(config.server.host).toBe('0.0.0.0');
-      expect(config.runtime.candidateAvailabilityCompactBytes).toBe(262144);
       expect(config.security.injectionScanner).toBe(true);
     });
 

@@ -23,7 +23,7 @@ afterEach(() => {
 function appLogLines(): Array<Record<string, unknown>> {
   const path = join(root, '.saivage', 'logs', 'app.jsonl');
   if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf-8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  return readFileSync(path, 'utf-8').trim().split('\n').filter(Boolean).flatMap((line) => (JSON.parse(line) as { rows: Array<Record<string, unknown>> }).rows);
 }
 
 describe('content review logging', () => {

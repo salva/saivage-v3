@@ -25,10 +25,10 @@ runtime/build used to recreate target-project state; it is not the reset target.
 ## Current Reset Contract
 
 Current `saivage reset` is a local runtime-state reset. Its command-level direct
-composition acquires one bound `.saivage/locks/runtime.lock`, creates the private
-composition authority and shared synchronous mutation lane, deletes generated
-roots, and reinitializes through the current stores while retaining that exact
-lock. Matching-owner release removes it only after the command finishes. Every
+composition acquires one bound `.saivage/locks/runtime.lock`, creates one
+command-scoped persistence-health owner, deletes generated roots, and
+reinitializes through named synchronous stores while retaining that exact lock.
+Matching-owner release removes it only after the command finishes. Every
 pre-existing lock path blocks reset, whether it describes a live owner, appears
 dead or stale, or is malformed or unreadable; Saivage never removes or takes it
 over automatically. After stopping the exact service, verify through service,
@@ -57,7 +57,7 @@ Successful reset postcondition:
 - Preserved durable inputs still exist, including prompt overrides, skills, instructions, project identity, config, credentials, and source/spec docs.
 - `.saivage/cards/project/` exists as the canonical root project card.
 - `.saivage/state/runtime.json` exists with default runtime state.
-- `.saivage/logs/app.jsonl` exists and is empty.
+- `.saivage/logs/` exists, while `app.jsonl` remains absent until the first strict non-empty envelope is atomically published.
 - `.saivage/locks/` exists and `.saivage/locks/runtime.lock` is absent after release.
 - `.saivage/work/cards/`, `.saivage/work/processes/`, and `.saivage/work/tmp/stash/` exist; removed work subdirs such as `tmp/runtime`, `tmp/uploads`, `tmp/previews`, `downloads`, and `quarantine` do not.
 
@@ -81,6 +81,9 @@ cd /path/to/target-project
 ```
 
 6. Verify the reset postcondition above before restarting the service.
+   Do not restore old bare-row JSONL or index files: app log, provider availability,
+   conversation versions, and summary caches use the current strict envelope
+   format, and durable-format cutovers are reset-only.
 7. Restart the service and verify `/health` plus any authenticated readiness/API checks required for that deployment.
 8. Ask the analyst/control surface to derive new objectives from preserved source/spec documents. Do not copy old card/runtime state back in.
 

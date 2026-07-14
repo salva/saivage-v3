@@ -9,7 +9,7 @@ import { appendTestConversationMessage as appendConversationMessage } from '../.
 import { mapLiveSyncEvent } from '../../../src/server/sync-hub.js';
 
 describe('conversation change publisher', () => {
-  it('emits conversation_changed after durable append and suppresses idempotent duplicates', () => {
+  it('emits conversation_changed after durable append and rejects duplicate ids', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-publisher-'));
     const bus = new EventBus();
     const events: DomainEvent[] = [];
@@ -20,7 +20,7 @@ describe('conversation change publisher', () => {
     const first = appendConversationMessage(root, message);
     expect(readConversationMessages(root, 'analyst:global').map((row) => row.id)).toEqual(['analyst-message']);
     publisher.entryAppended(first);
-    publisher.entryAppended(appendConversationMessage(root, message));
+    expect(() => appendConversationMessage(root, message)).toThrow(/already exists/);
 
     expect(events).toHaveLength(1);
     expect(events[0]?.payload).toMatchObject({ session_id: 'analyst:global', mutation: 'entry_appended', message_id: 'analyst-message', message_timestamp: message.timestamp });

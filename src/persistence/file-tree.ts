@@ -4,7 +4,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { isReadBlocked } from '../workspace/index.js';
 import { parseCardVersionArtifact } from './canonical-card-artifacts.js';
-import { appLogFile, runtimeStateFile, saivageCardsRoot, saivageLocksRoot, saivageLogsRoot, saivageStateRoot, saivageWorkRoot } from './layout.js';
+import { runtimeStateFile, saivageCardsRoot, saivageLocksRoot, saivageLogsRoot, saivageStateRoot, saivageWorkRoot } from './layout.js';
 import { readProjectIdentity } from './project-identity-store.js';
 
 export function readProjectFileAtomic(projectRoot: string, relativePath: string, opts?: { redactSecrets?: boolean }): string {
@@ -34,7 +34,7 @@ export function isInitialized(projectRoot: string): boolean {
   for (const dir of [saivageCardsRoot(projectRoot), saivageStateRoot(projectRoot), saivageLogsRoot(projectRoot), saivageLocksRoot(projectRoot), saivageWorkRoot(projectRoot)]) {
     try { if (!statSync(dir).isDirectory()) return false; } catch { return false; }
   }
-  if (!existsSync(runtimeStateFile(projectRoot)) || !existsSync(appLogFile(projectRoot))) return false;
+  if (!existsSync(runtimeStateFile(projectRoot))) return false;
   const rootPath = join(saivageCardsRoot(projectRoot), 'project', 'card', 'versions', '1.json');
   try { parseCardVersionArtifact(JSON.parse(readFileSync(rootPath, 'utf8')), rootPath, { cardId: 'project', version: 1 }); return true; } catch { return false; }
 }

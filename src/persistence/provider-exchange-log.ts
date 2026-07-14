@@ -1,27 +1,17 @@
-import { z } from 'zod';
-import { providerExchangePayloadSchema, type ProviderExchangePayload } from '../contracts/provider-exchange.js';
+import type { ProviderExchangePayload } from '../contracts/provider-exchange.js';
+import { providerExchangeLogDataSchema, providerExchangeLogId, type ProviderExchangeLogData } from '../contracts/provider-exchange-log.js';
 import { readAppLogEntries, type AppLogEntry } from './app-log.js';
 
-export const providerExchangeLogDataSchema = z.object({
-  session_id: z.string().min(1),
-  source_input_id: z.string().min(1),
-  attempt_index: z.number().int().nonnegative(),
-  timestamp: z.string().datetime(),
-  payload: providerExchangePayloadSchema,
-}).strict();
-
-export type ProviderExchangeLogData = z.infer<typeof providerExchangeLogDataSchema>;
+export { providerExchangeLogDataSchema, type ProviderExchangeLogData } from '../contracts/provider-exchange-log.js';
 
 export function providerExchangeAppLogEntry(data: ProviderExchangeLogData): AppLogEntry {
   const parsed = providerExchangeLogDataSchema.parse(data);
-  return { id: `provider-exchange:${encodeURIComponent(parsed.session_id)}:${encodeURIComponent(parsed.source_input_id)}:${parsed.attempt_index}`, timestamp: parsed.timestamp, type: 'provider_exchange', data: parsed };
+  return { id: providerExchangeLogId(parsed), timestamp: parsed.timestamp, type: 'provider_exchange', data: parsed };
 }
 
 export function readProviderExchangeLogEntries(projectRoot: string, sessionId: string): ProviderExchangeLogData[] {
   return readAppLogEntries(projectRoot, 'provider_exchange')
-    .map((entry) => providerExchangeLogDataSchema.safeParse(entry.data))
-    .filter((parsed): parsed is z.SafeParseSuccess<ProviderExchangeLogData> => parsed.success)
-    .map((parsed) => parsed.data)
+    .map((entry) => entry.data)
     .filter((entry) => entry.session_id === sessionId);
 }
 

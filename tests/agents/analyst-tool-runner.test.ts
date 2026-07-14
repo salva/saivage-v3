@@ -21,7 +21,7 @@ function setupRoot(): string {
 }
 
 function readAudit(root: string): Array<Record<string, unknown>> {
-  return readAppLogEntries(root, 'control_action').map((entry) => entry.data as Record<string, unknown>);
+  return readAppLogEntries(root, 'control_action').map((entry) => entry.data as unknown as Record<string, unknown>);
 }
 
 describe('Audited analyst tool runner', () => {

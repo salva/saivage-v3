@@ -20,7 +20,7 @@ export class McpInvocationStatsRecorder {
 
   log(server: string, tool: string, success: boolean, durationMs: number, error?: string): void {
     if (!this.eventLogger) return;
-    this.eventLogger.appendEvent({ kind: 'mcp_tool_invocation' as import('../schemas/types.js').EventKind, server, tool, success, duration_ms: durationMs, error });
+    this.eventLogger.appendEvent({ kind: 'mcp_tool_invocation', server, tool, success, duration_ms: durationMs, error });
   }
 
   snapshot(): Record<string, McpInvocationStat> {

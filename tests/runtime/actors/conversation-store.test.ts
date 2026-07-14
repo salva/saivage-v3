@@ -8,6 +8,7 @@ import { activeVersionPath, parseConversationSessionId, readConversationInventor
 import { codexMessages } from '../../../src/agents/llm-openai-codex-gateway.js';
 import { buildOpenAIChatRequest } from '../../../src/agents/llm-openai-chat-gateway.js';
 import type { AgentMessage } from '../../../src/schemas/index.js';
+import { summaryCachePath } from '../../../src/runtime/actors/compaction/summary-cache.js';
 import { CardStore } from '../../helpers/canonical-project.js';
 
 const appendActivationMarker = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, payload: Parameters<typeof productionAppendActivationMarker>[2]) => productionAppendActivationMarker(conversations, sessionId, payload);
@@ -27,6 +28,7 @@ function makeMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
     ...overrides,
   };
 }
+const envelope = (...rows: AgentMessage[]) => `${JSON.stringify({ version: 1, type: 'rows', rows })}\n`;
 
 describe('conversation-store', () => {
   it('reads exact prompt identity across strict numeric versions without mutating them', () => {
@@ -34,8 +36,8 @@ describe('conversation-store', () => {
     const sessionId = 'planner:project';
     const dir = conversationDir(root, sessionId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })) + '\n');
-    writeFileSync(join(dir, '2.jsonl'), JSON.stringify(makeMessage({ id: 'active', session_id: sessionId })) + '\n');
+    writeFileSync(join(dir, '1.jsonl'), envelope(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })));
+    writeFileSync(join(dir, '2.jsonl'), envelope(makeMessage({ id: 'active', session_id: sessionId })));
     const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
     const before = snapshot();
 
@@ -49,8 +51,8 @@ describe('conversation-store', () => {
     const sessionId = 'planner:project';
     const dir = conversationDir(root, sessionId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })) + '\n');
-    writeFileSync(join(dir, '2.jsonl'), JSON.stringify(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, kind: 'text' })) + '\n');
+    writeFileSync(join(dir, '1.jsonl'), envelope(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })));
+    writeFileSync(join(dir, '2.jsonl'), envelope(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, kind: 'text' })));
     const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
     const before = snapshot();
 
@@ -71,12 +73,12 @@ describe('conversation-store', () => {
     expect(new Set(messages.map((message) => message.id)).size).toBe(2);
   });
 
-  it('reports append results and idempotent file-wide duplicates', () => {
+  it('rejects duplicate message ids in the active version', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     const message = makeMessage({ id: 'same-id', session_id: 'analyst:global' });
 
     expect(appendConversationMessage(root, message)).toMatchObject({ message, appended: true });
-    expect(appendConversationMessage(root, message)).toMatchObject({ message, appended: false });
+    expect(() => appendConversationMessage(root, message)).toThrow(/already exists/);
     expect(readConversationMessages(root, 'analyst:global').map((row) => row.id)).toEqual(['same-id']);
   });
 
@@ -97,8 +99,8 @@ describe('conversation-store', () => {
     const sessionId = 'planner:project';
     const dir = conversationDir(root, sessionId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'frozen', session_id: sessionId })) + '\n');
-    writeFileSync(join(dir, '2.jsonl'), JSON.stringify(makeMessage({ id: 'active-existing', session_id: sessionId })) + '\n');
+    writeFileSync(join(dir, '1.jsonl'), envelope(makeMessage({ id: 'frozen', session_id: sessionId })));
+    writeFileSync(join(dir, '2.jsonl'), envelope(makeMessage({ id: 'active-existing', session_id: sessionId })));
     appendConversationMessage(root, makeMessage({ id: 'new-active', session_id: sessionId, content: 'new active row' }));
 
     expect(readFileSync(join(dir, '1.jsonl'), 'utf-8')).not.toContain('new-active');
@@ -177,8 +179,8 @@ describe('conversation-store', () => {
 
     const directory = conversationDir(root, 'planner:project');
     mkdirSync(directory, { recursive: true });
-    writeFileSync(join(directory, '1.jsonl'), `${JSON.stringify(makeMessage({ session_id: 'planner:project' }))}\n`);
-    writeFileSync(join(directory, '3.jsonl'), `${JSON.stringify(makeMessage({ id: 'message-3', session_id: 'planner:project' }))}\n`);
+    writeFileSync(join(directory, '1.jsonl'), envelope(makeMessage({ session_id: 'planner:project' })));
+    writeFileSync(join(directory, '3.jsonl'), envelope(makeMessage({ id: 'message-3', session_id: 'planner:project' })));
     expect(() => readConversationInventory(root, 'planner:project')).toThrow(/version gap/i);
   });
 
@@ -192,5 +194,31 @@ describe('conversation-store', () => {
 
     expect(listConversationSessionIds(root, cards.namespace)).toEqual(['analyst:global', 'planner:card-7', 'reviewer:card-7:assessment-card-7-1']);
     expect(readConversationMessages(root, 'planner:card-7').map((message) => message.id)).toEqual(['planner-msg']);
+  });
+
+  it('removes only an exactly empty unpublished session and rejects zero-byte published files', () => {
+    const emptyRoot = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    new CardStore(emptyRoot);
+    const emptyDir = conversationDir(emptyRoot, 'planner:project');
+    mkdirSync(emptyDir, { recursive: true });
+    testConversationMutations(emptyRoot);
+    expect(existsSync(emptyDir)).toBe(false);
+
+    const versionRoot = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    new CardStore(versionRoot);
+    const versionDir = conversationDir(versionRoot, 'planner:project');
+    mkdirSync(versionDir, { recursive: true });
+    writeFileSync(join(versionDir, '1.jsonl'), '');
+    expect(() => testConversationMutations(versionRoot)).toThrow(/empty/);
+    expect(existsSync(join(versionDir, '1.jsonl'))).toBe(true);
+
+    const summaryRoot = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    new CardStore(summaryRoot);
+    const summaryDir = conversationDir(summaryRoot, 'planner:project');
+    mkdirSync(summaryDir, { recursive: true });
+    writeFileSync(join(summaryDir, '1.jsonl'), envelope(makeMessage({ session_id: 'planner:project' })));
+    writeFileSync(summaryCachePath(summaryRoot, 'planner:project'), '');
+    expect(() => testConversationMutations(summaryRoot)).toThrow(/empty/);
+    expect(existsSync(summaryCachePath(summaryRoot, 'planner:project'))).toBe(true);
   });
 });

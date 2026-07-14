@@ -54,9 +54,9 @@ describe('ErrorLogger', () => {
     const lines = content.trim().split('\n');
     expect(lines.length).toBe(1);
 
-    const envelope = JSON.parse(lines[0]) as { type: string; data: ErrorRecord };
-    expect(envelope.type).toBe('error');
-    const parsed = envelope.data;
+    const envelope = JSON.parse(lines[0]) as { version: number; type: string; rows: Array<{ type: string; data: ErrorRecord }> };
+    expect(envelope).toMatchObject({ version: 1, type: 'rows' });
+    const parsed = envelope.rows[0]!.data;
     expect(parsed.id).toBe(record.id);
     expect(parsed.kind).toBe('error');
     expect(parsed.timestamp).toBe(record.timestamp);
@@ -193,17 +193,16 @@ describe('ErrorLogger', () => {
     expect(nowMs - tsMs).toBeLessThan(5000);
   });
 
-  it('preserves extra fields on the error record', () => {
+  it('preserves intentional metadata on the error record', () => {
     errorLogger.appendError({
       message: 'Custom error',
       cardId: 'c1',
-      customField: 'extra-value',
-      nested: { foo: 'bar' },
+      metadata: { customField: 'extra-value', nested: { foo: 'bar' } },
     });
 
     const errors = errorLogger.getErrors();
-    expect(errors[0].customField).toBe('extra-value');
-    expect(errors[0].nested).toEqual({ foo: 'bar' });
+    expect(errors[0].metadata?.customField).toBe('extra-value');
+    expect(errors[0].metadata?.nested).toEqual({ foo: 'bar' });
   });
 
   it('generates unique error IDs', () => {
@@ -300,12 +299,14 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
     expect(lines.length).toBe(3);
 
     for (const line of lines) {
-      let parsed: { id: string; timestamp: string; type: string; data: ErrorRecord };
+      let envelope: { version: number; type: string; rows: Array<{ id: string; timestamp: string; type: string; data: ErrorRecord }> };
       expect(() => {
-        parsed = JSON.parse(line) as { id: string; timestamp: string; type: string; data: ErrorRecord };
+        envelope = JSON.parse(line) as typeof envelope;
       }).not.toThrow();
 
-      parsed = JSON.parse(line) as { id: string; timestamp: string; type: string; data: ErrorRecord };
+      envelope = JSON.parse(line) as typeof envelope;
+      expect(envelope).toMatchObject({ version: 1, type: 'rows' });
+      const parsed = envelope.rows[0]!;
       expect(parsed.type).toBe('error');
       expect(parsed.data.kind).toBe('error');
       expect(parsed.timestamp).toBeTruthy();
@@ -332,7 +333,7 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
     const errors: unknown[] = [];
 
     for (const line of raw.split('\n').filter(Boolean)) {
-      errors.push((JSON.parse(line) as { data: unknown }).data);
+      errors.push(...(JSON.parse(line) as { rows: Array<{ data: unknown }> }).rows.map((row) => row.data));
     }
 
     expect(errors.length).toBe(1);

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { AgentMessage } from '../../../src/schemas/index.js';
-import { appendTestSummaryCacheEntry as appendSummaryCacheEntry } from '../../helpers/conversation-mutations.js';
+import { appendTestConversationMessage, appendTestSummaryCacheEntry as appendSummaryCacheEntry } from '../../helpers/conversation-mutations.js';
 import { computeCompactionBands } from '../../../src/runtime/actors/compaction/bands.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors, type RecoverableEvidenceDescriptor } from '../../../src/runtime/actors/compaction/result-dropping.js';
 import { classifyConversationRounds, type ClassifiedRound, type PositionedMessage } from '../../../src/runtime/actors/compaction/round-classifier.js';
@@ -129,6 +129,7 @@ describe('compaction primitives', () => {
     const source = [msg({ id: 'source-1', role: 'user', kind: 'text', content: 'raw round' })];
     const contentHash = contentHashForMessages(source);
     const cacheKey = summaryCacheKey('activation-1', contentHash);
+    appendTestConversationMessage(root, { ...source[0]!, session_id: sessionId });
     const entry = appendSummaryCacheEntry(root, sessionId, {
       cache_key: cacheKey,
       round_id: 'activation-1',
@@ -139,8 +140,8 @@ describe('compaction primitives', () => {
       created_at: timestamp,
     });
 
-    expect(appendSummaryCacheEntry(root, sessionId, entry)).toEqual(entry);
-    expect(() => appendSummaryCacheEntry(root, sessionId, { ...entry, summary_text: 'changed' })).toThrow(/immutable/);
+    expect(() => appendSummaryCacheEntry(root, sessionId, entry)).toThrow(/already exists/);
+    expect(() => appendSummaryCacheEntry(root, sessionId, { ...entry, summary_text: 'changed' })).toThrow(/already exists/);
     expect(renderRecoverableEvidenceSection(entry.recoverable_evidence as RecoverableEvidenceDescriptor[])).toBe('## Recoverable evidence (use `read` to recover full content)\n\n- **source_recallable** `read` args `{"a":2,"path":"b","z":1}` — b');
   }));
 

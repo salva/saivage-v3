@@ -38,10 +38,9 @@ describe('typed EventBus', () => {
   it('preserves pause/resume buffering with drop-oldest overflow', () => {
     const bus = new EventBus();
     const seen: string[] = [];
-    const sub = bus.subscribe({
-      bufferSize: 2,
-      handler: (event) => { seen.push(String(event.payload.goal_id ?? event.payload.error_message ?? event.kind)); },
-    });
+    const sub = bus.subscribe('runtime_diagnostic', (event) => {
+      seen.push(String(event.payload.goal_id ?? event.payload.error_message ?? event.kind));
+    }, { bufferSize: 2 });
     sub.pause();
     bus.emit('runtime_diagnostic', { error_message: 'one' });
     bus.emit('runtime_diagnostic', { error_message: 'two' });

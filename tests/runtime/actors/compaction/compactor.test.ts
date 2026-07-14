@@ -100,7 +100,7 @@ describe('conversation compactor orchestration', () => {
     expect(secondSummaryRows.map((row) => row.content)).not.toContain(firstSummaryContent);
     expect(secondSummaryRows.some((row) => row.content.includes('generation 2'))).toBe(true);
     expect(seenInputs.some((content) => content.includes('[Compacted prior conversation'))).toBe(false);
-    const cacheKeys = readFileSync(summaryCachePath(projectRoot, 'planner:project'), 'utf-8').split('\n').filter(Boolean).map((line) => JSON.parse(line).cache_key as string);
+    const cacheKeys = readFileSync(summaryCachePath(projectRoot, 'planner:project'), 'utf-8').split('\n').filter(Boolean).flatMap((line) => (JSON.parse(line) as { rows: Array<{ cache_key: string }> }).rows.map((row) => row.cache_key));
     expect(cacheKeys.length).toBe(new Set(cacheKeys).size);
     expect(cacheKeys.length).toBeGreaterThan(0);
   }));

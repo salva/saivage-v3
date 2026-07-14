@@ -6,6 +6,7 @@ import type { AgentMessage, MessageRole } from '../../schemas/index.js';
 import type { ConversationStore, ConversationAppendResult } from '../../persistence/conversation-store.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import { saivageCardsRoot } from '../../persistence/layout.js';
+import { parseGrowingFile } from '../../persistence/growing-file.js';
 import type { ProjectNamespaceReader } from '../../persistence/project-store-repository.js';
 import {
   activeVersionPath,
@@ -146,10 +147,7 @@ export function readConversationVersionMessages(path: string): AgentMessage[] {
     const content = readFileSync(path, 'utf-8');
     if (content.length === 0) throw new Error('published version is empty');
     if (!content.endsWith('\n')) throw new Error('published version has an incomplete final row');
-    const messages = content
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => agentMessageSchema.parse(JSON.parse(line)));
+    const messages = parseGrowingFile(path, content, agentMessageSchema);
     if (messages.length === 0) throw new Error('published version has no messages');
     if (new Set(messages.map((message) => message.id)).size !== messages.length) throw new Error('published version contains duplicate message ids');
     return messages;

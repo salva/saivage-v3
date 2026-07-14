@@ -45,7 +45,7 @@ function input(inputId = 'planner:card-1:1'): LlmInvocationInput {
 
 function jsonl(path: string): Array<Record<string, unknown>> {
   if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf-8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+  return readFileSync(path, 'utf-8').split('\n').filter(Boolean).flatMap((line) => (JSON.parse(line) as { rows: Array<Record<string, unknown>> }).rows);
 }
 
 function appendToolError(projectRoot: string, sessionId: string, sourceInputId: string, toolCallId: string, tool = 'emit_result', content = 'tool failed'): void {
@@ -71,12 +71,12 @@ function toolResults(projectRoot: string, sessionId: string): AgentToolResult[] 
 type AgentToolResult = ReturnType<typeof readConversationMessages>[number] & { kind: 'tool_result' };
 
 describe('llm delivery log recovery helpers', () => {
-  it('commits OpenAI Responses private and visible rows as one idempotent batch', () => withTempProject((projectRoot) => {
+  it('commits OpenAI Responses private and visible rows in one envelope and rejects duplicate ids', () => withTempProject((projectRoot) => {
     const conversations = testConversationMutations(projectRoot);
     const turn = input('planner:card-1:responses');
     const privateContext = { kind: 'openai_responses' as const, source_input_id: turn.inputId, provider: 'openai', model: 'gpt-5.6', output: [{ type: 'reasoning', encrypted_content: 'opaque' }] };
     expect(appendLlmTurnMessageBatch(conversations, turn, 'visible', privateContext).appendResult.appended).toBe(true);
-    expect(appendLlmTurnMessageBatch(conversations, turn, 'visible', privateContext).appendResult.appended).toBe(false);
+    expect(() => appendLlmTurnMessageBatch(conversations, turn, 'visible', privateContext)).toThrow(/already exists/);
     expect(readConversationMessages(projectRoot, turn.sessionId).map((row) => row.kind)).toEqual(['provider_private', 'text']);
   }));
   it('logs the outbound system prompt before turn activity when requested', () => withTempProject((projectRoot) => {
@@ -223,7 +223,7 @@ describe('llm delivery log recovery helpers', () => {
 
   it('fails fast on invalid tool_error rows during active-version settlement reads', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-invalid-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
-    appendFileSync(activeVersionPath(projectRoot, 'planner:card-1', 1), `${JSON.stringify({
+    appendFileSync(activeVersionPath(projectRoot, 'planner:card-1', 1), `${JSON.stringify({ version: 1, type: 'rows', rows: [{
       id: 'planner:card-1:1:tool-error:call-invalid-error',
       session_id: 'planner:card-1',
       role: 'tool',
@@ -234,7 +234,7 @@ describe('llm delivery log recovery helpers', () => {
       message_index: 2,
       block_index: 0,
       timestamp: new Date().toISOString(),
-    })}\n`);
+    }] })}\n`);
 
     expect(() => appendToolErrorSettlementResults(projectRoot, testConversationMutations(projectRoot))).toThrow(/tool_error rows require tool/);
     expect(() => abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale')).toThrow(/tool_error rows require tool/);

@@ -20,9 +20,7 @@ function sanitizeAuditText(text: string): string {
 
 export function listControlActions(projectRoot: string, filters?: { card_id?: string; since?: string }): ControlActionAuditEntry[] {
   return readAppLogEntries(projectRoot, 'control_action')
-    .map((entry) => controlActionAuditEntrySchema.safeParse(entry.data))
-    .map((parsed) => parsed.success ? parsed.data : null)
-    .filter((entry): entry is ControlActionAuditEntry => entry !== null)
+    .map((entry) => entry.data)
     .map((entry) => ({
       ...entry,
       params_summary: sanitizeAuditText(entry.params_summary),

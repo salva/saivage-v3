@@ -241,11 +241,7 @@ export function verifyBootstrapEligibleLayout(
 
   const logsPath = join(saivagePath, 'logs');
   if (existsSync(logsPath)) {
-    assertDefaultFileDirectory(logsPath, 'app.jsonl');
-    const appLogPath = join(logsPath, 'app.jsonl');
-    if (existsSync(appLogPath) && (!lstatSync(appLogPath).isFile() || readFileSync(appLogPath).byteLength !== 0)) {
-      throw new Error(`Bootstrap app log is not an empty regular file: '${appLogPath}'.`);
-    }
+    assertRecursivelyEmpty(logsPath);
   }
 
 }
@@ -289,9 +285,6 @@ function establishBootstrapDefaults(projectRoot: string): void {
     });
     durablyReplaceFile(runtimePath, Buffer.from(`${JSON.stringify({ version: 1, data }, null, 2)}\n`));
   }
-  const appLogPath = join(saivagePath, 'logs', 'app.jsonl');
-  cleanupDurableReplacementTemporaries(dirname(appLogPath), ['app.jsonl']);
-  if (!existsSync(appLogPath)) durablyReplaceFile(appLogPath, new Uint8Array());
 }
 
 function validateBootstrapRootInput(input: NewProjectRootInput): void {

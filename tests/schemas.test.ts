@@ -306,7 +306,7 @@ describe('Runtime event catalog schemas', () => {
 
   it('strictly validates kept event kinds with their payloads', () => {
     expect(loggedEventSchema.parse({ id: 'evt-runtime-diagnostic', kind: 'runtime_diagnostic', timestamp, session_id: 'sess-1', error_message: 'boom' })).toMatchObject({ kind: 'runtime_diagnostic', session_id: 'sess-1' });
-    expect(loggedEventSchema.parse({ id: 'evt-mcp', kind: 'mcp_tool_invocation', timestamp, session_id: 'sess-1', role: 'planner', server_name: 'planner-control', tool_name: 'activate_card', success: true })).toMatchObject({ kind: 'mcp_tool_invocation', tool_name: 'activate_card' });
+    expect(loggedEventSchema.parse({ id: 'evt-mcp', kind: 'mcp_tool_invocation', timestamp, server: 'planner-control', tool: 'activate_card', success: true, duration_ms: 12 })).toMatchObject({ kind: 'mcp_tool_invocation', tool: 'activate_card' });
   });
 
   it('rejects unknown event kinds under strict current validation', () => {

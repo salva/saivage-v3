@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { AgentMessage } from '../../../schemas/index.js';
+import { parseGrowingFile } from '../../../persistence/growing-file.js';
 import { conversationDir } from '../conversation-inventory.js';
 import type { RecoverableEvidenceDescriptor } from './result-dropping.js';
 
@@ -10,7 +11,7 @@ const recoverableEvidenceSchema = z.discriminatedUnion('flavor', [
   z.object({ flavor: z.literal('stash'), url: z.string(), label: z.string(), bytes: z.number().optional() }).strict(),
   z.object({ flavor: z.literal('process_stdout'), url: z.string(), label: z.string(), bytes: z.number().optional() }).strict(),
   z.object({ flavor: z.literal('process_stderr'), url: z.string(), label: z.string(), bytes: z.number().optional() }).strict(),
-  z.object({ flavor: z.literal('source_recallable'), tool: z.string(), args: z.any(), label: z.string() }).strict(),
+  z.object({ flavor: z.literal('source_recallable'), tool: z.string(), args: z.unknown(), label: z.string() }).strict(),
 ]);
 
 export const summaryCacheEntrySchema = z.object({
@@ -19,7 +20,7 @@ export const summaryCacheEntrySchema = z.object({
   content_hash: z.string(),
   summary_text: z.string().min(1),
   recoverable_evidence: z.array(recoverableEvidenceSchema),
-  provenance: z.object({ source_message_ids: z.array(z.string()), source_start_token: z.number().optional(), source_end_token: z.number().optional() }).passthrough(),
+  provenance: z.object({ source_message_ids: z.array(z.string()), source_start_token: z.number().optional(), source_end_token: z.number().optional() }).strict(),
   created_at: z.string().datetime(),
 }).strict();
 
@@ -41,7 +42,7 @@ export function contentHashForMessages(messages: AgentMessage[]): string {
 export function readSummaryCache(projectRoot: string, sessionId: string): SummaryCacheEntry[] {
   const path = summaryCachePath(projectRoot, sessionId);
   if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf-8').split('\n').filter(Boolean).map((line) => summaryCacheEntrySchema.parse(JSON.parse(line)));
+  return parseGrowingFile(path, readFileSync(path, 'utf-8'), summaryCacheEntrySchema);
 }
 
 export function getSummaryCacheEntry(projectRoot: string, sessionId: string, cacheKey: string): SummaryCacheEntry | undefined {

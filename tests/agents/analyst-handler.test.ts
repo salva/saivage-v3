@@ -269,7 +269,7 @@ describe('AnalystHandler F05 contract', () => {
     try {
       const sessionId = resolveAnalystSessionId('global');
       mkdirSync(conversationDir(root, sessionId), { recursive: true });
-      writeFileSync(activeVersionPath(root, sessionId, 1), JSON.stringify({
+      writeFileSync(activeVersionPath(root, sessionId, 1), JSON.stringify({ version: 1, type: 'rows', rows: [{
         role: 'user',
         kind: 'text',
         content: 'frozen row must not reach provider',
@@ -279,8 +279,8 @@ describe('AnalystHandler F05 contract', () => {
         timestamp: '2026-01-01T00:00:00.000Z',
         id: 'frozen-row',
         session_id: sessionId,
-      }) + '\n');
-      writeFileSync(activeVersionPath(root, sessionId, 2), JSON.stringify({
+      }] }) + '\n');
+      writeFileSync(activeVersionPath(root, sessionId, 2), JSON.stringify({ version: 1, type: 'rows', rows: [{
         role: 'user',
         kind: 'text',
         content: 'active row must reach provider',
@@ -290,7 +290,7 @@ describe('AnalystHandler F05 contract', () => {
         timestamp: '2026-01-01T00:00:01.000Z',
         id: 'active-row',
         session_id: sessionId,
-      }) + '\n');
+      }] }) + '\n');
       let modelInputContents: string[] = [];
       jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: Array<{ content?: string }> };

@@ -89,9 +89,9 @@ cp -a "${preserve}/.saivage/." "${root}/.saivage/" 2>/dev/null || true
 ```
 
 5. Invoke the current built CLI. This is the only reset entry point. Its bound
-direct-command composition owns the strict lifecycle lock, private composition
-authority, shared synchronous mutation lane, generated-state deletion, and
-store-backed reinitialization until exact matching-owner release. It preserves
+direct-command composition owns the strict lifecycle lock, command-scoped
+persistence-health owner, generated-state deletion, and named synchronous store-backed
+reinitialization until exact matching-owner release. It preserves
 prompt overrides, skills, instructions, project identity, config, credentials,
 and docs.
 
@@ -108,7 +108,7 @@ Current generated `.saivage` roots should include:
 .saivage/cards/project/
 .saivage/agents/
 .saivage/state/runtime.json
-.saivage/logs/app.jsonl
+.saivage/logs/        # app.jsonl is absent until its first atomic envelope publication
 .saivage/locks/        # exists, with no runtime.lock after reset returns
 .saivage/work/cards/
 .saivage/work/processes/
@@ -121,6 +121,10 @@ Obsolete roots such as `.saivage/runtime/`, `.saivage/tmp/`,
 `.saivage/archive/`, `.saivage/supervision/`, `.saivage/notes/`, and removed
 work subdirs such as `.saivage/work/tmp/runtime/` must be absent unless they are
 inside the external backup.
+
+Do not copy old app-log, provider-availability, conversation-version,
+summary-cache, or conversation-index files back after reset. Growing durable
+files use strict version-1 row envelopes and the cutover is reset-only.
 
 7. Restart and verify health.
 

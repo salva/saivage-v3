@@ -15,11 +15,6 @@ function generateId(): string {
   return randomBytes(12).toString('hex');
 }
 
-function parseContentReview(data: unknown): ContentReview | null {
-  const parsed = contentReviewSchema.safeParse(data);
-  return parsed.success ? parsed.data : null;
-}
-
 export interface BlockedContentReviewResult {
   review: ContentReview;
   sanitizedSummary: string;
@@ -79,9 +74,7 @@ export function recordContentPass(
 }
 
 export function listRecentReviews(projectRoot: string, limit = 50): ContentReview[] {
-  const reviews = readAppLogEntries(projectRoot, 'content_review')
-    .map((entry) => parseContentReview(entry.data))
-    .filter((review): review is ContentReview => review !== null);
+  const reviews = readAppLogEntries(projectRoot, 'content_review').map((entry) => entry.data);
 
   return reviews.slice(-limit).reverse();
 }

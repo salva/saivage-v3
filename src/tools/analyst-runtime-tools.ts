@@ -63,7 +63,7 @@ export async function restart_server(ctx: ToolContext, params: Record<string, ne
 }
 
 export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<ToolResult> {
-  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const all = readAppLogEntries(ctx.projectRoot, 'event').map((entry) => entry.data); const filtered = params.kind ? all.filter((e) => typeof e === 'object' && e !== null && (e as Record<string, unknown>)['kind'] === params.kind) : all; const tail = filtered.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, parse_errors: 0, events: tail } }; }
+  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const all = readAppLogEntries(ctx.projectRoot, 'event').map((entry) => entry.data); const filtered = params.kind ? all.filter((e) => e.kind === params.kind) : all; const tail = filtered.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, parse_errors: 0, events: tail } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 

@@ -44,7 +44,7 @@ export interface ApplyMutationDeps {
   eventBus: EventBus;
 }
 
-export type CardHistoryAppendedPayload = Omit<CardHistoryAppendedEvent, 'id' | 'timestamp'>;
+export type CardHistoryAppendedPayload = Omit<CardHistoryAppendedEvent, 'id' | 'timestamp' | 'kind'>;
 
 export interface ApplyMutationResult {
   card: CardRecord | null;
@@ -136,7 +136,6 @@ function applyMutationLocked(
     writer.writeCard(nextValidated, historyEntry);
     state.upsert(nextValidated);
     const event: CardHistoryAppendedPayload = {
-      kind: 'card_history_appended',
       entry_id: historyEntry.entry_id,
       entry_kind: historyEntry.kind,
       card_id: historyEntry.card_id,
@@ -161,7 +160,6 @@ function applyMutationLocked(
   writer.deleteCard(op.cardId, op.finalSnapshot, historyEntry);
   state.remove(op.cardId);
   const event: CardHistoryAppendedPayload = {
-    kind: 'card_history_appended',
     entry_id: historyEntry.entry_id,
     entry_kind: historyEntry.kind,
     card_id: historyEntry.card_id,

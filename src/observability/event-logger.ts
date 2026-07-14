@@ -38,35 +38,24 @@ export interface EventFilter {
  * matching an EventKind, plus optional overrides for id/timestamp
  * and any other fields the specific event variant needs.
  */
-export type AppendEventInput = {
-  kind: EventKind;
-  id?: string;
-  timestamp?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-};
+export type AppendEventInput = LoggedEvent extends infer Event
+  ? Event extends LoggedEvent
+    ? Omit<Event, 'id' | 'timestamp'> & Partial<Pick<Event, 'id' | 'timestamp'>>
+    : never
+  : never;
 
 // ── Helpers ──────────────────────────────────────────────────
 
 function getGoalId(e: LoggedEvent): string | undefined {
-  if ('goal_id' in e) {
-    return (e as unknown as Record<string, unknown>).goal_id as string | undefined;
-  }
-  return undefined;
+  return e.goal_id;
 }
 
 function getCardId(e: LoggedEvent): string | undefined {
-  if ('card_id' in e) {
-    return (e as unknown as Record<string, unknown>).card_id as string | undefined;
-  }
-  return undefined;
+  return e.card_id;
 }
 
 function getSessionId(e: LoggedEvent): string | undefined {
-  if ('session_id' in e) {
-    return (e as unknown as Record<string, unknown>).session_id as string | undefined;
-  }
-  return undefined;
+  return e.session_id ?? undefined;
 }
 
 // ── EventLogger ──────────────────────────────────────────────
@@ -115,10 +104,7 @@ export class EventLogger {
    * Events are returned in file order (chronological, oldest first).
    */
   getEvents(filter?: EventFilter): LoggedEvent[] {
-    let events = readAppLogEntries(this.projectRoot, 'event')
-      .map((entry) => loggedEventSchema.safeParse(entry.data))
-      .filter((parsed) => parsed.success)
-      .map((parsed) => parsed.data);
+    let events = readAppLogEntries(this.projectRoot, 'event').map((entry) => entry.data);
 
     // Step 1: Apply content filters
     if (filter) {

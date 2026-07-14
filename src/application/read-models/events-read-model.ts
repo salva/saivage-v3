@@ -19,7 +19,7 @@ export class EventsReadModelService {
   listEvents(query: EventsQuery = {}): EventsListResponse {
     const limit = parseLimit(query.limit);
     const offset = parseOffset(query.offset);
-    let allMatching = readAppLogEntries(this.projectRoot, 'event').map((entry) => loggedEventSchema.parse(entry.data));
+    let allMatching = readAppLogEntries(this.projectRoot, 'event').map((entry) => entry.data);
     if (query.kind) allMatching = allMatching.filter((event) => event.kind === query.kind);
     if (query.goal_id) allMatching = allMatching.filter((event) => 'goal_id' in event && event.goal_id === query.goal_id);
     if (query.session_id) allMatching = allMatching.filter((event) => 'session_id' in event && event.session_id === query.session_id);

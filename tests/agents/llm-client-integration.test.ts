@@ -840,7 +840,6 @@ describe('LlmClient provider capability guardrails', () => {
       },
       server: { port: 8080, host: '0.0.0.0' },
       runtime: {
-        candidateAvailabilityCompactBytes: 262144,
         continuousImprovement: false,
         maxReviewRetries: 3,
         processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
@@ -882,7 +881,6 @@ describe('LlmClient provider capability guardrails', () => {
       },
       server: { port: 8080, host: '0.0.0.0' },
       runtime: {
-        candidateAvailabilityCompactBytes: 262144,
         continuousImprovement: false,
         maxReviewRetries: 3,
         processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
@@ -918,7 +916,6 @@ describe('LlmClient provider capability guardrails', () => {
       providers: { 'openai-codex': { models: ['gpt-5.5'], baseUrl: `http://localhost:${port}` } },
       server: { port: 8080, host: '0.0.0.0' },
       runtime: {
-        candidateAvailabilityCompactBytes: 262144,
         continuousImprovement: false,
         maxReviewRetries: 3,
         processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
