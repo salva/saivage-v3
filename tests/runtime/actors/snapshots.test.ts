@@ -96,7 +96,7 @@ describe('actor snapshots', () => {
 
   it('removes owned snapshot replacement temporaries before strict replay', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-snapshots-temp-'));
-    const store = new ActorSnapshotStore(root, new ApplicationPersistenceHealth(), new ReadModelChangeBroadcaster());
+    const store = new ActorSnapshotStore(root, new ApplicationPersistenceHealth(), new ReadModelChangeBroadcaster(), { activeCardIds: () => ['card-7'], isActiveCardId: (id) => id === 'card-7' });
     store.save(snapshot('planner:card-7', 'llm'));
     const path = actorSnapshotPath(root, 'planner:card-7');
     const temporary = join(dirname(path), `.${path.split('/').at(-1)}.saivage-write-00000000-0000-0000-0000-000000000000.tmp`);

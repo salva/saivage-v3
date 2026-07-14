@@ -169,7 +169,7 @@ describe('application read models', () => {
     appendConversationMessage(root, { ...buildContextTextMessage('analyst:global', 'user', 'hi'), id: 'msg-2', timestamp: '2026-01-01T00:00:01.000Z' });
     testAppLogs(root).append({ id: 'err-1', type: 'error', data: { id: 'err-1', kind: 'error', timestamp: '2026-01-01T00:00:02.000Z', message: 'apiKey=secret' }, timestamp: '2026-01-01T00:00:02.000Z' });
 
-    const chat = new AgentOperatorReadModelService(root).getConversation('analyst:global').body as { entries: Array<{ kind: string }> };
+    const chat = new AgentOperatorReadModelService(root, new CardStore(root)).getConversation('analyst:global').body as { entries: Array<{ kind: string }> };
     const debug = new DebugReadModelService(root, new CardStore(root)).getErrors() as { errors: unknown[]; total: number };
 
     expect(chat.entries.map((entry) => entry.kind)).toEqual(['system_prompt', 'text']);
@@ -182,7 +182,7 @@ describe('application read models', () => {
     appendConversationMessage(root, buildContextTextMessage('planner:project', 'user', 'hello'));
     testActorSnapshots(root).save({ actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: { compacting: true }, updated_at: '2026-01-01T00:00:00.000Z' });
 
-    const chat = new AgentOperatorReadModelService(root).getConversation('planner:project').body as { activity_status: { status: string } };
+    const chat = new AgentOperatorReadModelService(root, new CardStore(root)).getConversation('planner:project').body as { activity_status: { status: string } };
 
     expect(chat.activity_status.status).toBe('compacting');
   });
@@ -211,7 +211,7 @@ describe('application read models', () => {
       },
     }));
 
-    const { sessions } = new AgentOperatorReadModelService(root).listSessions();
+    const { sessions } = new AgentOperatorReadModelService(root, new CardStore(root)).listSessions();
 
     expect(sessions.find((session) => session.id === 'planner:project')?.model).toBe('app-log-model');
   });

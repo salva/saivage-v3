@@ -87,10 +87,11 @@ describe('server-composed semantic delivery', () => {
       const health = new ApplicationPersistenceHealth();
       const runtimeState = new RuntimeStateStore(root, health, changes);
       runtimeState.patch({ status: 'paused' });
-      const conversations = new ConversationStore(root, health, changes);
+      const namespace = { activeCardIds: () => ['project'], isActiveCardId: (cardId: string) => cardId === 'project' };
+      const conversations = new ConversationStore(root, health, changes, namespace);
       conversations.restabilize();
       conversations.appendBatch([message('planner:project')]);
-      new ActorSnapshotStore(root, health, changes).save({
+      new ActorSnapshotStore(root, health, changes, namespace).save({
         actor_id: 'processor:project', actor_kind: 'processor', state_value: 'idle', context: {}, updated_at: '2026-07-13T00:00:00.000Z',
       });
       jest.advanceTimersByTime(1);

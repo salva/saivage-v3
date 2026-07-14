@@ -9,6 +9,7 @@ import { actorKindSchema } from '../../schemas/actor-vocabulary.js';
 import type { ActorKind } from './ids.js';
 import type { CardNotification } from './card-actor.js';
 import type { ReadModelChanges } from '../../application/read-model-changes.js';
+import type { ProjectNamespaceReader } from '../../persistence/project-store-repository.js';
 
 export const ACTOR_SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -36,8 +37,8 @@ export function actorSnapshotPath(projectRoot: string, actorId: string): string 
   return join(analystActorSnapshotsRoot(projectRoot), encodedActorId);
 }
 
-export function readActorSnapshots(projectRoot: string): ActorSnapshotRecord[] {
-  const paths = actorSnapshotFilePaths(projectRoot);
+export function readActiveActorSnapshots(projectRoot: string, namespace: ProjectNamespaceReader): ActorSnapshotRecord[] {
+  const paths = actorSnapshotFilePaths(projectRoot, namespace);
   return paths
     .map((path) => {
       const snapshot = readSnapshotFile(path);
@@ -47,7 +48,8 @@ export function readActorSnapshots(projectRoot: string): ActorSnapshotRecord[] {
     .sort((a, b) => a.actor_id.localeCompare(b.actor_id));
 }
 
-export function readActorSnapshot(projectRoot: string, actorId: string): ActorSnapshotRecord | null {
+export function readActiveActorSnapshot(projectRoot: string, actorId: string, namespace: ProjectNamespaceReader): ActorSnapshotRecord | null {
+  assertActiveActorCard(actorId, namespace);
   const path = actorSnapshotPath(projectRoot, actorId);
   if (!existsSync(path)) return null;
   const snapshot = readSnapshotFile(path);
@@ -55,11 +57,27 @@ export function readActorSnapshot(projectRoot: string, actorId: string): ActorSn
   return snapshot;
 }
 
+export function readActorSnapshots(projectRoot: string): ActorSnapshotRecord[] {
+  const paths: string[] = [];
+  collectSnapshotFiles(analystActorSnapshotsRoot(projectRoot), paths);
+  const cardsRoot = saivageCardsRoot(projectRoot);
+  if (existsSync(cardsRoot)) for (const entry of readdirSync(cardsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    for (const kind of ['card', 'llm', 'processor'] as const) collectSnapshotFiles(cardActorSnapshotsRoot(projectRoot, entry.name, kind), paths);
+  }
+  return paths.map(readSnapshotFile).sort((left, right) => left.actor_id.localeCompare(right.actor_id));
+}
+
+export function readActorSnapshot(projectRoot: string, actorId: string): ActorSnapshotRecord | null {
+  const path = actorSnapshotPath(projectRoot, actorId);
+  return existsSync(path) ? readSnapshotFile(path) : null;
+}
+
 export class ActorSnapshotStore {
-  constructor(private readonly projectRoot: string, private readonly health: ApplicationPersistenceHealth, private readonly changes: ReadModelChanges) {}
+  constructor(private readonly projectRoot: string, private readonly health: ApplicationPersistenceHealth, private readonly changes: ReadModelChanges, readonly namespace: ProjectNamespaceReader) {}
 
   restabilize(): void {
-    for (const directory of actorSnapshotDirectories(this.projectRoot)) {
+    for (const directory of actorSnapshotDirectories(this.projectRoot, this.namespace)) {
       const targets = readdirSync(directory).flatMap((name) => {
         if (name.endsWith('.json')) return [name];
         const target = durableReplacementTemporaryTargetBasename(name);
@@ -67,8 +85,11 @@ export class ActorSnapshotStore {
       });
       cleanupDurableReplacementTemporaries(directory, [...new Set(targets)]);
     }
-    for (const path of actorSnapshotFilePaths(this.projectRoot)) readSnapshotFile(path);
+    for (const path of actorSnapshotFilePaths(this.projectRoot, this.namespace)) readSnapshotFile(path);
   }
+
+  readAll(): ActorSnapshotRecord[] { return readActiveActorSnapshots(this.projectRoot, this.namespace); }
+  read(actorId: string): ActorSnapshotRecord | null { return readActiveActorSnapshot(this.projectRoot, actorId, this.namespace); }
 
   save(snapshot: ActorSnapshotRecord): ActorSnapshotRecord {
     assertSnapshotKind(snapshot);
@@ -79,6 +100,7 @@ export class ActorSnapshotStore {
 
   appendNotification(actorId: string, notification: CardNotification): ActorSnapshotRecord {
     if (actorKindFromId(actorId) !== 'card') throw new Error(`Cannot append card notification to non-card actor '${actorId}'.`);
+    assertActiveActorCard(actorId, this.namespace);
     const path = actorSnapshotPath(this.projectRoot, actorId);
     this.health.assertMutationHealthy();
     const existing = existsSync(path) ? readSnapshotFile(path) : null;
@@ -101,6 +123,7 @@ export class ActorSnapshotStore {
   remove(actorId: string): boolean {
     const kind = actorKindFromId(actorId);
     this.health.assertMutationHealthy();
+    assertActiveActorCard(actorId, this.namespace);
     const path = actorSnapshotPath(this.projectRoot, actorId);
     if (!existsSync(path)) return false;
     try { unlinkSync(path); }
@@ -112,6 +135,7 @@ export class ActorSnapshotStore {
 
   private saveSnapshot(snapshot: ActorSnapshotRecord): ActorSnapshotRecord {
     this.health.assertMutationHealthy();
+    assertActiveActorCard(snapshot.actor_id, this.namespace);
     const path = actorSnapshotPath(this.projectRoot, snapshot.actor_id);
     try { writeSnapshotFile(path, snapshot); }
     catch (error) { this.health.reportUncertainFailure({ target: path, operation: 'save actor snapshot', error }); }
@@ -137,36 +161,31 @@ function writeSnapshotFile(path: string, snapshot: ActorSnapshotRecord): void {
   durablyReplaceFile(path, Buffer.from(JSON.stringify({ version: ACTOR_SNAPSHOT_SCHEMA_VERSION, data: actorSnapshotSchema.parse(snapshot) }, null, 2) + '\n'));
 }
 
-function actorSnapshotFilePaths(projectRoot: string): string[] {
+function actorSnapshotFilePaths(projectRoot: string, namespace: ProjectNamespaceReader): string[] {
   const paths: string[] = [];
   collectSnapshotFiles(analystActorSnapshotsRoot(projectRoot), paths);
 
-  const cardsRoot = saivageCardsRoot(projectRoot);
-  if (existsSync(cardsRoot)) {
-    for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
-      if (!cardEntry.isDirectory()) continue;
-      for (const kind of ['card', 'llm', 'processor'] as const) {
-        collectSnapshotFiles(cardActorSnapshotsRoot(projectRoot, cardEntry.name, kind), paths);
-      }
-    }
-  }
+  for (const cardId of namespace.activeCardIds()) for (const kind of ['card', 'llm', 'processor'] as const) collectSnapshotFiles(cardActorSnapshotsRoot(projectRoot, cardId, kind), paths);
   return paths;
 }
 
-function actorSnapshotDirectories(projectRoot: string): string[] {
+function actorSnapshotDirectories(projectRoot: string, namespace: ProjectNamespaceReader): string[] {
   const directories: string[] = [];
   const analyst = analystActorSnapshotsRoot(projectRoot);
   if (existsSync(analyst)) directories.push(analyst);
-  const cardsRoot = saivageCardsRoot(projectRoot);
-  if (!existsSync(cardsRoot)) return directories;
-  for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
-    if (!cardEntry.isDirectory()) continue;
+  for (const cardId of namespace.activeCardIds()) {
     for (const kind of ['card', 'llm', 'processor'] as const) {
-      const directory = cardActorSnapshotsRoot(projectRoot, cardEntry.name, kind);
+      const directory = cardActorSnapshotsRoot(projectRoot, cardId, kind);
       if (existsSync(directory)) directories.push(directory);
     }
   }
   return directories;
+}
+
+function assertActiveActorCard(actorId: string, namespace: ProjectNamespaceReader): void {
+  const kind = actorKindFromId(actorId);
+  const cardId = kind === 'card' ? parseCardActorId(actorId) : kind === 'processor' ? parseProcessorActorId(actorId) : parseLlmActorId(actorId).cardId;
+  if (cardId !== null && cardId !== undefined && !namespace.isActiveCardId(cardId)) throw new Error(`Card '${cardId}' not found.`);
 }
 
 function analystActorSnapshotsRoot(projectRoot: string): string {

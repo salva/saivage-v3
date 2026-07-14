@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from './helpers/canonical-project.js';
+import { initProjectTree, CardStore, testAnalystMutationServices, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from './helpers/canonical-project.js';
 import { testActorSnapshots } from './helpers/actor-snapshots.js';
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { testConversationMutations } from './helpers/conversation-mutations.js';
@@ -97,7 +97,7 @@ describe('queueNotification recipient resolution', () => {
     eventBus.subscribe('notification_added', (event) => { events.push(event.payload); });
     setProjectNotificationEventBus(projectRoot, eventBus);
 
-    queueNotification(projectRoot, { kind: 'session', sessionId: 'planner:project' }, 'runtime_state', 'paused', { actor: 'runtime', surface: 'runtime' });
+    queueNotification(projectRoot, { kind: 'session', sessionId: 'planner:project' }, 'runtime_state', 'paused', { actor: 'runtime', surface: 'runtime' }, store);
 
     expect(events).toEqual([{ session_id: 'planner:project', notification_kind: 'runtime_state' }]);
   });
@@ -119,30 +119,30 @@ describe('queueNotification recipient resolution', () => {
   });
 
   it('resolves and queues role recipients to currently active matching sessions', () => {
-    activeLlm(projectRoot, 'planner:project-calling', 'calling_provider');
-    activeLlm(projectRoot, 'planner:project-waiting', 'waiting_tool');
-    activeLlm(projectRoot, 'planner:project-idle', 'idle');
+    const child = store.create(makeCard({ id: 'role-child', type: 'goal', title: 'Role child' }));
+    activeLlm(projectRoot, 'planner:project', 'calling_provider');
+    activeLlm(projectRoot, `planner:${child.id}`, 'waiting_tool');
     activeLlm(projectRoot, 'executor:project');
 
     expect(resolveRecipient(projectRoot, store, 'planner')).toEqual({ kind: 'role', role: 'planner' });
     const notifyCard = jest.fn(() => ({ ok: true as const }));
-    queueNotification(projectRoot, { kind: 'role', role: 'planner' }, 'runtime_state', 'paused', { actor: 'runtime', surface: 'runtime' }, undefined, notifyCard);
+    queueNotification(projectRoot, { kind: 'role', role: 'planner' }, 'runtime_state', 'paused', { actor: 'runtime', surface: 'runtime' }, store, notifyCard);
 
-    expect(notifyCard).toHaveBeenCalledWith('project-calling', expect.objectContaining({ message: 'paused', reason: 'runtime_state' }));
-    expect(notifyCard).toHaveBeenCalledWith('project-waiting', expect.objectContaining({ message: 'paused', reason: 'runtime_state' }));
+    expect(notifyCard).toHaveBeenCalledWith('project', expect.objectContaining({ message: 'paused', reason: 'runtime_state' }));
+    expect(notifyCard).toHaveBeenCalledWith(child.id, expect.objectContaining({ message: 'paused', reason: 'runtime_state' }));
     expect(notifyCard).toHaveBeenCalledTimes(2);
-    expect(deliveries.map((delivery) => delivery.context.sessionId).sort()).toEqual(['planner:project-calling', 'planner:project-waiting']);
+    expect(deliveries.map((delivery) => delivery.context.sessionId).sort()).toEqual([`planner:${child.id}`, 'planner:project'].sort());
   });
 
   it('resolves and queues explicit session recipients to exactly that session', () => {
-    activeLlm(projectRoot, 'reviewer:project:assessment-1');
+    activeLlm(projectRoot, 'planner:project');
 
-    expect(resolveRecipient(projectRoot, store, 'reviewer:project:assessment-1')).toEqual({ kind: 'session', sessionId: 'reviewer:project:assessment-1' });
+    expect(resolveRecipient(projectRoot, store, 'planner:project')).toEqual({ kind: 'session', sessionId: 'planner:project' });
     const notifyCard = jest.fn(() => ({ ok: true as const }));
-    queueNotification(projectRoot, { kind: 'session', sessionId: 'reviewer:project:assessment-1' }, 'review', 'please review', { actor: 'planner', surface: 'runtime' }, undefined, notifyCard);
+    queueNotification(projectRoot, { kind: 'session', sessionId: 'planner:project' }, 'review', 'please review', { actor: 'planner', surface: 'runtime' }, store, notifyCard);
 
     expect(notifyCard).toHaveBeenCalledWith('project', expect.objectContaining({ message: 'please review', reason: 'review' }));
-    expect(deliveries).toEqual([expect.objectContaining({ context: { target: 'session', sessionId: 'reviewer:project:assessment-1' }, entry: expect.objectContaining({ kind: 'review', body: 'please review' }) })]);
+    expect(deliveries).toEqual([expect.objectContaining({ context: { target: 'session', sessionId: 'planner:project' }, entry: expect.objectContaining({ kind: 'review', body: 'please review' }) })]);
   });
 
   it('returns structured missing-card delivery results while preserving session delivery', () => {
@@ -213,7 +213,7 @@ describe('queueNotification recipient resolution', () => {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
     const deps = createTestAnalystRuntime({ projectRoot, cardStore: store });
-    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner: deps.processRunner, processScope: deps.processRunner.createDirectScope(deps.processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
+    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner: deps.processRunner, processScope: deps.processRunner.createDirectScope(deps.processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false, appLogs: testAppLogs(projectRoot), analystMutations: testAnalystMutationServices(projectRoot, store, (cardId, notification) => deps.runtime.notifyCard(cardId, notification)) };
 
     const result = await queue_notification(ctx, { recipient: goal.id, kind: 'review_update', body: 'reviewer left actionable feedback' });
 

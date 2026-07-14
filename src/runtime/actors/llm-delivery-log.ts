@@ -200,7 +200,7 @@ export function appendTerminalProjectedToolResult(conversations: ConversationSto
 
 export function abandonStalePendingToolCalls(projectRoot: string, conversations: ConversationStore, reason = 'Runtime restarted before the pending tool call reached a terminal delivery state.', preserveKeys: ReadonlySet<string> = new Set()): AbandonedToolCallRecord[] {
   const abandoned: AbandonedToolCallRecord[] = [];
-  for (const sessionId of listConversationSessionIds(projectRoot)) {
+  for (const sessionId of listConversationSessionIds(projectRoot, conversations.namespace)) {
     if (!isAutonomousLlmSession(sessionId)) continue;
     const messages = readActiveVersionMessagesForSettlement(projectRoot, sessionId);
     const settledKeys = new Set<string>();
@@ -243,7 +243,7 @@ export function abandonStalePendingToolCalls(projectRoot: string, conversations:
 
 export function appendToolErrorSettlementResults(projectRoot: string, conversations: ConversationStore): AbandonedToolCallRecord[] {
   const appended: AbandonedToolCallRecord[] = [];
-  for (const sessionId of listConversationSessionIds(projectRoot)) {
+  for (const sessionId of listConversationSessionIds(projectRoot, conversations.namespace)) {
     if (!isAutonomousLlmSession(sessionId)) continue;
     const messages = readActiveVersionMessagesForSettlement(projectRoot, sessionId);
     const resultKeys = new Set<string>();

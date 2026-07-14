@@ -179,7 +179,7 @@ describe('LLMActor', () => {
     const dir = conversationDir(projectRoot, sessionId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), JSON.stringify({ id: 'active-context', session_id: sessionId, role: 'user', kind: 'text', content: 'context', round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
     const actor = new ConversationLLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
@@ -188,7 +188,7 @@ describe('LLMActor', () => {
     await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result' });
 
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
-    expect(jsonl(activeVersionPath(projectRoot, sessionId, 2)).map((row) => row.kind)).toEqual(['activity', 'text']);
+    expect(jsonl(activeVersionPath(projectRoot, sessionId, 2)).map((row) => row.kind)).toEqual(['text', 'activity', 'text']);
     expect(publisher.entryAppended).toHaveBeenCalledTimes(2);
   }));
 
@@ -307,7 +307,7 @@ describe('LLMActor', () => {
     mkdirSync(dir, { recursive: true });
     const wrong = { id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'text', content: 'bad', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
     writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify(wrong) + '\n');
-    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
+    writeFileSync(activeVersionPath(projectRoot, sessionId, 2), JSON.stringify({ ...wrong, id: 'middle', content: 'middle' }) + '\n');
     writeFileSync(activeVersionPath(projectRoot, sessionId, 3), JSON.stringify({ ...wrong, id: 'orphan' }) + '\n');
     const conversations = testConversationMutations(projectRoot);
     const before = sessionSnapshot(projectRoot, sessionId);
@@ -766,7 +766,7 @@ describe('LLMActor', () => {
     const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations, agentId: 'planner:project', provider });
     actor.start();
 
-    await expect(actor.turn(input())).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);
+    await expect(actor.turn(input())).rejects.toThrow(/JSON|parse|partial tail|incomplete final row|refusing to append/);
 
     expect(provider.completeTurn).not.toHaveBeenCalled();
     await eventually(() => expect(actor.state()).toBe('idle'));
@@ -789,7 +789,7 @@ describe('LLMActor', () => {
     await eventually(() => expect(typeof finish).toBe('function'));
     finish();
 
-    await expect(pending).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);
+    await expect(pending).rejects.toThrow(/JSON|parse|partial tail|incomplete final row|refusing to append/);
     await eventually(() => expect(actor.state()).toBe('idle'));
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));

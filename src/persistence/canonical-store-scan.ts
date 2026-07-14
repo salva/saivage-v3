@@ -146,24 +146,32 @@ function incompleteNamespaceEntries(namespacePath: string): string[] {
 
 export function validateIncompleteCardNamespace(namespacePath: string, cardId: string): void {
   if (!isCanonicalCardId(cardId)) throw new Error(`Invalid card namespace identity '${cardId}'.`);
-  const allowedDirectories = new Set(['brief', 'brief/versions', 'card', 'card/versions']);
-  for (const relative of incompleteNamespaceEntries(namespacePath)) {
+  for (const versionsPath of [join(namespacePath, 'brief', 'versions'), join(namespacePath, 'card', 'versions')]) {
+    if (existsSync(versionsPath) && lstatSync(versionsPath).isDirectory()) cleanupDurableReplacementTemporaries(versionsPath, ['1.json']);
+  }
+  const entries = incompleteNamespaceEntries(namespacePath);
+  const directories = entries.filter((relative) => lstatSync(join(namespacePath, relative)).isDirectory()).sort();
+  const files = entries.filter((relative) => !lstatSync(join(namespacePath, relative)).isDirectory()).sort();
+  const allowedDirectoryPrefixes = [
+    [],
+    ['brief'],
+    ['brief', 'brief/versions'],
+    ['brief', 'brief/versions', 'card'],
+    ['brief', 'brief/versions', 'card', 'card/versions'],
+  ].map((prefix) => [...prefix].sort().join('\n'));
+  if (!allowedDirectoryPrefixes.includes(directories.join('\n'))) {
+    throw new Error(`Incomplete card namespace does not match the publication order: '${namespacePath}'.`);
+  }
+  if (files.length > 1 || (files.length === 1 && files[0] !== 'brief/versions/1.json')) {
+    throw new Error(`Unknown incomplete card namespace file: '${join(namespacePath, files[0] ?? '')}'.`);
+  }
+  if (files.length === 1 && directories.join('\n') !== ['brief', 'brief/versions', 'card', 'card/versions'].sort().join('\n')) {
+    throw new Error(`Initial brief exists before the complete card scaffold at '${namespacePath}'.`);
+  }
+  for (const relative of files) {
     const path = join(namespacePath, relative);
-    if (lstatSync(path).isDirectory()) {
-      if (!allowedDirectories.has(relative)) throw new Error(`Unknown incomplete card namespace directory: '${path}'.`);
-      continue;
-    }
-    if (relative === 'brief/versions/1.json') {
-      const artifact = parseRecordVersionArtifact(parseJson(path), path, { cardId, slot: 'brief', version: 1 });
-      if (artifact.state !== 'closed' || artifact.card_version_seq !== 1) throw new Error(`Initial brief artifact is invalid: '${path}'.`);
-      continue;
-    }
-    const parent = relative.slice(0, relative.lastIndexOf('/'));
-    const name = relative.slice(relative.lastIndexOf('/') + 1);
-    const target = durableReplacementTemporaryTargetBasename(name);
-    if (!((parent === 'brief/versions' || parent === 'card/versions') && target === '1.json')) {
-      throw new Error(`Unknown incomplete card namespace file: '${path}'.`);
-    }
+    const artifact = parseRecordVersionArtifact(parseJson(path), path, { cardId, slot: 'brief', version: 1 });
+    if (artifact.state !== 'closed' || artifact.card_version_seq !== 1) throw new Error(`Initial brief artifact is invalid: '${path}'.`);
   }
 }
 

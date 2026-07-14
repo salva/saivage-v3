@@ -1,4 +1,4 @@
-// In-memory card façade over the composition-owned canonical persistence authority.
+// In-memory card application façade over the composition-owned project repository.
 
 import type {
   CardHistoryEntry,
@@ -13,7 +13,7 @@ import { CardHierarchyCommands, type ReorderChildrenResult } from './hierarchy-c
 import { CardArchiveService } from './archive-service.js';
 import { CardHistoryReader, type CardDiffEntry } from './history-reader.js';
 import { CardLifecycleCommands } from './lifecycle-commands.js';
-import type { ProjectCardRecordReader, ProjectCardRecordWriter, RecordProjection } from '../persistence/project-store-repository.js';
+import type { ProjectCardRecordReader, ProjectCardRecordWriter, ProjectNamespaceReader, RecordProjection } from '../persistence/project-store-repository.js';
 import type { ApplyMutationDeps } from './apply-mutation.js';
 import {
   validateTransition as validateLifecycleTransition,
@@ -52,7 +52,7 @@ export class CardStoreRepository {
     this.eventBus = input.eventBus ?? new EventBus();
     this.readModelChanges = input.readModelChanges ?? new ReadModelChangeBroadcaster();
     this.maxDepth = 5;
-    this.state = this.stateFromGeneration();
+    this.state = this.stateFromProjectModel();
     this.reader = new CardReader(() => this.state);
     this.patchService = new CardPatchService({
       projectRoot: this.projectRoot,
@@ -98,6 +98,7 @@ export class CardStoreRepository {
   }
 
   get recordReader(): ProjectCardRecordReader { return this.persistenceReader; }
+  get namespace(): ProjectNamespaceReader { return this.persistenceReader; }
 
   readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest'): RecordProjection {
     return this.persistenceReader.record(cardId, filename, version);
@@ -285,7 +286,7 @@ export class CardStoreRepository {
     return result;
   }
 
-  private stateFromGeneration(): CardStoreState {
+  private stateFromProjectModel(): CardStoreState {
     const state = new CardStoreState(this.maxDepth);
     const cards = [...this.persistenceReader.cards()].sort((left, right) => left.depth - right.depth);
     for (const card of cards) state.upsert(card);
@@ -301,6 +302,7 @@ export class CardStore {
   get projectRoot(): string { return this.repository.projectRoot; }
   get maxDepth(): number { return this.repository.maxDepth; }
   get recordReader(): ProjectCardRecordReader { return this.repository.recordReader; }
+  get namespace(): ProjectNamespaceReader { return this.repository.namespace; }
   setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void { this.repository.setNotifyCard(notifyCard); }
   readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest'): RecordProjection { return this.repository.readRecord(cardId, filename, version); }
   openRecord(cardId: string, filename: string): RecordProjection { return this.repository.openRecord(cardId, filename); }

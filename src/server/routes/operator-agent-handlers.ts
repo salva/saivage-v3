@@ -10,12 +10,15 @@ type AgentOperatorHandlerOptions = OperatorProjectContext & { cardStore?: CardSt
 
 export function buildAgentOperatorContractHandlers(options: AgentOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
-  const agentReadModel = new AgentOperatorReadModelService(projectRoot, options.cardStore);
+  const agentReadModel = (): AgentOperatorReadModelService => {
+    if (!options.cardStore) throw new Error('Agent read operations require the card store.');
+    return new AgentOperatorReadModelService(projectRoot, options.cardStore);
+  };
 
   return {
-    'agents.list': () => ({ body: agentReadModel.listSessions() }),
-    'agents.detail': ({ params }) => agentReadModel.getSession((params as unknown as { id: string }).id),
-    'agents.conversation': ({ params }) => agentReadModel.getConversation((params as unknown as { id: string }).id),
+    'agents.list': () => ({ body: agentReadModel().listSessions() }),
+    'agents.detail': ({ params }) => agentReadModel().getSession((params as unknown as { id: string }).id),
+    'agents.conversation': ({ params }) => agentReadModel().getConversation((params as unknown as { id: string }).id),
     'agents.llmExchange': async ({ params, request }) => {
       const sessionId = (params as unknown as { id: string }).id;
       if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };

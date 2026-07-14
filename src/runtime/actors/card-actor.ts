@@ -162,7 +162,7 @@ export class CardActor extends BaseActor {
   static fromCard(args: { card: CardRecord; deps: CardActorDeps; deferRunningRecovery?: boolean }): CardActor {
     const deferProcessorStart = args.deferRunningRecovery === true && args.card.status === 'running';
     const actor = new CardActor({ card: args.card, deps: args.deps, deferProcessorStart });
-    const snapshot = readActorSnapshot(args.deps.projectRoot, cardActorId(args.card.id));
+    const snapshot = args.deps.snapshots.read(cardActorId(args.card.id));
     if (snapshot) {
       actor.notifications = Array.isArray(snapshot.context.notifications) ? snapshot.context.notifications as CardNotification[] : [];
       actor.notificationDeliveryMarkers = Array.isArray(snapshot.context.notificationDeliveryMarkers) ? snapshot.context.notificationDeliveryMarkers as CardNotificationDeliveryMarker[] : [];

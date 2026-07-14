@@ -1,4 +1,4 @@
-import { initProjectTree } from '../../helpers/canonical-project.js';
+import { CardStore, initProjectTree } from '../../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { appendTestConversationMessage as appendConversationMessage, testConversationMutations, writeTestCompactedConversationVersion as writeCompactedConversationVersion } from '../../helpers/conversation-mutations.js';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -20,6 +20,7 @@ function withTempProject<T>(fn: (projectRoot: string) => T): T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-delivery-log-'));
   try {
     initProjectTree(projectRoot);
+    new CardStore(projectRoot).create({ type: 'goal', parent: 'project', depth: 1, title: 'Card 1', brief: 'Card 1', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
     return fn(projectRoot);
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
@@ -176,11 +177,12 @@ describe('llm delivery log recovery helpers', () => {
 
   it('ignores inactive-version tool calls after compaction when abandoning stale calls', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-frozen', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    const compacted = buildContextTextMessage('planner:card-1', 'user', 'compacted context');
     writeCompactedConversationVersion({
       projectRoot,
       sessionId: 'planner:card-1',
       sourceVersion: 1,
-      content: '',
+      content: `${JSON.stringify(compacted)}\n`,
       compactedThrough: { message_id: 'summary', round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', timestamp: new Date().toISOString() },
       summaryIds: [],
       compactionGeneration: 1,
@@ -188,7 +190,7 @@ describe('llm delivery log recovery helpers', () => {
     });
 
     expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot))).toEqual([]);
-    expect(jsonl(activeVersionPath(projectRoot, 'planner:card-1', 2))).toEqual([]);
+    expect(jsonl(activeVersionPath(projectRoot, 'planner:card-1', 2))).toEqual([compacted]);
   }));
 
   it('appends provider-visible failed results for valid tool_error-only settlements', () => withTempProject((projectRoot) => {
@@ -301,10 +303,11 @@ describe('llm delivery log recovery helpers', () => {
   });
 
   it('lists canonical encoded conversation session directories as decoded ids', () => withTempProject((projectRoot) => {
+    const cards = new CardStore(projectRoot);
     appendConversationMessage(projectRoot, buildContextTextMessage('reviewer:card-1:assessment-card-1-1', 'user', 'hello'));
     appendConversationMessage(projectRoot, buildContextTextMessage('analyst:global', 'user', 'hello'));
 
-    expect(listConversationSessionIds(projectRoot)).toEqual(['analyst:global', 'reviewer:card-1:assessment-card-1-1']);
+    expect(listConversationSessionIds(projectRoot, cards.namespace)).toEqual(['analyst:global', 'reviewer:card-1:assessment-card-1-1']);
   }));
 
   it('builds valid provider-visible caller context rows', () => withTempProject((projectRoot) => {

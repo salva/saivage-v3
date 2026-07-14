@@ -130,13 +130,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const interventionBinding = new RuntimeInterventionBinding();
   const candidateAvailability = new CandidateAvailabilityStore(projectRoot, services.persistenceHealth);
   candidateAvailability.restabilize();
-  const conversations = new ConversationStore(projectRoot, services.persistenceHealth, services.readModelChanges);
+  const conversations = new ConversationStore(projectRoot, services.persistenceHealth, services.readModelChanges, cardStore.namespace);
   conversations.restabilize();
   const runtimeState = new RuntimeStateStore(projectRoot, services.persistenceHealth, services.readModelChanges);
   runtimeState.restabilize();
   const initialRuntimeState = runtimeState.initialize();
   if (initialRuntimeState.status === 'stopped') interventionBinding.markStoppedReady();
-  const snapshots = new ActorSnapshotStore(projectRoot, services.persistenceHealth, services.readModelChanges);
+  const snapshots = new ActorSnapshotStore(projectRoot, services.persistenceHealth, services.readModelChanges, cardStore.namespace);
   snapshots.restabilize();
   const recoveryDiagnostics = new RecoveryDiagnosticsStore(projectRoot, services.persistenceHealth);
   recoveryDiagnostics.restabilize();

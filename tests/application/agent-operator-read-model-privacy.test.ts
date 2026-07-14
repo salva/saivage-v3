@@ -1,4 +1,4 @@
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { CardStore, initProjectTree } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,7 +16,7 @@ describe('agent operator read model privacy', () => {
       appendConversationMessage(projectRoot, { id: 'input-1:provider-private:openai-responses', session_id: 'planner:project', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', source_input_id: 'input-1', projection_message_id: 'input-1:message', provider: 'openai', model: 'gpt-5.6', output: [{ type: 'reasoning', encrypted_content: 'opaque-secret-reasoning' }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp });
       appendConversationMessage(projectRoot, { id: 'input-1:message', session_id: 'planner:project', role: 'assistant', kind: 'text', content: 'visible', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp, provider_projection: { kind: 'openai_responses', source_input_id: 'input-1', private_message_id: 'input-1:provider-private:openai-responses', projection_kind: 'assistant_message' } });
 
-      const result = new AgentOperatorReadModelService(projectRoot).getConversation('planner:project');
+      const result = new AgentOperatorReadModelService(projectRoot, new CardStore(projectRoot)).getConversation('planner:project');
 
       expect(result.statusCode).toBeUndefined();
       expect(JSON.stringify(result.body)).not.toContain('opaque-secret-reasoning');

@@ -1,4 +1,4 @@
-// Applies card mutations through the composition-owned persistence authority.
+// Applies card mutations through the composition-owned project repository.
 
 import { randomUUID } from 'node:crypto';
 import { EventBus } from '../events/index.js';

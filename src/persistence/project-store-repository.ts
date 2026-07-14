@@ -15,12 +15,13 @@ import { authoredRecordSlotValues, parseRecordVersionArtifact, type AuthoredReco
 import {
   discardIncompleteCardNamespace,
   hasCanonicalCardArtifact,
-  loadActiveCardNamespace,
+  isCanonicalCardId,
   loadProjectStore,
   parseCardTombstone,
   validateIncompleteCardNamespace,
   type CardTombstone,
   type ProjectStoreModel,
+  type ScannedRecordSlot,
   type ScannedCard,
 } from './canonical-store-scan.js';
 import {
@@ -90,6 +91,12 @@ export interface ProjectStoreRepository {
   readonly writer: ProjectCardRecordWriter;
   readonly activeCardIds: ReadonlySet<string>;
   readonly tombstonedCardIds: ReadonlySet<string>;
+  readonly namespace: ProjectNamespaceReader;
+}
+
+export interface ProjectNamespaceReader {
+  activeCardIds(): readonly string[];
+  isActiveCardId(cardId: string): boolean;
 }
 
 export interface RecordProjection {
@@ -103,6 +110,8 @@ export interface RecordProjection {
 
 export interface ProjectCardRecordReader {
   cards(): readonly CardRecord[];
+  activeCardIds(): readonly string[];
+  isActiveCardId(cardId: string): boolean;
   reservedCardIds(): ReadonlySet<string>;
   cardArtifacts(cardId: string): ScannedCard;
   record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection;
@@ -321,6 +330,7 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter {
 
   createCard(card: CardRecord, briefContent: string, writer: 'analyst' | 'planner'): void {
     this.repository.assertMutationHealthy();
+    if (!isCanonicalCardId(card.id)) throw new Error(`Invalid card namespace identity '${card.id}'.`);
     if (this.repository.isReserved(card.id)) throw new Error(`Cannot create card '${card.id}': already exists or is reserved.`);
     if (card.version_seq !== 1) throw new Error(`New card '${card.id}' must have version_seq=1.`);
     const namespacePath = join(this.repository.projectRoot, '.saivage', 'cards', card.id);
@@ -334,7 +344,7 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter {
     const cardArtifact = parseCardVersionArtifact({ kind: 'card-version', format_version: 1, card_id: card.id, version: 1, committed_at: committedAt, card, history: null }, join(namespacePath, 'card', 'versions', '1.json'), { cardId: card.id, version: 1 });
     this.replaceJson(join(namespacePath, 'brief', 'versions', '1.json'), brief, 'publish initial brief');
     this.replaceJson(join(namespacePath, 'card', 'versions', '1.json'), cardArtifact);
-    this.repository.reloadCard(card.id);
+    this.repository.addCard(cardArtifact, brief);
   }
 
   createBootstrapRoot(input: NewProjectRootInput): void {
@@ -349,7 +359,7 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter {
     const path = join(this.repository.projectRoot, '.saivage', 'cards', card.id, 'card', 'versions', `${card.version_seq}.json`);
     const artifact = parseCardVersionArtifact({ kind: 'card-version', format_version: 1, card_id: card.id, version: card.version_seq, committed_at: new Date().toISOString(), card, history }, path, { cardId: card.id, version: card.version_seq });
     this.replaceJson(path, artifact, 'publish card version');
-    this.repository.reloadCard(card.id);
+    this.repository.appendCardArtifact(artifact);
   }
 
   deleteCard(cardId: string, finalCard: CardRecord, deletionHistory: CardHistoryEntry): void {
@@ -377,7 +387,7 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter {
     const definition = slot === 'brief' ? 'record.brief.markdown.v1' : slot === 'status' ? 'record.status.markdown.v1' : 'record.review.markdown.v1';
     const artifact = parseRecordVersionArtifact({ kind: 'record-version', format_version: 1, card_id: cardId, slot, version, state: 'open', opened_at: new Date().toISOString(), committed_at: null, closed_at: null, discarded_at: null, reason: null, writer: null, format: 'markdown', schema: definition, card_version_seq: null, content: '' }, path, { cardId, slot, version });
     this.replaceJson(path, artifact, 'open authored record');
-    this.repository.reloadCard(cardId);
+    this.repository.appendRecordArtifact(cardId, slot, artifact);
     return recordProjection(artifact);
   }
 
@@ -385,7 +395,7 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter {
     const artifact = this.requireOpen(cardId, recordSlot(filename), version);
     const next = parseRecordVersionArtifact({ ...artifact, content }, this.recordArtifactPath(cardId, artifact.slot, version), { cardId, slot: artifact.slot, version });
     this.replaceJson(this.recordArtifactPath(cardId, artifact.slot, version), next, 'edit authored record');
-    this.repository.reloadCard(cardId);
+    this.repository.replaceRecordArtifact(cardId, artifact.slot, next);
     return recordProjection(next);
   }
 
@@ -395,7 +405,7 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter {
     const stamp = new Date().toISOString();
     const next = parseRecordVersionArtifact({ ...artifact, state: 'closed', committed_at: stamp, closed_at: stamp, writer, card_version_seq: cardVersionSeq }, this.recordArtifactPath(cardId, slot, version), { cardId, slot, version });
     this.replaceJson(this.recordArtifactPath(cardId, slot, version), next, 'close authored record');
-    this.repository.reloadCard(cardId);
+    this.repository.replaceRecordArtifact(cardId, slot, next);
     return recordProjection(next);
   }
 
@@ -404,7 +414,7 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter {
     const artifact = this.requireOpen(cardId, slot, version);
     const next = parseRecordVersionArtifact({ ...artifact, state: 'discarded', discarded_at: new Date().toISOString(), reason }, this.recordArtifactPath(cardId, slot, version), { cardId, slot, version });
     this.replaceJson(this.recordArtifactPath(cardId, slot, version), next, 'discard authored record');
-    this.repository.reloadCard(cardId);
+    this.repository.replaceRecordArtifact(cardId, slot, next);
     return recordProjection(next);
   }
 
@@ -441,6 +451,8 @@ class ProjectStoreRepositoryImpl implements ProjectStoreRepository {
     this.#writer = new ProjectCardRecordWriterImpl(this);
     this.reader = Object.freeze({
       cards: () => [...this.requireModel().cards.values()].map((entry) => entry.current.card),
+      activeCardIds: () => [...this.requireModel().cards.keys()],
+      isActiveCardId: (cardId: string) => this.requireModel().cards.has(cardId),
       reservedCardIds: () => new Set([...this.requireModel().cards.keys(), ...this.requireModel().tombstonedIds]),
       cardArtifacts: (cardId: string) => {
         const card = this.card(cardId);
@@ -459,6 +471,7 @@ class ProjectStoreRepositoryImpl implements ProjectStoreRepository {
   }
 
   get writer(): ProjectCardRecordWriter { return this.#writer; }
+  get namespace(): ProjectNamespaceReader { return this.reader; }
   get activeCardIds(): ReadonlySet<string> { return new Set(this.requireModel().cards.keys()); }
   get tombstonedCardIds(): ReadonlySet<string> { return new Set(this.requireModel().tombstonedIds); }
 
@@ -480,10 +493,52 @@ class ProjectStoreRepositoryImpl implements ProjectStoreRepository {
     this.model = loadProjectStore(join(this.projectRoot, '.saivage', 'cards'));
   }
 
-  reloadCard(cardId: string): void {
-    const card = loadActiveCardNamespace(join(this.projectRoot, '.saivage', 'cards'), cardId);
+  addCard(card: ReturnType<typeof parseCardVersionArtifact>, brief: RecordVersionArtifact): void {
     const model = this.requireModel();
-    model.cards.set(cardId, card);
+    if (model.cards.has(card.card_id) || model.tombstonedIds.has(card.card_id)) throw new Error(`Card '${card.card_id}' is already reserved.`);
+    const empty = (): ScannedRecordSlot => Object.freeze({ artifacts: Object.freeze([]), latest: null, open: null });
+    model.cards.set(card.card_id, Object.freeze({
+      artifacts: Object.freeze([card]),
+      current: card,
+      records: Object.freeze({
+        brief: Object.freeze({ artifacts: Object.freeze([brief]), latest: brief, open: null }),
+        status: empty(),
+        review: empty(),
+      }),
+    }));
+  }
+
+  appendCardArtifact(artifact: ReturnType<typeof parseCardVersionArtifact>): void {
+    const current = this.card(artifact.card_id);
+    if (!current || artifact.version !== current.current.version + 1) throw new Error(`Cannot append card artifact '${artifact.card_id}/${artifact.version}'.`);
+    this.requireModel().cards.set(artifact.card_id, Object.freeze({ ...current, artifacts: Object.freeze([...current.artifacts, artifact]), current: artifact }));
+  }
+
+  appendRecordArtifact(cardId: string, slot: AuthoredRecordSlot, artifact: RecordVersionArtifact): void {
+    const card = this.card(cardId);
+    if (!card) throw new Error(`Card '${cardId}' not found.`);
+    const prior = card.records[slot];
+    if (artifact.version !== prior.artifacts.length + 1) throw new Error(`Cannot append record artifact '${cardId}/${slot}/${artifact.version}'.`);
+    this.setRecordSlot(cardId, slot, [...prior.artifacts, artifact]);
+  }
+
+  replaceRecordArtifact(cardId: string, slot: AuthoredRecordSlot, artifact: RecordVersionArtifact): void {
+    const card = this.card(cardId);
+    if (!card) throw new Error(`Card '${cardId}' not found.`);
+    const prior = card.records[slot];
+    const index = prior.artifacts.findIndex((candidate) => candidate.version === artifact.version);
+    if (index === -1) throw new Error(`Record '${cardId}/${slot}/${artifact.version}' does not exist.`);
+    const artifacts = [...prior.artifacts];
+    artifacts[index] = artifact;
+    this.setRecordSlot(cardId, slot, artifacts);
+  }
+
+  private setRecordSlot(cardId: string, slot: AuthoredRecordSlot, artifacts: readonly RecordVersionArtifact[]): void {
+    const card = this.card(cardId)!;
+    const open = artifacts.find((artifact) => artifact.state === 'open') ?? null;
+    const latest = artifacts.filter((artifact) => artifact.state === 'closed').at(-1) ?? null;
+    const nextSlot: ScannedRecordSlot = Object.freeze({ artifacts: Object.freeze([...artifacts]), latest, open });
+    this.requireModel().cards.set(cardId, Object.freeze({ ...card, records: Object.freeze({ ...card.records, [slot]: nextSlot }) }));
   }
 
   markTombstoned(cardId: string): void {

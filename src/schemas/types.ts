@@ -76,11 +76,6 @@ export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'dele
 export interface CardHistoryEntry { entry_id: string; kind: CardHistoryKind; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export type CardHistoryHeader = Omit<CardHistoryEntry, 'snapshot'>;
 export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment'; outcome: 'ok' | 'error' | 'denied'; outcome_summary: string; error?: string; created_at: string; }
-export interface CardIndexEntry { id: string; type: CardType; parent: string | null; status: CardStatus; title: string; }
-export interface CardIndex { cards: Record<string, CardIndexEntry>; }
-export type CardChildrenIndex = string[];
-export type CardDependencyIndex = Record<string, string[]>;
-export type CardBlocksIndex = Record<string, string[]>;
 export interface ProjectConfig { id: 'project'; name: string; context: string; goals_summary: string; constraints: string[]; planner_enabled: boolean; created_at: string; updated_at: string; }
 export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as const;
 export interface AnalystIssue { summary: string; severity?: typeof analystIssueSeverityValues[number]; evidence_path?: string; }

@@ -1,10 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
-  parseCardIndex,
   parseCardVersionArtifact,
   parseCardVersionFilename,
-  parseRecordSlotIndex,
   parseRecordVersionArtifact,
   selectCurrentCardVersion,
   type CardVersionArtifact,
@@ -68,12 +66,7 @@ describe('canonical card artifact parsers', () => {
     expect(() => parseCardVersionArtifact({ ...cardArtifact(2), history: null }, '/versions/2.json')).toThrow(/requires a history/);
   });
 
-  it('strictly validates card indexes and unambiguous current selection', () => {
-    const index = { kind: 'card-index', format_version: 1, card_id: 'project', latest: 1, versions: { '1': { version: 1, committed_at: stamp, history: null } } };
-    expect(parseCardIndex(index, '/card/index.json', 'project')).toEqual(index);
-    expect(() => parseCardIndex({ ...index, extra: true }, '/card/index.json')).toThrow(/unrecognized/i);
-    expect(() => parseCardIndex({ ...index, latest: 2 }, '/card/index.json')).toThrow(/no version entry/);
-    expect(() => parseCardIndex({ ...index, card_id: 'other' }, '/card/index.json', 'project')).toThrow(/does not match/);
+  it('selects one unambiguous current card version', () => {
     expect(selectCurrentCardVersion([cardArtifact(1), cardArtifact(2)], '/versions')).toEqual(cardArtifact(2));
     expect(() => selectCurrentCardVersion([], '/versions')).toThrow(/No canonical/);
     expect(() => selectCurrentCardVersion([cardArtifact(1), cardArtifact(1)], '/versions')).toThrow(/Ambiguous/);
@@ -96,14 +89,4 @@ describe('canonical authored-record artifact parsers', () => {
     expect(() => parseRecordVersionArtifact({ ...recordArtifact('discarded'), reason: null }, '/record')).toThrow(/reason/);
   });
 
-  it('strictly validates derived record index identity, pointers, keys, registry, and state metadata', () => {
-    const open = recordArtifact('open');
-    const { kind: _kind, format_version: _formatVersion, card_id: _cardId, slot: _slot, content: _content, ...metadata } = open;
-    const index = { kind: 'record-slot-index', format_version: 1, card_id: 'project', slot: 'brief', latest: null, open: 1, versions: { '1': { ...metadata, size: 0 } } };
-    expect(parseRecordSlotIndex(index, '/brief/index.json', { cardId: 'project', slot: 'brief' })).toEqual(index);
-    expect(() => parseRecordSlotIndex({ ...index, extra: true }, '/brief/index.json')).toThrow(/unrecognized/i);
-    expect(() => parseRecordSlotIndex({ ...index, open: null }, '/brief/index.json')).toThrow(/omits its open/);
-    expect(() => parseRecordSlotIndex({ ...index, versions: { '2': index.versions['1'] } }, '/brief/index.json')).toThrow(/mismatched version key/);
-    expect(() => parseRecordSlotIndex(index, '/brief/index.json', { cardId: 'other', slot: 'brief' })).toThrow(/does not match/);
-  });
 });

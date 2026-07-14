@@ -37,7 +37,7 @@ export async function mcp_reconcile(ctx: ToolContext, _params: Record<string, ne
 
 export async function list_agent_sessions(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
   try {
-    const sessions = new AgentOperatorReadModelService(ctx.projectRoot).listSessions().sessions
+    const sessions = new AgentOperatorReadModelService(ctx.projectRoot, ctx.store).listSessions().sessions
       .filter((session) => session.role !== 'analyst' || session.id === GLOBAL_ANALYST_SESSION_ID);
     return { success: true, data: sessions };
   }
@@ -49,7 +49,7 @@ export async function read_agent_session(ctx: ToolContext, params: { sessionId: 
     if (typeof params.sessionId !== 'string' || params.sessionId.length === 0) return toolFailure('sessionId is required.', { field: 'sessionId' });
     if (!isSafeAgentSessionId(params.sessionId)) return toolFailure('sessionId contains invalid characters.', { field: 'sessionId' });
     const limit = Math.min(Math.max(1, params.lastN ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX);
-    const response = new AgentOperatorReadModelService(ctx.projectRoot).getConversation(params.sessionId);
+    const response = new AgentOperatorReadModelService(ctx.projectRoot, ctx.store).getConversation(params.sessionId);
     if (response.statusCode === 404) return toolFailure(`Agent session '${params.sessionId}' was not found.`, { sessionId: params.sessionId });
     if (response.statusCode) return toolFailure('Invalid agent session request.', { sessionId: params.sessionId, statusCode: response.statusCode });
     if (!('entries' in response.body)) return toolFailure('Invalid agent session request.', { sessionId: params.sessionId });

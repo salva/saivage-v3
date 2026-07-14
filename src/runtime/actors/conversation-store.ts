@@ -6,6 +6,7 @@ import type { AgentMessage, MessageRole } from '../../schemas/index.js';
 import type { ConversationStore, ConversationAppendResult } from '../../persistence/conversation-store.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import { saivageCardsRoot } from '../../persistence/layout.js';
+import type { ProjectNamespaceReader } from '../../persistence/project-store-repository.js';
 import {
   activeVersionPath,
   parseConversationSessionId,
@@ -18,6 +19,12 @@ export type { ConversationAppendResult } from '../../persistence/conversation-st
 
 export function readConversationMessages(projectRoot: string, sessionId: string): AgentMessage[] {
   return readActiveVersionMessages(projectRoot, sessionId);
+}
+
+export function readActiveConversationMessages(projectRoot: string, sessionId: string, namespace: ProjectNamespaceReader): AgentMessage[] {
+  const parsed = parseConversationSessionId(sessionId);
+  if (parsed.cardId !== null && !namespace.isActiveCardId(parsed.cardId)) return [];
+  return readConversationMessages(projectRoot, sessionId);
 }
 
 export function readActiveVersionMessages(projectRoot: string, sessionId: string): AgentMessage[] {
@@ -46,8 +53,8 @@ export function hasIndexedConversationMessageOfKind(projectRoot: string, session
   return found;
 }
 
-export function listConversationSessionIds(projectRoot: string): string[] {
-  const ids = conversationDirectories(projectRoot).map(({ encodedSessionId }) => decodeURIComponent(encodedSessionId));
+export function listConversationSessionIds(projectRoot: string, namespace: ProjectNamespaceReader): string[] {
+  const ids = conversationDirectories(projectRoot, namespace).map(({ encodedSessionId }) => decodeURIComponent(encodedSessionId));
   if (new Set(ids).size !== ids.length) throw new Error('A canonical conversation session id occurs under more than one active root.');
   return ids.sort();
 }
@@ -136,28 +143,28 @@ export function isConversationBudgetVisible(message: AgentMessage): boolean {
 
 export function readConversationVersionMessages(path: string): AgentMessage[] {
   try {
-    return readFileSync(path, 'utf-8')
+    const content = readFileSync(path, 'utf-8');
+    if (content.length === 0) throw new Error('published version is empty');
+    if (!content.endsWith('\n')) throw new Error('published version has an incomplete final row');
+    const messages = content
       .split('\n')
       .filter(Boolean)
       .map((line) => agentMessageSchema.parse(JSON.parse(line)));
+    if (messages.length === 0) throw new Error('published version has no messages');
+    if (new Set(messages.map((message) => message.id)).size !== messages.length) throw new Error('published version contains duplicate message ids');
+    return messages;
   } catch (error) {
     throw new Error(`Conversation version '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
-function conversationDirectories(projectRoot: string): Array<{ dir: string; encodedSessionId: string }> {
+function conversationDirectories(projectRoot: string, namespace: ProjectNamespaceReader): Array<{ dir: string; encodedSessionId: string }> {
   const dirs: Array<{ dir: string; encodedSessionId: string }> = [];
   const analystRoot = join(projectRoot, '.saivage', 'agents', 'conversations');
   collectConversationDirectories(analystRoot, dirs, null);
 
   const cardsRoot = saivageCardsRoot(projectRoot);
-  if (existsSync(cardsRoot)) {
-    for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
-      if (!cardEntry.isDirectory() || cardEntry.isSymbolicLink()) continue;
-      if (existsSync(join(cardsRoot, cardEntry.name, 'tombstone.json'))) continue;
-      collectConversationDirectories(join(cardsRoot, cardEntry.name, 'conversations'), dirs, cardEntry.name);
-    }
-  }
+  for (const cardId of namespace.activeCardIds()) collectConversationDirectories(join(cardsRoot, cardId, 'conversations'), dirs, cardId);
   return dirs;
 }
 

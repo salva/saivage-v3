@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testConfigAuthority, testInterventionReadiness, testPersistenceHealth, testProjectAuthority } from './helpers/canonical-project.js';
+import { initProjectTree, CardStore, testAnalystMutationServices, testConfigAuthority, testInterventionReadiness, testPersistenceHealth, testProjectAuthority } from './helpers/canonical-project.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
@@ -113,12 +113,12 @@ function setupTestProject(projectRoot: string): CardStore {
 
 function ctx(projectRoot: string, store: CardStore): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(projectRoot), analystMutations: testAnalystMutationServices(projectRoot, store) };
 }
 
 function testToolContext(projectRoot: string, store: CardStore): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-runtime', 'operator_session'), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-runtime', 'operator_session'), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false, appLogs: testAppLogs(projectRoot), analystMutations: testAnalystMutationServices(projectRoot, store) };
 }
 
 describe('Analyst Tool Definitions', () => {
@@ -206,7 +206,7 @@ describe('Analyst Tools', () => {
       brief: TEST_BRIEF,
     });
     expect(r.success).toBe(false);
-    expect(r.error).toContain("parent 'card-1' in status 'running'");
+    expect(r.error).toContain('Denied by permission policy for card.create: wrong_state.');
   });
 
   it('includes display paths in analyst card projections', async () => {
@@ -378,7 +378,7 @@ describe('Analyst Tools', () => {
     const runtime = createTestAnalystRuntime({ projectRoot, cardStore: store }).runtime!;
     runtime.notifyCard = () => ({ ok: false as const, reason: 'missing_card' as const, cardId: 'card-2' });
 
-    const result = await queue_notification({ ...ctx(projectRoot, store), runtime }, {
+    const result = await queue_notification({ ...ctx(projectRoot, store), runtime, analystMutations: testAnalystMutationServices(projectRoot, store, (cardId, notification) => runtime.notifyCard(cardId, notification)) }, {
       recipient: 'card-2',
       kind: 'heads_up',
       body: 'body that must not bypass audit',

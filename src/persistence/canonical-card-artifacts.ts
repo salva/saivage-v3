@@ -30,26 +30,6 @@ export interface CardVersionArtifact {
   history: CardHistoryEntry | null;
 }
 
-const cardIndexVersionEntrySchema = z
-  .object({
-    version: z.number().int().safe().positive(),
-    committed_at: z.string().datetime(),
-    history: cardHistoryEntrySchema.nullable(),
-  })
-  .strict();
-
-export const cardIndexSchema = z
-  .object({
-    kind: z.literal('card-index'),
-    format_version: z.literal(1),
-    card_id: z.string().min(1),
-    latest: z.number().int().safe().positive(),
-    versions: z.record(cardIndexVersionEntrySchema),
-  })
-  .strict();
-
-export type CardIndexArtifact = z.infer<typeof cardIndexSchema>;
-
 export function parseCardVersionFilename(filename: string, path = filename): number {
   if (!/^[1-9]\d*\.json$/.test(filename)) throw new Error(`Invalid canonical card version filename at '${path}': '${filename}'.`);
   const version = Number(filename.slice(0, -'.json'.length));
@@ -87,27 +67,6 @@ export function parseCardVersionArtifact(
     throw new Error(`Card version artifact at '${path}' version ${artifact.version} requires a history entry.`);
   }
   return artifact as CardVersionArtifact;
-}
-
-export function parseCardIndex(raw: unknown, path: string, expectedCardId?: string): CardIndexArtifact {
-  const parsed = cardIndexSchema.safeParse(raw);
-  if (!parsed.success) throw new Error(`Card index at '${path}' is invalid: ${parsed.error.message}`);
-  for (const [key, entry] of Object.entries(parsed.data.versions)) {
-    if (key !== String(entry.version)) throw new Error(`Card index at '${path}' has mismatched version key '${key}'.`);
-    if (entry.version === 1 && entry.history !== null) throw new Error(`Card index at '${path}' version 1 must not contain history.`);
-    if (entry.version > 1 && (entry.history === null || entry.history.card_id !== parsed.data.card_id || entry.history.version_seq !== entry.version - 1)) {
-      throw new Error(`Card index at '${path}' version ${entry.version} has inconsistent history.`);
-    }
-  }
-  if (expectedCardId !== undefined && parsed.data.card_id !== expectedCardId) {
-    throw new Error(`Card index at '${path}' does not match card '${expectedCardId}'.`);
-  }
-  if (!(String(parsed.data.latest) in parsed.data.versions)) {
-    throw new Error(`Card index at '${path}' latest version ${parsed.data.latest} has no version entry.`);
-  }
-  const highestVersion = Math.max(...Object.values(parsed.data.versions).map((entry) => entry.version));
-  if (parsed.data.latest !== highestVersion) throw new Error(`Card index at '${path}' latest is not its highest version.`);
-  return parsed.data;
 }
 
 export function selectCurrentCardVersion(artifacts: readonly CardVersionArtifact[], path: string): CardVersionArtifact {

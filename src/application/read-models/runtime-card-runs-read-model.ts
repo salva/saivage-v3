@@ -20,7 +20,7 @@ export function buildCardRunsResponse(projectRoot: string, store: CardStore | Ca
     if (!card) return [];
     return [{ card_id: card.id, card_type: card.type, title: card.title, ...(card.status_text ? { status_text: card.status_text } : {}) }];
   }) : [];
-  const dormant_planners = listConversationSessionIds(projectRoot)
+  const dormant_planners = listConversationSessionIds(projectRoot, store.namespace)
     .flatMap((sessionId) => {
       const goalId = plannerGoalFromSessionId(sessionId);
       if (!goalId || sessionId === active?.planner_session_id) return [];

@@ -118,7 +118,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   private adoptRecoveredLlmSnapshots(): void {
     for (const agentId of this.recoverableLlmAgentIds()) {
       if (this.activeLlmActors.has(agentId)) continue;
-      const snapshot = readActorSnapshot(this.projectRoot, agentId);
+      const snapshot = this.snapshots.read(agentId);
       if (!snapshot) continue;
       const activeReconstruction = readLlmActiveReconstruction(snapshot);
       if (!activeReconstruction) continue;
@@ -156,7 +156,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
 
   private seedInvocationInputCounterFromConversations(): void {
     let maxSuffix = 0;
-    for (const sessionId of listConversationSessionIds(this.projectRoot)) {
+    for (const sessionId of listConversationSessionIds(this.projectRoot, this.conversations.namespace)) {
       for (const message of readConversationMessages(this.projectRoot, sessionId)) {
         for (const inputId of inputIdsFromMessage(message)) {
           const suffix = this.parseOwnedInputSuffix(inputId);

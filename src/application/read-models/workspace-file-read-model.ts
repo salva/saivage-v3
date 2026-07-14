@@ -50,6 +50,7 @@ export class WorkspaceFileReadModelService {
   }
 
   listFiles(requestedPath = '.'): WorkspaceFileResult {
+    if (this.inactiveCardPath(requestedPath)) return { statusCode: 404, body: { error: 'Path not found', path: requestedPath } };
     const { safe, absolutePath, reason, responsePath, kind } = this.resolveRequestedPath(requestedPath);
     if (!safe) return { statusCode: 403, body: { error: reason } };
     if (!existsSync(absolutePath)) return { statusCode: 404, body: { error: 'Path not found', path: responsePath } };
@@ -75,6 +76,7 @@ export class WorkspaceFileReadModelService {
 
   readFileContent(requestedPath: string | undefined): WorkspaceFileResult {
     if (!requestedPath) return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
+    if (this.inactiveCardPath(requestedPath)) return { statusCode: 404, body: { error: 'File not found', path: requestedPath } };
     if (requestedPath.startsWith('record:///')) {
       if (!this.records) return { statusCode: 503, body: { error: 'Record read model is unavailable.' } };
       try {
@@ -100,5 +102,11 @@ export class WorkspaceFileReadModelService {
     const safeResult = getSafeFileForAgent(responsePath, rawBuffer.toString('utf-8'));
     if (safeResult.blocked) return { statusCode: 403, body: { error: safeResult.reason || 'Access to this file is blocked for security reasons.', path: responsePath } };
     return { body: { path: responsePath, size: fileStat.size, contentType: 'text/plain', content: safeResult.safeContent, redacted: Boolean(safeResult.reason), sensitivity: safeResult.reason ? 'sensitive-redacted' : 'normal' } };
+  }
+
+  private inactiveCardPath(requestedPath: string): boolean {
+    if (!this.records) return false;
+    const match = /^\.saivage\/cards\/([^/]+)(?:\/|$)/u.exec(requestedPath.replace(/^\.\//u, ''));
+    return match !== null && !this.records().isActiveCardId(match[1]!);
   }
 }

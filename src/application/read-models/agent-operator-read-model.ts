@@ -1,8 +1,9 @@
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from '../../agents/session-ids.js';
 import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
-import { listConversationSessionIds, readConversationMessages } from '../../runtime/actors/conversation-store.js';
-import { readActorSnapshots, type ActorSnapshotRecord } from '../../runtime/actors/snapshots.js';
+import { listConversationSessionIds, readActiveConversationMessages } from '../../runtime/actors/conversation-store.js';
+import { readActiveActorSnapshots, type ActorSnapshotRecord } from '../../runtime/actors/snapshots.js';
 import type { AgentMessage, AgentRole, SessionStatus } from '../../schemas/index.js';
+import type { ProjectNamespaceReader } from '../../persistence/project-store-repository.js';
 
 export const GLOBAL_OPERATOR_AGENT_SESSION_ID = GLOBAL_ANALYST_SESSION_ID;
 export const SAFE_AGENT_ID_RE = SAFE_AGENT_SESSION_ID_RE;
@@ -22,12 +23,12 @@ export interface AgentOperatorConversationResponse {
 }
 
 export class AgentOperatorReadModelService {
-  constructor(private readonly projectRoot: string, private readonly cards?: { read(cardId: string): { status: string } | null }) {}
+  constructor(private readonly projectRoot: string, private readonly cards: { readonly namespace: ProjectNamespaceReader; read(cardId: string): { status: string } | null }) {}
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
-    const snapshots = readActorSnapshots(this.projectRoot);
-    const sessions = listConversationSessionIds(this.projectRoot)
-      .map((sessionId) => this.buildSessionSummary(sessionId, readConversationMessages(this.projectRoot, sessionId), snapshots))
+    const snapshots = readActiveActorSnapshots(this.projectRoot, this.cards.namespace);
+    const sessions = listConversationSessionIds(this.projectRoot, this.cards.namespace)
+      .map((sessionId) => this.buildSessionSummary(sessionId, readActiveConversationMessages(this.projectRoot, sessionId, this.cards.namespace), snapshots))
       .filter((session): session is AgentOperatorSessionSummary => Boolean(session));
     sessions.sort((a, b) => String(b.started_at ?? '').localeCompare(String(a.started_at ?? '')) || String(a.id).localeCompare(String(b.id)));
     return { sessions };
@@ -36,9 +37,9 @@ export class AgentOperatorReadModelService {
   getSession(sessionId: string): { statusCode?: number; body: { session?: Record<string, unknown>; error?: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
     if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const messages = readConversationMessages(this.projectRoot, sessionId);
+    const messages = readActiveConversationMessages(this.projectRoot, sessionId, this.cards.namespace);
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const base = this.buildSessionSummary(sessionId, messages, readActorSnapshots(this.projectRoot));
+    const base = this.buildSessionSummary(sessionId, messages, readActiveActorSnapshots(this.projectRoot, this.cards.namespace));
     if (!base) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const lastActivity = this.lastMessageTimestamp(messages) ?? base.started_at;
     return { body: { session: { ...base, message_count: messages.length, last_activity_at: lastActivity } } };
@@ -47,9 +48,9 @@ export class AgentOperatorReadModelService {
   getConversation(sessionId: string): { statusCode?: number; body: AgentOperatorConversationResponse | { error: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
     if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const messages = readConversationMessages(this.projectRoot, sessionId);
+    const messages = readActiveConversationMessages(this.projectRoot, sessionId, this.cards.namespace);
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const snapshots = readActorSnapshots(this.projectRoot);
+    const snapshots = readActiveActorSnapshots(this.projectRoot, this.cards.namespace);
     const session = this.buildSessionSummary(sessionId, messages, snapshots);
     if (!session) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const activity_status = this.deriveActivityStatus(sessionId, snapshots);
@@ -98,7 +99,7 @@ export class AgentOperatorReadModelService {
     if (snapshot?.state_value === 'waiting_tool') return 'waiting';
     if (snapshot) return 'active';
     if (!cardId) return 'inactive';
-    const status = this.cards?.read(cardId)?.status;
+    const status = this.cards.read(cardId)?.status;
     if (status === 'done' || status === 'blocked' || status === 'failed') return status;
     return 'inactive';
   }

@@ -31,7 +31,11 @@ export interface MutatingSpec<P, Prepared = undefined> {
   readonly successSummary?: string;
 }
 
-function paramsSummary(params: unknown): string { return stableStringify(params); }
+function paramsSummary(params: unknown): string {
+  if (typeof params !== 'object' || params === null || Array.isArray(params)) return stableStringify(params);
+  const safe = Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'body' && key !== 'content'));
+  return stableStringify(safe);
+}
 
 export async function runAuditedAnalystTool<P extends object, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>): Promise<ToolResult> {
   const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });

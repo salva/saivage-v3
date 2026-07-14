@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { activeVersionPath } from '../../src/runtime/actors/conversation-inventory.js';
 import type { SummaryCacheEntry } from '../../src/runtime/actors/compaction/summary-cache.js';
+import { CardStore } from './canonical-project.js';
 
 const stores = new Map<string, ConversationStore>();
 
@@ -17,7 +18,7 @@ export function testConversationMutations(projectRoot: string) {
     agentsChanged() {},
     conversationChanged() {},
     subscribe() { return { unsubscribe() {} }; },
-  });
+  }, new CardStore(projectRoot).namespace);
   store.restabilize();
   stores.set(projectRoot, store);
   return store;

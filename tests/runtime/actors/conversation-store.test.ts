@@ -1,13 +1,14 @@
 import { describe, expect, it } from '@jest/globals';
 import { appendTestConversationMessage as appendConversationMessage, testConversationMutations } from '../../helpers/conversation-mutations.js';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, conversationDir, conversationMessagesForModel, hasIndexedConversationMessageOfKind, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
-import { activeVersionPath } from '../../../src/runtime/actors/conversation-inventory.js';
+import { activeVersionPath, parseConversationSessionId, readConversationInventory } from '../../../src/runtime/actors/conversation-inventory.js';
 import { codexMessages } from '../../../src/agents/llm-openai-codex-gateway.js';
 import { buildOpenAIChatRequest } from '../../../src/agents/llm-openai-chat-gateway.js';
 import type { AgentMessage } from '../../../src/schemas/index.js';
+import { CardStore } from '../../helpers/canonical-project.js';
 
 const appendActivationMarker = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, payload: Parameters<typeof productionAppendActivationMarker>[2]) => productionAppendActivationMarker(conversations, sessionId, payload);
 const appendUserContextMessage = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, inputId: string, category: Parameters<typeof productionAppendUserContextMessage>[3], ordinal: number, message: Parameters<typeof productionAppendUserContextMessage>[5]) => productionAppendUserContextMessage(conversations, sessionId, inputId, category, ordinal, message);
@@ -92,11 +93,12 @@ describe('conversation-store', () => {
 
   it('appends only to the active version', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    new CardStore(root);
     const sessionId = 'planner:project';
     const dir = conversationDir(root, sessionId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'frozen', session_id: sessionId })) + '\n');
-    writeFileSync(join(dir, '2.jsonl'), '');
+    writeFileSync(join(dir, '2.jsonl'), JSON.stringify(makeMessage({ id: 'active-existing', session_id: sessionId })) + '\n');
     appendConversationMessage(root, makeMessage({ id: 'new-active', session_id: sessionId, content: 'new active row' }));
 
     expect(readFileSync(join(dir, '1.jsonl'), 'utf-8')).not.toContain('new-active');
@@ -152,13 +154,43 @@ describe('conversation-store', () => {
     expect(conversationDir(root, 'analyst:global')).toBe(join(root, '.saivage', 'agents', 'conversations', 'analyst%3Aglobal'));
   });
 
+  it('accepts only the current canonical session grammar', () => {
+    for (const sessionId of ['planner:project', 'executor:card-1', 'reviewer:card-1:assessment-card-1-1', 'analyst:global', 'analyst:telegram-0', 'analyst:telegram--12']) {
+      expect(parseConversationSessionId(sessionId).sessionId).toBe(sessionId);
+    }
+    for (const sessionId of ['planner:card-0', 'planner:card-01', 'reviewer:card-1:assessment-card-2-1', 'reviewer:card-1:other', 'analyst:anything', 'analyst:telegram-01', 'unknown:project']) {
+      expect(() => parseConversationSessionId(sessionId)).toThrow(/canonical durable grammar|mismatched/i);
+    }
+  });
+
+  it('rejects noncanonical URI names, wrong placement, and version gaps', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    const cards = new CardStore(root);
+    cards.create({ type: 'goal', parent: 'project', depth: 1, title: 'Card 1', brief: 'Card 1', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+    const projectConversations = join(root, '.saivage', 'cards', 'project', 'conversations');
+    mkdirSync(join(projectConversations, 'planner%3Acard-1'), { recursive: true });
+    expect(() => listConversationSessionIds(root, cards.namespace)).toThrow(/wrong owner/i);
+    rmSync(join(projectConversations, 'planner%3Acard-1'), { recursive: true });
+    mkdirSync(join(projectConversations, 'planner%3aproject'), { recursive: true });
+    expect(() => listConversationSessionIds(root, cards.namespace)).toThrow(/not canonical/i);
+    rmSync(join(projectConversations, 'planner%3aproject'), { recursive: true });
+
+    const directory = conversationDir(root, 'planner:project');
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, '1.jsonl'), `${JSON.stringify(makeMessage({ session_id: 'planner:project' }))}\n`);
+    writeFileSync(join(directory, '3.jsonl'), `${JSON.stringify(makeMessage({ id: 'message-3', session_id: 'planner:project' }))}\n`);
+    expect(() => readConversationInventory(root, 'planner:project')).toThrow(/version gap/i);
+  });
+
   it('lists analyst and card-owned conversation sessions', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
+    const cards = new CardStore(root);
+    for (let index = 1; index <= 7; index += 1) cards.create({ type: 'goal', parent: 'project', depth: 1, title: `Card ${index}`, brief: `Card ${index}`, status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
     appendConversationMessage(root, makeMessage({ id: 'analyst-msg', session_id: 'analyst:global' }));
     appendConversationMessage(root, makeMessage({ id: 'planner-msg', session_id: 'planner:card-7' }));
     appendConversationMessage(root, makeMessage({ id: 'reviewer-msg', session_id: 'reviewer:card-7:assessment-card-7-1' }));
 
-    expect(listConversationSessionIds(root)).toEqual(['analyst:global', 'planner:card-7', 'reviewer:card-7:assessment-card-7-1']);
+    expect(listConversationSessionIds(root, cards.namespace)).toEqual(['analyst:global', 'planner:card-7', 'reviewer:card-7:assessment-card-7-1']);
     expect(readConversationMessages(root, 'planner:card-7').map((message) => message.id)).toEqual(['planner-msg']);
   });
 });

@@ -67,7 +67,9 @@ export function readConversationInventory(projectRoot: string, sessionId: string
     if (entry.name === 'summaries.jsonl' && entry.isFile()) continue;
     const match = /^([1-9][0-9]*)\.jsonl$/u.exec(entry.name);
     if (!match || !entry.isFile()) throw new Error(`Unknown conversation entry: '${path}'.`);
-    versions.push(Number(match[1]));
+    const version = Number(match[1]);
+    if (!Number.isSafeInteger(version)) throw new Error(`Conversation version name exceeds the safe integer range: '${path}'.`);
+    versions.push(version);
   }
   versions.sort((a, b) => a - b);
   if (versions.length === 0) throw new Error(`Conversation '${sessionId}' has no published versions.`);

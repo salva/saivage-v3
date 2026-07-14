@@ -21,6 +21,7 @@ beforeEach(() => {
   initProjectTree(root);
   const processRunner = createTestProcessRunner(root);
   const store = new CardStore(root);
+  store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Card 1', brief: 'Card 1', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
   ctx = { projectRoot: root, configAuthority: testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
 });
 

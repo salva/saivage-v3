@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { recoveryDiagnosticsFile as layoutRecoveryDiagnosticsFile } from '../../persistence/layout.js';
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../../persistence/durable-file-replacement.js';
 import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
-import { readActorSnapshots } from './snapshots.js';
+import { readActiveActorSnapshots, readActorSnapshots } from './snapshots.js';
 import type { ActorSnapshotRecord, ActorSnapshotStore } from './snapshots.js';
 import { agentMessageSchema, type AgentMessage, type CardRecord, type CardStatus } from '../../schemas/index.js';
 import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
@@ -32,6 +32,7 @@ import { loggedToolCallIdentity, loggedToolCallKey, loggedToolErrorIdentity, log
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
   listChildren?(cardId: string): string[];
+  readonly namespace?: import('../../persistence/project-store-repository.js').ProjectNamespaceReader;
 }
 
 export interface ActorRecoveryOutcomeStore {
@@ -148,7 +149,7 @@ export interface ActorStartupRecoveryReport {
 }
 
 export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecoveryCardReader): ActorRecoveryPlan {
-  const snapshots = readActorSnapshots(projectRoot);
+  const snapshots = cards?.namespace ? readActiveActorSnapshots(projectRoot, cards.namespace) : readActorSnapshots(projectRoot);
   const cardSnapshots = snapshots.filter((snapshot) => snapshot.actor_kind === 'card');
   const knownCardIds = new Set<string>();
   const cardRecords = cardSnapshots.map((snapshot): CardActorRecoveryRecord => {
@@ -264,7 +265,7 @@ export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorStar
 function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorRecoveryExecutionDeps & { generatedAt: string }): { incidents: ActorStartupRecoveryIncident[]; preservedToolCallKeys: Set<string> } {
   const incidents: ActorStartupRecoveryIncident[] = [];
   const preservedToolCallKeys = new Set<string>();
-  const entries = buildLlmConversationRecoveryEntries(plan, deps.projectRoot);
+  const entries = buildLlmConversationRecoveryEntries(plan, deps.projectRoot, deps.conversations);
   for (const processor of plan.processors) {
     const card = deps.store.read(processor.cardId);
     if (!processor.active || !card || card.status === 'running') continue;
@@ -417,14 +418,14 @@ function removeIncompatibleLlmSnapshot(snapshots: ActorSnapshotStore, entry: Llm
   incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action, cardId: entry.cardId ?? undefined, message });
 }
 
-function buildLlmConversationRecoveryEntries(plan: ActorRecoveryPlan, projectRoot: string): LlmConversationRecoveryEntry[] {
+function buildLlmConversationRecoveryEntries(plan: ActorRecoveryPlan, projectRoot: string, conversations: ConversationStore): LlmConversationRecoveryEntry[] {
   const bySession = new Map<string, LlmConversationRecoveryEntry>();
   for (const llm of plan.llms) {
     const sessionId = llm.activeReconstruction?.input.sessionId ?? llm.actorId;
     if (!isAutonomousLlmSession(sessionId)) continue;
     bySession.set(sessionId, buildLlmConversationRecoveryEntry(projectRoot, llm.actorId, llm.role, llm.cardId, sessionId, llm));
   }
-  for (const sessionId of listConversationSessionIds(projectRoot)) {
+  for (const sessionId of listConversationSessionIds(projectRoot, conversations.namespace)) {
     if (bySession.has(sessionId)) continue;
     if (!isAutonomousLlmSession(sessionId)) continue;
     const roleCard = roleCardFromSession(sessionId);

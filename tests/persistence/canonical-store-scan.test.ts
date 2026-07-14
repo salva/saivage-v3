@@ -65,6 +65,7 @@ describe('loadProjectStore', () => {
 
   it('discards only a recognizable never-committed namespace', () => {
     const namespace = join(cardsPath, 'card-1');
+    mkdirSync(join(namespace, 'brief', 'versions'), { recursive: true });
     mkdirSync(join(namespace, 'card', 'versions'), { recursive: true });
     discardIncompleteCardNamespace(cardsPath, 'card-1');
     expect(existsSync(namespace)).toBe(false);

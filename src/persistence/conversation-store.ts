@@ -4,12 +4,14 @@ import { dirname, join } from 'node:path';
 
 import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
+import type { ProjectNamespaceReader } from './project-store-repository.js';
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from './durable-file-replacement.js';
 import { IndeterminatePublicationError } from './errors.js';
 import { agentMessageSchema, type AgentMessage } from '../schemas/index.js';
 import {
   activeVersionPath,
   conversationDir,
+  parseConversationSessionId,
   readConversationInventory,
   type ConversationInventory,
   type ConversationVersionReplacement,
@@ -40,10 +42,11 @@ export class ConversationStore {
     readonly projectRoot: string,
     private readonly health: ApplicationPersistenceHealth,
     private readonly changes: ReadModelChanges,
+    readonly namespace: ProjectNamespaceReader,
   ) {}
 
   restabilize(): void {
-    for (const sessionId of listConversationSessionIds(this.projectRoot)) this.restabilizeSession(sessionId);
+    for (const sessionId of listConversationSessionIds(this.projectRoot, this.namespace)) this.restabilizeSession(sessionId);
   }
 
   appendBatch(messages: readonly AgentMessage[]): ConversationBatchAppendResult {
@@ -56,12 +59,14 @@ export class ConversationStore {
 
     let outcome: ConversationBatchAppendResult;
     try {
-        const inventory = readConversationInventory(this.projectRoot, sessionId);
-        if (!inventory) {
-          mkdirSync(conversationDir(this.projectRoot, sessionId), { recursive: true });
-          this.replace(activeVersionPath(this.projectRoot, sessionId, 1), serializeMessages(parsed));
-          outcome = { messages: parsed, appended: true };
-        } else {
+      const parsedSession = parseConversationSessionId(sessionId);
+      if (parsedSession.cardId !== null && !this.namespace.isActiveCardId(parsedSession.cardId)) throw new Error(`Card '${parsedSession.cardId}' not found.`);
+      const inventory = readConversationInventory(this.projectRoot, sessionId);
+      if (!inventory) {
+        mkdirSync(conversationDir(this.projectRoot, sessionId), { recursive: true });
+        this.replace(activeVersionPath(this.projectRoot, sessionId, 1), serializeMessages(parsed));
+        outcome = { messages: parsed, appended: true };
+      } else {
         const existing = this.indexedMessages(sessionId, inventory);
         const matchedRows = parsed.map((message) => {
           const rows = existing.get(message.id) ?? [];
@@ -77,11 +82,11 @@ export class ConversationStore {
           this.replace(activePath, `${prior}${serializeMessages(parsed)}`);
           outcome = { messages: parsed, appended: true };
         }
-        }
-      } catch (error) {
-        if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: conversationDir(this.projectRoot, sessionId), operation: 'append conversation batch', error });
-        throw error;
       }
+    } catch (error) {
+      if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: conversationDir(this.projectRoot, sessionId), operation: 'append conversation batch', error });
+      throw error;
+    }
     if (outcome.appended) {
       this.changes.conversationChanged(sessionId);
       this.changes.agentsChanged();
@@ -91,21 +96,23 @@ export class ConversationStore {
 
   publishCompactedVersion(args: ConversationCompactionCommit): ConversationVersionReplacement {
     this.health.assertMutationHealthy();
-      const inventory = readConversationInventory(this.projectRoot, args.sessionId);
-      if (!inventory) throw new Error(`Conversation '${args.sessionId}' does not exist.`);
-      if (inventory.activeVersion !== args.sourceVersion) throw new Error(`Conversation '${args.sessionId}' active version changed from ${args.sourceVersion} to ${inventory.activeVersion} during compaction.`);
-      const sourcePath = activeVersionPath(this.projectRoot, args.sessionId, args.sourceVersion);
-      const sourceContent = readStrictConversationContent(sourcePath);
-      if (conversationContentDigest(sourceContent) !== args.sourceDigest) throw new Error(`Conversation '${args.sessionId}' changed during compaction.`);
-      for (const line of args.content.split('\n').filter(Boolean)) agentMessageSchema.parse(JSON.parse(line));
+    const parsedSession = parseConversationSessionId(args.sessionId);
+    if (parsedSession.cardId !== null && !this.namespace.isActiveCardId(parsedSession.cardId)) throw new Error(`Card '${parsedSession.cardId}' not found.`);
+    const inventory = readConversationInventory(this.projectRoot, args.sessionId);
+    if (!inventory) throw new Error(`Conversation '${args.sessionId}' does not exist.`);
+    if (inventory.activeVersion !== args.sourceVersion) throw new Error(`Conversation '${args.sessionId}' active version changed from ${args.sourceVersion} to ${inventory.activeVersion} during compaction.`);
+    const sourcePath = activeVersionPath(this.projectRoot, args.sessionId, args.sourceVersion);
+    const sourceContent = readStrictConversationContent(sourcePath);
+    if (conversationContentDigest(sourceContent) !== args.sourceDigest) throw new Error(`Conversation '${args.sessionId}' changed during compaction.`);
+    for (const line of args.content.split('\n').filter(Boolean)) agentMessageSchema.parse(JSON.parse(line));
 
-      const nextVersion = inventory.activeVersion + 1;
-      try {
-        this.replace(activeVersionPath(this.projectRoot, args.sessionId, nextVersion), args.content);
-      } catch (error) {
-        if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: activeVersionPath(this.projectRoot, args.sessionId, nextVersion), operation: 'publish compacted conversation version', error });
-        throw error;
-      }
+    const nextVersion = inventory.activeVersion + 1;
+    try {
+      this.replace(activeVersionPath(this.projectRoot, args.sessionId, nextVersion), args.content);
+    } catch (error) {
+      if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: activeVersionPath(this.projectRoot, args.sessionId, nextVersion), operation: 'publish compacted conversation version', error });
+      throw error;
+    }
     this.changes.conversationChanged(args.sessionId);
     this.changes.agentsChanged();
     return { sessionId: args.sessionId, activeVersion: nextVersion, compactedThrough: args.compactedThrough, compactionGeneration: args.compactionGeneration };

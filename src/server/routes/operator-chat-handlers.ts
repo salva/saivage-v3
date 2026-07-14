@@ -7,6 +7,7 @@ import type {
   OperatorConfigContext,
   OperatorRuntimeProviderContext,
 } from './operator-handler-context.js';
+import type { OperatorCardStoreContext } from './operator-handler-context.js';
 
 interface ChatWorkspaceContext {
   view: string | null;
@@ -28,22 +29,25 @@ function validateWorkspaceContext(value: unknown): { ok: true; value: ChatWorksp
   return { ok: true, value: { view: ctx.view, entityId: ctx.entityId, refinement: ctx.refinement } as ChatWorkspaceContext };
 }
 
-type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & Pick<OperatorConfigContext, 'saivageConfig'>;
+type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorCardStoreContext & Pick<OperatorConfigContext, 'saivageConfig'>;
 
 export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
-  const agentReadModel = new AgentOperatorReadModelService(projectRoot);
+  const agentReadModel = (): AgentOperatorReadModelService => {
+    if (!options.cardStore) throw new Error('Chat read operations require the card store.');
+    return new AgentOperatorReadModelService(projectRoot, options.cardStore);
+  };
 
   return {
     'chats.list': () => {
-      const sessions = agentReadModel.listSessions().sessions.filter((session) => session.role === 'analyst' && session.id.startsWith('analyst:'));
+      const sessions = agentReadModel().listSessions().sessions.filter((session) => session.role === 'analyst' && session.id.startsWith('analyst:'));
       return { body: { sessions } };
     },
     'chats.get': ({ params }) => {
       const sessionId = (params as unknown as { sessionId: string }).sessionId;
       if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid session ID format.', sessionId } };
       if (sessionId !== GLOBAL_ANALYST_SESSION_ID) return { statusCode: 404, body: { error: 'Only the canonical analyst chat is available.', sessionId } };
-      const response = agentReadModel.getConversation(sessionId);
+      const response = agentReadModel().getConversation(sessionId);
       if (response.statusCode === 404) return { body: { sessionId: GLOBAL_ANALYST_SESSION_ID, entries: [] } };
       if (response.statusCode) return response;
       if (!('entries' in response.body)) return response;

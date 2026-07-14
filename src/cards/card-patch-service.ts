@@ -24,7 +24,7 @@ export interface CardPatchServiceConfig {
   read: (id: string) => CardRecord | null;
   childCount: (id: string) => number;
   detectCycles: (id: string, newDependsOn: string[]) => string[];
-  notificationStore?: CardStore;
+  notificationStore: CardStore;
   notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 }
 
