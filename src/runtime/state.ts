@@ -4,7 +4,7 @@ import type { ZodType } from 'zod';
 import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../persistence/durable-file-replacement.js';
-import { PersistenceReadError, PersistenceValidationError, PersistenceVersionMismatch } from '../persistence/errors.js';
+import { IndeterminatePublicationError, PersistenceReadError, PersistenceValidationError, PersistenceVersionMismatch } from '../persistence/errors.js';
 import { runtimeStateFile as layoutRuntimeStateFile } from '../persistence/layout.js';
 import { runtimeStateSchema, type RuntimeState } from '../schemas/index.js';
 import { createDefaultRuntimeState } from './default-state.js';
@@ -66,7 +66,10 @@ export class RuntimeStateStore {
     if (!parsed.success) throw new PersistenceValidationError(runtimeStatePath(this.projectRoot), parsed.error.message);
     const validated = assertRuntimeStateInvariants(parsed.data);
     try { mkdirSync(dirname(runtimeStatePath(this.projectRoot)), { recursive: true }); durablyReplaceFile(runtimeStatePath(this.projectRoot), Buffer.from(JSON.stringify({ version: 1, data: validated }, null, 2) + '\n')); }
-    catch (error) { this.health.reportUncertainFailure({ target: runtimeStatePath(this.projectRoot), operation: 'replace runtime state', error }); }
+    catch (error) {
+      if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: runtimeStatePath(this.projectRoot), operation: 'replace runtime state', error });
+      throw error;
+    }
     if (publish) this.changes?.runtimeChanged();
     return validated;
   }

@@ -4,12 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  AuthProfileConflictError,
-  AuthProfileRecoveryRequiredError,
   AuthProfileRepository,
   authProfileRevision,
   type AuthProfile,
 } from '../../src/auth/auth-profile-store.js';
+import { AuthProfileConflictError, replaceRefreshedAuthProfile } from '../../src/auth/auth-profile-service.js';
 import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 
 const roots: string[] = [];
@@ -60,35 +59,27 @@ describe('AuthProfileRepository', () => {
     expect(statSync(file(projectRoot)).mode & 0o777).toBe(0o600);
   });
 
-  it('creates and replaces a profile under the expected revision', () => {
+  it('persists complete profile documents supplied by the application owner', () => {
     const { projectRoot, repository } = setup();
     const first = profile({ provider: 'first' });
-    repository.replaceProfile('account', null, first);
+    repository.replace({ version: 1, profiles: { account: first } });
     const projection = repository.profile('account');
     expect(projection).toEqual({ profile: first, revision: authProfileRevision(first) });
 
     const second = profile({ provider: 'second', accessToken: 'second-access' });
-    repository.replaceProfile('account', projection!.revision, second);
+    replaceRefreshedAuthProfile(repository, 'account', projection!.revision, second);
     expect(repository.profile('account')?.profile).toEqual(second);
     expect(readFileSync(file(projectRoot), 'utf8').endsWith('\n')).toBe(true);
     expect(statSync(file(projectRoot)).mode & 0o077).toBe(0);
   });
 
-  it('rejects stale replacement and deletion revisions without changing the file', () => {
+  it('keeps expected-revision checks in the application owner', () => {
     const { projectRoot, repository } = setup();
     const initial = profile();
-    repository.replaceProfile('account', null, initial);
+    repository.replace({ version: 1, profiles: { account: initial } });
     const before = readFileSync(file(projectRoot), 'utf8');
-    expect(() => repository.replaceProfile('account', 'stale', profile({ provider: 'other' }))).toThrow(AuthProfileConflictError);
-    expect(() => repository.deleteProfile('account', 'stale')).toThrow(AuthProfileConflictError);
+    expect(() => replaceRefreshedAuthProfile(repository, 'account', 'stale', profile({ provider: 'other' }))).toThrow(AuthProfileConflictError);
     expect(readFileSync(file(projectRoot), 'utf8')).toBe(before);
-  });
-
-  it('deletes only the exact projected profile revision', () => {
-    const { repository } = setup();
-    repository.replaceProfile('account', null, profile());
-    repository.deleteProfile('account', repository.profile('account')!.revision);
-    expect(repository.load()).toEqual({ version: 1, profiles: {} });
   });
 
   it('fails closed with credential-safe diagnostics for malformed JSON and schema', () => {
@@ -101,8 +92,8 @@ describe('AuthProfileRepository', () => {
       writeFileSync(file(projectRoot), content, { mode: 0o600 });
       const { repository } = setup(projectRoot);
       let caught: unknown;
-      try { repository.replaceProfile('new', null, profile()); } catch (error) { caught = error; }
-      expect(caught).toBeInstanceOf(AuthProfileRecoveryRequiredError);
+      try { replaceRefreshedAuthProfile(repository, 'new', 'missing', profile()); } catch (error) { caught = error; }
+      expect(caught).toBeInstanceOf(Error);
       expect(String(caught)).not.toContain('synthetic-access');
       expect(String(caught)).not.toContain('synthetic-refresh');
       expect(readFileSync(file(projectRoot), 'utf8')).toBe(content);

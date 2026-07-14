@@ -35,8 +35,6 @@ describe('conversation change publisher', () => {
     const publisher = createConversationChangePublisher(bus);
 
     expect(() => appendConversationMessage('/dev/null/not-a-project', buildContextTextMessage('analyst:global', 'user', 'hello'))).toThrow();
-    publisher.entryAppended({ message: buildContextTextMessage('analyst:global', 'user', 'hello'), appended: false });
-
     expect(handler).not.toHaveBeenCalled();
   });
 });

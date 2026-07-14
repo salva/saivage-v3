@@ -1,10 +1,4 @@
 export {
-  cleanupDurableReplacementTemporaries,
-  durableReplacementTemporaryTargetBasename,
-  durablyReplaceFile,
-  publishDirectory,
-} from './durable-file-replacement.js';
-export {
   IndeterminatePublicationError,
   PersistenceError,
   PersistenceReadError,

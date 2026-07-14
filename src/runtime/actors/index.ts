@@ -6,7 +6,6 @@ export * from './conversation-publisher.js';
 export * from './conversation-recovery.js';
 export {
   activeVersionPath,
-  versionExists,
   readConversationInventory,
   parseConversationSessionId,
 } from './conversation-inventory.js';

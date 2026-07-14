@@ -4,6 +4,7 @@ import { basename, dirname } from 'node:path';
 import { z } from 'zod';
 import { recoveryDiagnosticsFile as layoutRecoveryDiagnosticsFile } from '../../persistence/layout.js';
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../../persistence/durable-file-replacement.js';
+import { IndeterminatePublicationError } from '../../persistence/errors.js';
 import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
 import { readActiveActorSnapshots, readActorSnapshots } from './snapshots.js';
 import type { ActorSnapshotRecord, ActorSnapshotStore } from './snapshots.js';
@@ -233,7 +234,10 @@ export class RecoveryDiagnosticsStore {
     try {
       if (snapshot === null) { if (existsSync(path)) unlinkSync(path); }
       else { mkdirSync(dirname(path), { recursive: true }); durablyReplaceFile(path, Buffer.from(JSON.stringify(snapshot, null, 2) + '\n')); }
-    } catch (error) { this.health.reportUncertainFailure({ target: path, operation: 'project recovery diagnostics', error }); }
+    } catch (error) {
+      if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: path, operation: 'project recovery diagnostics', error });
+      throw error;
+    }
     return snapshot;
   }
 }

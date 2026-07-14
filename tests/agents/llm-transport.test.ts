@@ -6,7 +6,7 @@ import { ProviderRegistry } from '../../src/agents/provider.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import { testAuthProfiles } from '../helpers/canonical-project.js';
-import { AuthProfileConflictError } from '../../src/auth/auth-profile-store.js';
+import { AuthProfileConflictError } from '../../src/auth/auth-profile-service.js';
 
 const SYNTHETIC_ACCESS_SECRET = 'transport-synthetic-access-token-SECRET';
 const SYNTHETIC_REFRESH_SECRET = 'transport-synthetic-refresh-token-SECRET';
@@ -153,7 +153,7 @@ describe('resolveLlmTransportConfig', () => {
     const repository = testAuthProfiles(root);
     jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
       const projection = repository.profile('copilot');
-      repository.replaceProfile('copilot', projection!.revision, { ...projection!.profile, accessToken: 'newer-concurrent-access' });
+      repository.replace({ version: 1, profiles: { ...(repository.load()?.profiles ?? {}), copilot: { ...projection!.profile, accessToken: 'newer-concurrent-access' } } });
       return new Response(JSON.stringify({ token: 'stale-network-access', expires_at: Math.floor(Date.now() / 1000) + 3600 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     });
 

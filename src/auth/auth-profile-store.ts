@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../persistence/durable-file-replacement.js';
+import { IndeterminatePublicationError } from '../persistence/errors.js';
 
 export interface AuthProfile {
   type: string;
@@ -30,23 +31,9 @@ export type AuthProfileReadState =
   | (ReadStateBase & { state: 'absent' })
   | (ReadStateBase & { state: 'loaded'; file: AuthProfilesFile })
   | (ReadStateBase & { state: 'corrupt_json' | 'invalid_schema' | 'io_error'; causeMessage: string; error: Error });
-export type AuthProfileRefusalState = Exclude<AuthProfileReadState['state'], 'absent' | 'loaded'>;
-export interface AuthProfileRecoveryDetails { state: AuthProfileRefusalState; path: string; action: 'refused'; causeMessage: string }
 
 const SAFE_CORRUPT_JSON_MESSAGE = 'auth profile store contains malformed JSON; inspect the file manually before recovery';
 const SAFE_INVALID_SCHEMA_MESSAGE = 'auth profile store does not match the expected profile schema; inspect the file manually before recovery';
-
-export class AuthProfileRecoveryRequiredError extends Error {
-  readonly name = 'AuthProfileRecoveryRequiredError';
-  constructor(readonly details: AuthProfileRecoveryDetails) {
-    super(`Auth profile store ${details.state} at ${details.path}; ordinary write refused. Action required: repair or move aside the auth profile store before retrying. Cause: ${details.causeMessage}`);
-  }
-}
-
-export class AuthProfileConflictError extends Error {
-  readonly name = 'AuthProfileConflictError';
-  constructor(profileName: string) { super(`Auth profile '${profileName}' changed before replacement.`); }
-}
 
 export function authProfilePath(projectRoot: string): string { return join(projectRoot, AUTH_FILE_REL); }
 
@@ -98,34 +85,14 @@ export class AuthProfileRepository {
     return profile ? { profile, revision: authProfileRevision(profile) } : null;
   }
 
-  replaceProfile(name: string, expectedRevision: string | null, profile: AuthProfile): void {
+  replace(file: AuthProfilesFile): void {
     this.health.assertMutationHealthy();
-    const file = this.fileForWrite(this.read());
-    const current = file.profiles[name];
-    const revision = current ? authProfileRevision(current) : null;
-    if (revision !== expectedRevision) throw new AuthProfileConflictError(name);
-    file.profiles[name] = profile;
-    this.replaceFile(file, 'replace auth profile');
-  }
-
-  deleteProfile(name: string, expectedRevision: string): void {
-    this.health.assertMutationHealthy();
-    const file = this.fileForWrite(this.read());
-    const current = file.profiles[name];
-    if (!current || authProfileRevision(current) !== expectedRevision) throw new AuthProfileConflictError(name);
-    delete file.profiles[name];
-    this.replaceFile(file, 'delete auth profile');
-  }
-
-  private replaceFile(file: AuthProfilesFile, operation: string): void {
-    try { durablyReplaceFile(this.filePath, Buffer.from(serializeAuthProfiles(file)), { mode: AUTH_PROFILE_FILE_MODE }); }
-    catch (error) { this.health.reportUncertainFailure({ target: this.filePath, operation, error }); }
-  }
-
-  private fileForWrite(state: AuthProfileReadState): AuthProfilesFile {
-    if (state.state === 'absent') return { version: 1, profiles: {} };
-    if (state.state === 'loaded') return structuredClone(state.file);
-    throw new AuthProfileRecoveryRequiredError({ state: state.state, path: state.path, action: 'refused', causeMessage: state.causeMessage });
+    const parsed = rawAuthProfilesSchema.parse(file);
+    try { durablyReplaceFile(this.filePath, Buffer.from(serializeAuthProfiles(parsed)), { mode: AUTH_PROFILE_FILE_MODE }); }
+    catch (error) {
+      if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: this.filePath, operation: 'replace auth profiles', error });
+      throw error;
+    }
   }
 
   private errorForReadState(state: Exclude<AuthProfileReadState, { state: 'absent' | 'loaded' }>): Error {

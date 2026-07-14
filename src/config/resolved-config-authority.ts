@@ -1,12 +1,11 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import * as YAML from 'yaml';
 
 import { saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js';
-import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../persistence/durable-file-replacement.js';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { validateModelRoles } from './validate-model-roles.js';
 import { PersistenceMutationUnhealthyError, type ApplicationPersistenceHealth } from '../application/persistence-health.js';
+import { ConfigFileStore } from './config-file-store.js';
 
 export type ConfigSelectionSource =
   | { readonly kind: 'cli'; readonly argument: '--config' }
@@ -73,11 +72,13 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
   readonly path: string;
   readonly source: ConfigSelectionSource;
   readonly #interpolationEnvironment: EnvironmentSource;
+  readonly #store: ConfigFileStore;
 
-  constructor(path: string, source: ConfigSelectionSource, interpolationEnvironment: EnvironmentSource, private readonly health: ApplicationPersistenceHealth) {
+  constructor(path: string, source: ConfigSelectionSource, interpolationEnvironment: EnvironmentSource, health: ApplicationPersistenceHealth) {
     this.path = path;
     this.source = Object.freeze(source);
     this.#interpolationEnvironment = Object.freeze({ ...interpolationEnvironment });
+    this.#store = new ConfigFileStore(path, health);
     Object.freeze(this);
   }
 
@@ -113,28 +114,21 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
   }
 
   restabilize(): void {
-    const directory = dirname(this.path);
-    if (existsSync(directory)) cleanupDurableReplacementTemporaries(directory, [basename(this.path)]);
+    this.#store.restabilize();
   }
 
   initializeCanonicalDefaultIfMissing(): void {
-    this.health.assertMutationHealthy();
-    if (existsSync(this.path)) return;
-    mkdirSync(dirname(this.path), { recursive: true });
-    try { durablyReplaceFile(this.path, Buffer.from(CANONICAL_DEFAULT)); }
-    catch (error) { this.health.reportUncertainFailure({ target: this.path, operation: 'initialize configuration', error }); }
+    this.#store.publishIfMissing(Buffer.from(CANONICAL_DEFAULT));
   }
 
   applyChange(mutation: ConfigMutation): ConfigMutationResult {
-    this.health.assertMutationHealthy();
     try {
       const document = this.readDocument();
       const raw = documentObject(document);
       const precondition = this.applyMutation(document, raw, mutation);
       if (precondition) return precondition;
       const effective = this.validateDocument(document);
-      try { durablyReplaceFile(this.path, Buffer.from(document.toString())); }
-      catch (error) { this.health.reportUncertainFailure({ target: this.path, operation: 'replace configuration', error }); }
+      this.#store.replace(Buffer.from(document.toString()));
       return {
         success: true as const,
         config: effective.config,

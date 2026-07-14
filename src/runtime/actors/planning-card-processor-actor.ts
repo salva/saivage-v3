@@ -150,7 +150,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const notifications = this.notificationContext(input, inputId).map((message, index) => {
       const result = appendUserContextMessage(this.conversations, sessionId, inputId, 'notification', index, message);
       this.conversationPublisher?.entryAppended(result);
-      return result.message;
+      return result;
     });
     return {
       inputId,
@@ -207,7 +207,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       toolCallId: outcome.toolCallId,
       toolName: outcome.toolName,
     });
-    this.conversationPublisher?.entryAppended(result.appendResult);
+    this.conversationPublisher?.entryAppended(result);
   }
 
   private reviewerReworkPlannerMessage(cardId: string, summary: string): string {
@@ -283,9 +283,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId, surface, contract),
-      genericContextMessages: [...loaded, descendantContext.message],
-      contextMessages: [...loaded, descendantContext.message],
-      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, descendantContext.message]),
+      genericContextMessages: [...loaded, descendantContext],
+      contextMessages: [...loaded, descendantContext],
+      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, descendantContext]),
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

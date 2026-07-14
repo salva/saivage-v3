@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
-import type { ConversationStore, ConversationAppendResult } from '../../persistence/conversation-store.js';
+import type { ConversationStore } from '../../persistence/conversation-store.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import { saivageCardsRoot } from '../../persistence/layout.js';
 import { parseGrowingFile } from '../../persistence/growing-file.js';
@@ -15,8 +15,6 @@ import {
 } from './conversation-inventory.js';
 
 export { conversationDir } from './conversation-inventory.js';
-
-export type { ConversationAppendResult } from '../../persistence/conversation-store.js';
 
 export function readConversationMessages(projectRoot: string, sessionId: string): AgentMessage[] {
   return readActiveVersionMessages(projectRoot, sessionId);
@@ -33,25 +31,6 @@ export function readActiveVersionMessages(projectRoot: string, sessionId: string
   if (!inventory) return [];
   const path = activeVersionPath(projectRoot, sessionId, inventory.activeVersion);
   return readConversationVersionMessages(path);
-}
-
-export function hasConversationMessageOfKind(projectRoot: string, sessionId: string, messageId: string, expectedKind: AgentMessage['kind']): boolean {
-  const inventory = readConversationInventory(projectRoot, sessionId);
-  if (!inventory) return false;
-
-  let found = false;
-  for (const version of inventory.versions) {
-    const path = activeVersionPath(projectRoot, sessionId, version);
-    if (!existsSync(path)) throw new Error(`Conversation version '${path}' was not found.`);
-    for (const message of readConversationVersionMessages(path)) {
-      if (message.id !== messageId) continue;
-      if (message.kind !== expectedKind) {
-        throw new Error(`Conversation version '${path}' has '${messageId}' with kind '${message.kind}', expected '${expectedKind}'.`);
-      }
-      found = true;
-    }
-  }
-  return found;
 }
 
 export function listConversationSessionIds(projectRoot: string, namespace: ProjectNamespaceReader): string[] {
@@ -71,7 +50,7 @@ export function appendUserContextMessage(
   category: UserContextMessageCategory,
   ordinal: number,
   userContextMessage: ProviderVisibleUserContextMessage,
-): ConversationAppendResult {
+): AgentMessage {
   const content = userContextMessage.content;
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:user:${inputId}:${category}:${ordinal}:${timestamp}:${content}`;
@@ -86,11 +65,11 @@ export function appendUserContextMessage(
     block_index: 0,
     timestamp,
   });
-  const result = conversations.appendBatch([message]);
-  return { message, appended: result.appended };
+  conversations.appendBatch([message]);
+  return message;
 }
 
-export function appendActivationMarker(conversations: ConversationStore, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): ConversationAppendResult {
+export function appendActivationMarker(conversations: ConversationStore, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): AgentMessage {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
   const message = agentMessageSchema.parse({
@@ -104,8 +83,8 @@ export function appendActivationMarker(conversations: ConversationStore, session
     block_index: 0,
     timestamp,
   });
-  const result = conversations.appendBatch([message]);
-  return { message, appended: result.appended };
+  conversations.appendBatch([message]);
+  return message;
 }
 
 export function buildContextTextMessage(sessionId: string, role: Extract<MessageRole, 'user' | 'system'>, content: string): AgentMessage {
@@ -124,10 +103,10 @@ export function buildContextTextMessage(sessionId: string, role: Extract<Message
   });
 }
 
-export function appendCanonicalUserText(conversations: ConversationStore, sessionId: string, content: string): ConversationAppendResult {
+export function appendCanonicalUserText(conversations: ConversationStore, sessionId: string, content: string): AgentMessage {
   const message = buildContextTextMessage(sessionId, 'user', content);
-  const result = conversations.appendBatch([message]);
-  return { message, appended: result.appended };
+  conversations.appendBatch([message]);
+  return message;
 }
 
 export function conversationMessagesForModel(messages: AgentMessage[]): AgentMessage[] {

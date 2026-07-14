@@ -256,7 +256,7 @@ function ensureDirectory(path: string): void {
   publishDirectory(path);
 }
 
-function establishBootstrapDefaults(projectRoot: string): void {
+function establishBootstrapDirectories(projectRoot: string): void {
   const saivagePath = join(projectRoot, '.saivage');
   for (const relative of [
     'cards',
@@ -275,16 +275,6 @@ function establishBootstrapDefaults(projectRoot: string): void {
     'stages',
   ]) ensureDirectory(join(saivagePath, relative));
 
-  const runtimePath = join(saivagePath, 'state', 'runtime.json');
-  cleanupDurableReplacementTemporaries(dirname(runtimePath), ['runtime.json']);
-  if (!existsSync(runtimePath)) {
-    const now = new Date().toISOString();
-    const data = runtimeStateSchema.parse({
-      status: 'stopped', project_id: 'project', pid: process.pid, started_at: now,
-      active_card_run: null, updated_at: now, last_tick_at: null,
-    });
-    durablyReplaceFile(runtimePath, Buffer.from(`${JSON.stringify({ version: 1, data }, null, 2)}\n`));
-  }
 }
 
 function validateBootstrapRootInput(input: NewProjectRootInput): void {
@@ -556,7 +546,7 @@ export function createProjectStoreRepository(input: {
   if (input.mode.kind === 'bootstrap') {
     validateBootstrapRootInput(input.mode.root);
     verifyBootstrapEligibleLayout(projectRoot);
-    establishBootstrapDefaults(projectRoot);
+    establishBootstrapDirectories(projectRoot);
     const cardsPath = join(projectRoot, '.saivage', 'cards');
     const projectNamespace = join(cardsPath, 'project');
     if (existsSync(projectNamespace)) discardIncompleteCardNamespace(cardsPath, 'project');

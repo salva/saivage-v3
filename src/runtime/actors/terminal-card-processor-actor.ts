@@ -134,7 +134,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const notifications = this.notificationContext(input, inputId).map((message, index) => {
       const result = appendUserContextMessage(this.conversations, sessionId, inputId, 'notification', index, message);
       this.conversationPublisher?.entryAppended(result);
-      return result.message;
+      return result;
     });
     return {
       inputId,
@@ -186,7 +186,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       toolCallId: outcome.toolCallId,
       toolName: outcome.toolName,
     });
-    this.conversationPublisher?.entryAppended(result.appendResult);
+    this.conversationPublisher?.entryAppended(result);
   }
 
   protected get processorLabel(): string {

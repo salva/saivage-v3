@@ -1,18 +1,16 @@
 import type { EventBus, EventPayload } from '../../events/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
-import type { ConversationAppendResult } from './conversation-store.js';
 import type { ConversationVersionReplacement } from './conversation-inventory.js';
 
 export interface ConversationChangePublisher {
-  entryAppended(result: ConversationAppendResult): void;
+  entryAppended(message: AgentMessage): void;
   versionReplaced(replacement: ConversationVersionReplacement): void;
 }
 
 export function createConversationChangePublisher(eventBus: Pick<EventBus, 'emit'>): ConversationChangePublisher {
   return {
-    entryAppended(result) {
-      if (!result.appended) return;
-      eventBus.emit('conversation_changed', entryPayload(result.message));
+    entryAppended(message) {
+      eventBus.emit('conversation_changed', entryPayload(message));
     },
     versionReplaced(replacement) {
       eventBus.emit('conversation_changed', {

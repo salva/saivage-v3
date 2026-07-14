@@ -52,10 +52,6 @@ export function activeVersionPath(projectRoot: string, sessionId: string, versio
   return join(conversationDir(projectRoot, sessionId), `${version}.jsonl`);
 }
 
-export function versionExists(projectRoot: string, sessionId: string, version: number): boolean {
-  return existsSync(activeVersionPath(projectRoot, sessionId, version));
-}
-
 export function readConversationInventory(projectRoot: string, sessionId: string): ConversationInventory | null {
   const directory = conversationDir(projectRoot, sessionId);
   if (!existsSync(directory)) return null;

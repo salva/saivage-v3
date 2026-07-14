@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, rmdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -21,22 +20,13 @@ import {
 import { listConversationSessionIds, readConversationVersionMessages } from '../runtime/actors/conversation-store.js';
 import { summaryCacheEntrySchema, summaryCachePath, type SummaryCacheEntry } from '../runtime/actors/compaction/summary-cache.js';
 
-export type ConversationAppendResult = { message: AgentMessage; appended: boolean };
-export type ConversationBatchAppendResult = { messages: AgentMessage[]; appended: boolean };
-
-export interface ConversationCompactionCommit {
+export interface ConversationCompactionSnapshot {
   sessionId: string;
-  sourceVersion: number;
-  sourceDigest: string;
-  content: string;
+  messages: readonly AgentMessage[];
   compactedThrough: { message_id: string; round_id: string; timestamp: string };
   summaryIds: string[];
   compactionGeneration: number;
   bands: { merge_line: number; summary_line: number; trigger: number; snap: 'keep_straddler_verbatim' | 'compact_straddler' };
-}
-
-export function conversationContentDigest(content: string): string {
-  return createHash('sha256').update(content).digest('hex');
 }
 
 export class ConversationStore {
@@ -65,7 +55,7 @@ export class ConversationStore {
     this.#loaded = true;
   }
 
-  appendBatch(messages: readonly AgentMessage[]): ConversationBatchAppendResult {
+  appendBatch(messages: readonly AgentMessage[]): void {
     this.health.assertMutationHealthy();
     if (!this.#loaded) throw new Error('Conversations have not been loaded.');
     if (messages.length === 0) throw new Error('Conversation appendBatch requires at least one message.');
@@ -74,7 +64,6 @@ export class ConversationStore {
     if (parsed.some((message) => message.session_id !== sessionId)) throw new Error('Conversation appendBatch requires one session.');
     if (new Set(parsed.map((message) => message.id)).size !== parsed.length) throw new Error('Conversation appendBatch contains duplicate message ids.');
 
-    let outcome: ConversationBatchAppendResult;
     try {
       const parsedSession = parseConversationSessionId(sessionId);
       if (parsedSession.cardId !== null && !this.namespace.isActiveCardId(parsedSession.cardId)) throw new Error(`Card '${parsedSession.cardId}' not found.`);
@@ -88,7 +77,6 @@ export class ConversationStore {
         this.#inventories.set(sessionId, Object.freeze({ sessionId, versions: Object.freeze([1]), activeVersion: 1 }));
         this.#activeMessageIds.set(sessionId, new Set(parsed.map((message) => message.id)));
         this.#summaryKeys.set(sessionId, new Set());
-        outcome = { messages: parsed, appended: true };
       } else {
         const activePath = activeVersionPath(this.projectRoot, sessionId, inventory.activeVersion);
         const ids = this.#activeMessageIds.get(sessionId)!;
@@ -96,31 +84,30 @@ export class ConversationStore {
         if (duplicate) throw new Error(`Conversation message '${duplicate.id}' already exists in active version ${inventory.activeVersion}.`);
         appendEnvelope(activePath, serializeGrowingEnvelope(parsed, agentMessageSchema), this.health, 'append conversation envelope');
         for (const message of parsed) ids.add(message.id);
-        outcome = { messages: parsed, appended: true };
       }
     } catch (error) {
       if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: conversationDir(this.projectRoot, sessionId), operation: 'append conversation batch', error });
       throw error;
     }
-    if (outcome.appended) {
-      this.changes.conversationChanged(sessionId);
-      this.changes.agentsChanged();
-    }
-    return outcome;
+    this.changes.conversationChanged(sessionId);
+    this.changes.agentsChanged();
   }
 
-  publishCompactedVersion(args: ConversationCompactionCommit): ConversationVersionReplacement {
+  activeVersionMessages(sessionId: string): Readonly<{ version: number; messages: readonly AgentMessage[] }> {
+    if (!this.#loaded) throw new Error('Conversations have not been loaded.');
+    const inventory = this.#inventories.get(sessionId);
+    if (!inventory) throw new Error(`Conversation '${sessionId}' does not exist.`);
+    return Object.freeze({ version: inventory.activeVersion, messages: Object.freeze(readConversationVersionMessages(activeVersionPath(this.projectRoot, sessionId, inventory.activeVersion))) });
+  }
+
+  publishCompactedVersion(args: ConversationCompactionSnapshot): ConversationVersionReplacement {
     this.health.assertMutationHealthy();
     const parsedSession = parseConversationSessionId(args.sessionId);
     if (parsedSession.cardId !== null && !this.namespace.isActiveCardId(parsedSession.cardId)) throw new Error(`Card '${parsedSession.cardId}' not found.`);
     if (!this.#loaded) throw new Error('Conversations have not been loaded.');
     const inventory = this.#inventories.get(args.sessionId);
     if (!inventory) throw new Error(`Conversation '${args.sessionId}' does not exist.`);
-    if (inventory.activeVersion !== args.sourceVersion) throw new Error(`Conversation '${args.sessionId}' active version changed from ${args.sourceVersion} to ${inventory.activeVersion} during compaction.`);
-    const sourcePath = activeVersionPath(this.projectRoot, args.sessionId, args.sourceVersion);
-    const sourceContent = readStrictConversationContent(sourcePath);
-    if (conversationContentDigest(sourceContent) !== args.sourceDigest) throw new Error(`Conversation '${args.sessionId}' changed during compaction.`);
-    const messages = args.content.split('\n').filter(Boolean).map((line) => agentMessageSchema.parse(JSON.parse(line)));
+    const messages = args.messages.map((message) => agentMessageSchema.parse(message));
     if (messages.length === 0) throw new Error('Compacted conversation version must contain at least one message.');
     if (new Set(messages.map((message) => message.id)).size !== messages.length) throw new Error('Compacted conversation version contains duplicate message ids.');
 
@@ -192,13 +179,6 @@ export class ConversationStore {
     this.#summaryKeys.set(sessionId, keys);
     return inventory;
   }
-}
-
-function readStrictConversationContent(path: string): string {
-  if (!existsSync(path)) throw new Error(`Conversation version '${path}' was not found.`);
-  const content = readFileSync(path, 'utf8');
-  parseGrowingFile(path, content, agentMessageSchema);
-  return content;
 }
 
 function readSummaryCacheStrict(path: string): SummaryCacheEntry[] {

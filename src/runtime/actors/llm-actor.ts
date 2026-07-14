@@ -6,7 +6,7 @@ import { genericContextMessagesForInvocation, type LlmInvocationInput } from './
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import type { ActorSnapshotStore } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
-import { appendUserContextMessage, hasConversationMessageOfKind, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
+import { appendUserContextMessage, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
 import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
@@ -135,7 +135,7 @@ export class ConversationLLMActor extends BaseActor {
       tool_name: waiting.toolName,
       result,
     });
-    this.conversationPublisher?.entryAppended(delivery.appendResult);
+    this.conversationPublisher?.entryAppended(delivery.message);
     const contextMessages = this.continuationContextMessages(input, waiting, delivery, continuationContextHook);
     this.input = {
       ...input,
@@ -163,7 +163,7 @@ export class ConversationLLMActor extends BaseActor {
       tool_name: waiting.toolName,
       result,
     });
-    this.conversationPublisher?.entryAppended(delivery.appendResult);
+    this.conversationPublisher?.entryAppended(delivery.message);
     this.input = null;
     this.outcome = null;
     this.waitingToolCall = null;
@@ -183,11 +183,11 @@ export class ConversationLLMActor extends BaseActor {
     const input = this.requireInput();
     const repairInputId = this.nextDeliveryInputId(input.inputId);
     const repairMessage = appendModelRepairMessage(this.conversations, { ...input, inputId: repairInputId }, repairDirective);
-    this.conversationPublisher?.entryAppended(repairMessage.appendResult);
+    this.conversationPublisher?.entryAppended(repairMessage);
     const extraMessages = (continuationContextHook?.(repairInputId) ?? []).map((message, index) => {
       const result = appendUserContextMessage(this.conversations, input.sessionId, repairInputId, 'continuation_hook', index, message);
       this.conversationPublisher?.entryAppended(result);
-      return result.message;
+      return result;
     });
     return this.startProviderTurn({
       ...input,
@@ -225,10 +225,6 @@ export class ConversationLLMActor extends BaseActor {
         const invocationSignal = this.#invocations.signal(invocation);
         this.#currentInvocationSignal = invocationSignal;
         const persisted = await this.#invocations.runExternal(invocation, async (exactSignal) => {
-          if (!this.#systemPromptLoggedSessionIds.has(input.sessionId)
-            && hasConversationMessageOfKind(this.projectRoot, input.sessionId, `${this.agentId}:system-prompt`, 'system_prompt')) {
-            this.#systemPromptLoggedSessionIds.add(input.sessionId);
-          }
           const hookInput = await this.onBeforeProviderCall(input, exactSignal);
           this.#invocations.assertCurrent(invocation);
           const effectiveInput = hookInput ?? input;
@@ -310,7 +306,7 @@ export class ConversationLLMActor extends BaseActor {
     const { input, completion } = persisted;
     const result = completion.result;
     if (persisted.kind === 'message' && result.kind === 'message') {
-      this.conversationPublisher?.entryAppended(persisted.appended.appendResult);
+      this.conversationPublisher?.entryAppended(persisted.appended);
       const activeRows = readActiveVersionMessages(this.projectRoot, input.sessionId);
       this.input = { ...input, genericContextMessages: conversationMessagesForModel(activeRows), contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }], activeConversationReplay: buildResponsesReplayProjection(input.sessionId, activeRows) };
       this.outcome = { type: 'result', agentId: this.agentId, result };
@@ -323,13 +319,13 @@ export class ConversationLLMActor extends BaseActor {
       return;
     }
     if (persisted.kind === 'invalid_tool_calls') {
-      this.conversationPublisher?.entryAppended(persisted.appended.appendResult);
+      this.conversationPublisher?.entryAppended(persisted.appended);
       this.settleWithError(persisted.error);
       return;
     }
     if (result.kind !== 'tool_calls') throw new Error('Persisted provider completion kind changed before delivery.');
     const [call] = result.tool_calls;
-    this.conversationPublisher?.entryAppended(persisted.appended.appendResult);
+    this.conversationPublisher?.entryAppended(persisted.appended);
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
     this.onTurnStateUpdated({ input, waitingToolCall: this.waitingToolCall });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
@@ -341,7 +337,7 @@ export class ConversationLLMActor extends BaseActor {
   }
 
   private completeWithError(input: LlmInvocationInput, error: string): void {
-    this.conversationPublisher?.entryAppended(appendLlmTurnError(this.conversations, input, error).appendResult);
+    this.conversationPublisher?.entryAppended(appendLlmTurnError(this.conversations, input, error));
     this.settleWithError(error);
   }
 
@@ -350,7 +346,7 @@ export class ConversationLLMActor extends BaseActor {
     if (error.failure_phase === 'provider_attempt' && error.provider_exchanges.length === 0) throw new Error(`Provider attempt for '${input.inputId}' failed without provider_exchange envelope.`);
     const message = error.originalFailure instanceof Error ? error.originalFailure.message : error.message;
     const appended = appendLlmTurnError(this.conversations, input, message);
-    this.conversationPublisher?.entryAppended(appended.appendResult);
+    this.conversationPublisher?.entryAppended(appended);
     this.projectProviderExchanges(input, error.provider_exchanges, [appended.id]);
     this.settleWithError(message);
   }
@@ -465,7 +461,7 @@ export class ConversationLLMActor extends BaseActor {
     const extraMessages = (continuationContextHook?.(delivery.delivery_input_id) ?? []).map((message, index) => {
       const result = appendUserContextMessage(this.conversations, input.sessionId, delivery.delivery_input_id, 'continuation_hook', index, message);
       this.conversationPublisher?.entryAppended(result);
-      return result.message;
+      return result;
     });
     return [...genericContextMessagesForInvocation(input), toolCallMessage, toolResultAgentMessage(delivery), ...extraMessages];
   }

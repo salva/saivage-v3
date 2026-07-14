@@ -491,7 +491,7 @@ export class AnalystSessionActor extends BaseActor {
   private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations, input?: LlmInvocationInput): AnalystResponse {
     if (input) {
       const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, this.errorMessage(err));
-      this.llm.conversationPublisher?.entryAppended(message.appendResult);
+      this.llm.conversationPublisher?.entryAppended(message);
     }
     return this.response(toolInvocations);
   }
@@ -504,7 +504,7 @@ export class AnalystSessionActor extends BaseActor {
     const input = this.llm.input;
     if (!input) return;
     const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, content);
-    this.llm.conversationPublisher?.entryAppended(message.appendResult);
+    this.llm.conversationPublisher?.entryAppended(message);
   }
 
   private buildProjectContext(): string {

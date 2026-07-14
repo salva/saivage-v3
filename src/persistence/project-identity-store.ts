@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { projectConfigSchema, type ProjectConfig } from '../schemas/index.js';
 import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import { durablyReplaceFile } from './durable-file-replacement.js';
+import { IndeterminatePublicationError } from './errors.js';
 
 const projectIdentitySchema = projectConfigSchema.strict();
 
@@ -54,7 +55,10 @@ export class ProjectIdentityStore {
     }, this.#path);
     mkdirSync(dirname(this.#path), { recursive: true });
     try { durablyReplaceFile(this.#path, Buffer.from(`${JSON.stringify(project, null, 2)}\n`)); }
-    catch (error) { this.health.reportUncertainFailure({ target: this.#path, operation: 'create project identity', error }); }
+    catch (error) {
+      if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: this.#path, operation: 'create project identity', error });
+      throw error;
+    }
     return project;
   }
 }

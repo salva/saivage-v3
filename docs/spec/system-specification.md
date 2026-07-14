@@ -410,11 +410,15 @@ App log, provider availability, conversation versions, and summary caches share 
 
 Active conversation versions must not contain duplicate durable rows for the same logical message id. Rows introduced through provider-turn `turnMessages` are appended once, then consumed before tool-result, repair, or continuation-hook provider calls append only their new rows.
 
+Conversation append methods return no persisted/replayed flag: a successful call appended its strict batch, while any duplicate id fails. Provider-turn system-prompt rows use turn-scoped identities; the runtime does not scan frozen versions to reinterpret a duplicate retry as success. Compaction captures its intended active version before asynchronous summarization, freshly compares the current active version and rows in the application owner after the await, and passes final compacted rows to storage. Storage validates and publishes exactly the next non-empty version but performs no source CAS, digest reconciliation, retry replay, or historical duplicate scan.
+
 On each idle-path activation, the agent loads the complete active persisted conversation version from disk into provider context, appends a non-provider-visible activation marker, persists any current turn runtime-provided provider context rows such as notifications, reviewer context, or continuation directives, and then calls the provider with that loaded thread plus the newly persisted rows. During the turn, in-memory provider context and transcript persistence grow in lockstep. Recovery branches for in-flight provider calls or waiting tool calls do not construct a fresh input.
 
 One runtime activation of a card agent is one conversation round. Compaction operates on the card-lifetime thread across these activation rounds. The only content removal anywhere is compaction-time removal of recoverable `tool_result` bodies; compaction keeps the recovery pointer so the model can re-fetch the content with `read`.
 
 ## 21. Configuration
+
+Configuration and auth-profile semantic preconditions belong to their application owners. The config owner reads and validates the proposed complete YAML document before handing final bytes to the one config store. Provider refresh compares the current auth-profile revision after network preparation, constructs the complete final profile document, and hands it to the one auth-profile repository. Storage validates complete payload shape and performs one replacement; it does not accept expected revisions, mutation callbacks, or retry/idempotency instructions.
 
 The Analyst can reconfigure:
 

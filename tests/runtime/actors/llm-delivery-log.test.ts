@@ -1,6 +1,6 @@
 import { CardStore, initProjectTree } from '../../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
-import { appendTestConversationMessage as appendConversationMessage, testConversationMutations, writeTestCompactedConversationVersion as writeCompactedConversationVersion } from '../../helpers/conversation-mutations.js';
+import { appendTestConversationMessage as appendConversationMessage, testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -75,7 +75,7 @@ describe('llm delivery log recovery helpers', () => {
     const conversations = testConversationMutations(projectRoot);
     const turn = input('planner:card-1:responses');
     const privateContext = { kind: 'openai_responses' as const, source_input_id: turn.inputId, provider: 'openai', model: 'gpt-5.6', output: [{ type: 'reasoning', encrypted_content: 'opaque' }] };
-    expect(appendLlmTurnMessageBatch(conversations, turn, 'visible', privateContext).appendResult.appended).toBe(true);
+    expect(appendLlmTurnMessageBatch(conversations, turn, 'visible', privateContext)).toMatchObject({ kind: 'text', content: 'visible' });
     expect(() => appendLlmTurnMessageBatch(conversations, turn, 'visible', privateContext)).toThrow(/already exists/);
     expect(readConversationMessages(projectRoot, turn.sessionId).map((row) => row.kind)).toEqual(['provider_private', 'text']);
   }));
@@ -178,11 +178,9 @@ describe('llm delivery log recovery helpers', () => {
   it('ignores inactive-version tool calls after compaction when abandoning stale calls', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-frozen', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
     const compacted = buildContextTextMessage('planner:card-1', 'user', 'compacted context');
-    writeCompactedConversationVersion({
-      projectRoot,
+    testConversationMutations(projectRoot).publishCompactedVersion({
       sessionId: 'planner:card-1',
-      sourceVersion: 1,
-      content: `${JSON.stringify(compacted)}\n`,
+      messages: [compacted],
       compactedThrough: { message_id: 'summary', round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', timestamp: new Date().toISOString() },
       summaryIds: [],
       compactionGeneration: 1,

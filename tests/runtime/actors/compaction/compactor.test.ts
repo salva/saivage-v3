@@ -70,7 +70,7 @@ describe('conversation compactor orchestration', () => {
     const { rows } = await compact({ projectRoot, conversations, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80), signal: new AbortController().signal });
 
     expect(publishCompactedVersion).toHaveBeenCalledTimes(1);
-    expect(Object.keys(publishCompactedVersion.mock.calls[0]![0])).toEqual(['sessionId', 'sourceVersion', 'sourceDigest', 'content', 'compactedThrough', 'summaryIds', 'compactionGeneration', 'bands']);
+    expect(Object.keys(publishCompactedVersion.mock.calls[0]![0])).toEqual(['sessionId', 'messages', 'compactedThrough', 'summaryIds', 'compactionGeneration', 'bands']);
     expect(rows.every((row) => row.kind !== 'activity')).toBe(true);
     const summaries = rows.filter((row) => row.kind === 'context_compaction');
     expect(summaries.length).toBeGreaterThan(0);
@@ -78,6 +78,26 @@ describe('conversation compactor orchestration', () => {
     expect(summaries[0]?.content).toContain('[Compacted prior conversation — generation 1]');
     expect(summaries[0]?.content).toContain('## Recoverable evidence');
     expect(readConversationInventory(projectRoot, 'planner:project')?.activeVersion).toBe(2);
+  }));
+
+  it('rechecks the source in the application owner after asynchronous summarization', async () => withTempProject(async (projectRoot) => {
+    appendRound(projectRoot, 1, 'old round ' + 'a'.repeat(100));
+    appendRound(projectRoot, 2, 'middle round ' + 'b'.repeat(100));
+    appendRound(projectRoot, 3, 'recent round ' + 'c'.repeat(100));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const completeTurn = jest.fn(async () => { await gate; return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }; });
+    const provider: LLMProviderPort = { completeTurn };
+    const conversations = testConversationMutations(projectRoot);
+    const publication = jest.spyOn(conversations, 'publishCompactedVersion');
+    const bufferSizeEstimator = { estimate: (candidate: LlmInvocationInput) => ({ estimatedTokens: candidate.contextMessages.some((message) => typeof message === 'object' && message !== null && 'kind' in message && message.kind === 'context_compaction') ? 1 : 100, bufferTokens: 100 }) };
+    const pending = compact({ projectRoot, conversations, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator, signal: new AbortController().signal });
+    while (completeTurn.mock.calls.length === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+    appendConversationMessage(projectRoot, { id: 'concurrent-message', session_id: 'planner:project', role: 'user', kind: 'text', content: 'changed', round_id: 'r-user-99999999999999999999999999999999', message_index: 1, block_index: 0, timestamp: new Date().toISOString() });
+    release();
+
+    await expect(pending).rejects.toThrow(/changed during compaction/);
+    expect(publication).not.toHaveBeenCalled();
   }));
 
   it('re-compacts by replacing prior summary rows and rebuilding merge input from cache', async () => withTempProject(async (projectRoot) => {

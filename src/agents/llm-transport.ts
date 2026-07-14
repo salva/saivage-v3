@@ -7,6 +7,7 @@ import {
   isProfileExpired,
 } from '../auth/index.js';
 import { authProfileRevision, type AuthProfileRepository } from '../auth/auth-profile-store.js';
+import { replaceRefreshedAuthProfile } from '../auth/auth-profile-service.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -121,7 +122,7 @@ async function refreshOpenAICodexProfile(
   } catch {
     return null;
   }
-  authProfiles.replaceProfile(profileName, authProfileRevision(profile), refreshed);
+  replaceRefreshedAuthProfile(authProfiles, profileName, authProfileRevision(profile), refreshed);
   return refreshed;
 }
 
@@ -157,6 +158,6 @@ async function refreshGitHubCopilotProfile(
   } catch {
     return null;
   }
-  authProfiles.replaceProfile(profileName, authProfileRevision(profile), refreshed);
+  replaceRefreshedAuthProfile(authProfiles, profileName, authProfileRevision(profile), refreshed);
   return refreshed;
 }

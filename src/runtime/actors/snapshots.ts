@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { saivageCardsRoot } from '../../persistence/layout.js';
 import { cleanupDurableReplacementTemporaries, durableReplacementTemporaryTargetBasename, durablyReplaceFile } from '../../persistence/durable-file-replacement.js';
+import { IndeterminatePublicationError } from '../../persistence/errors.js';
 import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
 import { actorKindFromId, parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
 import { actorKindSchema } from '../../schemas/actor-vocabulary.js';
@@ -115,7 +116,10 @@ export class ActorSnapshotStore {
       updated_at: new Date().toISOString(),
     };
     try { writeSnapshotFile(path, saved); }
-    catch (error) { this.health.reportUncertainFailure({ target: path, operation: 'append actor notification', error }); }
+    catch (error) {
+      if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: path, operation: 'append actor notification', error });
+      throw error;
+    }
     this.changes.runtimeChanged();
     return saved;
   }
@@ -126,8 +130,7 @@ export class ActorSnapshotStore {
     assertActiveActorCard(actorId, this.namespace);
     const path = actorSnapshotPath(this.projectRoot, actorId);
     if (!existsSync(path)) return false;
-    try { unlinkSync(path); }
-    catch (error) { this.health.reportUncertainFailure({ target: path, operation: 'remove actor snapshot', error }); }
+    unlinkSync(path);
     const removed = true;
     if (removed) this.publish(kind, actorId);
     return removed;
@@ -138,7 +141,10 @@ export class ActorSnapshotStore {
     assertActiveActorCard(snapshot.actor_id, this.namespace);
     const path = actorSnapshotPath(this.projectRoot, snapshot.actor_id);
     try { writeSnapshotFile(path, snapshot); }
-    catch (error) { this.health.reportUncertainFailure({ target: path, operation: 'save actor snapshot', error }); }
+    catch (error) {
+      if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: path, operation: 'save actor snapshot', error });
+      throw error;
+    }
     return snapshot;
   }
 

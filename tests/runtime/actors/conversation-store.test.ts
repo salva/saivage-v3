@@ -3,7 +3,7 @@ import { appendTestConversationMessage as appendConversationMessage, testConvers
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, conversationDir, conversationMessagesForModel, hasConversationMessageOfKind, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import { appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, conversationDir, conversationMessagesForModel, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
 import { activeVersionPath, parseConversationSessionId, readConversationInventory } from '../../../src/runtime/actors/conversation-inventory.js';
 import { codexMessages } from '../../../src/agents/llm-openai-codex-gateway.js';
 import { buildOpenAIChatRequest } from '../../../src/agents/llm-openai-chat-gateway.js';
@@ -31,36 +31,6 @@ function makeMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
 const envelope = (...rows: AgentMessage[]) => `${JSON.stringify({ version: 1, type: 'rows', rows })}\n`;
 
 describe('conversation-store', () => {
-  it('reads exact prompt identity across strict numeric versions without mutating them', () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
-    const sessionId = 'planner:project';
-    const dir = conversationDir(root, sessionId);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, '1.jsonl'), envelope(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })));
-    writeFileSync(join(dir, '2.jsonl'), envelope(makeMessage({ id: 'active', session_id: sessionId })));
-    const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
-    const before = snapshot();
-
-    expect(hasConversationMessageOfKind(root, sessionId, 'planner:project:system-prompt', 'system_prompt')).toBe(true);
-
-    expect(snapshot()).toEqual(before);
-  });
-
-  it('rejects a wrong-kind exact prompt identity without mutating version history', () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
-    const sessionId = 'planner:project';
-    const dir = conversationDir(root, sessionId);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, '1.jsonl'), envelope(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })));
-    writeFileSync(join(dir, '2.jsonl'), envelope(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, kind: 'text' })));
-    const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
-    const before = snapshot();
-
-    expect(() => hasConversationMessageOfKind(root, sessionId, 'planner:project:system-prompt', 'system_prompt')).toThrow(/expected 'system_prompt'/);
-
-    expect(snapshot()).toEqual(before);
-  });
-
   it('persists identical user context content with unique ids', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
 
@@ -68,7 +38,7 @@ describe('conversation-store', () => {
     const second = appendUserContextMessage(testConversationMutations(root), 'planner:project', 'input-1', 'notification', 1, { role: 'user', content: 'same content' });
     const messages = readConversationMessages(root, 'planner:project');
 
-    expect(first.message.id).not.toBe(second.message.id);
+    expect(first.id).not.toBe(second.id);
     expect(messages.filter((message) => message.content === 'same content')).toHaveLength(2);
     expect(new Set(messages.map((message) => message.id)).size).toBe(2);
   });
@@ -77,7 +47,7 @@ describe('conversation-store', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     const message = makeMessage({ id: 'same-id', session_id: 'analyst:global' });
 
-    expect(appendConversationMessage(root, message)).toMatchObject({ message, appended: true });
+    expect(appendConversationMessage(root, message)).toEqual(message);
     expect(() => appendConversationMessage(root, message)).toThrow(/already exists/);
     expect(readConversationMessages(root, 'analyst:global').map((row) => row.id)).toEqual(['same-id']);
   });

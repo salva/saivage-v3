@@ -57,6 +57,9 @@ async function handleInit(options: CliOptions): Promise<void> {
     if (composition.projectIdentity.read() === null) composition.createAndBindProjectIdentity();
     const mode = classifyPersistenceOpenMode(canonicalProjectRoot, newProjectRootInput(canonicalProjectRoot));
     createProjectStoreRepository({ projectRoot: canonicalProjectRoot, persistenceHealth: composition.persistenceHealth, mode });
+    const runtimeState = new RuntimeStateStore(canonicalProjectRoot, composition.persistenceHealth);
+    runtimeState.restabilize();
+    runtimeState.initialize();
     console.log(`Project initialized at ${canonicalProjectRoot}`);
   });
 }
@@ -113,6 +116,9 @@ async function handleReset(): Promise<void> {
     for (const target of obsoleteRoots) removeIfPresent(target);
     for (const target of externalGeneratedRoots) removeIfPresent(target);
     createProjectStoreRepository({ projectRoot: canonicalProjectRoot, persistenceHealth: composition.persistenceHealth, mode: { kind: 'bootstrap', root: newProjectRootInput(canonicalProjectRoot) } });
+    const runtimeState = new RuntimeStateStore(canonicalProjectRoot, composition.persistenceHealth);
+    runtimeState.restabilize();
+    runtimeState.initialize();
     console.log('Project reset and reinitialized with an empty current layout and root project card. Durable credentials, config, prompt overrides, skills, instructions, and source/docs were preserved.');
   });
 }

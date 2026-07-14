@@ -1,13 +1,11 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { agentMessageSchema, type AgentMessage } from '../../../schemas/index.js';
 import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import { genericContextMessagesForInvocation } from '../llm-invocation.js';
-import { conversationMessagesForModel, readActiveVersionMessages } from '../conversation-store.js';
-import { activeVersionPath, readConversationInventory } from '../conversation-inventory.js';
+import { conversationMessagesForModel } from '../conversation-store.js';
 import type { ConversationVersionReplacement } from '../conversation-inventory.js';
-import { conversationContentDigest, type ConversationStore } from '../../../persistence/conversation-store.js';
+import type { ConversationStore } from '../../../persistence/conversation-store.js';
 import { computeCompactionBands, type BandConfig, type SnapPolicy } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedRound } from './round-classifier.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors, type RecoverableEvidenceDescriptor } from './result-dropping.js';
@@ -54,11 +52,10 @@ export async function compact(args: {
   if (!args.config.enabled) throw new Error('Compaction was invoked while disabled.');
   if (!args.config.summarizer_model || args.config.summarizer_model.trim().length === 0) throw new Error('Compaction is enabled but compaction.summarizer_model is unset.');
 
-  const inventory = readConversationInventory(args.projectRoot, args.sessionId);
-  if (!inventory) throw new Error(`Conversation '${args.sessionId}' does not exist.`);
-  const sourceDigest = conversationContentDigest(readFileSync(activeVersionPath(args.projectRoot, args.sessionId, inventory.activeVersion), 'utf8'));
-  const generation = inventory.activeVersion;
-  const activeRows = readActiveVersionMessages(args.projectRoot, args.sessionId);
+  const source = args.conversations.activeVersionMessages(args.sessionId);
+  const generation = source.version;
+  const activeRows = [...source.messages];
+  const sourceFingerprint = conversationFingerprint(source.messages);
   const measured = args.bufferSizeEstimator.estimate(args.input);
   const pass = await buildCompactedRows({ ...args, activeRows, bufferTokens: measured.bufferTokens, generation, mergeLine: args.config.merge_line_fraction, summaryLine: args.config.summary_line_fraction, snap: args.config.snap });
   args.signal.throwIfAborted();
@@ -81,20 +78,25 @@ export async function compact(args: {
     }
   }
 
-  const content = rows.map((row) => JSON.stringify(agentMessageSchema.parse(row))).join('\n') + (rows.length === 0 ? '' : '\n');
   args.signal.throwIfAborted();
   const compactedThrough = compactedThroughFor(rows, activeRows);
+  const current = args.conversations.activeVersionMessages(args.sessionId);
+  if (current.version !== source.version || conversationFingerprint(current.messages) !== sourceFingerprint) {
+    throw new Error(`Conversation '${args.sessionId}' changed during compaction.`);
+  }
   const versionReplacement = args.conversations.publishCompactedVersion({
     sessionId: args.sessionId,
-    sourceVersion: inventory.activeVersion,
-    sourceDigest,
-    content,
+    messages: rows,
     compactedThrough,
     summaryIds,
     compactionGeneration: generation,
     bands,
   });
   return { rows: conversationMessagesForModel(rows), versionReplacement };
+}
+
+function conversationFingerprint(messages: readonly AgentMessage[]): string {
+  return createHash('sha256').update(JSON.stringify(messages.map((message) => agentMessageSchema.parse(message)))).digest('hex');
 }
 
 async function buildCompactedRows(args: {

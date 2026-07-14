@@ -33,7 +33,7 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
     mkdirSync(directory, { recursive: true });
     cleanupDurableReplacementTemporaries(directory, [basename(this.jsonlPath)]);
     if (existsSync(this.jsonlPath)) discardIncompleteJsonlTail(this.jsonlPath);
-    this.replay();
+    this.loadProjection();
     this.#published = existsSync(this.jsonlPath);
     this.#loaded = true;
   }
@@ -74,7 +74,7 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
     this.#published = true;
   }
 
-  private replay(): void {
+  private loadProjection(): void {
     this.#entries.clear();
     if (!existsSync(this.jsonlPath)) {
       return;
@@ -86,5 +86,4 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
   }
 }
 
-export { MemoryCandidateAvailability as MemoryCandidateAvailabilityStore } from './candidate-availability.js';
 export type { AvailabilityDecision };
