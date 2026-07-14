@@ -6,7 +6,6 @@ import { PassThrough, Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import * as YAML from 'yaml';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
-import { issueCompositionMutationAuthority } from '../../src/application/mutation-authority.js';
 import { ManagedProcessGroupRegistry, type ManagedProcessPlatform } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testConfigAuthority } from '../helpers/canonical-project.js';
@@ -200,7 +199,7 @@ describe('persisted MCP reconciliation', () => {
       init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
     })) as typeof fetch;
 
-    const invocation = manager.invokeTool(issueCompositionMutationAuthority(), 'one', 'ping', {});
+    const invocation = manager.invokeTool('one', 'ping', {});
     writeConfig(root, {});
     const report = await manager.reconcilePersistedConfig();
 

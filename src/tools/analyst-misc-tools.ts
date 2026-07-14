@@ -14,7 +14,7 @@ const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
 
 export async function queue_notification(ctx: ToolContext, params: { recipient: string; kind: string; body: string }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, { recipient: params.recipient, kind: params.kind }, { action: 'notification.queue', safety_class: 'low', target_kind: 'session', getTargetId: () => params.recipient, run: async () => {
+  return runAuditedAnalystTool(ctx, { recipient: params.recipient, kind: params.kind }, { action: 'notification.queue', safety_class: 'low', target_kind: 'session', getTargetId: () => params.recipient, lifecycle: 'intervention_ready', recheck: () => ({ allowed: true }), commit: () => {
     const resolved = resolveRecipient(ctx.projectRoot, ctx.store, params.recipient);
     if (resolved === null) return toolFailure(`Unknown notification recipient '${params.recipient}'.`, { reason: 'unknown_recipient', recipient: params.recipient });
     const queued = queueNotification(ctx.projectRoot, resolved, params.kind, params.body, { actor: 'analyst', surface: ctx.surface }, ctx.store, ctx.runtime?.notifyCard);
@@ -43,8 +43,11 @@ export async function show_config(ctx: ToolContext, _params: Record<string, neve
 type ReconfigureParams = { action: 'set_role_routing' | 'set_failover_chain' | 'mcp_add' | 'mcp_edit' | 'mcp_remove' | 'set_runtime_setting' | 'set_server_setting'; role?: string; model_candidate?: string; for_model?: string; ordered_failover_models?: string[]; name?: string; command?: string; args?: string[]; env?: Record<string, string>; key?: string; value?: unknown };
 
 export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): Promise<ToolResult> {
+  if (params.action === 'mcp_add' || params.action === 'mcp_edit' || params.action === 'mcp_remove') {
+    return toolFailure('MCP desired-config mutation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
+  }
   const actionName = `reconfigure.${params.action.replace(/^set_/, 'set_')}`;
-  return runAuditedAnalystTool(ctx, params as ReconfigureParams & Record<string, unknown>, { action: actionName, safety_class: 'low', target_kind: 'config', getTargetId: () => params.name ?? params.role ?? params.key ?? params.action, run: async () => {
+  return runAuditedAnalystTool(ctx, params as ReconfigureParams & Record<string, unknown>, { action: actionName, safety_class: 'low', target_kind: 'config', getTargetId: () => params.name ?? params.role ?? params.key ?? params.action, lifecycle: 'intervention_ready', recheck: () => ({ allowed: true }), commit: () => {
     const invalid = (fieldPath: string, detail: string): ToolResult => toolFailure(detail, { reason: 'invalid_argument', fieldPath, detail });
     let mutation: ConfigMutation;
     switch (params.action) {
@@ -57,16 +60,8 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
       case 'set_server_setting': mutation = { kind: 'set_server_setting', key: params.key!, value: params.value }; break;
       default: return invalid('action', 'Unknown reconfigure action.');
     }
-    const mcpMutation = params.action === 'mcp_add' || params.action === 'mcp_edit' || params.action === 'mcp_remove';
-    if (mcpMutation) return toolFailure('MCP desired-config mutation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
-    let result;
-    try { result = ctx.configAuthority.mutate(ctx.mutationAuthority(), mutation); }
-    catch (error) {
-      if (mcpMutation) return toolFailure('MCP desired state was not persisted.', { persisted: false, reconciled: false });
-      throw error;
-    }
+    const result = ctx.configAuthority.applyChange(mutation);
     if (!result.success) {
-      if (mcpMutation) return toolFailure(result.message, { persisted: false, reconciled: false, reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message });
       return invalid(result.fieldPath, result.message);
     }
     if (params.action === 'set_server_setting' && result.requires_restart) return { success: true, data: { applied: true, requires_restart: true, key: params.key } };
@@ -75,9 +70,7 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
 }
 
 export async function mcp_reconcile(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, {}, { action: 'mcp.reconcile', safety_class: 'low', target_kind: 'config', getTargetId: () => 'mcp', run: async () => {
-    return toolFailure('MCP reconciliation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
-  } });
+  return toolFailure('MCP reconciliation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
 }
 
 export async function list_agent_sessions(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {

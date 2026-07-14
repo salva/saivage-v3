@@ -1,6 +1,5 @@
 import type { RuntimeState } from '../schemas/index.js';
 import type { RuntimeStateStore } from './state.js';
-import type { CompositionMutationAuthority } from '../application/mutation-authority.js';
 import { pauseRuntimeCommand, resumeRuntimeCommand, type RuntimeControlResult } from './runtime-control-commands.js';
 
 /**
@@ -16,7 +15,6 @@ import { pauseRuntimeCommand, resumeRuntimeCommand, type RuntimeControlResult } 
 export interface RuntimeControlContext {
   projectRoot: string;
   runtimeState: RuntimeStateStore;
-  authority: CompositionMutationAuthority;
 }
 
 export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlResult {
@@ -31,6 +29,6 @@ function createPersistedControlEffects(ctx: RuntimeControlContext) {
   return {
     readState: () => ctx.runtimeState.read(),
     now: () => new Date().toISOString(),
-    applyStatePatch: (patch: Partial<RuntimeState>) => ctx.runtimeState.patch(ctx.authority, patch),
+    applyStatePatch: (patch: Partial<RuntimeState>) => ctx.runtimeState.patch(patch),
   };
 }

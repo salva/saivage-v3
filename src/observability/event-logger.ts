@@ -5,7 +5,6 @@ import { loggedEventSchema } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
 import { readAppLogEntries, type AppLogStore } from '../persistence/app-log.js';
 import { appLogFile } from '../persistence/layout.js';
-import type { MutationAuthority } from '../application/mutation-authority.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -87,7 +86,7 @@ export class EventLogger {
    * Append an event to the log. The event gets an auto-generated id and
    * timestamp if not already provided. Returns the full event object.
    */
-  appendEvent(authority: MutationAuthority, event: AppendEventInput): LoggedEvent {
+  appendEvent(event: AppendEventInput): LoggedEvent {
     const fullEvent: LoggedEvent = redactForOutbound({
       ...event,
       id: event.id ?? nextEventId(),
@@ -99,7 +98,7 @@ export class EventLogger {
       throw new Error(`LoggedEvent validation failed for kind '${event.kind}': ${parsed.error.message}`);
     }
 
-    this.appLogs.append(authority, { id: parsed.data.id, timestamp: parsed.data.timestamp, type: 'event', data: parsed.data });
+    this.appLogs.append({ id: parsed.data.id, timestamp: parsed.data.timestamp, type: 'event', data: parsed.data });
     this.eventBus.emit('event_log_record_appended', { record: parsed.data as unknown as Record<string, unknown> });
     return parsed.data;
   }

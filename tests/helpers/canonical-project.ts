@@ -3,22 +3,21 @@ import { dirname, join } from 'node:path';
 
 import { CardStore as ProductionCardStore, CardStoreRepository } from '../../src/cards/card-store.js';
 import { newProjectRootInput } from '../../src/boot/app.js';
-import { classifyPersistenceOpenMode, createProjectPersistenceAuthority, type ProjectPersistenceAuthority } from '../../src/persistence/project-persistence-authority.js';
+import { classifyPersistenceOpenMode, createProjectStoreRepository, type ProjectStoreRepository } from '../../src/persistence/project-store-repository.js';
 import { acquireRuntimeLifecycleLock, bindRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import type { EventBus } from '../../src/events/index.js';
 import type { ReadModelChanges } from '../../src/application/read-model-changes.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
-import { createMutationLane } from '../../src/application/mutation-lane.js';
-import type { MutationLane } from '../../src/application/mutation-lane.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
+import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { ProjectIdentityStore, projectIdentityDigest } from '../../src/persistence/project-identity-store.js';
 import { AuthProfileRepository } from '../../src/auth/auth-profile-store.js';
 
 interface TestProjectComposition {
-  authority: ProjectPersistenceAuthority;
+  authority: ProjectStoreRepository;
   lock: RuntimeLifecycleLockHandle;
   repository: CardStoreRepository;
-  mutationAuthority: import('../../src/application/mutation-authority.js').CompositionMutationAuthority;
-  lane: MutationLane;
+  persistenceHealth: ApplicationPersistenceHealth;
 }
 
 const projects = new Map<string, TestProjectComposition>();
@@ -28,15 +27,15 @@ function composition(projectRoot: string): TestProjectComposition {
   if (existing) return existing;
   const projectJson = join(projectRoot, '.saivage', 'project.json');
   const lock = acquireRuntimeLifecycleLock({ projectRoot, mode: existsSync(projectJson) ? 'bound' : 'init' });
-  const { lane, authority: mutationAuthority } = createMutationLane();
+  const persistenceHealth = new ApplicationPersistenceHealth();
   if (!existsSync(projectJson)) {
-    const project = new ProjectIdentityStore(projectRoot, lane, mutationAuthority).create(projectRoot.split('/').at(-1) || 'saivage-project');
+    const project = new ProjectIdentityStore(projectRoot, persistenceHealth).create(projectRoot.split('/').at(-1) || 'saivage-project');
     bindRuntimeLifecycleLock(lock, projectIdentityDigest(project));
   }
-  const mode = classifyPersistenceOpenMode(projectRoot, mutationAuthority, newProjectRootInput(projectRoot));
-  const authority = createProjectPersistenceAuthority({ projectRoot, lane, compositionAuthority: mutationAuthority, mode });
+  const mode = classifyPersistenceOpenMode(projectRoot, newProjectRootInput(projectRoot));
+  const authority = createProjectStoreRepository({ projectRoot, persistenceHealth, mode });
   const repository = new CardStoreRepository({ projectRoot, reader: authority.reader, writer: authority.writer });
-  const created = { authority, lock, repository, mutationAuthority, lane };
+  const created = { authority, lock, repository, persistenceHealth };
   projects.set(projectRoot, created);
   return created;
 }
@@ -53,7 +52,7 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
 }
 
 export function testConfigAuthority(projectRoot: string, env: Readonly<Record<string, string | undefined>> = process.env): ResolvedConfigAuthority {
-  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: env, lane: composition(projectRoot).lane });
+  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: env, health: composition(projectRoot).persistenceHealth });
 }
 
 export class CardStore extends ProductionCardStore {
@@ -62,11 +61,11 @@ export class CardStore extends ProductionCardStore {
     if (eventBus || readModelChanges) {
       opened.repository = new CardStoreRepository({ projectRoot, reader: opened.authority.reader, writer: opened.authority.writer, eventBus, readModelChanges });
     }
-    super(opened.repository, () => opened.mutationAuthority);
+    super(opened.repository);
   }
 }
 
-export function testProjectAuthority(projectRoot: string): ProjectPersistenceAuthority {
+export function testProjectAuthority(projectRoot: string): ProjectStoreRepository {
   return composition(projectRoot).authority;
 }
 
@@ -74,19 +73,20 @@ export function testCardRepository(projectRoot: string): CardStoreRepository {
   return composition(projectRoot).repository;
 }
 
-export function testCompositionAuthority(projectRoot: string): import('../../src/application/mutation-authority.js').CompositionMutationAuthority {
-  return composition(projectRoot).mutationAuthority;
+export function testPersistenceHealth(projectRoot: string): ApplicationPersistenceHealth {
+  return composition(projectRoot).persistenceHealth;
 }
 
-export function testMutationComposition(projectRoot: string): { lane: MutationLane; authority: import('../../src/application/mutation-authority.js').CompositionMutationAuthority } {
-  const opened = composition(projectRoot);
-  return { lane: opened.lane, authority: opened.mutationAuthority };
+export function testInterventionReadiness(): RuntimeInterventionBinding {
+  const readiness = new RuntimeInterventionBinding();
+  readiness.markStoppedReady();
+  return readiness;
 }
 
 export function testAuthProfiles(projectRoot: string): AuthProfileRepository {
   const opened = composition(projectRoot);
-  const repository = new AuthProfileRepository(projectRoot, opened.lane);
-  repository.restabilize(opened.mutationAuthority);
+  const repository = new AuthProfileRepository(projectRoot, opened.persistenceHealth);
+  repository.restabilize();
   return repository;
 }
 

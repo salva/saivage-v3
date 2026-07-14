@@ -1,5 +1,9 @@
 # Operator UI Specification
 
+Tombstoned cards are absent from all existing card, tree, history, exact-version, diff, record, conversation, and recovery projections and return the same not-found contract as an unknown id. The UI has no deleted-card state, retained-evidence browser, restore action, or forensic view.
+
+When application persistence becomes mutation-unhealthy, existing read surfaces remain usable while readiness and the existing availability projection report that mutation is unavailable until restart. The diagnostic remains visible even when the app log itself is the failed target. Conversation physical version inventories and persistence-health internals are not exposed as editable UI state. Returned `work:///tmp/stash/...` URLs retain their existing presentation but refer to disposable work output with no retention guarantee.
+
 Status: current functional UI authority.
 
 Last updated: 2026-07-13.

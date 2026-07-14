@@ -19,10 +19,10 @@ import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationStore } from '../../persistence/conversation-store.js';
 import type { AppLogStore } from '../../persistence/app-log.js';
-import type { RecordProjection } from '../../persistence/project-persistence-authority.js';
+import type { RecordProjection } from '../../persistence/project-store-repository.js';
 import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 import type { CardStore } from '../../cards/card-store.js';
-import type { AutonomousCardCurrentness } from '../card-currentness.js';
+import type { ActiveCardLeaf } from '../active-card-leaf.js';
 
 export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
 
@@ -96,7 +96,7 @@ export interface CardActorStorePort {
 export interface CardActorDeps {
   projectRoot: string;
   storeForCard(cardId: string): CardStore;
-  currentness: Pick<AutonomousCardCurrentness, 'enterChild' | 'resumeParent'>;
+  currentness: Pick<ActiveCardLeaf, 'enterChild' | 'resumeParent'>;
   provider: LLMProviderPort;
   compactor?: CompactorPort;
   compactionConfig?: CompactionConfig;
@@ -452,7 +452,7 @@ export class CardActor extends BaseActor {
   }
 
   private persist(): void {
-    this.deps.snapshots.save(this.deps.storeForCard(this.cardId).currentMutationAuthority(), this.snapshot());
+    this.deps.snapshots.save(this.snapshot());
   }
 }
 

@@ -6,8 +6,7 @@ import { saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../persistence/durable-file-replacement.js';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { validateModelRoles } from './validate-model-roles.js';
-import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
-import type { MutationLane } from '../application/mutation-lane.js';
+import { PersistenceMutationUnhealthyError, type ApplicationPersistenceHealth } from '../application/persistence-health.js';
 
 export type ConfigSelectionSource =
   | { readonly kind: 'cli'; readonly argument: '--config' }
@@ -36,9 +35,9 @@ export interface ResolvedConfigAuthority {
   readDocument(): ConfigDocument;
   validateDocument(document: ConfigDocument): { config: SaivageConfig; warnings: readonly string[] };
   loadEffective(): { config: SaivageConfig; warnings: readonly string[] };
-  restabilize(authority: CompositionMutationAuthority): void;
-  initializeCanonicalDefaultIfMissing(authority: CompositionMutationAuthority): void;
-  mutate(authority: MutationAuthority, mutation: ConfigMutation): ConfigMutationResult;
+  restabilize(): void;
+  initializeCanonicalDefaultIfMissing(): void;
+  applyChange(mutation: ConfigMutation): ConfigMutationResult;
 }
 
 const RUNTIME_KEYS = new Set(['continuous_improvement', 'max_review_retries', 'process_timeouts']);
@@ -74,7 +73,7 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
   readonly source: ConfigSelectionSource;
   readonly #interpolationEnvironment: EnvironmentSource;
 
-  constructor(path: string, source: ConfigSelectionSource, interpolationEnvironment: EnvironmentSource, private readonly lane: MutationLane) {
+  constructor(path: string, source: ConfigSelectionSource, interpolationEnvironment: EnvironmentSource, private readonly health: ApplicationPersistenceHealth) {
     this.path = path;
     this.source = Object.freeze(source);
     this.#interpolationEnvironment = Object.freeze({ ...interpolationEnvironment });
@@ -112,45 +111,40 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
     return this.validateDocument(this.readDocument());
   }
 
-  restabilize(authority: CompositionMutationAuthority): void {
-    const result = this.lane.apply(authority, 'configuration restabilization', () => {
-      const directory = dirname(this.path);
-      if (existsSync(directory)) cleanupDurableReplacementTemporaries(directory, [basename(this.path)]);
-    });
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  restabilize(): void {
+    const directory = dirname(this.path);
+    if (existsSync(directory)) cleanupDurableReplacementTemporaries(directory, [basename(this.path)]);
   }
 
-  initializeCanonicalDefaultIfMissing(authority: CompositionMutationAuthority): void {
-    const result = this.lane.apply(authority, 'configuration initialization', () => {
-      if (existsSync(this.path)) return;
-      mkdirSync(dirname(this.path), { recursive: true });
-      durablyReplaceFile(this.path, Buffer.from(CANONICAL_DEFAULT));
-    });
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  initializeCanonicalDefaultIfMissing(): void {
+    this.health.assertMutationHealthy();
+    if (existsSync(this.path)) return;
+    mkdirSync(dirname(this.path), { recursive: true });
+    try { durablyReplaceFile(this.path, Buffer.from(CANONICAL_DEFAULT)); }
+    catch (error) { this.health.reportUncertainFailure({ target: this.path, operation: 'initialize configuration', error }); }
   }
 
-  mutate(authority: MutationAuthority, mutation: ConfigMutation): ConfigMutationResult {
-    const result = this.lane.apply(authority, 'configuration mutation', () => {
-      try {
-        const document = this.readDocument();
-        const raw = documentObject(document);
-        const precondition = this.applyMutation(document, raw, mutation);
-        if (precondition) return precondition;
-        const effective = this.validateDocument(document);
-        durablyReplaceFile(this.path, Buffer.from(document.toString()));
-        return {
-          success: true as const,
-          config: effective.config,
-          warnings: effective.warnings,
-          ...(mutation.kind === 'set_server_setting' ? { requires_restart: true } : {}),
-        };
-      } catch (error) {
-        const failure = error as Error & { fieldPath?: string };
-        return { success: false as const, fieldPath: failure.fieldPath ?? '/', message: failure.message };
-      }
-    });
-    if (!result.applied) throw new Error('Configuration mutation authority is stale.');
-    return result.value;
+  applyChange(mutation: ConfigMutation): ConfigMutationResult {
+    this.health.assertMutationHealthy();
+    try {
+      const document = this.readDocument();
+      const raw = documentObject(document);
+      const precondition = this.applyMutation(document, raw, mutation);
+      if (precondition) return precondition;
+      const effective = this.validateDocument(document);
+      try { durablyReplaceFile(this.path, Buffer.from(document.toString())); }
+      catch (error) { this.health.reportUncertainFailure({ target: this.path, operation: 'replace configuration', error }); }
+      return {
+        success: true as const,
+        config: effective.config,
+        warnings: effective.warnings,
+        ...(mutation.kind === 'set_server_setting' ? { requires_restart: true } : {}),
+      };
+    } catch (error) {
+      if (error instanceof PersistenceMutationUnhealthyError) throw error;
+      const failure = error as Error & { fieldPath?: string };
+      return { success: false as const, fieldPath: failure.fieldPath ?? '/', message: failure.message };
+    }
   }
 
   private applyMutation(document: ConfigDocument, raw: RawConfig, mutation: ConfigMutation): ConfigMutationResult | void {
@@ -200,7 +194,7 @@ export function createResolvedConfigAuthority(input: {
   path: string;
   source: ConfigSelectionSource;
   interpolationEnvironment: EnvironmentSource;
-  lane: MutationLane;
+  health: ApplicationPersistenceHealth;
 }): ResolvedConfigAuthority {
-  return new ResolvedConfigAuthorityImpl(input.path, input.source, input.interpolationEnvironment, input.lane);
+  return new ResolvedConfigAuthorityImpl(input.path, input.source, input.interpolationEnvironment, input.health);
 }

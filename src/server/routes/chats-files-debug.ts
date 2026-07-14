@@ -33,7 +33,7 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
       if (existsSync(cardRecordsDir)) {
         cardRecordsExist = true;
         try {
-          diskCardIds = new Set(store.recordReader.generation().cards.keys());
+          diskCardIds = new Set(store.recordReader.cards().map((card) => card.id));
         } catch (err) {
           if (!(err instanceof Error) || !('code' in err) || err.code !== 'ENOENT') throw err;
         }

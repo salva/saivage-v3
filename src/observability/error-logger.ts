@@ -3,7 +3,6 @@ import { redactForOutbound } from '../redaction/index.js';
 import { EventBus } from '../events/index.js';
 import { readAppLogEntries, type AppLogStore } from '../persistence/app-log.js';
 import { appLogFile } from '../persistence/layout.js';
-import type { MutationAuthority } from '../application/mutation-authority.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -79,7 +78,7 @@ export class ErrorLogger {
    * Append an error to the log. The error gets an auto-generated id
    * and timestamp if not already provided. Returns the full ErrorRecord.
    */
-  appendError(authority: MutationAuthority, error: ErrorInput): ErrorRecord {
+  appendError(error: ErrorInput): ErrorRecord {
     const record: ErrorRecord = redactForOutbound({
       ...error,
       kind: 'error',
@@ -91,7 +90,7 @@ export class ErrorLogger {
       phase: error.phase,
     }, 'error.log', { source: 'error-logger' }) as ErrorRecord;
 
-    this.appLogs.append(authority, { id: record.id, timestamp: record.timestamp, type: 'error', data: record });
+    this.appLogs.append({ id: record.id, timestamp: record.timestamp, type: 'error', data: record });
     this.eventBus.emit('error_log_record_appended', { record: record as unknown as Record<string, unknown> });
     return record;
   }

@@ -1,8 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { ZodType } from 'zod';
-import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
-import type { MutationLane } from '../application/mutation-lane.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../persistence/durable-file-replacement.js';
 import { PersistenceReadError, PersistenceValidationError, PersistenceVersionMismatch } from '../persistence/errors.js';
@@ -39,44 +38,36 @@ export function readRuntimeState(projectRoot: string): RuntimeState | null {
 }
 
 export class RuntimeStateStore {
-  #failed = false;
-  constructor(readonly projectRoot: string, private readonly lane: MutationLane, private readonly changes?: ReadModelChanges) {}
+  constructor(readonly projectRoot: string, private readonly health: ApplicationPersistenceHealth, private readonly changes?: ReadModelChanges) {}
 
-  restabilize(authority: CompositionMutationAuthority): void {
-    const result = this.lane.apply(authority, 'runtime state restabilization', () => {
-      const directory = dirname(runtimeStatePath(this.projectRoot));
-      if (existsSync(directory)) cleanupDurableReplacementTemporaries(directory, [basename(runtimeStatePath(this.projectRoot))]);
-      readRuntimeState(this.projectRoot);
-    });
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  restabilize(): void {
+    const directory = dirname(runtimeStatePath(this.projectRoot));
+    if (existsSync(directory)) cleanupDurableReplacementTemporaries(directory, [basename(runtimeStatePath(this.projectRoot))]);
+    readRuntimeState(this.projectRoot);
   }
 
-  initialize(authority: CompositionMutationAuthority): RuntimeState {
+  initialize(): RuntimeState {
     const existing = readRuntimeState(this.projectRoot);
     if (existing) return existing;
-    return this.replace(authority, createDefaultRuntimeState(), false);
+    return this.replace(createDefaultRuntimeState(), false);
   }
 
   read(): RuntimeState | null { return readRuntimeState(this.projectRoot); }
 
-  patch(authority: MutationAuthority, changes: Partial<RuntimeState>, publish = true): RuntimeState {
+  patch(changes: Partial<RuntimeState>, publish = true): RuntimeState {
     const current = this.read();
     if (!current) throw new Error('Runtime state is not initialized. Start Saivage once before using runtime controls.');
-    return this.replace(authority, { ...current, ...changes, updated_at: new Date().toISOString() }, publish);
+    return this.replace({ ...current, ...changes, updated_at: new Date().toISOString() }, publish);
   }
 
-  replace(authority: MutationAuthority, state: RuntimeState, publish = true): RuntimeState {
-    if (this.#failed) throw new Error('Runtime state store has failed and requires restart.');
+  replace(state: RuntimeState, publish = true): RuntimeState {
+    this.health.assertMutationHealthy();
     const parsed = runtimeStatePersistenceSchema.safeParse(state);
     if (!parsed.success) throw new PersistenceValidationError(runtimeStatePath(this.projectRoot), parsed.error.message);
     const validated = assertRuntimeStateInvariants(parsed.data);
-    const result = this.lane.apply(authority, 'runtime state replacement', () => {
-      try { mkdirSync(dirname(runtimeStatePath(this.projectRoot)), { recursive: true }); durablyReplaceFile(runtimeStatePath(this.projectRoot), Buffer.from(JSON.stringify({ version: 1, data: validated }, null, 2) + '\n')); }
-      catch (error) { this.#failed = true; throw error; }
-      return validated;
-    });
-    if (!result.applied) throw new Error('Runtime state mutation authority is stale.');
+    try { mkdirSync(dirname(runtimeStatePath(this.projectRoot)), { recursive: true }); durablyReplaceFile(runtimeStatePath(this.projectRoot), Buffer.from(JSON.stringify({ version: 1, data: validated }, null, 2) + '\n')); }
+    catch (error) { this.health.reportUncertainFailure({ target: runtimeStatePath(this.projectRoot), operation: 'replace runtime state', error }); }
     if (publish) this.changes?.runtimeChanged();
-    return result.value;
+    return validated;
   }
 }

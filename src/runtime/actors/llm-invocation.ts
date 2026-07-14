@@ -1,7 +1,6 @@
 import type { AgentMessage, OperationalAgentRole } from '../../schemas/index.js';
 import type { ProviderTurnCompletion, ResponsesReplayProjection, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
-import type { MutationAuthority } from '../../application/mutation-authority.js';
 
 export interface LlmInvocationInput {
   inputId: string;
@@ -26,7 +25,7 @@ export interface LlmInvocationInput {
 }
 
 export interface ProviderTurnPort {
-  completeTurn(input: LlmInvocationInput, signal: AbortSignal, mutationAuthority: MutationAuthority): Promise<ProviderTurnCompletion>;
+  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
 }
 
 export function genericContextMessagesForInvocation(input: LlmInvocationInput): AgentMessage[] {

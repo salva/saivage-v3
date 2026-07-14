@@ -3,8 +3,7 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { saivageCardsRoot } from '../../persistence/layout.js';
 import { cleanupDurableReplacementTemporaries, durableReplacementTemporaryTargetBasename, durablyReplaceFile } from '../../persistence/durable-file-replacement.js';
-import type { CompositionMutationAuthority, MutationAuthority } from '../../application/mutation-authority.js';
-import type { MutationLane, NotPromise } from '../../application/mutation-lane.js';
+import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
 import { actorKindFromId, parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
 import { actorKindSchema } from '../../schemas/actor-vocabulary.js';
 import type { ActorKind } from './ids.js';
@@ -57,72 +56,66 @@ export function readActorSnapshot(projectRoot: string, actorId: string): ActorSn
 }
 
 export class ActorSnapshotStore {
-  #failed = false;
-  constructor(private readonly projectRoot: string, private readonly lane: MutationLane, private readonly changes: ReadModelChanges) {}
+  constructor(private readonly projectRoot: string, private readonly health: ApplicationPersistenceHealth, private readonly changes: ReadModelChanges) {}
 
-  restabilize(authority: CompositionMutationAuthority): void {
-    const result = this.lane.apply(authority, 'actor snapshot restabilization', () => {
-      for (const directory of actorSnapshotDirectories(this.projectRoot)) {
-        const targets = readdirSync(directory).flatMap((name) => {
-          if (name.endsWith('.json')) return [name];
-          const target = durableReplacementTemporaryTargetBasename(name);
-          return target?.endsWith('.json') ? [target] : [];
-        });
-        cleanupDurableReplacementTemporaries(directory, [...new Set(targets)]);
-      }
-      for (const path of actorSnapshotFilePaths(this.projectRoot)) {
-        readSnapshotFile(path);
-      }
-    });
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  restabilize(): void {
+    for (const directory of actorSnapshotDirectories(this.projectRoot)) {
+      const targets = readdirSync(directory).flatMap((name) => {
+        if (name.endsWith('.json')) return [name];
+        const target = durableReplacementTemporaryTargetBasename(name);
+        return target?.endsWith('.json') ? [target] : [];
+      });
+      cleanupDurableReplacementTemporaries(directory, [...new Set(targets)]);
+    }
+    for (const path of actorSnapshotFilePaths(this.projectRoot)) readSnapshotFile(path);
   }
 
-  save(authority: MutationAuthority, snapshot: ActorSnapshotRecord): ActorSnapshotRecord {
+  save(snapshot: ActorSnapshotRecord): ActorSnapshotRecord {
     assertSnapshotKind(snapshot);
-    const saved = this.mutate(authority, 'actor snapshot save', () => { writeSnapshotFile(actorSnapshotPath(this.projectRoot, snapshot.actor_id), snapshot); return snapshot; });
+    const saved = this.saveSnapshot(snapshot);
     this.publish(snapshot.actor_kind, snapshot.actor_id);
     return saved;
   }
 
-  appendNotification(authority: MutationAuthority, actorId: string, notification: CardNotification): ActorSnapshotRecord {
+  appendNotification(actorId: string, notification: CardNotification): ActorSnapshotRecord {
     if (actorKindFromId(actorId) !== 'card') throw new Error(`Cannot append card notification to non-card actor '${actorId}'.`);
     const path = actorSnapshotPath(this.projectRoot, actorId);
-    const saved = this.mutate(authority, 'actor notification append', () => {
-      const existing = existsSync(path) ? readSnapshotFile(path) : null;
-      if (existing) assertSnapshotKind(existing);
-      const context = existing?.context ?? { projectRoot: this.projectRoot, cardId: parseCardActorId(actorId) };
-      const notifications = Array.isArray(context.notifications) ? context.notifications : [];
-      const snapshot: ActorSnapshotRecord = {
-        actor_id: actorId,
-        actor_kind: 'card',
-        state_value: existing?.state_value ?? null,
-        context: { ...context, notifications: [...notifications, notification] },
-        updated_at: new Date().toISOString(),
-      };
-      writeSnapshotFile(path, snapshot);
-      return snapshot;
-    });
+    this.health.assertMutationHealthy();
+    const existing = existsSync(path) ? readSnapshotFile(path) : null;
+    if (existing) assertSnapshotKind(existing);
+    const context = existing?.context ?? { projectRoot: this.projectRoot, cardId: parseCardActorId(actorId) };
+    const notifications = Array.isArray(context.notifications) ? context.notifications : [];
+    const saved: ActorSnapshotRecord = {
+      actor_id: actorId,
+      actor_kind: 'card',
+      state_value: existing?.state_value ?? null,
+      context: { ...context, notifications: [...notifications, notification] },
+      updated_at: new Date().toISOString(),
+    };
+    try { writeSnapshotFile(path, saved); }
+    catch (error) { this.health.reportUncertainFailure({ target: path, operation: 'append actor notification', error }); }
     this.changes.runtimeChanged();
     return saved;
   }
 
-  remove(authority: MutationAuthority, actorId: string): boolean {
+  remove(actorId: string): boolean {
     const kind = actorKindFromId(actorId);
-    const removed = this.mutate(authority, 'actor snapshot remove', () => {
-      const path = actorSnapshotPath(this.projectRoot, actorId);
-      if (!existsSync(path)) return false;
-      unlinkSync(path);
-      return true;
-    });
+    this.health.assertMutationHealthy();
+    const path = actorSnapshotPath(this.projectRoot, actorId);
+    if (!existsSync(path)) return false;
+    try { unlinkSync(path); }
+    catch (error) { this.health.reportUncertainFailure({ target: path, operation: 'remove actor snapshot', error }); }
+    const removed = true;
     if (removed) this.publish(kind, actorId);
     return removed;
   }
 
-  private mutate<T>(authority: MutationAuthority, label: string, mutation: () => NotPromise<T>): T {
-    if (this.#failed) throw new Error('Actor snapshot store has failed and requires restart.');
-    const result = this.lane.apply(authority, label, () => { try { return mutation(); } catch (error) { this.#failed = true; throw error; } }) as { applied: true; value: T } | { applied: false; reason: 'stale' };
-    if (!result.applied) throw new Error('Actor snapshot mutation authority is stale.');
-    return result.value;
+  private saveSnapshot(snapshot: ActorSnapshotRecord): ActorSnapshotRecord {
+    this.health.assertMutationHealthy();
+    const path = actorSnapshotPath(this.projectRoot, snapshot.actor_id);
+    try { writeSnapshotFile(path, snapshot); }
+    catch (error) { this.health.reportUncertainFailure({ target: path, operation: 'save actor snapshot', error }); }
+    return snapshot;
   }
 
   private publish(kind: ActorKind, actorId: string): void {

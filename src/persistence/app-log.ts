@@ -2,8 +2,7 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, tr
 import { dirname } from 'node:path';
 import { z } from 'zod';
 import { appLogFile } from './layout.js';
-import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
-import type { MutationLane } from '../application/mutation-lane.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { IndeterminatePublicationError } from './errors.js';
 
@@ -27,31 +26,26 @@ export type AppLogEntry = z.infer<typeof appLogEntrySchema>;
 export type AppLogEntryType = z.infer<typeof appLogEntryTypeSchema>;
 
 export class AppLogStore {
-  #failed = false;
+  constructor(readonly projectRoot: string, private readonly health: ApplicationPersistenceHealth, private readonly changes?: ReadModelChanges) {}
 
-  constructor(readonly projectRoot: string, private readonly lane: MutationLane, private readonly changes?: ReadModelChanges) {}
-
-  restabilize(authority: CompositionMutationAuthority): void {
-    const result = this.lane.apply(authority, 'app log restabilization', () => restabilizeAppLog(this.projectRoot));
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  restabilize(): void {
+    restabilizeAppLog(this.projectRoot);
   }
 
-  append(authority: MutationAuthority, entry: AppLogEntry): AppLogEntry {
-    if (this.#failed) throw new Error('App log store has failed and requires restart.');
+  append(entry: AppLogEntry): AppLogEntry {
+    this.health.assertMutationHealthy();
     const parsed = appLogEntrySchema.parse(entry);
-    const result = this.lane.apply(authority, 'app log append', () => {
-      const existing = readAppLogEntries(this.projectRoot).find((row) => row.id === parsed.id);
-      if (existing) {
-        if (JSON.stringify(existing) !== JSON.stringify(parsed)) throw new Error(`App log entry '${parsed.id}' already exists with different content.`);
-        return { entry: existing, appended: false };
-      }
-      try { appendDurably(appLogFile(this.projectRoot), `${JSON.stringify(parsed)}\n`); }
-      catch (error) { this.#failed = true; throw new IndeterminatePublicationError(appLogFile(this.projectRoot), { cause: error }); }
-      return { entry: parsed, appended: true };
-    });
-    if (!result.applied) throw new Error('App log mutation authority is stale.');
-    if (result.value.appended) this.changes?.agentsChanged();
-    return result.value.entry;
+    const existing = readAppLogEntries(this.projectRoot).find((row) => row.id === parsed.id);
+    if (existing) {
+      if (JSON.stringify(existing) !== JSON.stringify(parsed)) throw new Error(`App log entry '${parsed.id}' already exists with different content.`);
+      return existing;
+    }
+    try { appendDurably(appLogFile(this.projectRoot), `${JSON.stringify(parsed)}\n`); }
+    catch (error) {
+      this.health.reportUncertainFailure({ target: appLogFile(this.projectRoot), operation: 'append app log entry', error: new IndeterminatePublicationError(appLogFile(this.projectRoot), { cause: error }) });
+    }
+    this.changes?.agentsChanged();
+    return parsed;
   }
 }
 

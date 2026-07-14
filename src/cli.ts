@@ -8,17 +8,15 @@ import { evaluateAuthz } from './agents/tool-api.js';
 import { startApp } from './boot/index.js';
 import { newProjectRootInput } from './boot/app.js';
 import { recordControlAction, stableStringify, isInitialized, findProjectRoot } from './persistence/index.js';
-import { classifyPersistenceOpenMode, createProjectPersistenceAuthority } from './persistence/project-persistence-authority.js';
+import { classifyPersistenceOpenMode, createProjectStoreRepository } from './persistence/project-store-repository.js';
 import { isLocked, pauseRuntimeControl, resumeRuntimeControl } from './runtime/control-api.js';
 import { readRuntimeState } from './runtime/state-api.js';
 import { RuntimeStateStore } from './runtime/state.js';
-import { createMutationLane } from './application/mutation-lane.js';
 import { deriveCurrentCardId } from './runtime/current-run.js';
 import { readRuntimeLockStatus } from './runtime/lock.js';
 import { runtimeProcessLockFile } from './persistence/layout.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
 import { AppLogStore } from './persistence/app-log.js';
-import type { ControlActionAuditEntry } from './schemas/index.js';
 
 interface CliOptions { force?: boolean; port?: string; host?: string; config?: string; 'project-root'?: string; 'create-runtime'?: boolean; }
 const USAGE = `Saivage v3 CLI
@@ -55,21 +53,14 @@ async function handleInit(options: CliOptions): Promise<void> {
     const canonicalProjectRoot = composition.projectRoot;
     if (!options.force && isInitialized(canonicalProjectRoot)) { console.log(`Project already initialized at ${canonicalProjectRoot}`); return; }
     if (composition.projectIdentity.read() === null) composition.createAndBindProjectIdentity();
-    const mode = classifyPersistenceOpenMode(canonicalProjectRoot, composition.authority, newProjectRootInput(canonicalProjectRoot));
-    createProjectPersistenceAuthority({ projectRoot: canonicalProjectRoot, lane: composition.lane, compositionAuthority: composition.authority, mode });
+    const mode = classifyPersistenceOpenMode(canonicalProjectRoot, newProjectRootInput(canonicalProjectRoot));
+    createProjectStoreRepository({ projectRoot: canonicalProjectRoot, persistenceHealth: composition.persistenceHealth, mode });
     console.log(`Project initialized at ${canonicalProjectRoot}`);
   });
 }
 async function handleStart(_options: CliOptions, args: string[]): Promise<void> { const app = await startApp({ argv: args }); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
 async function handleStatus(): Promise<void> { const projectRoot = findProjectRoot(); if (projectRoot === null) { console.log('Not in a Saivage project'); return; } const state = readRuntimeState(projectRoot); const lock = readRuntimeLockStatus(projectRoot); if (state === null) { console.log(`Project root: ${projectRoot}`); console.log('Runtime state: not initialized (missing runtime state file .saivage/state/runtime.json)'); } else { console.log(`Project root: ${projectRoot}`); console.log(`Status:       ${state.status}`); console.log(`Current card: ${deriveCurrentCardId(state) ?? '(none)'}`); console.log(`Started at:   ${state.started_at}`); } if (lock.kind === 'missing') console.log('Runtime lock: not present'); else { console.log(`Runtime lock: ${lock.kind.replace('_', '/')}`); console.log(`PID:          ${lock.kind === 'malformed_unreadable' ? '(unknown)' : lock.record.pid}`); if (lock.kind !== 'live') console.log(lock.repairInstruction); } }
 async function restBaseUrl(projectRoot: string): Promise<string> { const cfgPath = join(projectRoot, '.saivage', 'saivage.yaml'); let host = '127.0.0.1'; let port = 8080; if (existsSync(cfgPath)) { try { const cfg = YAML.parse(readFileSync(cfgPath, 'utf-8')) as { server?: { host?: string; port?: number } }; host = cfg.server?.host === '0.0.0.0' ? '127.0.0.1' : (cfg.server?.host ?? host); port = cfg.server?.port ?? port; } catch { void 0; } } return `http://${host}:${port}`; }
-function recordCliControlAction(projectRoot: string, entry: Omit<ControlActionAuditEntry, 'id' | 'created_at'>): void {
-  withDirectMutationComposition(projectRoot, 'bound', (composition) => {
-    const appLogs = new AppLogStore(composition.projectRoot, composition.lane);
-    appLogs.restabilize(composition.authority);
-    recordControlAction(appLogs, composition.authority, entry);
-  });
-}
 async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resume'): Promise<void> { const verdict = evaluateAuthz({ actor: 'user', surface: 'cli', safety_class: 'low' }); if (verdict === 'deny') throw new Error('Denied by authorization policy.');
   if (isLocked(projectRoot)) {
     const base = await restBaseUrl(projectRoot);
@@ -80,12 +71,15 @@ async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resum
     console.log(body);
     return;
   }
-  const composition = createMutationLane();
-  const runtimeState = new RuntimeStateStore(projectRoot, composition.lane);
-  runtimeState.restabilize(composition.authority);
-  const context = { projectRoot, runtimeState, authority: composition.authority };
-  const result = action === 'pause' ? pauseRuntimeControl(context) : resumeRuntimeControl(context);
-  recordCliControlAction(projectRoot, { actor: 'user', surface: 'cli', action: `runtime.${action}`, target_kind: 'runtime', target_id: 'project', params_summary: stableStringify({ action, liveRuntimeUpdated: false }), outcome: result.ok ? 'ok' : 'error', outcome_summary: result.ok ? 'persisted-only mutation applied (server not running)' : (result.message ?? result.error ?? 'mutation failed'), ...(result.ok ? {} : { error: result.message ?? result.error ?? 'mutation failed' }) });
+  const result = withDirectMutationComposition(projectRoot, 'bound', (composition) => {
+    const runtimeState = new RuntimeStateStore(projectRoot, composition.persistenceHealth);
+    runtimeState.restabilize();
+    const appLogs = new AppLogStore(projectRoot, composition.persistenceHealth);
+    appLogs.restabilize();
+    const controlResult = action === 'pause' ? pauseRuntimeControl({ projectRoot, runtimeState }) : resumeRuntimeControl({ projectRoot, runtimeState });
+    recordControlAction(appLogs, { actor: 'user', surface: 'cli', action: `runtime.${action}`, target_kind: 'runtime', target_id: 'project', params_summary: stableStringify({ action, liveRuntimeUpdated: false }), outcome: controlResult.ok ? 'ok' : 'error', outcome_summary: controlResult.ok ? 'persisted-only mutation applied (server not running)' : (controlResult.message ?? controlResult.error ?? 'mutation failed'), ...(controlResult.ok ? {} : { error: controlResult.message ?? controlResult.error ?? 'mutation failed' }) });
+    return controlResult;
+  });
   if (!result.ok) throw new Error(result.message ?? result.error ?? `Failed to ${action} runtime`);
   console.log(`Notice: server not running; updated persisted runtime state only.`);
 }
@@ -111,14 +105,11 @@ async function handleReset(): Promise<void> {
     const externalGeneratedRoots = [join(canonicalProjectRoot, '.saivage-work')];
     console.log('Reset will remove generated runtime roots, external generated roots, and obsolete old roots, then reinitialize the current empty layout:');
     for (const target of [...generatedRoots, join(canonicalProjectRoot, '.saivage', 'locks', '* except runtime.lock while held'), ...obsoleteRoots, ...externalGeneratedRoots]) console.log(`- ${target}`);
-    const deletion = composition.lane.apply(composition.authority, 'reset generated project state', () => {
-      for (const target of generatedRoots) removeIfPresent(target);
-      removeLockEntriesExceptHeldRuntime(canonicalProjectRoot);
-      for (const target of obsoleteRoots) removeIfPresent(target);
-      for (const target of externalGeneratedRoots) removeIfPresent(target);
-    });
-    if (!deletion.applied) throw new Error('Reset composition authority unexpectedly became stale.');
-    createProjectPersistenceAuthority({ projectRoot: canonicalProjectRoot, lane: composition.lane, compositionAuthority: composition.authority, mode: { kind: 'bootstrap', root: newProjectRootInput(canonicalProjectRoot) } });
+    for (const target of generatedRoots) removeIfPresent(target);
+    removeLockEntriesExceptHeldRuntime(canonicalProjectRoot);
+    for (const target of obsoleteRoots) removeIfPresent(target);
+    for (const target of externalGeneratedRoots) removeIfPresent(target);
+    createProjectStoreRepository({ projectRoot: canonicalProjectRoot, persistenceHealth: composition.persistenceHealth, mode: { kind: 'bootstrap', root: newProjectRootInput(canonicalProjectRoot) } });
     console.log('Project reset and reinitialized with an empty current layout and root project card. Durable credentials, config, prompt overrides, skills, instructions, and source/docs were preserved.');
   });
 }

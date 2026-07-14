@@ -1,22 +1,22 @@
 import { RecoveryDiagnosticsStore, runActorStartupRecovery as productionRunActorStartupRecovery, type ActorRecoveryPlan, type ActorStartupRecoveryDeps } from '../../src/runtime/actors/actor-recovery.js';
-import { createMutationLane } from '../../src/application/mutation-lane.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 
-const compositions = new Map<string, ReturnType<typeof createMutationLane>>();
+const compositions = new Map<string, ApplicationPersistenceHealth>();
 function composition(projectRoot: string) {
   let value = compositions.get(projectRoot);
-  if (!value) { value = createMutationLane(); compositions.set(projectRoot, value); }
+  if (!value) { value = new ApplicationPersistenceHealth(); compositions.set(projectRoot, value); }
   return value;
 }
 
 export function testRecoveryDiagnostics(projectRoot: string): RecoveryDiagnosticsStore {
   const owner = composition(projectRoot);
-  const store = new RecoveryDiagnosticsStore(projectRoot, owner.lane);
-  store.restabilize(owner.authority);
+  const store = new RecoveryDiagnosticsStore(projectRoot, owner);
+  store.restabilize();
   return store;
 }
 
 export function writeRecoveryDiagnostics(projectRoot: string, plan: ActorRecoveryPlan, generatedAt?: string) {
-  return testRecoveryDiagnostics(projectRoot).project(composition(projectRoot).authority, plan, generatedAt);
+  return testRecoveryDiagnostics(projectRoot).project(plan, generatedAt);
 }
 
 export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: Omit<ActorStartupRecoveryDeps, 'recoveryDiagnostics'>) {

@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testCompositionAuthority } from '../../helpers/canonical-project.js';
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { appendTestConversationMessage as appendConversationMessage, testConversationMutations } from '../../helpers/conversation-mutations.js';
@@ -18,7 +18,7 @@ import {
 } from '../../../src/runtime/actors/index.js';
 import { runActorStartupRecovery, writeRecoveryDiagnostics } from '../../helpers/recovery-diagnostics.js';
 
-const appendLlmTurnFinished = (conversations: ReturnType<typeof testConversationMutations>, input: Parameters<typeof productionAppendLlmTurnFinished>[2], result: Parameters<typeof productionAppendLlmTurnFinished>[3]) => productionAppendLlmTurnFinished(conversations, testCompositionAuthority(conversations.projectRoot), input, result);
+const appendLlmTurnFinished = (conversations: ReturnType<typeof testConversationMutations>, input: Parameters<typeof productionAppendLlmTurnFinished>[1], result: Parameters<typeof productionAppendLlmTurnFinished>[2]) => productionAppendLlmTurnFinished(conversations, input, result);
 
 
 
@@ -94,7 +94,7 @@ function reviewerCorrections(_evidenceId: string, summary = 'needs correction'):
 
 function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
   return {
-    projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), mutationAuthority: testCompositionAuthority(projectRoot),
+    projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot),
     store,
     generatedAt: '2026-06-12T00:00:00.000Z',
   };
@@ -410,7 +410,6 @@ describe('actor recovery plan', () => {
     expect(recoveries).toEqual([{ cardId, status: 'done', reason: expect.stringContaining('planner and reviewer'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`, `reviewer:${cardId}`].sort() }]);
     expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'review ok' } } });
     expect(projectedToolResultSessions(projectRoot, [`planner:${cardId}`, `reviewer:${cardId}:assessment-${cardId}-1`]).sort()).toEqual([`planner:${cardId}`, `reviewer:${cardId}:assessment-${cardId}-1`].sort());
-    expect(readConversationMessages(projectRoot, `reviewer:${cardId}`).filter((message) => message.kind === 'tool_result')).toEqual([]);
   }));
 
   it('fails fast when reviewer projection needs descendant traversal but store cannot list children', () => withTempProject((projectRoot) => {

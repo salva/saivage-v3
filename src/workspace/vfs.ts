@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
 import { exposedRecordSlotDefinitionForFilename, recordSlotDefinitions, type RecordSlotDefinition, type RecordSlotFormat } from '../runtime/records/record-slots.js';
-import type { ProjectCardRecordReader, RecordProjection } from '../persistence/project-persistence-authority.js';
+import type { ProjectCardRecordReader, RecordProjection } from '../persistence/project-store-repository.js';
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, validRecordSegment, workUrlFromAbsolutePath, type ScopedPathScheme } from './scoped-path-schemes.js';

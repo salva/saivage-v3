@@ -39,8 +39,8 @@ function effects(state: RuntimeState | null, overrides: Partial<PauseResumeEffec
 }
 
 function controlContext(projectRoot: string) {
-  const { store: runtimeState, authority } = testRuntimeStateStore(projectRoot);
-  return { projectRoot, runtimeState, authority };
+  const { store: runtimeState } = testRuntimeStateStore(projectRoot);
+  return { projectRoot, runtimeState };
 }
 
 describe('runtime-control-commands', () => {

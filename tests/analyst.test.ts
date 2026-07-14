@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testCompositionAuthority, testConfigAuthority, testMutationComposition, testProjectAuthority } from './helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority, testInterventionReadiness, testPersistenceHealth, testProjectAuthority } from './helpers/canonical-project.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
@@ -113,12 +113,12 @@ function setupTestProject(projectRoot: string): CardStore {
 
 function ctx(projectRoot: string, store: CardStore): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
 }
 
 function testToolContext(projectRoot: string, store: CardStore): ToolContext {
   const processRunner = createTestProcessRunner(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-runtime', 'operator_session'), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
+  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-runtime', 'operator_session'), store, actor: 'runtime', surface: 'runtime', restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
 }
 
 describe('Analyst Tool Definitions', () => {
@@ -485,12 +485,12 @@ describe('Analyst Runtime', () => {
     const runtimeDeps = createTestAnalystRuntime({ projectRoot, cardStore: new CardStore(projectRoot) });
     runtimeDeps.provider = { completeTurn: async () => new Promise((resolve) => { resolveProvider = resolve; }) };
     const runtime = new AnalystRuntime({ projectRoot, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(projectRoot), runtimeDeps });
-    const first = runtime.submit('s16', { userContent: 'list all cards' });
-    await expect(runtime.submit('s16', { userContent: 'list all cards' })).rejects.toThrow('already has an active turn');
+    const first = runtime.submit('global', { userContent: 'list all cards' });
+    await expect(runtime.submit('global', { userContent: 'list all cards' })).rejects.toThrow('already has an active turn');
     await new Promise((resolve) => setImmediate(resolve));
     resolveProvider({ result: { kind: 'message', content: 'Done.' }, provider_exchanges: [] });
     const response = await first;
-    expect(response.sessionId).toBe('analyst:s16');
+    expect(response.sessionId).toBe('analyst:global');
     expect(response.toolInvocations ?? []).toEqual([]);
     expect(readConversationMessages(projectRoot, response.sessionId)).toEqual(
       expect.arrayContaining([
@@ -512,7 +512,7 @@ describe('API Chat and WebSocket Integration', () => {
     setupTestProject(projectRoot);
     authToken = process.env['SAIVAGE_API_TOKEN'] || 'test-token';
     process.env['SAIVAGE_API_TOKEN'] = authToken;
-    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env, testMutationComposition(projectRoot)), authority: testProjectAuthority(projectRoot), mutationLane: testMutationComposition(projectRoot).lane, compositionAuthority: testCompositionAuthority(projectRoot), restartPort: createTestRestartPort() });
+    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env, testPersistenceHealth(projectRoot)), authority: testProjectAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), restartPort: createTestRestartPort() });
     await server.fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (server.fastify.server.address() as { port: number }).port;
     const ticketResponse = await fetch(`http://127.0.0.1:${port}/api/auth/ws-ticket`, { method: 'POST', headers: { authorization: `Bearer ${authToken}` } });

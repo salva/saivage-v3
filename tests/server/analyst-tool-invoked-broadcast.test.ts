@@ -72,10 +72,10 @@ describe('analyst_tool_invoked event projection source', () => {
       writeFileSync(join(root, 'README.md'), 'hello');
       mockToolCall('read', { path: 'project:///README.md' });
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
-      await runtime.submit('s1', { userContent: 'inspect README.md' });
+      await runtime.submit('global', { userContent: 'inspect README.md' });
       expect(broadcasts.length).toBeGreaterThan(0);
       const payload = broadcasts.at(-1) as BroadcastPayload;
-      expect(payload.sessionId).toBe('analyst:s1');
+      expect(payload.sessionId).toBe('analyst:global');
       expect(payload.tool).toBe('read');
       expect(payload.success).toBe(true);
       expect(payload.summary).toMatch(/read file/i);
@@ -88,7 +88,7 @@ describe('analyst_tool_invoked event projection source', () => {
     try {
       mockToolCall('delete_card', { ids: ['card-1'] });
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
-      await runtime.submit('s2', { userContent: 'delete card card-1' });
+      await runtime.submit('global', { userContent: 'delete card card-1' });
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('delete_card');
       expect(payload.success).toBe(true);
@@ -102,7 +102,7 @@ describe('analyst_tool_invoked event projection source', () => {
     try {
       mockToolCall('run_command', { command: 'false' });
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
-      await runtime.submit('s3', { userContent: 'run false' });
+      await runtime.submit('global', { userContent: 'run false' });
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_command');
       expect(payload.success).toBe(true);
@@ -115,7 +115,7 @@ describe('analyst_tool_invoked event projection source', () => {
     try {
       mockToolCall('run_command', { command: 'printf ok' });
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
-      await runtime.submit('s4', { userContent: 'run printf ok' });
+      await runtime.submit('global', { userContent: 'run printf ok' });
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_command');
       expect(payload.success).toBe(true);

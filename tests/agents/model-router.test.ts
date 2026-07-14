@@ -17,8 +17,7 @@ import { ProviderRegistry } from '../../src/agents/provider.js';
 import { MemoryCandidateAvailability, type AvailabilityDecision } from '../../src/agents/candidate-availability.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
-import { testAuthProfiles, testCompositionAuthority } from '../helpers/canonical-project.js';
-import { issueCompositionMutationAuthority } from '../../src/application/mutation-authority.js';
+import { testAuthProfiles } from '../helpers/canonical-project.js';
 
 function blockedDecision(ms = 60000): AvailabilityDecision {
   return { state: 'COOLING', untilMs: Date.now() + ms, reason: 'test' };
@@ -123,7 +122,7 @@ describe('ModelRouter', () => {
       });
       const registry = new ProviderRegistry(cfg);
       const availability = new MemoryCandidateAvailability();
-      availability.markFailed(issueCompositionMutationAuthority(),
+      availability.markFailed(
         { provider: 'github', account: 'primary', model: 'gpt-5.5' },
         blockedDecision(),
       );
@@ -151,7 +150,7 @@ describe('ModelRouter', () => {
       });
       const registry = new ProviderRegistry(cfg);
       const availability = new MemoryCandidateAvailability();
-      availability.markFailed(issueCompositionMutationAuthority(),
+      availability.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
@@ -184,7 +183,7 @@ describe('ModelRouter', () => {
       });
       const registry = new ProviderRegistry(cfg);
       const availability = new MemoryCandidateAvailability();
-      availability.markFailed(issueCompositionMutationAuthority(),
+      availability.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
@@ -213,7 +212,7 @@ describe('ModelRouter', () => {
       });
       const registry = new ProviderRegistry(cfg);
       const availability = new MemoryCandidateAvailability();
-      availability.markFailed(issueCompositionMutationAuthority(),
+      availability.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
@@ -296,7 +295,7 @@ describe('ModelRouter', () => {
       (cfg as Record<string, unknown>).failover = { 'gpt-5.5': ['deepseek-v4-pro'] };
       const registry = new ProviderRegistry(cfg);
       const availability = new MemoryCandidateAvailability();
-      availability.markFailed(issueCompositionMutationAuthority(),
+      availability.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
@@ -441,7 +440,7 @@ describe('ModelRouter', () => {
         const router = new ModelRouter(cfg, registry);
 
         const candidate = (await router.resolve('planner'))[0];
-        await expect(resolveLlmTransportConfig(testAuthProfiles(root), testCompositionAuthority(root), registry, candidate))
+        await expect(resolveLlmTransportConfig(testAuthProfiles(root), registry, candidate))
           .rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'missing_auth_profile' } });
       });
 
@@ -523,7 +522,7 @@ describe('ModelRouter capability filtering', () => {
     });
     const registry = new ProviderRegistry(cfg);
     const availability = new MemoryCandidateAvailability();
-    availability.markFailed(issueCompositionMutationAuthority(), { provider: 'compatibleButCooling', account: null, model: 'm1' }, blockedDecision());
+    availability.markFailed({ provider: 'compatibleButCooling', account: null, model: 'm1' }, blockedDecision());
     const router = new ModelRouter(cfg, registry);
 
     const chain = await router.resolve('planner', { requiresExclusiveToolChoice: true });

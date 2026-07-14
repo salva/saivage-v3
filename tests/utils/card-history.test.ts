@@ -31,7 +31,7 @@ describe('canonical card history', () => {
     const updated = store.mutateCard(card.id, { title: 'Updated', priority: 2 }, { actor: 'analyst', surface: 'web-chat', reason: 'edit' });
     expect(updated.version_seq).toBe(2);
     expect(store.listCardHistory(card.id)).toEqual([expect.objectContaining({ kind: 'mutate', version_seq: 1, snapshot: card, changed_fields: expect.arrayContaining(['title', 'priority']) })]);
-    expect(store.recordReader.generation().cards.get(card.id)?.current.history).toMatchObject({ version_seq: 1, snapshot: card });
+    expect(store.recordReader.cardArtifacts(card.id).current.history).toMatchObject({ version_seq: 1, snapshot: card });
   });
 
   it('preserves historical reads and diffs after canonical reopen', () => {

@@ -10,7 +10,7 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { writeSaivageConfig } from '../helpers/project-config.js';
-import { testAppLogAuthority, testAppLogs } from '../helpers/app-logs.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 
 function testConfig(): SaivageConfig {
   return {
@@ -92,7 +92,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
     const fastify = Fastify({ logger: false });
     try {
       mkdirSync(join(projectRoot, '.saivage', 'runtime'), { recursive: true });
-      recordControlAction(testAppLogs(projectRoot), testAppLogAuthority(projectRoot), {
+      recordControlAction(testAppLogs(projectRoot), {
         id: 'older-action',
         created_at: '2026-01-01T00:00:00.000Z',
         actor: 'analyst',
@@ -104,7 +104,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         outcome: 'ok',
         outcome_summary: 'updated',
       });
-      recordControlAction(testAppLogs(projectRoot), testAppLogAuthority(projectRoot), {
+      recordControlAction(testAppLogs(projectRoot), {
         id: 'newer-action',
         created_at: '2026-01-02T00:00:00.000Z',
         actor: 'analyst',
@@ -116,7 +116,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         outcome: 'ok',
         outcome_summary: 'updated',
       });
-      recordControlAction(testAppLogs(projectRoot), testAppLogAuthority(projectRoot), {
+      recordControlAction(testAppLogs(projectRoot), {
         id: 'other-card-action',
         created_at: '2026-01-03T00:00:00.000Z',
         actor: 'analyst',

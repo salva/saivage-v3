@@ -1,4 +1,4 @@
-import { initProjectTree, testCompositionAuthority, testMutationComposition, testProjectAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, testPersistenceHealth, testProjectAuthority } from '../helpers/canonical-project.js';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -30,7 +30,7 @@ afterEach(async () => {
 
 describe('GET /api/runtime/status pid overlay', () => {
   it('returns process.pid in the live runtime branch', async () => {
-    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root) });
+    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testPersistenceHealth(root)), authority: testProjectAuthority(root), persistenceHealth: testPersistenceHealth(root) });
     const res = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ pid: number }>();
@@ -58,7 +58,7 @@ describe('GET /api/runtime/status pid overlay', () => {
     };
     writeFileSync(runtimeStatePath(root), JSON.stringify(payload));
 
-    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root) });
+    server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testPersistenceHealth(root)), authority: testProjectAuthority(root), persistenceHealth: testPersistenceHealth(root) });
     const res = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ pid: number }>();

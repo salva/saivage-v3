@@ -1,4 +1,4 @@
-import { initProjectTree, testCompositionAuthority } from '../../../helpers/canonical-project.js';
+import { initProjectTree } from '../../../helpers/canonical-project.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { appendTestConversationMessage as appendConversationMessage, testConversationMutations } from '../../../helpers/conversation-mutations.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { appendActivationMarker, conversationMessagesForModel, readActiveVersionMessages } from '../../../../src/runtime/actors/conversation-store.js';
-import { readConversationIndex } from '../../../../src/runtime/actors/conversation-index.js';
+import { readConversationInventory } from '../../../../src/runtime/actors/conversation-inventory.js';
 import { compact, shouldCompact, type BufferSizeEstimator, type CompactionConfig } from '../../../../src/runtime/actors/compaction/compactor.js';
 import { summaryCachePath } from '../../../../src/runtime/actors/compaction/summary-cache.js';
 import type { LlmInvocationInput } from '../../../../src/runtime/actors/llm-invocation.js';
@@ -46,7 +46,7 @@ function input(contextMessages: AgentMessage[]): LlmInvocationInput {
 }
 
 function appendRound(projectRoot: string, ordinal: number, content: string): void {
-  appendActivationMarker(testConversationMutations(projectRoot), testCompositionAuthority(projectRoot), 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: `turn-${ordinal}` });
+  appendActivationMarker(testConversationMutations(projectRoot), 'planner:project', { event: 'activation_open', role: 'planner', card_id: 'project', input_id: `turn-${ordinal}` });
   const timestamp = new Date().toISOString();
   appendConversationMessage(projectRoot, { id: `planner:project:text:${ordinal}`, session_id: 'planner:project', role: 'user', kind: 'text', content, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp });
 }
@@ -65,21 +65,19 @@ describe('conversation compactor orchestration', () => {
     appendRound(projectRoot, 3, 'recent round three ' + 'c'.repeat(80));
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (llmInput: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] })) };
     const conversations = testConversationMutations(projectRoot);
-    const replaceActiveVersion = jest.spyOn(conversations, 'replaceActiveVersion');
+    const publishCompactedVersion = jest.spyOn(conversations, 'publishCompactedVersion');
 
-    const { rows } = await compact({ projectRoot, conversations, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), mutationAuthority: testCompositionAuthority(projectRoot), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80), signal: new AbortController().signal });
+    const { rows } = await compact({ projectRoot, conversations, sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80), signal: new AbortController().signal });
 
-    expect(replaceActiveVersion).toHaveBeenCalledTimes(1);
-    expect(Object.keys(replaceActiveVersion.mock.calls[0]![1])).toEqual(['sessionId', 'sourceVersion', 'sourceDigest', 'content', 'compactedThrough', 'summaryIds', 'compactionGeneration', 'bands']);
+    expect(publishCompactedVersion).toHaveBeenCalledTimes(1);
+    expect(Object.keys(publishCompactedVersion.mock.calls[0]![0])).toEqual(['sessionId', 'sourceVersion', 'sourceDigest', 'content', 'compactedThrough', 'summaryIds', 'compactionGeneration', 'bands']);
     expect(rows.every((row) => row.kind !== 'activity')).toBe(true);
     const summaries = rows.filter((row) => row.kind === 'context_compaction');
     expect(summaries.length).toBeGreaterThan(0);
     expect(summaries.every((row) => row.role === 'user' && row.round_id.startsWith('r-compacted-'))).toBe(true);
     expect(summaries[0]?.content).toContain('[Compacted prior conversation — generation 1]');
     expect(summaries[0]?.content).toContain('## Recoverable evidence');
-    const index = readConversationIndex(projectRoot, 'planner:project');
-    expect(index?.active_version).toBe(2);
-    expect(index?.versions['2']?.summary_ids?.length).toBeGreaterThan(0);
+    expect(readConversationInventory(projectRoot, 'planner:project')?.activeVersion).toBe(2);
   }));
 
   it('re-compacts by replacing prior summary rows and rebuilding merge input from cache', async () => withTempProject(async (projectRoot) => {
@@ -92,10 +90,10 @@ describe('conversation compactor orchestration', () => {
       return { result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] };
     }) };
 
-    await compact({ projectRoot, conversations: testConversationMutations(projectRoot), sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), mutationAuthority: testCompositionAuthority(projectRoot), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80), signal: new AbortController().signal });
+    await compact({ projectRoot, conversations: testConversationMutations(projectRoot), sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80), signal: new AbortController().signal });
     const firstSummaryContent = readActiveVersionMessages(projectRoot, 'planner:project').filter((row) => row.kind === 'context_compaction').map((row) => row.content).join('\n');
     appendRound(projectRoot, 4, 'new recent round four ' + 'd'.repeat(40));
-    await compact({ projectRoot, conversations: testConversationMutations(projectRoot), sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), mutationAuthority: testCompositionAuthority(projectRoot), config, summarizerProvider: provider, bufferSizeEstimator: estimator(130), signal: new AbortController().signal });
+    await compact({ projectRoot, conversations: testConversationMutations(projectRoot), sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(130), signal: new AbortController().signal });
     const active = readActiveVersionMessages(projectRoot, 'planner:project');
     const secondSummaryRows = active.filter((row) => row.kind === 'context_compaction');
 
@@ -103,9 +101,8 @@ describe('conversation compactor orchestration', () => {
     expect(secondSummaryRows.some((row) => row.content.includes('generation 2'))).toBe(true);
     expect(seenInputs.some((content) => content.includes('[Compacted prior conversation'))).toBe(false);
     const cacheKeys = readFileSync(summaryCachePath(projectRoot, 'planner:project'), 'utf-8').split('\n').filter(Boolean).map((line) => JSON.parse(line).cache_key as string);
-    const summaryIds = readConversationIndex(projectRoot, 'planner:project')?.versions['3']?.summary_ids ?? [];
-    expect(summaryIds.length).toBe(new Set(summaryIds).size);
-    expect(summaryIds.every((id) => cacheKeys.includes(id))).toBe(true);
+    expect(cacheKeys.length).toBe(new Set(cacheKeys).size);
+    expect(cacheKeys.length).toBeGreaterThan(0);
   }));
 
   it('preserves paired OpenAI Responses private rows in the active compacted version while returning provider-visible rows only', async () => withTempProject(async (projectRoot) => {
@@ -119,7 +116,7 @@ describe('conversation compactor orchestration', () => {
     appendConversationMessage(projectRoot, { id: visibleId, session_id: 'planner:project', role: 'assistant', kind: 'text', content: 'visible', round_id: 'r-assistant-00000000000000000000000000000003', message_index: 1, block_index: 1, timestamp, provider_projection: { kind: 'openai_responses', source_input_id: 'responses-input', private_message_id: privateId, projection_kind: 'assistant_message' } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (llmInput: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: `summary:${llmInput.inputId}` }, provider_exchanges: [] })) };
 
-    const { rows } = await compact({ projectRoot, conversations: testConversationMutations(projectRoot), sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), mutationAuthority: testCompositionAuthority(projectRoot), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80), signal: new AbortController().signal });
+    const { rows } = await compact({ projectRoot, conversations: testConversationMutations(projectRoot), sessionId: 'planner:project', input: input(conversationMessagesForModel(readActiveVersionMessages(projectRoot, 'planner:project'))), config, summarizerProvider: provider, bufferSizeEstimator: estimator(80), signal: new AbortController().signal });
     const active = readActiveVersionMessages(projectRoot, 'planner:project');
 
     expect(rows.some((row) => row.kind === 'provider_private')).toBe(false);

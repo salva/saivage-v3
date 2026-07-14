@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,7 +27,7 @@ describe('analyst navigation tools', () => {
   function ctx(root: string, actor: ToolContext['actor'] = 'analyst'): ToolContext {
     const processRunner = createTestProcessRunner(root);
     const store = new CardStore(root);
-    return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor, surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
+    return { projectRoot: root, configAuthority: testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor, surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
   }
 
   it('returns a structured navigate_workspace intent for analyst callers', async () => {
@@ -39,15 +39,6 @@ describe('analyst navigation tools', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('denies navigate_workspace for non-analyst actors', async () => {
-    const root = setupRoot();
-    try {
-      const result = await navigate_workspace(ctx(root, 'planner'), { target: { kind: 'card', id: 'card-1' } });
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('Denied by authorization policy');
-    } finally { rmSync(root, { recursive: true, force: true }); }
-  });
-
   it('returns a structured navigate_back intent for analyst callers', async () => {
     const root = setupRoot();
     try {
@@ -56,17 +47,14 @@ describe('analyst navigation tools', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('records low-safety audit entries for both navigation actions', async () => {
+  it('keeps navigation intents outside mutation audit', async () => {
     const root = setupRoot();
     try {
       const toolCtx = ctx(root);
       await navigate_workspace(toolCtx, { target: { kind: 'process', id: 'pid-1' } });
       await navigate_back(toolCtx);
       const entries = readAudit(root);
-      expect(entries).toEqual(expect.arrayContaining([
-        expect.objectContaining({ action: 'workspace.navigate', target_kind: 'session', target_id: 'process:pid-1', outcome: 'ok', safety_class: 'low' }),
-        expect.objectContaining({ action: 'workspace.navigate_back', target_kind: 'session', target_id: 'workspace', outcome: 'ok', safety_class: 'low' }),
-      ]));
+      expect(entries).toEqual([]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

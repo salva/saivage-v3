@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from '../helpers/canonical-project.js';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +21,7 @@ beforeEach(() => {
   initProjectTree(root);
   const processRunner = createTestProcessRunner(root);
   const store = new CardStore(root);
-  ctx = { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
+  ctx = { projectRoot: root, configAuthority: testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
 });
 
 afterEach(() => {

@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from '../helpers/canonical-project.js';
 import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,7 +17,7 @@ function setup(root: string): CardStore {
   return new CardStore(root);
 }
 
-function ctx(root: string, store: CardStore): ToolContext { const processRunner = createTestProcessRunner(root); return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-executor', 'runtime_card'), store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1', restartServerAvailable: false, appLogs: testAppLogs(root) }; }
+function ctx(root: string, store: CardStore): ToolContext { const processRunner = createTestProcessRunner(root); return { projectRoot: root, configAuthority: testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-executor', 'runtime_card'), store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1', restartServerAvailable: false, appLogs: testAppLogs(root) }; }
 
 describe('card history and notes tools', () => {
   it('lists history, gets an entry, diffs versions, without audit writes', async () => {

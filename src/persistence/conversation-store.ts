@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
-import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
-import type { MutationLane } from '../application/mutation-lane.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from './durable-file-replacement.js';
 import { IndeterminatePublicationError } from './errors.js';
@@ -11,12 +10,10 @@ import { agentMessageSchema, type AgentMessage } from '../schemas/index.js';
 import {
   activeVersionPath,
   conversationDir,
-  conversationIndexPath,
-  conversationIndexSchema,
-  readValidatedConversationIndex,
-  type ConversationIndex,
+  readConversationInventory,
+  type ConversationInventory,
   type ConversationVersionReplacement,
-} from '../runtime/actors/conversation-index.js';
+} from '../runtime/actors/conversation-inventory.js';
 import { listConversationSessionIds, readConversationVersionMessages } from '../runtime/actors/conversation-store.js';
 import { summaryCacheEntrySchema, summaryCachePath, type SummaryCacheEntry } from '../runtime/actors/compaction/summary-cache.js';
 
@@ -39,110 +36,84 @@ export function conversationContentDigest(content: string): string {
 }
 
 export class ConversationStore {
-  #failed = false;
-
   constructor(
     readonly projectRoot: string,
-    private readonly lane: MutationLane,
+    private readonly health: ApplicationPersistenceHealth,
     private readonly changes: ReadModelChanges,
   ) {}
 
-  restabilize(authority: CompositionMutationAuthority): void {
-    const result = this.lane.apply(authority, 'conversation store restabilization', () => {
-      for (const sessionId of listConversationSessionIds(this.projectRoot)) this.restabilizeSession(sessionId);
-    });
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  restabilize(): void {
+    for (const sessionId of listConversationSessionIds(this.projectRoot)) this.restabilizeSession(sessionId);
   }
 
-  appendBatch(authority: MutationAuthority, messages: readonly AgentMessage[]): ConversationBatchAppendResult {
-    if (this.#failed) throw new Error('Conversation store has failed and requires restart.');
+  appendBatch(messages: readonly AgentMessage[]): ConversationBatchAppendResult {
+    this.health.assertMutationHealthy();
     if (messages.length === 0) throw new Error('Conversation appendBatch requires at least one message.');
     const parsed = messages.map((message) => agentMessageSchema.parse(message));
     const sessionId = parsed[0]!.session_id;
     if (parsed.some((message) => message.session_id !== sessionId)) throw new Error('Conversation appendBatch requires one session.');
     if (new Set(parsed.map((message) => message.id)).size !== parsed.length) throw new Error('Conversation appendBatch contains duplicate message ids.');
 
-    const result = this.lane.apply(authority, 'conversation batch append', () => {
-      try {
-        const index = readValidatedConversationIndex(this.projectRoot, sessionId);
-        if (!index) {
-          const now = new Date().toISOString();
-          const initial: ConversationIndex = { schema_version: 2, session_id: sessionId, active_version: 1, versions: { '1': { status: 'active', opened_at: now } } };
+    let outcome: ConversationBatchAppendResult;
+    try {
+        const inventory = readConversationInventory(this.projectRoot, sessionId);
+        if (!inventory) {
           mkdirSync(conversationDir(this.projectRoot, sessionId), { recursive: true });
           this.replace(activeVersionPath(this.projectRoot, sessionId, 1), serializeMessages(parsed));
-          this.writeIndex(sessionId, initial);
-          return { messages: parsed, appended: true };
-        }
-
-        const existing = this.indexedMessages(sessionId, index);
+          outcome = { messages: parsed, appended: true };
+        } else {
+        const existing = this.indexedMessages(sessionId, inventory);
         const matchedRows = parsed.map((message) => {
           const rows = existing.get(message.id) ?? [];
           if (rows.some((row) => comparableMessage(row) !== comparableMessage(message))) throw new Error(`Conversation message '${message.id}' conflicts with indexed canonical content.`);
           return rows[0];
         });
-        if (matchedRows.every((row) => row !== undefined)) return { messages: matchedRows as AgentMessage[], appended: false };
-        if (matchedRows.some((row) => row !== undefined)) throw new Error('Conversation appendBatch conflicts with a partially persisted batch.');
-
-        const activePath = activeVersionPath(this.projectRoot, sessionId, index.active_version);
-        if (!existsSync(activePath)) throw new Error(`Conversation active version '${index.active_version}' for '${sessionId}' was not found.`);
-        const prior = readStrictConversationContent(activePath);
-        this.replace(activePath, `${prior}${serializeMessages(parsed)}`);
-        return { messages: parsed, appended: true };
+        if (matchedRows.every((row) => row !== undefined)) {
+          outcome = { messages: matchedRows as AgentMessage[], appended: false };
+        } else {
+          if (matchedRows.some((row) => row !== undefined)) throw new Error('Conversation appendBatch conflicts with a partially persisted batch.');
+          const activePath = activeVersionPath(this.projectRoot, sessionId, inventory.activeVersion);
+          const prior = readStrictConversationContent(activePath);
+          this.replace(activePath, `${prior}${serializeMessages(parsed)}`);
+          outcome = { messages: parsed, appended: true };
+        }
+        }
       } catch (error) {
-        if (error instanceof IndeterminatePublicationError) this.#failed = true;
+        if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: conversationDir(this.projectRoot, sessionId), operation: 'append conversation batch', error });
         throw error;
       }
-    });
-    if (!result.applied) throw new Error('Conversation mutation authority is stale.');
-    if (result.value.appended) {
+    if (outcome.appended) {
       this.changes.conversationChanged(sessionId);
       this.changes.agentsChanged();
     }
-    return result.value;
+    return outcome;
   }
 
-  replaceActiveVersion(authority: MutationAuthority, args: ConversationCompactionCommit): { index: ConversationIndex; versionReplacement: ConversationVersionReplacement } {
-    if (this.#failed) throw new Error('Conversation store has failed and requires restart.');
-    const result = this.lane.apply(authority, 'conversation compaction commit', () => {
-      const index = readValidatedConversationIndex(this.projectRoot, args.sessionId);
-      if (!index) throw new Error(`Conversation '${args.sessionId}' does not exist.`);
-      if (index.active_version !== args.sourceVersion) throw new Error(`Conversation '${args.sessionId}' active version changed from ${args.sourceVersion} to ${index.active_version} during compaction.`);
+  publishCompactedVersion(args: ConversationCompactionCommit): ConversationVersionReplacement {
+    this.health.assertMutationHealthy();
+      const inventory = readConversationInventory(this.projectRoot, args.sessionId);
+      if (!inventory) throw new Error(`Conversation '${args.sessionId}' does not exist.`);
+      if (inventory.activeVersion !== args.sourceVersion) throw new Error(`Conversation '${args.sessionId}' active version changed from ${args.sourceVersion} to ${inventory.activeVersion} during compaction.`);
       const sourcePath = activeVersionPath(this.projectRoot, args.sessionId, args.sourceVersion);
       const sourceContent = readStrictConversationContent(sourcePath);
       if (conversationContentDigest(sourceContent) !== args.sourceDigest) throw new Error(`Conversation '${args.sessionId}' changed during compaction.`);
-      const sourceEntry = index.versions[String(args.sourceVersion)];
-      if (!sourceEntry || sourceEntry.status !== 'active') throw new Error(`Conversation '${args.sessionId}' source version ${args.sourceVersion} is not active.`);
       for (const line of args.content.split('\n').filter(Boolean)) agentMessageSchema.parse(JSON.parse(line));
 
-      const nextVersion = Math.max(...Object.keys(index.versions).map(Number)) + 1;
-      const frozenAt = new Date().toISOString();
-      const nextIndex: ConversationIndex = {
-        ...index,
-        active_version: nextVersion,
-        versions: {
-          ...index.versions,
-          [String(args.sourceVersion)]: { ...sourceEntry, status: 'frozen', frozen_at: frozenAt, size_bytes: statSync(sourcePath).size },
-          [String(nextVersion)]: { status: 'active', opened_at: frozenAt, source_version: args.sourceVersion, compaction_generation: args.compactionGeneration, compacted_through: args.compactedThrough, summary_ids: args.summaryIds, bands: args.bands },
-        },
-      };
+      const nextVersion = inventory.activeVersion + 1;
       try {
         this.replace(activeVersionPath(this.projectRoot, args.sessionId, nextVersion), args.content);
-        this.writeIndex(args.sessionId, nextIndex);
       } catch (error) {
-        if (error instanceof IndeterminatePublicationError) this.#failed = true;
+        if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: activeVersionPath(this.projectRoot, args.sessionId, nextVersion), operation: 'publish compacted conversation version', error });
         throw error;
       }
-      return { index: nextIndex, versionReplacement: { sessionId: args.sessionId, activeVersion: nextVersion, compactedThrough: args.compactedThrough, compactionGeneration: args.compactionGeneration } };
-    });
-    if (!result.applied) throw new Error('Conversation mutation authority is stale.');
     this.changes.conversationChanged(args.sessionId);
     this.changes.agentsChanged();
-    return result.value;
+    return { sessionId: args.sessionId, activeVersion: nextVersion, compactedThrough: args.compactedThrough, compactionGeneration: args.compactionGeneration };
   }
 
-  appendSummaryCacheEntry(authority: MutationAuthority, sessionId: string, entry: Omit<SummaryCacheEntry, 'created_at'> & { created_at?: string }): SummaryCacheEntry {
+  appendSummaryCacheEntry(sessionId: string, entry: Omit<SummaryCacheEntry, 'created_at'> & { created_at?: string }): SummaryCacheEntry {
+    this.health.assertMutationHealthy();
     const parsed = summaryCacheEntrySchema.parse({ ...entry, created_at: entry.created_at ?? new Date().toISOString() });
-    const result = this.lane.apply(authority, 'conversation summary cache append', () => {
       const path = summaryCachePath(this.projectRoot, sessionId);
       const current = readSummaryCacheStrict(path);
       const existing = current.find((item) => item.cache_key === parsed.cache_key);
@@ -151,11 +122,8 @@ export class ConversationStore {
         return existing;
       }
       try { this.replace(path, serializeSummaryCache([...current, parsed])); }
-      catch (error) { if (error instanceof IndeterminatePublicationError) this.#failed = true; throw error; }
+      catch (error) { if (error instanceof IndeterminatePublicationError) this.health.reportUncertainFailure({ target: path, operation: 'append conversation summary cache', error }); throw error; }
       return parsed;
-    });
-    if (!result.applied) throw new Error('Conversation mutation authority is stale.');
-    return result.value;
   }
 
   private replace(path: string, content: string): void {
@@ -163,15 +131,9 @@ export class ConversationStore {
     durablyReplaceFile(path, Buffer.from(content));
   }
 
-  private writeIndex(sessionId: string, index: ConversationIndex): void {
-    if (index.session_id !== sessionId) throw new Error(`Conversation index session '${index.session_id}' does not match '${sessionId}'.`);
-    const parsed = conversationIndexSchema.parse(index);
-    this.replace(conversationIndexPath(this.projectRoot, sessionId), `${JSON.stringify(parsed, null, 2)}\n`);
-  }
-
-  private indexedMessages(sessionId: string, index: ConversationIndex): Map<string, AgentMessage[]> {
+  private indexedMessages(sessionId: string, inventory: ConversationInventory): Map<string, AgentMessage[]> {
     const messages = new Map<string, AgentMessage[]>();
-    for (const version of Object.keys(index.versions).map(Number).sort((a, b) => a - b)) {
+    for (const version of inventory.versions) {
       const path = activeVersionPath(this.projectRoot, sessionId, version);
       if (!existsSync(path)) throw new Error(`Conversation indexed version '${path}' was not found.`);
       for (const message of readConversationVersionMessages(path)) {
@@ -185,22 +147,16 @@ export class ConversationStore {
 
   private restabilizeSession(sessionId: string): void {
     const directory = conversationDir(this.projectRoot, sessionId);
-    const targets = new Set<string>(['index.json', 'summaries.jsonl']);
+    const targets = new Set<string>(['summaries.jsonl']);
     for (const entry of readdirSync(directory)) {
-      if (/^\d+\.jsonl$/.test(entry)) targets.add(entry);
-      const match = /^\.(index\.json|summaries\.jsonl|\d+\.jsonl)\.saivage-write-[0-9a-f-]+\.tmp$/.exec(entry);
+      if (/^[1-9][0-9]*\.jsonl$/.test(entry)) targets.add(entry);
+      const match = /^\.(summaries\.jsonl|[1-9][0-9]*\.jsonl)\.saivage-write-[0-9a-f-]+\.tmp$/.exec(entry);
       if (match?.[1]) targets.add(match[1]);
     }
     cleanupDurableReplacementTemporaries(directory, [...targets]);
-    const index = readValidatedConversationIndex(this.projectRoot, sessionId);
-    if (!index) {
-      if (existsSync(summaryCachePath(this.projectRoot, sessionId))) throw new Error(`Conversation '${sessionId}' has a summary cache without an index.`);
-      for (const entry of readdirSync(directory)) if (/^\d+\.jsonl$/.test(entry)) unlinkSync(join(directory, entry));
-      return;
-    }
-    const referenced = new Set(Object.keys(index.versions).map((version) => `${version}.jsonl`));
-    for (const name of referenced) readConversationVersionMessages(join(directory, name));
-    for (const entry of readdirSync(directory)) if (/^\d+\.jsonl$/.test(entry) && !referenced.has(entry)) unlinkSync(join(directory, entry));
+    const inventory = readConversationInventory(this.projectRoot, sessionId);
+    if (!inventory) throw new Error(`Conversation '${sessionId}' has no published version.`);
+    for (const version of inventory.versions) readConversationVersionMessages(join(directory, `${version}.jsonl`));
     readSummaryCacheStrict(summaryCachePath(this.projectRoot, sessionId));
   }
 }

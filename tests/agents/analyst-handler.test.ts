@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
 
 import { readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
-import { activeVersionPath, conversationDir } from '../../src/runtime/actors/conversation-index.js';
-import { appendTestConversationMessage as appendConversationMessage, writeTestConversationIndex as writeConversationIndex } from '../helpers/conversation-mutations.js';
+import { activeVersionPath, conversationDir } from '../../src/runtime/actors/conversation-inventory.js';
+import { appendTestConversationMessage as appendConversationMessage } from '../helpers/conversation-mutations.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
@@ -79,10 +79,10 @@ describe('AnalystHandler F05 contract', () => {
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => messageResponse('Hello user.'));
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
-      const response = await runtime.submit('s-msg', { userContent: 'hi' });
-      expect(response).toMatchObject({ sessionId: resolveAnalystSessionId('s-msg') });
+      const response = await runtime.submit('global', { userContent: 'hi' });
+      expect(response).toMatchObject({ sessionId: resolveAnalystSessionId('global') });
       expect(response.toolInvocations ?? []).toHaveLength(0);
-      const rows = readPersistedRows(root, 's-msg');
+      const rows = readPersistedRows(root, 'global');
       expect(rows.filter((r) => r.kind === 'tool_call')).toHaveLength(0);
       expect(rows.filter((r) => r.role === 'assistant' && r.kind === 'text').map((r) => r.content)).toContain('Hello user.');
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -100,9 +100,9 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
-      const response = await runtime.submit('s-multi', { userContent: 'list everything' });
-      expect(latestAssistantText(root, 's-multi')).toBe('Done.');
-      const rows = readPersistedRows(root, 's-multi');
+      const response = await runtime.submit('global', { userContent: 'list everything' });
+      expect(latestAssistantText(root, 'global')).toBe('Done.');
+      const rows = readPersistedRows(root, 'global');
       const toolCallRows = rows.filter((r) => r.role === 'assistant' && r.kind === 'tool_call');
       expect(toolCallRows).toHaveLength(1);
       for (const tcr of toolCallRows) {
@@ -172,7 +172,7 @@ describe('AnalystHandler F05 contract', () => {
     try {
       const diagnostics: Array<Record<string, unknown>> = [];
       const runtimeDeps = createTestAnalystRuntime({ projectRoot: root });
-      runtimeDeps.eventLogger = { appendEvent: (_authority: unknown, event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
+      runtimeDeps.eventLogger = { appendEvent: (event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
       let call = 0;
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
         call += 1;
@@ -181,13 +181,13 @@ describe('AnalystHandler F05 contract', () => {
       });
 
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps });
-      const response = await runtime.submit('s-bad-json', { userContent: 'list cards' });
+      const response = await runtime.submit('global', { userContent: 'list cards' });
 
-      expect(latestAssistantText(root, 's-bad-json')).toBe('Done.');
+      expect(latestAssistantText(root, 'global')).toBe('Done.');
       expect(diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_tool_arguments_protocol_violation' }),
       ]));
-      const rows = readPersistedRows(root, 's-bad-json');
+      const rows = readPersistedRows(root, 'global');
       expect(rows.some((row) => row.role === 'tool' && row.kind === 'tool_result' && row.content.includes('agent_protocol_violation'))).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -197,7 +197,7 @@ describe('AnalystHandler F05 contract', () => {
     try {
       const diagnostics: Array<Record<string, unknown>> = [];
       const runtimeDeps = createTestAnalystRuntime({ projectRoot: root });
-      runtimeDeps.eventLogger = { appendEvent: (_authority: unknown, event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
+      runtimeDeps.eventLogger = { appendEvent: (event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
       let call = 0;
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
         call += 1;
@@ -206,9 +206,9 @@ describe('AnalystHandler F05 contract', () => {
       });
 
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps });
-      const response = await runtime.submit('s-activity', { userContent: 'list cards' }, () => { throw new Error('activity boom'); });
+      const response = await runtime.submit('global', { userContent: 'list cards' }, () => { throw new Error('activity boom'); });
 
-      expect(latestAssistantText(root, 's-activity')).toBe('Done.');
+      expect(latestAssistantText(root, 'global')).toBe('Done.');
       expect(diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_activity_callback_failed', error_message: 'activity boom' }),
       ]));
@@ -247,7 +247,7 @@ describe('AnalystHandler F05 contract', () => {
         block_index: 0,
         timestamp: new Date().toISOString(),
         id: 'diagnostic-model-issue',
-        session_id: resolveAnalystSessionId('s-filter'),
+        session_id: resolveAnalystSessionId('global'),
       });
       let modelInputContents: string[] = [];
       jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -257,17 +257,17 @@ describe('AnalystHandler F05 contract', () => {
       });
 
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
-      await runtime.submit('s-filter', { userContent: 'hi' });
+      await runtime.submit('global', { userContent: 'hi' });
 
       expect(modelInputContents.some((content) => content.includes('provider debug diagnostic'))).toBe(false);
-      expect(readPersistedRows(root, 's-filter').some((row) => row.kind === 'model_issue')).toBe(true);
+      expect(readPersistedRows(root, 'global').some((row) => row.kind === 'model_issue')).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('loads only the active conversation version into the first analyst turn', async () => {
     const root = setupRoot();
     try {
-      const sessionId = resolveAnalystSessionId('s-active-version');
+      const sessionId = resolveAnalystSessionId('global');
       mkdirSync(conversationDir(root, sessionId), { recursive: true });
       writeFileSync(activeVersionPath(root, sessionId, 1), JSON.stringify({
         role: 'user',
@@ -291,15 +291,6 @@ describe('AnalystHandler F05 contract', () => {
         id: 'active-row',
         session_id: sessionId,
       }) + '\n');
-      writeConversationIndex(root, sessionId, {
-        schema_version: 2,
-        session_id: sessionId,
-        active_version: 2,
-        versions: {
-          '1': { status: 'frozen', opened_at: '2026-01-01T00:00:00.000Z', frozen_at: '2026-01-01T00:00:02.000Z' },
-          '2': { status: 'active', opened_at: '2026-01-01T00:00:03.000Z' },
-        },
-      });
       let modelInputContents: string[] = [];
       jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: Array<{ content?: string }> };
@@ -308,7 +299,7 @@ describe('AnalystHandler F05 contract', () => {
       });
 
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
-      await runtime.submit('s-active-version', { userContent: 'hi' });
+      await runtime.submit('global', { userContent: 'hi' });
 
       expect(modelInputContents.some((content) => content.includes('active row must reach provider'))).toBe(true);
       expect(modelInputContents.some((content) => content.includes('frozen row must not reach provider'))).toBe(false);

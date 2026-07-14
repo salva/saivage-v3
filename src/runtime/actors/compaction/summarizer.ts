@@ -3,10 +3,9 @@ import type { AgentMessage } from '../../../schemas/index.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { SummaryCacheEntry } from './summary-cache.js';
 import { buildResponsesReplayProjection } from '../../../agents/llm-openai-responses-mapper.js';
-import type { MutationAuthority } from '../../../application/mutation-authority.js';
 
 export interface SummarizerProviderPort {
-  completeTurn(input: LlmInvocationInput, signal: AbortSignal, mutationAuthority: MutationAuthority): Promise<ProviderTurnCompletion>;
+  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
 }
 
 export type SummarizerModelSpec = string;
@@ -17,7 +16,6 @@ export async function summarizeRound(args: {
   summarizerProvider: SummarizerProviderPort;
   modelSpec: SummarizerModelSpec;
   signal: AbortSignal;
-  mutationAuthority: MutationAuthority;
 }): Promise<string> {
   validateNoCompactionRows(args.rows, 'summarizeRound');
   const completion = await args.summarizerProvider.completeTurn(buildSummaryInput({
@@ -26,7 +24,7 @@ export async function summarizeRound(args: {
     modelSpec: args.modelSpec,
     systemPrompt: 'Summarize this Saivage conversation round as concise prose. Do not include recoverable-evidence pointer sections.',
     contextMessages: args.rows,
-  }), args.signal, args.mutationAuthority);
+  }), args.signal);
   args.signal.throwIfAborted();
   return validateSummaryResult(completion.result, 'summarizeRound');
 }
@@ -36,7 +34,6 @@ export async function summarizeMerge(args: {
   summarizerProvider: SummarizerProviderPort;
   modelSpec: SummarizerModelSpec;
   signal: AbortSignal;
-  mutationAuthority: MutationAuthority;
 }): Promise<string> {
   if (args.entries.length === 0) throw new Error('summarizeMerge requires at least one cached summary entry.');
   const contextMessages = args.entries.map((entry, index) => ({
@@ -56,7 +53,7 @@ export async function summarizeMerge(args: {
     modelSpec: args.modelSpec,
     systemPrompt: 'Merge these cached Saivage round summaries into one concise prose summary. Do not include recoverable-evidence pointer sections.',
     contextMessages,
-  }), args.signal, args.mutationAuthority);
+  }), args.signal);
   args.signal.throwIfAborted();
   return validateSummaryResult(completion.result, 'summarizeMerge');
 }

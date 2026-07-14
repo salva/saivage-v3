@@ -1,19 +1,18 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
 import type { ConversationStore, ConversationAppendResult } from '../../persistence/conversation-store.js';
-import type { MutationAuthority } from '../../application/mutation-authority.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import { saivageCardsRoot } from '../../persistence/layout.js';
 import {
   activeVersionPath,
-  readConversationIndex,
-  readValidatedConversationIndex,
-} from './conversation-index.js';
+  parseConversationSessionId,
+  readConversationInventory,
+} from './conversation-inventory.js';
 
-export { conversationDir, conversationIndexPath } from './conversation-index.js';
+export { conversationDir } from './conversation-inventory.js';
 
 export type { ConversationAppendResult } from '../../persistence/conversation-store.js';
 
@@ -22,19 +21,18 @@ export function readConversationMessages(projectRoot: string, sessionId: string)
 }
 
 export function readActiveVersionMessages(projectRoot: string, sessionId: string): AgentMessage[] {
-  const index = readConversationIndex(projectRoot, sessionId);
-  if (!index) return [];
-  const path = activeVersionPath(projectRoot, sessionId, index.active_version);
-  if (!existsSync(path)) throw new Error(`Conversation active version '${index.active_version}' for '${sessionId}' was not found.`);
+  const inventory = readConversationInventory(projectRoot, sessionId);
+  if (!inventory) return [];
+  const path = activeVersionPath(projectRoot, sessionId, inventory.activeVersion);
   return readConversationVersionMessages(path);
 }
 
 export function hasIndexedConversationMessageOfKind(projectRoot: string, sessionId: string, messageId: string, expectedKind: AgentMessage['kind']): boolean {
-  const index = readValidatedConversationIndex(projectRoot, sessionId);
-  if (!index) return false;
+  const inventory = readConversationInventory(projectRoot, sessionId);
+  if (!inventory) return false;
 
   let found = false;
-  for (const version of Object.keys(index.versions).map(Number).sort((left, right) => left - right)) {
+  for (const version of inventory.versions) {
     const path = activeVersionPath(projectRoot, sessionId, version);
     if (!existsSync(path)) throw new Error(`Conversation indexed version '${path}' was not found.`);
     for (const message of readConversationVersionMessages(path)) {
@@ -49,9 +47,9 @@ export function hasIndexedConversationMessageOfKind(projectRoot: string, session
 }
 
 export function listConversationSessionIds(projectRoot: string): string[] {
-  return conversationDirectories(projectRoot)
-    .map(({ encodedSessionId }) => decodeURIComponent(encodedSessionId))
-    .sort();
+  const ids = conversationDirectories(projectRoot).map(({ encodedSessionId }) => decodeURIComponent(encodedSessionId));
+  if (new Set(ids).size !== ids.length) throw new Error('A canonical conversation session id occurs under more than one active root.');
+  return ids.sort();
 }
 
 export type UserContextMessageCategory = 'notification' | 'reviewer_descendant' | 'continuation_hook';
@@ -60,7 +58,6 @@ export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content
 
 export function appendUserContextMessage(
   conversations: ConversationStore,
-  authority: MutationAuthority,
   sessionId: string,
   inputId: string,
   category: UserContextMessageCategory,
@@ -81,11 +78,11 @@ export function appendUserContextMessage(
     block_index: 0,
     timestamp,
   });
-  const result = conversations.appendBatch(authority, [message]);
+  const result = conversations.appendBatch([message]);
   return { message, appended: result.appended };
 }
 
-export function appendActivationMarker(conversations: ConversationStore, authority: MutationAuthority, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): ConversationAppendResult {
+export function appendActivationMarker(conversations: ConversationStore, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): ConversationAppendResult {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
   const message = agentMessageSchema.parse({
@@ -99,7 +96,7 @@ export function appendActivationMarker(conversations: ConversationStore, authori
     block_index: 0,
     timestamp,
   });
-  const result = conversations.appendBatch(authority, [message]);
+  const result = conversations.appendBatch([message]);
   return { message, appended: result.appended };
 }
 
@@ -119,9 +116,9 @@ export function buildContextTextMessage(sessionId: string, role: Extract<Message
   });
 }
 
-export function appendCanonicalUserText(conversations: ConversationStore, authority: MutationAuthority, sessionId: string, content: string): ConversationAppendResult {
+export function appendCanonicalUserText(conversations: ConversationStore, sessionId: string, content: string): ConversationAppendResult {
   const message = buildContextTextMessage(sessionId, 'user', content);
-  const result = conversations.appendBatch(authority, [message]);
+  const result = conversations.appendBatch([message]);
   return { message, appended: result.appended };
 }
 
@@ -151,22 +148,32 @@ export function readConversationVersionMessages(path: string): AgentMessage[] {
 function conversationDirectories(projectRoot: string): Array<{ dir: string; encodedSessionId: string }> {
   const dirs: Array<{ dir: string; encodedSessionId: string }> = [];
   const analystRoot = join(projectRoot, '.saivage', 'agents', 'conversations');
-  collectConversationDirectories(analystRoot, dirs);
+  collectConversationDirectories(analystRoot, dirs, null);
 
   const cardsRoot = saivageCardsRoot(projectRoot);
   if (existsSync(cardsRoot)) {
     for (const cardEntry of readdirSync(cardsRoot, { withFileTypes: true })) {
-      if (!cardEntry.isDirectory()) continue;
-      collectConversationDirectories(join(cardsRoot, cardEntry.name, 'conversations'), dirs);
+      if (!cardEntry.isDirectory() || cardEntry.isSymbolicLink()) continue;
+      if (existsSync(join(cardsRoot, cardEntry.name, 'tombstone.json'))) continue;
+      collectConversationDirectories(join(cardsRoot, cardEntry.name, 'conversations'), dirs, cardEntry.name);
     }
   }
   return dirs;
 }
 
-function collectConversationDirectories(root: string, dirs: Array<{ dir: string; encodedSessionId: string }>): void {
+function collectConversationDirectories(root: string, dirs: Array<{ dir: string; encodedSessionId: string }>, expectedCardId: string | null): void {
   if (!existsSync(root)) return;
+  if (!lstatSync(root).isDirectory() || lstatSync(root).isSymbolicLink()) throw new Error(`Conversation root is not a real directory: '${root}'.`);
   for (const entry of readdirSync(root, { withFileTypes: true })) {
-    if (entry.isDirectory()) dirs.push({ dir: join(root, entry.name), encodedSessionId: entry.name });
+    const path = join(root, entry.name);
+    if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error(`Conversation root entry is not a real directory: '${path}'.`);
+    let sessionId: string;
+    try { sessionId = decodeURIComponent(entry.name); }
+    catch (error) { throw new Error(`Conversation directory name is malformed: '${path}'.`, { cause: error }); }
+    if (encodeURIComponent(sessionId) !== entry.name) throw new Error(`Conversation directory name is not canonical: '${path}'.`);
+    const parsed = parseConversationSessionId(sessionId);
+    if (parsed.cardId !== expectedCardId) throw new Error(`Conversation '${sessionId}' is stored under the wrong owner root.`);
+    dirs.push({ dir: path, encodedSessionId: entry.name });
   }
 }
 

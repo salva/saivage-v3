@@ -1,19 +1,19 @@
 import { loadEnvironment, type Environment } from '../config/index.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
-import { classifyPersistenceOpenMode, createProjectPersistenceAuthority, type NewProjectRootInput, type ProjectPersistenceAuthority } from '../persistence/project-persistence-authority.js';
+import { classifyPersistenceOpenMode, createProjectStoreRepository, type NewProjectRootInput, type ProjectStoreRepository } from '../persistence/project-store-repository.js';
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock } from '../runtime/lock.js';
 import { startServer, type ServerInstance } from '../server/server.js';
 import { createRestartPort } from './restart-port.js';
 import { basename, resolve } from 'node:path';
 import type { CardRecord } from '../schemas/index.js';
 import { realpathSync } from 'node:fs';
-import { createMutationLane } from '../application/mutation-lane.js';
+import { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 
 export interface App {
   readonly environment: Environment;
   readonly scope: ResourceScope;
   readonly server: ServerInstance;
-  readonly authority: ProjectPersistenceAuthority;
+  readonly authority: ProjectStoreRepository;
   stop: () => Promise<void>;
 }
 
@@ -61,19 +61,19 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   const prelock = prelockStartupInputs(options.argv, env);
   const scope = createResourceScope('app');
   const lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: prelock.projectRoot, mode: 'bound' });
-  const mutationComposition = createMutationLane();
+  const persistenceHealth = new ApplicationPersistenceHealth();
   scope.add({ dispose: () => releaseRuntimeLifecycleLock(lifecycleLock) }, { name: 'runtime-process-lock' });
   let environment: Environment;
   let server: ServerInstance;
-  let authority: ProjectPersistenceAuthority;
+  let authority: ProjectStoreRepository;
   const restartPort = createRestartPort({ dispose: async () => { await scope.dispose(); }, exit: (code) => process.exit(code) });
   try {
     const mode = prelock.createRuntime
-      ? classifyPersistenceOpenMode(prelock.projectRoot, mutationComposition.authority, newProjectRootInput(prelock.projectRoot))
+      ? classifyPersistenceOpenMode(prelock.projectRoot, newProjectRootInput(prelock.projectRoot))
       : { kind: 'normal' } as const;
-    authority = createProjectPersistenceAuthority({ projectRoot: prelock.projectRoot, lane: mutationComposition.lane, compositionAuthority: mutationComposition.authority, mode });
-    environment = await loadEnvironment(options.argv, env, mutationComposition);
-    server = await startServer({ environment, authority, mutationLane: mutationComposition.lane, compositionAuthority: mutationComposition.authority, scope: scope.child('server'), restartPort });
+    authority = createProjectStoreRepository({ projectRoot: prelock.projectRoot, persistenceHealth, mode });
+    environment = await loadEnvironment(options.argv, env, persistenceHealth);
+    server = await startServer({ environment, authority, persistenceHealth, scope: scope.child('server'), restartPort });
     const address = server.fastify.server.address();
     if (address === null || typeof address === 'string') throw new Error('Server did not publish a TCP control address.');
     const dialHost = environment.server.host === '0.0.0.0' || environment.server.host === '::' ? '127.0.0.1' : environment.server.host;

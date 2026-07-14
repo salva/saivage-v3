@@ -7,7 +7,6 @@ import {
   isProfileExpired,
 } from '../auth/index.js';
 import { authProfileRevision, type AuthProfileRepository } from '../auth/auth-profile-store.js';
-import type { MutationAuthority } from '../application/mutation-authority.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -20,7 +19,6 @@ export interface LlmTransportConfig {
 
 export async function resolveLlmTransportConfig(
   authProfiles: AuthProfileRepository,
-  mutationAuthority: MutationAuthority,
   registry: ProviderRegistry,
   candidate: Candidate,
 ): Promise<LlmTransportConfig> {
@@ -48,7 +46,7 @@ export async function resolveLlmTransportConfig(
   const resolver = new CredentialSourceResolver({
     loadAuthProfiles: async () => authProfiles.load(),
     usableProfileAccessToken: (profileName, profile) =>
-      usableProfileAccessToken(authProfiles, mutationAuthority, profileName, profile),
+      usableProfileAccessToken(authProfiles, profileName, profile),
   });
   const resolved = await resolver.resolve(provider, account);
 
@@ -72,16 +70,15 @@ export function transportAuthProfileDependency(registry: ProviderRegistry, candi
 
 async function usableProfileAccessToken(
   authProfiles: AuthProfileRepository,
-  mutationAuthority: MutationAuthority,
   profileName: string,
   profile: AuthProfile,
 ): Promise<string | undefined> {
   if (profile.provider === 'openai-codex' && isProfileExpired(profile) && profile.refreshToken) {
-    const refreshed = await refreshOpenAICodexProfile(authProfiles, mutationAuthority, profileName, profile);
+    const refreshed = await refreshOpenAICodexProfile(authProfiles, profileName, profile);
     return refreshed?.accessToken ?? profile.accessToken;
   }
   if (profile.provider === 'github-copilot' && isProfileExpired(profile) && profile.refreshToken) {
-    const refreshed = await refreshGitHubCopilotProfile(authProfiles, mutationAuthority, profileName, profile);
+    const refreshed = await refreshGitHubCopilotProfile(authProfiles, profileName, profile);
     return refreshed?.accessToken ?? profile.accessToken;
   }
   return profile.accessToken;
@@ -89,7 +86,6 @@ async function usableProfileAccessToken(
 
 async function refreshOpenAICodexProfile(
   authProfiles: AuthProfileRepository,
-  mutationAuthority: MutationAuthority,
   profileName: string,
   profile: AuthProfile,
 ): Promise<AuthProfile | null> {
@@ -125,13 +121,12 @@ async function refreshOpenAICodexProfile(
   } catch {
     return null;
   }
-  authProfiles.replaceProfile(mutationAuthority, profileName, authProfileRevision(profile), refreshed);
+  authProfiles.replaceProfile(profileName, authProfileRevision(profile), refreshed);
   return refreshed;
 }
 
 async function refreshGitHubCopilotProfile(
   authProfiles: AuthProfileRepository,
-  mutationAuthority: MutationAuthority,
   profileName: string,
   profile: AuthProfile,
 ): Promise<AuthProfile | null> {
@@ -162,6 +157,6 @@ async function refreshGitHubCopilotProfile(
   } catch {
     return null;
   }
-  authProfiles.replaceProfile(mutationAuthority, profileName, authProfileRevision(profile), refreshed);
+  authProfiles.replaceProfile(profileName, authProfileRevision(profile), refreshed);
   return refreshed;
 }

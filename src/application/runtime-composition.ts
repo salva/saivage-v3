@@ -26,9 +26,9 @@ import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { ReadModelChanges } from './read-model-changes.js';
 import { ConversationStore } from '../persistence/conversation-store.js';
 import type { AppLogStore } from '../persistence/app-log.js';
-import type { CompositionMutationAuthority } from './mutation-authority.js';
 import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
-import type { MutationLane } from './mutation-lane.js';
+import type { ApplicationPersistenceHealth } from './persistence-health.js';
+import { RuntimeInterventionBinding } from './intervention-readiness.js';
 import { RuntimeStateStore } from '../runtime/state.js';
 import { ActorSnapshotStore } from '../runtime/actors/snapshots.js';
 import { RecoveryDiagnosticsStore } from '../runtime/actors/actor-recovery.js';
@@ -37,7 +37,8 @@ export interface RuntimeApiFactoryDeps {
   projectRoot: string;
   eventBus: EventBus;
   cardStore: CardStoreRepository;
-  compositionAuthority: CompositionMutationAuthority;
+  persistenceHealth: ApplicationPersistenceHealth;
+  interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
   config?: SaivageConfig;
   processRunner: ProcessRunner;
@@ -72,8 +73,7 @@ export interface RuntimeApplicationServices {
   appLogs: AppLogStore;
   cardStore: CardStoreRepository;
   authProfiles: AuthProfileRepository;
-  mutationLane: MutationLane;
-  compositionAuthority: CompositionMutationAuthority;
+  persistenceHealth: ApplicationPersistenceHealth;
   runtimeApiFactory?: (deps: RuntimeApiFactoryDeps) => RuntimeApi;
   restartServerAvailable?: boolean;
   restartPort?: RestartPort;
@@ -92,6 +92,8 @@ function buildAnalystDeps(input: {
   conversations: ConversationStore;
   configAuthority: ResolvedConfigAuthority;
   appLogs: AppLogStore;
+  persistenceHealth: ApplicationPersistenceHealth;
+  interventionReadiness: RuntimeInterventionBinding;
 }): AnalystRuntimeDeps {
   return {
     configAuthority: input.configAuthority,
@@ -106,6 +108,8 @@ function buildAnalystDeps(input: {
     mcpManager: input.mcpManager,
     conversations: input.conversations,
     appLogs: input.appLogs,
+    persistenceHealth: input.persistenceHealth,
+    interventionReadiness: input.interventionReadiness,
   };
 }
 
@@ -118,17 +122,19 @@ function bundledPromptDefaultsRoot(): string {
 
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
   const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore, restartServerAvailable = false, restartPort } = services;
-  const candidateAvailability = new CandidateAvailabilityStore(projectRoot, services.mutationLane, config.runtime.candidateAvailabilityCompactBytes);
-  candidateAvailability.restabilize(services.compositionAuthority);
-  const conversations = new ConversationStore(projectRoot, services.mutationLane, services.readModelChanges);
-  conversations.restabilize(services.compositionAuthority);
-  const runtimeState = new RuntimeStateStore(projectRoot, services.mutationLane, services.readModelChanges);
-  runtimeState.restabilize(services.compositionAuthority);
-  runtimeState.initialize(services.compositionAuthority);
-  const snapshots = new ActorSnapshotStore(projectRoot, services.mutationLane, services.readModelChanges);
-  snapshots.restabilize(services.compositionAuthority);
-  const recoveryDiagnostics = new RecoveryDiagnosticsStore(projectRoot, services.mutationLane);
-  recoveryDiagnostics.restabilize(services.compositionAuthority);
+  const interventionBinding = new RuntimeInterventionBinding();
+  const candidateAvailability = new CandidateAvailabilityStore(projectRoot, services.persistenceHealth);
+  candidateAvailability.restabilize();
+  const conversations = new ConversationStore(projectRoot, services.persistenceHealth, services.readModelChanges);
+  conversations.restabilize();
+  const runtimeState = new RuntimeStateStore(projectRoot, services.persistenceHealth, services.readModelChanges);
+  runtimeState.restabilize();
+  const initialRuntimeState = runtimeState.initialize();
+  if (initialRuntimeState.status === 'stopped') interventionBinding.markStoppedReady();
+  const snapshots = new ActorSnapshotStore(projectRoot, services.persistenceHealth, services.readModelChanges);
+  snapshots.restabilize();
+  const recoveryDiagnostics = new RecoveryDiagnosticsStore(projectRoot, services.persistenceHealth);
+  recoveryDiagnostics.restabilize();
   let mcpManager: McpManager | undefined;
 
   const registry = new ProviderRegistry(config);
@@ -156,7 +162,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, compositionAuthority: services.compositionAuthority, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, runtimeState, snapshots, recoveryDiagnostics, readModelChanges: services.readModelChanges }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, persistenceHealth: services.persistenceHealth, interventionBinding, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, runtimeState, snapshots, recoveryDiagnostics, readModelChanges: services.readModelChanges }),
     eventLogger,
     errorLogger,
     eventBus,
@@ -179,6 +185,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       conversations,
       configAuthority: services.configAuthority,
       appLogs: services.appLogs,
+      persistenceHealth: services.persistenceHealth,
+      interventionReadiness: interventionBinding,
     });
     return analystDepsCache;
   };

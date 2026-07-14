@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testConfigAuthority } from './helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from './helpers/canonical-project.js';
 import { testActorSnapshots } from './helpers/actor-snapshots.js';
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { testConversationMutations } from './helpers/conversation-mutations.js';
@@ -192,7 +192,6 @@ describe('queueNotification recipient resolution', () => {
       children: { get: () => null },
       notifyCard: () => ({ ok: false, reason: 'missing_card', cardId: goal.id }),
       appLogs: testAppLogs(projectRoot),
-      mutationAuthority: () => store.currentMutationAuthority(),
     });
     const tool = provider.tools.find((item) => item.name === 'queue_notification');
 
@@ -214,7 +213,7 @@ describe('queueNotification recipient resolution', () => {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
     });
     const deps = createTestAnalystRuntime({ projectRoot, cardStore: store });
-    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), mutationAuthority: () => store.currentMutationAuthority(), processRunner: deps.processRunner, processScope: deps.processRunner.createDirectScope(deps.processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
+    const ctx: ToolContext = { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner: deps.processRunner, processScope: deps.processRunner.createDirectScope(deps.processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime, restartServerAvailable: false, appLogs: testAppLogs(projectRoot) };
 
     const result = await queue_notification(ctx, { recipient: goal.id, kind: 'review_update', body: 'reviewer left actionable feedback' });
 
@@ -245,7 +244,7 @@ describe('queueNotification recipient resolution', () => {
     const actor = CardActor.fromCard({ card: store.read(goal.id)!, deps: cardActorDeps(projectRoot, store, provider) });
     Object.defineProperty(actor, 'processor', { value: processor });
 
-    await expect(actor.activate({ kind: 'parent', cardId: 'project' })).resolves.toMatchObject({ status: 'failed' });
+    await expect(actor.activate({ kind: 'parent', cardId: 'project' }, () => { store.setStatus(goal.id, 'running'); })).resolves.toMatchObject({ status: 'failed' });
 
     const firstInput = capturedInputs[0];
     expect(firstInput).toBeDefined();

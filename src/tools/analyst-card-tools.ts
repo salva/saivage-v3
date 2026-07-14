@@ -52,7 +52,7 @@ const plannerCreateCardInput = z.object({
 }).strict();
 
 export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; brief: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; depends_on?: string[]; related?: string[] }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, run: async () => {
+  return runAuditedAnalystTool(ctx, params, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: 'intervention_ready', recheck: () => ({ allowed: true }), commit: () => {
     try {
       const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
       const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'create_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error };
@@ -61,7 +61,6 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
       const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(store, params.type);
       if (ctx.actor === 'analyst') {
         if (params.type === 'project' && parent === null) return toolFailure("Root project card already exists. Use card-management tools or record writes to update project objectives.", { id: PROJECT_CARD_ID });
-        const runtimeCheck = requireMutableRuntime(ctx, 'create_card'); if (runtimeCheck) return runtimeCheck;
         const parentCard = parent ? store.read(parent) : null;
         if (!parentCard) return toolFailure(`Parent card '${parent}' does not exist.`, { parent: parent ?? null });
         const decision = decide({ role: 'analyst', action: 'card.create', targetState: parentCard.status });
@@ -80,18 +79,12 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
   } });
 }
 
-function requireMutableRuntime(ctx: ToolContext, toolName: string): ToolResult | null {
-  const runtimeState = readRuntimeState(ctx.projectRoot);
-  if (runtimeState?.status === 'stopped' || runtimeState?.status === 'paused') return null;
-  return toolFailure(`${toolName} requires runtime status stopped or paused before the Analyst mutates card state. Current runtime status is ${runtimeState?.status ?? 'unknown'}.`, { status: runtimeState?.status ?? 'unknown' });
-}
-
 function subtreeCards(store: ReturnType<typeof getStore>, rootId: string): CardRecord[] {
   return [rootId, ...store.getDescendantIds(rootId)].map((id) => store.read(id)).filter((card): card is CardRecord => card !== null);
 }
 
 export async function delete_card(ctx: ToolContext, params: { ids: string[] }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.delete', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.ids.join(','), permissionCheck: () => {
+  return runAuditedAnalystTool(ctx, params, { action: 'card.delete', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.ids.join(','), lifecycle: 'intervention_ready', recheck: () => {
     if (params.ids.length > 1) return { allowed: true };
     const store = getStore(ctx);
     for (const targetId of params.ids) {
@@ -104,8 +97,7 @@ export async function delete_card(ctx: ToolContext, params: { ids: string[] }): 
       }
     }
     return { allowed: true };
-  }, run: async () => {
-      if (ctx.actor === 'analyst') { const runtimeCheck = requireMutableRuntime(ctx, 'delete_card'); if (runtimeCheck) return runtimeCheck; }
+  }, commit: () => {
     const store = getStore(ctx); const deletedTopLevel: string[] = []; const deletedAll: string[] = []; const failures: Array<{ id: string; reason: string }> = [];
     for (const targetId of params.ids) {
       try {
@@ -129,9 +121,8 @@ export async function delete_card(ctx: ToolContext, params: { ids: string[] }): 
 }
 
 export async function cancel_card(ctx: ToolContext, params: { cardId: string; reason?: string }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, run: async () => {
+  return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, lifecycle: 'intervention_ready', recheck: () => ({ allowed: true }), commit: () => {
     try {
-      if (ctx.actor === 'analyst') { const runtimeCheck = requireMutableRuntime(ctx, 'cancel_card'); if (runtimeCheck) return runtimeCheck; }
       const store = getStore(ctx); const card = store.read(params.cardId); if (!card) return toolFailure(`Card '${params.cardId}' not found.`, { cardId: params.cardId });
       if (ctx.actor === 'analyst' && card.id === PROJECT_CARD_ID) return toolFailure('cancel_card cannot cancel the root project card.', { cardId: card.id });
       const cards = subtreeCards(store, params.cardId);
@@ -172,7 +163,7 @@ export async function get_card(ctx: ToolContext, params: { id: string }): Promis
 }
 
 function effectiveUpdatedAt(store: ReturnType<typeof getStore>, cardId: string): string | null {
-  const committedTimes = [store.recordReader.generation().cards.get(cardId)?.current.committed_at, ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch { return null; } })].filter((value): value is string => value !== null && value !== undefined);
+  const committedTimes = [store.recordReader.cardArtifacts(cardId).current.committed_at, ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch { return null; } })].filter((value): value is string => value !== null && value !== undefined);
   if (committedTimes.length === 0) return null;
   return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
 }
@@ -222,8 +213,8 @@ export async function diff_card(ctx: ToolContext, params: { cardId: string; from
 }
 
 export async function reorder_child(ctx: ToolContext, params: { parentId: string; orderedChildIds: string[] }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, run: async () => {
-    try { if (ctx.actor === 'analyst') { const runtimeCheck = requireMutableRuntime(ctx, 'reorder_child'); if (runtimeCheck) return runtimeCheck; }
+  return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, lifecycle: 'intervention_ready', recheck: () => ({ allowed: true }), commit: () => {
+    try {
       const store = getStore(ctx); const parent = store.read(params.parentId); if (!parent) return toolFailure(`Parent card '${params.parentId}' not found.`, { parentId: params.parentId });
       if (ctx.actor === 'analyst') {
         const parentDecision = decide({ role: 'analyst', action: 'card.reorder_child', targetState: parent.status });

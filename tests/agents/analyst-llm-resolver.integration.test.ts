@@ -83,7 +83,7 @@ describe('AnalystRuntime invocation service integration', () => {
     try {
       const spy = mockContentResponses('Here are your cards.');
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
-      await runtime.submit('s-real-post', { userContent: 'list my cards' });
+      await runtime.submit('global', { userContent: 'list my cards' });
       const calls = fetchCalls(spy);
       expect(calls).toHaveLength(1);
       expect(calls[0].url).toBe(PROVIDER_URL);
@@ -101,8 +101,8 @@ describe('AnalystRuntime invocation service integration', () => {
     try {
       const spy = jest.spyOn(globalThis, 'fetch');
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
-      const response = await runtime.submit('s-no-candidate', { userContent: 'list my cards' });
-      const persisted = latestPersistedAssistant(root, 's-no-candidate');
+      const response = await runtime.submit('global', { userContent: 'list my cards' });
+      const persisted = latestPersistedAssistant(root, 'global');
       expect(persisted).toContain("no model candidate is configured for role 'analyst'");
       expect(persisted).not.toContain('failed to authenticate');
       expect(response.toolInvocations ?? []).toHaveLength(0);
@@ -115,8 +115,8 @@ describe('AnalystRuntime invocation service integration', () => {
     try {
       const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
-      const response = await runtime.submit('s-auth-failed', { userContent: 'list my cards' });
-      const persisted = latestPersistedAssistant(root, 's-auth-failed');
+      const response = await runtime.submit('global', { userContent: 'list my cards' });
+      const persisted = latestPersistedAssistant(root, 'global');
       expect(persisted).toContain('Analyst LLM unavailable: LLM authentication failed (HTTP 401)');
       expect(persisted).not.toContain('analyst is offline');
       expect(persisted).not.toContain("Configure a provider for role 'analyst'");
@@ -132,8 +132,8 @@ describe('AnalystRuntime invocation service integration', () => {
     try {
       const spy = mockContentResponses('Goal goal-7 is visible.', 'Which following item did you mean?');
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
-      await runtime.submit('s-context', { userContent: 'show me goal-7' });
-      await runtime.submit('s-context', { userContent: 'and the one after it' });
+      await runtime.submit('global', { userContent: 'show me goal-7' });
+      await runtime.submit('global', { userContent: 'and the one after it' });
       const secondBody = fetchCalls(spy)[1].body;
       const messages = secondBody.messages as Array<{ role: string; content: string }>;
       const contents = messages.map((message) => message.content);
@@ -152,10 +152,10 @@ describe('AnalystRuntime invocation service integration', () => {
       const clarification = 'Which cancelled cards should I delete?';
       mockContentResponses(clarification);
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
-      const response = await runtime.submit('s-content-only', { userContent: 'delete the cancelled cards' });
+      const response = await runtime.submit('global', { userContent: 'delete the cancelled cards' });
       expect(response.toolInvocations ?? []).toHaveLength(0);
-      expect(latestPersistedAssistant(root, 's-content-only')).toBe(clarification);
-      expect(readPersistedAssistant(root, 's-content-only')).toContain(clarification);
+      expect(latestPersistedAssistant(root, 'global')).toBe(clarification);
+      expect(readPersistedAssistant(root, 'global')).toContain(clarification);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -7,11 +7,10 @@ export * from './conversation-recovery.js';
 export {
   activeVersionPath,
   versionExists,
-  readConversationIndex,
-  conversationIndexSchema,
-  conversationVersionEntrySchema,
-} from './conversation-index.js';
-export type { ConversationIndex, ConversationVersionEntry } from './conversation-index.js';
+  readConversationInventory,
+  parseConversationSessionId,
+} from './conversation-inventory.js';
+export type { ConversationInventory, ParsedConversationSessionId } from './conversation-inventory.js';
 export * from './actor-recovery.js';
 export * from './active-reconstruction.js';
 export * from './llm-invocation.js';

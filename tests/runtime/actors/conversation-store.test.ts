@@ -1,17 +1,16 @@
 import { describe, expect, it } from '@jest/globals';
-import { appendTestConversationMessage as appendConversationMessage, testConversationMutations, writeTestConversationIndex as writeConversationIndex } from '../../helpers/conversation-mutations.js';
+import { appendTestConversationMessage as appendConversationMessage, testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, conversationDir, conversationMessagesForModel, hasIndexedConversationMessageOfKind, listConversationSessionIds, readActiveVersionMessages, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
-import { activeVersionPath, conversationIndexPath } from '../../../src/runtime/actors/conversation-index.js';
+import { activeVersionPath } from '../../../src/runtime/actors/conversation-inventory.js';
 import { codexMessages } from '../../../src/agents/llm-openai-codex-gateway.js';
 import { buildOpenAIChatRequest } from '../../../src/agents/llm-openai-chat-gateway.js';
 import type { AgentMessage } from '../../../src/schemas/index.js';
-import { testCompositionAuthority } from '../../helpers/canonical-project.js';
 
-const appendActivationMarker = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, payload: Parameters<typeof productionAppendActivationMarker>[3]) => productionAppendActivationMarker(conversations, testCompositionAuthority(conversations.projectRoot), sessionId, payload);
-const appendUserContextMessage = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, inputId: string, category: Parameters<typeof productionAppendUserContextMessage>[4], ordinal: number, message: Parameters<typeof productionAppendUserContextMessage>[6]) => productionAppendUserContextMessage(conversations, testCompositionAuthority(conversations.projectRoot), sessionId, inputId, category, ordinal, message);
+const appendActivationMarker = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, payload: Parameters<typeof productionAppendActivationMarker>[2]) => productionAppendActivationMarker(conversations, sessionId, payload);
+const appendUserContextMessage = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, inputId: string, category: Parameters<typeof productionAppendUserContextMessage>[3], ordinal: number, message: Parameters<typeof productionAppendUserContextMessage>[5]) => productionAppendUserContextMessage(conversations, sessionId, inputId, category, ordinal, message);
 
 function makeMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
   return {
@@ -29,63 +28,13 @@ function makeMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
 }
 
 describe('conversation-store', () => {
-  it('rejects v1 conversation indexes instead of migrating them', () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
-    const dir = conversationDir(root, 'analyst:global');
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'index.json'), JSON.stringify({ schema_version: 1, active_segment: 'seg-001.jsonl' }) + '\n');
-    writeFileSync(join(dir, 'seg-001.jsonl'), [
-      JSON.stringify(makeMessage()),
-      JSON.stringify(makeMessage()),
-      JSON.stringify(makeMessage({ id: 'message-2', content: 'second request', message_index: 2 })),
-    ].join('\n') + '\n');
-
-    expect(() => readConversationMessages(root, 'analyst:global')).toThrow(/schema_version/);
-    expect(existsSync(join(dir, 'seg-001.jsonl'))).toBe(true);
-  });
-
-  it('canonical transcript reads only active version rows without mutating orphan files', () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
-    const sessionId = 'planner:project';
-    const dir = conversationDir(root, sessionId);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, '1.jsonl'), [
-      JSON.stringify(makeMessage({ id: 'frozen-1', session_id: sessionId, content: 'frozen one' })),
-      JSON.stringify(makeMessage({ id: 'shared', session_id: sessionId, content: 'dedupe from frozen' })),
-    ].join('\n') + '\n');
-    writeFileSync(join(dir, '2.jsonl'), [
-      JSON.stringify(makeMessage({ id: 'shared', session_id: sessionId, content: 'dedupe from active' })),
-      JSON.stringify(makeMessage({ id: 'active-1', session_id: sessionId, content: 'active one' })),
-    ].join('\n') + '\n');
-    writeFileSync(join(dir, '3.jsonl'), JSON.stringify(makeMessage({ id: 'orphan', session_id: sessionId })) + '\n');
-    writeConversationIndex(root, sessionId, {
-      schema_version: 2,
-      session_id: sessionId,
-      active_version: 2,
-      versions: {
-        '1': { status: 'frozen', opened_at: '2026-07-05T21:12:29.842Z', frozen_at: '2026-07-05T21:12:30.842Z' },
-        '2': { status: 'active', opened_at: '2026-07-05T21:12:31.842Z' },
-      },
-    });
-
-    const active = readActiveVersionMessages(root, sessionId);
-    const all = readConversationMessages(root, sessionId);
-
-    expect(active.map((message) => message.id)).toEqual(['shared', 'active-1']);
-    expect(all.map((message) => message.id)).toEqual(['shared', 'active-1']);
-    expect(all.find((message) => message.id === 'shared')?.content).toBe('dedupe from active');
-    expect(existsSync(join(dir, '3.jsonl'))).toBe(true);
-  });
-
-  it('reads exact prompt identity from indexed history without cleaning an orphan', () => {
+  it('reads exact prompt identity across strict numeric versions without mutating them', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     const sessionId = 'planner:project';
     const dir = conversationDir(root, sessionId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })) + '\n');
     writeFileSync(join(dir, '2.jsonl'), JSON.stringify(makeMessage({ id: 'active', session_id: sessionId })) + '\n');
-    writeFileSync(join(dir, '3.jsonl'), JSON.stringify(makeMessage({ id: 'orphan', session_id: sessionId })) + '\n');
-    writeConversationIndex(root, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
     const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
     const before = snapshot();
 
@@ -94,15 +43,13 @@ describe('conversation-store', () => {
     expect(snapshot()).toEqual(before);
   });
 
-  it('rejects a wrong-kind exact prompt identity without mutating indexed history or orphans', () => {
+  it('rejects a wrong-kind exact prompt identity without mutating version history', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     const sessionId = 'planner:project';
     const dir = conversationDir(root, sessionId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt' })) + '\n');
     writeFileSync(join(dir, '2.jsonl'), JSON.stringify(makeMessage({ id: 'planner:project:system-prompt', session_id: sessionId, kind: 'text' })) + '\n');
-    writeFileSync(join(dir, '3.jsonl'), JSON.stringify(makeMessage({ id: 'orphan', session_id: sessionId })) + '\n');
-    writeConversationIndex(root, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
     const snapshot = () => readdirSync(dir).sort().map((file) => [file, readFileSync(join(dir, file), 'utf-8')]);
     const before = snapshot();
 
@@ -150,16 +97,6 @@ describe('conversation-store', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, '1.jsonl'), JSON.stringify(makeMessage({ id: 'frozen', session_id: sessionId })) + '\n');
     writeFileSync(join(dir, '2.jsonl'), '');
-    writeConversationIndex(root, sessionId, {
-      schema_version: 2,
-      session_id: sessionId,
-      active_version: 2,
-      versions: {
-        '1': { status: 'frozen', opened_at: '2026-07-05T21:12:29.842Z', frozen_at: '2026-07-05T21:12:30.842Z' },
-        '2': { status: 'active', opened_at: '2026-07-05T21:12:31.842Z' },
-      },
-    });
-
     appendConversationMessage(root, makeMessage({ id: 'new-active', session_id: sessionId, content: 'new active row' }));
 
     expect(readFileSync(join(dir, '1.jsonl'), 'utf-8')).not.toContain('new-active');
@@ -201,10 +138,9 @@ describe('conversation-store', () => {
     expect(chat.messages.filter((message) => message.role === 'user')).toEqual([{ role: 'user', content: row.content }]);
   });
 
-  it('exports versioned paths for active version files', () => {
+  it('exports versioned paths for conversation files', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     expect(activeVersionPath(root, 'planner:project', 12)).toMatch(/12\.jsonl$/);
-    expect(conversationIndexPath(root, 'planner:project')).toMatch(/index\.json$/);
   });
 
   it('routes card conversations under the owning card and analyst conversations under agents', () => {
@@ -212,7 +148,7 @@ describe('conversation-store', () => {
 
     expect(conversationDir(root, 'planner:card-7')).toBe(join(root, '.saivage', 'cards', 'card-7', 'conversations', 'planner%3Acard-7'));
     expect(conversationDir(root, 'executor:card-7')).toBe(join(root, '.saivage', 'cards', 'card-7', 'conversations', 'executor%3Acard-7'));
-    expect(conversationDir(root, 'reviewer:card-7:assessment-1')).toBe(join(root, '.saivage', 'cards', 'card-7', 'conversations', 'reviewer%3Acard-7%3Aassessment-1'));
+    expect(conversationDir(root, 'reviewer:card-7:assessment-card-7-1')).toBe(join(root, '.saivage', 'cards', 'card-7', 'conversations', 'reviewer%3Acard-7%3Aassessment-card-7-1'));
     expect(conversationDir(root, 'analyst:global')).toBe(join(root, '.saivage', 'agents', 'conversations', 'analyst%3Aglobal'));
   });
 
@@ -220,9 +156,9 @@ describe('conversation-store', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-store-'));
     appendConversationMessage(root, makeMessage({ id: 'analyst-msg', session_id: 'analyst:global' }));
     appendConversationMessage(root, makeMessage({ id: 'planner-msg', session_id: 'planner:card-7' }));
-    appendConversationMessage(root, makeMessage({ id: 'reviewer-msg', session_id: 'reviewer:card-7:assessment-1' }));
+    appendConversationMessage(root, makeMessage({ id: 'reviewer-msg', session_id: 'reviewer:card-7:assessment-card-7-1' }));
 
-    expect(listConversationSessionIds(root)).toEqual(['analyst:global', 'planner:card-7', 'reviewer:card-7:assessment-1']);
+    expect(listConversationSessionIds(root)).toEqual(['analyst:global', 'planner:card-7', 'reviewer:card-7:assessment-card-7-1']);
     expect(readConversationMessages(root, 'planner:card-7').map((message) => message.id)).toEqual(['planner-msg']);
   });
 });

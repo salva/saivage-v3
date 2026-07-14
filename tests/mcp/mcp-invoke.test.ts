@@ -7,7 +7,6 @@ import { InvalidArgumentsError, McpInvokeError, McpManager, ServerNotRunningErro
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testConfigAuthority } from '../helpers/canonical-project.js';
-import { issueCompositionMutationAuthority } from '../../src/application/mutation-authority.js';
 
 const roots: string[] = [];
 const managers: McpManager[] = [];
@@ -77,7 +76,7 @@ describe('MCP invocation errors', () => {
   it('rejects invocation when no active runtime exists', async () => {
     const projectRoot = root();
     writeConfig(projectRoot, {});
-    await expect(manager(projectRoot).invokeTool(issueCompositionMutationAuthority(), 'missing', 'ping', {})).rejects.toBeInstanceOf(ServerNotRunningError);
+    await expect(manager(projectRoot).invokeTool('missing', 'ping', {})).rejects.toBeInstanceOf(ServerNotRunningError);
   });
 });
 
@@ -89,7 +88,7 @@ describe('contained MCP invocation', () => {
     const mcp = manager(projectRoot);
     expect((await mcp.reconcilePersistedConfig()).converged).toBe(true);
 
-    await expect(mcp.invokeTool(issueCompositionMutationAuthority(), 'web', 'ping', { count: 1 })).resolves.toEqual([{ type: 'text', text: 'pong' }]);
+    await expect(mcp.invokeTool('web', 'ping', { count: 1 })).resolves.toEqual([{ type: 'text', text: 'pong' }]);
     expect(mcp.getInvocationStats()['web:ping']).toMatchObject({ total: 1, success: 1, error: 0 });
   });
 
@@ -103,9 +102,9 @@ describe('contained MCP invocation', () => {
     const callsBefore = fetchMock.mock.calls.length;
     const secret = 'synthetic-secret-that-must-not-appear';
 
-    await expect(mcp.invokeTool(issueCompositionMutationAuthority(), 'web', 'ping', { count: secret, [secret]: true })).rejects.toBeInstanceOf(InvalidArgumentsError);
+    await expect(mcp.invokeTool('web', 'ping', { count: secret, [secret]: true })).rejects.toBeInstanceOf(InvalidArgumentsError);
     expect(fetchMock).toHaveBeenCalledTimes(callsBefore);
-    try { await mcp.invokeTool(issueCompositionMutationAuthority(), 'web', 'ping', { count: secret, [secret]: true }); }
+    try { await mcp.invokeTool('web', 'ping', { count: secret, [secret]: true }); }
     catch (error) { expect(JSON.stringify(error)).not.toContain(secret); }
     expect(mcp.getInvocationStats()).toEqual({});
   });
@@ -129,7 +128,7 @@ describe('contained MCP invocation', () => {
     const mcp = manager(projectRoot);
     await mcp.reconcilePersistedConfig();
 
-    await Promise.all([mcp.invokeTool(issueCompositionMutationAuthority(), 'web', 'ping', { count: 1 }), mcp.invokeTool(issueCompositionMutationAuthority(), 'web', 'ping', { count: 2 })]);
+    await Promise.all([mcp.invokeTool('web', 'ping', { count: 1 }), mcp.invokeTool('web', 'ping', { count: 2 })]);
     expect(maximum).toBe(2);
   });
 
@@ -142,8 +141,8 @@ describe('contained MCP invocation', () => {
     expect((await mcp.reconcilePersistedConfig()).converged).toBe(true);
 
     const results = await Promise.all([
-      mcp.invokeTool(issueCompositionMutationAuthority(), 'local', 'echo', { value: 'first' }),
-      mcp.invokeTool(issueCompositionMutationAuthority(), 'local', 'echo', { value: 'second' }),
+      mcp.invokeTool('local', 'echo', { value: 'first' }),
+      mcp.invokeTool('local', 'echo', { value: 'second' }),
     ]);
     expect(results).toEqual([['first'], ['second']]);
   });

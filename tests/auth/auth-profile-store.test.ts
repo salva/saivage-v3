@@ -10,7 +10,7 @@ import {
   authProfileRevision,
   type AuthProfile,
 } from '../../src/auth/auth-profile-store.js';
-import { createMutationLane } from '../../src/application/mutation-lane.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 
 const roots: string[] = [];
 
@@ -25,10 +25,9 @@ function profile(overrides: Partial<AuthProfile> = {}): AuthProfile {
 }
 
 function setup(projectRoot = root()) {
-  const mutation = createMutationLane();
-  const repository = new AuthProfileRepository(projectRoot, mutation.lane);
-  repository.restabilize(mutation.authority);
-  return { projectRoot, repository, authority: mutation.authority };
+  const repository = new AuthProfileRepository(projectRoot, new ApplicationPersistenceHealth());
+  repository.restabilize();
+  return { projectRoot, repository };
 }
 
 function file(projectRoot: string): string {
@@ -43,8 +42,7 @@ afterEach(() => {
 describe('AuthProfileRepository', () => {
   it('reads an absent store without mutating the filesystem', () => {
     const projectRoot = root();
-    const mutation = createMutationLane();
-    const repository = new AuthProfileRepository(projectRoot, mutation.lane);
+    const repository = new AuthProfileRepository(projectRoot, new ApplicationPersistenceHealth());
     expect(repository.load()).toBeNull();
     expect(existsSync(join(projectRoot, '.saivage'))).toBe(false);
   });
@@ -63,33 +61,33 @@ describe('AuthProfileRepository', () => {
   });
 
   it('creates and replaces a profile under the expected revision', () => {
-    const { projectRoot, repository, authority } = setup();
+    const { projectRoot, repository } = setup();
     const first = profile({ provider: 'first' });
-    repository.replaceProfile(authority, 'account', null, first);
+    repository.replaceProfile('account', null, first);
     const projection = repository.profile('account');
     expect(projection).toEqual({ profile: first, revision: authProfileRevision(first) });
 
     const second = profile({ provider: 'second', accessToken: 'second-access' });
-    repository.replaceProfile(authority, 'account', projection!.revision, second);
+    repository.replaceProfile('account', projection!.revision, second);
     expect(repository.profile('account')?.profile).toEqual(second);
     expect(readFileSync(file(projectRoot), 'utf8').endsWith('\n')).toBe(true);
     expect(statSync(file(projectRoot)).mode & 0o077).toBe(0);
   });
 
   it('rejects stale replacement and deletion revisions without changing the file', () => {
-    const { projectRoot, repository, authority } = setup();
+    const { projectRoot, repository } = setup();
     const initial = profile();
-    repository.replaceProfile(authority, 'account', null, initial);
+    repository.replaceProfile('account', null, initial);
     const before = readFileSync(file(projectRoot), 'utf8');
-    expect(() => repository.replaceProfile(authority, 'account', 'stale', profile({ provider: 'other' }))).toThrow(AuthProfileConflictError);
-    expect(() => repository.deleteProfile(authority, 'account', 'stale')).toThrow(AuthProfileConflictError);
+    expect(() => repository.replaceProfile('account', 'stale', profile({ provider: 'other' }))).toThrow(AuthProfileConflictError);
+    expect(() => repository.deleteProfile('account', 'stale')).toThrow(AuthProfileConflictError);
     expect(readFileSync(file(projectRoot), 'utf8')).toBe(before);
   });
 
   it('deletes only the exact projected profile revision', () => {
-    const { repository, authority } = setup();
-    repository.replaceProfile(authority, 'account', null, profile());
-    repository.deleteProfile(authority, 'account', repository.profile('account')!.revision);
+    const { repository } = setup();
+    repository.replaceProfile('account', null, profile());
+    repository.deleteProfile('account', repository.profile('account')!.revision);
     expect(repository.load()).toEqual({ version: 1, profiles: {} });
   });
 
@@ -101,9 +99,9 @@ describe('AuthProfileRepository', () => {
       const projectRoot = root();
       mkdirSync(join(projectRoot, '.saivage'));
       writeFileSync(file(projectRoot), content, { mode: 0o600 });
-      const { repository, authority } = setup(projectRoot);
+      const { repository } = setup(projectRoot);
       let caught: unknown;
-      try { repository.replaceProfile(authority, 'new', null, profile()); } catch (error) { caught = error; }
+      try { repository.replaceProfile('new', null, profile()); } catch (error) { caught = error; }
       expect(caught).toBeInstanceOf(AuthProfileRecoveryRequiredError);
       expect(String(caught)).not.toContain('synthetic-access');
       expect(String(caught)).not.toContain('synthetic-refresh');

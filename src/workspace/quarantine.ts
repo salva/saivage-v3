@@ -8,7 +8,6 @@
 
 import { randomBytes } from 'node:crypto';
 import { readAppLogEntries, type AppLogStore } from '../persistence/app-log.js';
-import type { MutationAuthority } from '../application/mutation-authority.js';
 import { contentReviewSchema } from '../schemas/index.js';
 import type { ContentReview, RiskLevel, SourceKind } from '../schemas/index.js';
 
@@ -34,7 +33,6 @@ export function quarantineContent(params: {
   reason: string;
   risk: RiskLevel;
   appLogs: AppLogStore;
-  mutationAuthority: MutationAuthority;
 }): BlockedContentReviewResult {
   const { projectRoot, sourceKind, sourceRef, reason, risk } = params;
   const now = new Date().toISOString();
@@ -49,7 +47,7 @@ export function quarantineContent(params: {
   };
 
   const parsedReview = contentReviewSchema.parse(review);
-  params.appLogs.append(params.mutationAuthority, { id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview });
+  params.appLogs.append({ id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview });
 
   return {
     review: parsedReview,
@@ -59,7 +57,6 @@ export function quarantineContent(params: {
 
 export function recordContentPass(
   appLogs: AppLogStore,
-  mutationAuthority: MutationAuthority,
   sourceKind: SourceKind,
   sourceRef: string,
   summary: string,
@@ -77,7 +74,7 @@ export function recordContentPass(
   };
 
   const parsedReview = contentReviewSchema.parse(review);
-  appLogs.append(mutationAuthority, { id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview });
+  appLogs.append({ id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview });
   return parsedReview;
 }
 

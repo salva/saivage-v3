@@ -7,7 +7,6 @@ import type { ProviderRegistry } from './provider.js';
 import { createProviderExchangeRecorder, toProviderExchangeRecorderLogger, type ProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
-import type { MutationAuthority } from '../application/mutation-authority.js';
 
 export interface AgentLlmInvocationGatewayConfig {
   projectRoot: string;
@@ -37,9 +36,9 @@ export class AgentLlmInvocationGateway {
   }
 
   createLlmCallFn(): LlmCallFn {
-    return async (candidate: Candidate, systemPrompt: string, genericContextMessages: AgentMessage[], activeConversationReplayOrSessionId: ResponsesReplayProjection | string, sessionIdOrOpts: string | LlmCompleteOptions, maybeOpts: LlmCompleteOptions | undefined, mutationAuthority: MutationAuthority): Promise<ProviderTurnCompletion> => {
+    return async (candidate: Candidate, systemPrompt: string, genericContextMessages: AgentMessage[], activeConversationReplayOrSessionId: ResponsesReplayProjection | string, sessionIdOrOpts: string | LlmCompleteOptions, maybeOpts: LlmCompleteOptions | undefined): Promise<ProviderTurnCompletion> => {
       const { activeConversationReplay, sessionId, opts } = parseCompleteInvocationArgs(genericContextMessages, activeConversationReplayOrSessionId, sessionIdOrOpts, maybeOpts);
-      const { baseUrl, apiKey, openAICodexAccountId } = await resolveLlmTransportConfig(this.authProfiles, mutationAuthority, this.registry, candidate);
+      const { baseUrl, apiKey, openAICodexAccountId } = await resolveLlmTransportConfig(this.authProfiles, this.registry, candidate);
       const client: LlmInvocationClient = new LlmProviderGateway({ baseUrl, apiKey, openAICodexAccountId, registry: this.registry });
       const recorder = this.createRecorder(sessionId);
       return await client.complete(candidate, systemPrompt, genericContextMessages, activeConversationReplay, sessionId, { ...opts, recorder });

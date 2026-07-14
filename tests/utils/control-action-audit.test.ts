@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { controlActionAuditEntrySchema } from '../../src/schemas/validators.js';
 import { listControlActions, recordControlAction } from '../../src/persistence/control-action-audit.js';
-import { testAppLogAuthority, testAppLogs } from '../helpers/app-logs.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 
 
 let projectRoot: string;
@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe('control action audit persistence', () => {
   it('appends and reloads validated redacted audit entries after recreation', () => {
-    const created = recordControlAction(testAppLogs(projectRoot), testAppLogAuthority(projectRoot), {
+    const created = recordControlAction(testAppLogs(projectRoot), {
       id: 'audit-1',
       created_at: '2026-01-01T00:00:00.000Z',
       actor: 'analyst',
@@ -54,7 +54,7 @@ describe('control action audit persistence', () => {
   });
 
   it('ignores malformed jsonl entries while preserving valid latest entries across reopen', () => {
-    recordControlAction(testAppLogs(projectRoot), testAppLogAuthority(projectRoot), {
+    recordControlAction(testAppLogs(projectRoot), {
       id: 'audit-1',
       created_at: '2026-01-01T00:00:00.000Z',
       actor: 'analyst',

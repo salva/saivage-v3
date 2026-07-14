@@ -4,32 +4,43 @@ import { recordControlAction, stableStringify } from '../persistence/index.js';
 import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
 
-export interface MutatingSpec<P> {
-  action: string;
-  safety_class: SafetyClass;
-  target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
-  getTargetId: (params: P) => string | null;
-  permissionCheck?: (ctx: ToolContext, params: P) => { allowed: true } | { allowed: false; reason: string };
-  successSummary?: string;
-  run: (ctx: ToolContext, params: P) => Promise<ToolResult>;
+export type MutationAdmission = { allowed: true } | { allowed: false; reason: string };
+export type AnalystMutationReadContext = Pick<ToolContext, 'projectRoot' | 'actor' | 'surface' | 'sessionId'>;
+export type AnalystMutationContext = ToolContext;
+
+export interface MutatingSpec<P, Prepared = undefined> {
+  readonly action: string;
+  readonly safety_class: SafetyClass;
+  readonly target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
+  readonly getTargetId: (params: P) => string | null;
+  readonly lifecycle: 'intervention_ready';
+  readonly prepare?: (params: P, ctx: AnalystMutationReadContext) => Promise<Prepared>;
+  readonly recheck: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => MutationAdmission;
+  readonly commit: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => ToolResult;
+  readonly successSummary?: string;
 }
 
 function paramsSummary(params: unknown): string { return stableStringify(params); }
 
-export async function runAuditedAnalystTool<P extends Record<string, unknown>>(ctx: ToolContext, params: P, spec: MutatingSpec<P>): Promise<ToolResult> {
+export async function runAuditedAnalystTool<P extends Record<string, unknown>, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>): Promise<ToolResult> {
   const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });
   const auditBase = { actor: ctx.actor, surface: ctx.surface, action: spec.action, target_kind: spec.target_kind, target_id: spec.getTargetId(params), params_summary: paramsSummary(params), safety_class: spec.safety_class };
+  ctx.persistenceHealth.assertMutationHealthy();
   if (verdict === 'deny') {
-    recordControlAction(ctx.appLogs, ctx.mutationAuthority(), { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' }, ctx.eventBus);
+    recordControlAction(ctx.appLogs, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' }, ctx.eventBus);
     return toolFailure(`Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.`, { action: spec.action, safety_class: spec.safety_class });
   }
-  const permission = spec.permissionCheck?.(ctx, params);
+  const readContext: AnalystMutationReadContext = { projectRoot: ctx.projectRoot, actor: ctx.actor, surface: ctx.surface, ...(ctx.sessionId === undefined ? {} : { sessionId: ctx.sessionId }) };
+  const prepared = spec.prepare ? await spec.prepare(params, readContext) : undefined as Prepared;
+  ctx.persistenceHealth.assertMutationHealthy();
+  ctx.interventionReadiness.assertInterventionReady();
+  const permission = spec.recheck(prepared, params, ctx);
   if (permission && !permission.allowed) {
-    recordControlAction(ctx.appLogs, ctx.mutationAuthority(), { ...auditBase, outcome: 'denied', outcome_summary: `permission denied: ${permission.reason}` }, ctx.eventBus);
+    recordControlAction(ctx.appLogs, { ...auditBase, outcome: 'denied', outcome_summary: `permission denied: ${permission.reason}` }, ctx.eventBus);
     return toolFailure(`Denied by permission policy for ${spec.action}: ${permission.reason}.`, { action: spec.action, reason: permission.reason });
   }
-  const result = await spec.run(ctx, params);
-  recordControlAction(ctx.appLogs, ctx.mutationAuthority(), {
+  const result = spec.commit(prepared, params, ctx);
+  recordControlAction(ctx.appLogs, {
     ...auditBase,
     outcome: result.success ? 'ok' : 'error',
     outcome_summary: result.success ? spec.successSummary ?? 'mutation applied' : result.error,

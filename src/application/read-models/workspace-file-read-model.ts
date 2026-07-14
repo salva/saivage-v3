@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
 import { getSafeFileForAgent, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
-import type { ProjectCardRecordReader } from '../../persistence/project-persistence-authority.js';
+import type { ProjectCardRecordReader } from '../../persistence/project-store-repository.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;

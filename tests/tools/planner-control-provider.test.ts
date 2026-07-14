@@ -31,7 +31,7 @@ describe('planner activate_card recovery dispatch', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const child = createChild(store, 'done');
-    const surface = buildInvocationSurface('planner', [createPlannerControlProvider({ projectRoot, parentCardId: 'project', sessionId: 'planner:project', store, children: { get: () => null }, appLogs: testAppLogs(projectRoot), mutationAuthority: () => store.currentMutationAuthority() })]);
+    const surface = buildInvocationSurface('planner', [createPlannerControlProvider({ projectRoot, parentCardId: 'project', sessionId: 'planner:project', store, children: { get: () => null }, appLogs: testAppLogs(projectRoot) })]);
 
     const replay = await replayToolForRecovery(surface, 'activate_card', { card_id: child.id });
 
@@ -49,7 +49,7 @@ describe('planner activate_card recovery dispatch', () => {
       awaitSettlement: jest.fn(async () => { calls.push('awaitSettlement'); return { status: 'done' as const, summary: 'recovered', result: { kind: 'done' as const, summary: 'recovered' } }; }),
       cancel: jest.fn(),
     };
-    const surface = buildInvocationSurface('planner', [createPlannerControlProvider({ projectRoot, parentCardId: 'project', sessionId: 'planner:project', store, children: { get: () => childActor }, appLogs: testAppLogs(projectRoot), mutationAuthority: () => store.currentMutationAuthority() })]);
+    const surface = buildInvocationSurface('planner', [createPlannerControlProvider({ projectRoot, parentCardId: 'project', sessionId: 'planner:project', store, children: { get: () => childActor }, appLogs: testAppLogs(projectRoot) })]);
 
     const result = await invokeTool(surface, 'activate_card', { card_id: child.id });
 

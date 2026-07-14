@@ -9,7 +9,7 @@ import type {
   CardRecord,
 } from '../schemas/index.js';
 import { cardHistoryEntrySchema } from '../schemas/index.js';
-import type { ProjectMutationSession } from '../persistence/project-persistence-authority.js';
+import type { ProjectCardRecordWriter } from '../persistence/project-store-repository.js';
 import { CardStoreState } from './state.js';
 import { CardStoreInvariantError } from './errors.js';
 import type { CardMutationContext } from './lifecycle.js';
@@ -40,7 +40,7 @@ export type ApplyMutationOp =
 export interface ApplyMutationDeps {
   projectRoot: string;
   state: CardStoreState;
-  writer: { request<T>(operation: (session: ProjectMutationSession) => T): T };
+  writer: ProjectCardRecordWriter;
   eventBus: EventBus;
 }
 
@@ -79,7 +79,7 @@ export function applyMutationSync(
   deps: ApplyMutationDeps,
   op: ApplyMutationOp,
 ): ApplyMutationResult {
-  const outcome = deps.writer.request((session) => applyMutationLocked(deps, session, op));
+  const outcome = applyMutationLocked(deps, deps.writer, op);
   if (outcome.event !== null) deps.eventBus.emit('card_history_appended', outcome.event);
   return { card: outcome.card, historyEntry: outcome.historyEntry };
 }
@@ -92,7 +92,7 @@ export interface ApplyMutationLockedOutcome {
 
 function applyMutationLocked(
   deps: ApplyMutationDeps,
-  writer: ProjectMutationSession,
+  writer: ProjectCardRecordWriter,
   op: ApplyMutationOp,
 ): ApplyMutationLockedOutcome {
   const { state } = deps;
@@ -158,7 +158,7 @@ function applyMutationLocked(
     ['__deleted__'],
     op.changeSummary,
   );
-  writer.deleteCard(op.cardId);
+  writer.deleteCard(op.cardId, op.finalSnapshot, historyEntry);
   state.remove(op.cardId);
   const event: CardHistoryAppendedPayload = {
     kind: 'card_history_appended',
@@ -172,7 +172,7 @@ function applyMutationLocked(
   return { card: null, historyEntry, event };
 }
 
-/** Apply a sequence of single-card operations inside one already-authorized lane callback. */
+/** Apply a sequence of independent synchronous card effects in order. */
 export function applyMutationGroupSync(
   deps: ApplyMutationDeps,
   ops: ApplyMutationOp[],
@@ -180,13 +180,11 @@ export function applyMutationGroupSync(
   if (ops.length === 0) return [];
   const events: CardHistoryAppendedPayload[] = [];
   const results: ApplyMutationResult[] = [];
-  deps.writer.request((writer) => {
-    for (const op of ops) {
-      const outcome = applyMutationLocked(deps, writer, op);
-      results.push({ card: outcome.card, historyEntry: outcome.historyEntry });
-      if (outcome.event !== null) events.push(outcome.event);
-    }
-  });
+  for (const op of ops) {
+    const outcome = applyMutationLocked(deps, deps.writer, op);
+    results.push({ card: outcome.card, historyEntry: outcome.historyEntry });
+    if (outcome.event !== null) events.push(outcome.event);
+  }
   for (const evt of events) deps.eventBus.emit('card_history_appended', evt);
   return results;
 }

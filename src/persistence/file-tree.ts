@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { redactTextForOutbound } from '../redaction/index.js';
 import { isReadBlocked } from '../workspace/index.js';
-import { observeCanonicalProjectRoot } from './canonical-root-observation.js';
+import { parseCardVersionArtifact } from './canonical-card-artifacts.js';
 import { appLogFile, runtimeStateFile, saivageCardsRoot, saivageLocksRoot, saivageLogsRoot, saivageStateRoot, saivageWorkRoot } from './layout.js';
 import { readProjectIdentity } from './project-identity-store.js';
 
@@ -35,5 +35,6 @@ export function isInitialized(projectRoot: string): boolean {
     try { if (!statSync(dir).isDirectory()) return false; } catch { return false; }
   }
   if (!existsSync(runtimeStateFile(projectRoot)) || !existsSync(appLogFile(projectRoot))) return false;
-  try { observeCanonicalProjectRoot(saivageCardsRoot(projectRoot)); return true; } catch { return false; }
+  const rootPath = join(saivageCardsRoot(projectRoot), 'project', 'card', 'versions', '1.json');
+  try { parseCardVersionArtifact(JSON.parse(readFileSync(rootPath, 'utf8')), rootPath, { cardId: 'project', version: 1 }); return true; } catch { return false; }
 }

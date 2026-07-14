@@ -15,7 +15,7 @@ import {
   type RuntimeLifecycleLockHandle,
   type RuntimeLockOwnerRecord,
 } from '../../src/runtime/lock.js';
-import { createMutationLane } from '../../src/application/mutation-lane.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 import { ProjectIdentityStore, projectIdentityDigest } from '../../src/persistence/project-identity-store.js';
 
 describe('runtime lifecycle lock', () => {
@@ -29,8 +29,7 @@ describe('runtime lifecycle lock', () => {
   });
 
   function createIdentity() {
-    const { lane, authority } = createMutationLane();
-    return new ProjectIdentityStore(root, lane, authority).create('Lock test');
+    return new ProjectIdentityStore(root, new ApplicationPersistenceHealth()).create('Lock test');
   }
 
   function lockPath(): string { return join(root, '.saivage', 'locks', 'runtime.lock'); }

@@ -205,7 +205,7 @@ describe('webfetch save_as scoped URLs', () => {
     });
     store.setStatus(card.id, 'running');
     store.setStatus(card.id, 'changed');
-    const latestBefore = store.recordReader.generation().cards.get(card.id)!.records.brief.latest?.version ?? null;
+    const latestBefore = store.recordReader.cardArtifacts(card.id).records.brief.latest?.version ?? null;
     const fetchSpy = mockFetch('# Goal\n\nFetched.\n\n# Instructions\n\nUse it.\n\n# Acceptance Criteria\n\nDone.\n');
     const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard: () => ({ ok: true }) })]);
 
@@ -214,7 +214,7 @@ describe('webfetch save_as scoped URLs', () => {
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain('status backlog, done, failed, or running');
     expect(fetchSpy).not.toHaveBeenCalled();
-    const slot = store.recordReader.generation().cards.get(card.id)!.records.brief;
+    const slot = store.recordReader.cardArtifacts(card.id).records.brief;
     expect(slot.latest?.version ?? null).toBe(latestBefore);
     expect(slot.open).toBeNull();
   });

@@ -17,7 +17,7 @@ describe('canonical authored record slots', () => {
     store.editRecord('project', 'status.md', open.version, 'done');
     const closed = store.closeRecord('project', 'status.md', open.version, 'planner', 1);
     expect(closed.artifact).toMatchObject({ state: 'closed', content: 'done', writer: 'planner', card_version_seq: 1, committed_at: expect.any(String) });
-    expect(store.recordReader.generation().cards.get('project')?.records.status).toMatchObject({ latest: expect.objectContaining({ version: 1 }), open: null });
+    expect(store.recordReader.cardArtifacts('project').records.status).toMatchObject({ latest: expect.objectContaining({ version: 1 }), open: null });
   }));
 
   it('discards an open artifact without changing latest closed authority', () => withProject((_root, store) => {

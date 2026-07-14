@@ -66,15 +66,15 @@ describe('GET /api/agents/:id', () => {
   const authHdr = (): Record<string, string> => ({ authorization: `Bearer ${AUTH_TOKEN}` });
 
   it('lists segment-backed sessions in descending started_at order', async () => {
-    writeConversation(projectRoot, 'planner:old-goal', [{ role: 'system', content: 'old', timestamp: '2026-01-01T00:00:00.000Z' }]);
-    writeConversation(projectRoot, 'reviewer:new-goal:assessment-1', [{ role: 'assistant', content: 'new', timestamp: '2026-01-02T00:00:00.000Z' }]);
+    writeConversation(projectRoot, 'planner:project', [{ role: 'system', content: 'old', timestamp: '2026-01-01T00:00:00.000Z' }]);
+    writeConversation(projectRoot, 'reviewer:project:assessment-project-1', [{ role: 'assistant', content: 'new', timestamp: '2026-01-02T00:00:00.000Z' }]);
 
     const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
     expect(res.statusCode).toBe(200);
     const sessions = res.json<{ sessions: Array<Record<string, unknown>> }>().sessions;
-    expect(sessions.map((session) => session['id'])).toEqual(['reviewer:new-goal:assessment-1', 'planner:old-goal']);
-    expect(sessions[0]).toMatchObject({ role: 'reviewer', card_id: 'new-goal', assessment_id: 'assessment-1', status: 'inactive' });
-    expect(sessions[1]).toMatchObject({ role: 'planner', card_id: 'old-goal', status: 'inactive' });
+    expect(sessions.map((session) => session['id'])).toEqual(['reviewer:project:assessment-project-1', 'planner:project']);
+    expect(sessions[0]).toMatchObject({ role: 'reviewer', card_id: 'project', assessment_id: 'assessment-project-1', status: 'inactive' });
+    expect(sessions[1]).toMatchObject({ role: 'planner', card_id: 'project', status: 'inactive' });
   });
 
   it('does not synthesize the analyst session before conversation messages exist', async () => {
@@ -104,7 +104,7 @@ describe('GET /api/agents/:id', () => {
   it('derives active, waiting, and inactive statuses from actor snapshots and card state', async () => {
     writeConversation(projectRoot, 'planner:project', [{ role: 'system', content: 'active', timestamp: '2026-02-03T00:00:00.000Z' }]);
     writeConversation(projectRoot, 'executor:project', [{ role: 'system', content: 'waiting', timestamp: '2026-02-02T00:00:00.000Z' }]);
-    writeConversation(projectRoot, 'reviewer:project:assessment-1', [{ role: 'system', content: 'inactive', timestamp: '2026-02-01T00:00:00.000Z' }]);
+    writeConversation(projectRoot, 'reviewer:project:assessment-project-1', [{ role: 'system', content: 'inactive', timestamp: '2026-02-01T00:00:00.000Z' }]);
     testActorSnapshots(projectRoot).save({ actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-02-03T00:00:01.000Z' });
     testActorSnapshots(projectRoot).save({ actor_id: 'executor:project', actor_kind: 'llm', state_value: 'waiting_tool', context: {}, updated_at: '2026-02-03T00:00:02.000Z' });
 
@@ -113,11 +113,11 @@ describe('GET /api/agents/:id', () => {
     const byId = new Map(res.json<{ sessions: Array<Record<string, unknown>> }>().sessions.map((session) => [session['id'], session]));
     expect(byId.get('planner:project')?.['status']).toBe('active');
     expect(byId.get('executor:project')?.['status']).toBe('waiting');
-    expect(byId.get('reviewer:project:assessment-1')?.['status']).toBe('inactive');
+    expect(byId.get('reviewer:project:assessment-project-1')?.['status']).toBe('inactive');
   });
 
   it('returns canonical conversation entries with activity status and no messages field', async () => {
-    const sessionId = 'planner:conversation-1';
+    const sessionId = 'planner:project';
     writeConversation(projectRoot, sessionId, [
       { role: 'system', kind: 'system_prompt', content: 'Plan and coordinate card conversation-1', timestamp: '2026-05-01T00:00:00.000Z' },
       { role: 'assistant', content: 'contract-backed entry', timestamp: '2026-05-01T00:00:01.000Z' },
@@ -136,7 +136,7 @@ describe('GET /api/agents/:id', () => {
   });
 
   it('returns thinking activity status from actor snapshots', async () => {
-    const sessionId = 'planner:thinking';
+    const sessionId = 'planner:project';
     writeConversation(projectRoot, sessionId, [{ role: 'system', content: 'thinking' }]);
     testActorSnapshots(projectRoot).save({ actor_id: sessionId, actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-06-01T00:00:00.000Z' });
 

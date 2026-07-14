@@ -1,7 +1,7 @@
 import type { EventBus, EventPayload } from '../../events/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { ConversationAppendResult } from './conversation-store.js';
-import type { ConversationVersionReplacement } from './conversation-index.js';
+import type { ConversationVersionReplacement } from './conversation-inventory.js';
 
 export interface ConversationChangePublisher {
   entryAppended(result: ConversationAppendResult): void;

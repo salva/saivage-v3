@@ -4,23 +4,24 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
-  rmSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
 import type { AgentRole, CardHistoryEntry, CardRecord } from '../schemas/index.js';
 import { runtimeStateSchema } from '../schemas/index.js';
-import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
-import type { MutationLane, NotPromise } from '../application/mutation-lane.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import { parseCardVersionArtifact } from './canonical-card-artifacts.js';
 import { authoredRecordSlotValues, parseRecordVersionArtifact, type AuthoredRecordSlot, type RecordVersionArtifact } from './canonical-record-artifacts.js';
-import { observeCanonicalProjectRoot } from './canonical-root-observation.js';
 import {
   discardIncompleteCardNamespace,
   hasCanonicalCardArtifact,
-  restabilizeCanonicalStore,
+  loadActiveCardNamespace,
+  loadProjectStore,
+  parseCardTombstone,
   validateIncompleteCardNamespace,
-  type CanonicalStoreGeneration,
+  type CardTombstone,
+  type ProjectStoreModel,
+  type ScannedCard,
 } from './canonical-store-scan.js';
 import {
   cleanupDurableReplacementTemporaries,
@@ -29,8 +30,6 @@ import {
   publishDirectory,
 } from './durable-file-replacement.js';
 import { IndeterminatePublicationError } from './errors.js';
-import { readDeletedCardIds } from './deleted-card-ids.js';
-import { deletedCardIdsFile } from './layout.js';
 
 const GENERATED_ROOTS = new Set(['cards', 'agents', 'state', 'logs', 'work', 'stages', 'locks']);
 const PRESERVED_SAIVAGE_ENTRIES = new Set([
@@ -43,15 +42,6 @@ const PRESERVED_SAIVAGE_ENTRIES = new Set([
   'instructions',
   'backups',
 ]);
-
-declare const bootstrapEligibilityBrand: unique symbol;
-
-export interface BootstrapEligibility {
-  readonly [bootstrapEligibilityBrand]: never;
-  readonly canonicalProjectRoot: string;
-}
-
-const issuedEligibility = new WeakSet<object>();
 
 export interface NewProjectRootInput {
   readonly card: CardRecord;
@@ -83,7 +73,6 @@ function canonicalRootPublicationState(projectRoot: string): 'unpublished' | 'pu
 /** Read-only startup classifier for commands that are explicitly allowed to bootstrap. */
 export function classifyPersistenceOpenMode(
   projectRoot: string,
-  _compositionAuthority: CompositionMutationAuthority,
   root: NewProjectRootInput,
 ): PersistenceOpenMode {
   if (canonicalRootPublicationState(projectRoot) === 'published-or-malformed') return { kind: 'normal' };
@@ -95,11 +84,12 @@ export function classifyPersistenceOpenMode(
   }
 }
 
-export interface ProjectPersistenceAuthority {
+export interface ProjectStoreRepository {
   readonly projectRoot: string;
-  readonly generation: CanonicalStoreGeneration;
   readonly reader: ProjectCardRecordReader;
   readonly writer: ProjectCardRecordWriter;
+  readonly activeCardIds: ReadonlySet<string>;
+  readonly tombstonedCardIds: ReadonlySet<string>;
 }
 
 export interface RecordProjection {
@@ -112,22 +102,20 @@ export interface RecordProjection {
 }
 
 export interface ProjectCardRecordReader {
-  generation(): CanonicalStoreGeneration;
+  cards(): readonly CardRecord[];
+  reservedCardIds(): ReadonlySet<string>;
+  cardArtifacts(cardId: string): ScannedCard;
   record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection;
 }
 
-export interface ProjectMutationSession {
+export interface ProjectCardRecordWriter {
   createCard(card: CardRecord, brief: string, writer: 'analyst' | 'planner'): void;
   writeCard(card: CardRecord, history: CardHistoryEntry | null): void;
-  deleteCard(cardId: string): void;
+  deleteCard(cardId: string, finalCard: CardRecord, deletionHistory: CardHistoryEntry): void;
   openRecord(cardId: string, filename: string): RecordProjection;
   editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection;
   closeRecord(cardId: string, filename: string, version: number, writer: AgentRole, cardVersionSeq: number): RecordProjection;
   discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection;
-}
-
-export interface ProjectCardRecordWriter {
-  request<T>(authority: MutationAuthority, operation: (session: ProjectMutationSession) => NotPromise<T>): T;
 }
 
 function readJson(path: string): unknown {
@@ -207,7 +195,7 @@ function verifyCardsRoot(cardsPath: string): void {
 /** Strict read-only proof that bootstrap cannot overwrite established generated state. */
 export function verifyBootstrapEligibleLayout(
   projectRoot: string,
-): BootstrapEligibility {
+): void {
   const canonicalProjectRoot = realpathSync(projectRoot);
   const externalGeneratedRoot = join(canonicalProjectRoot, '.saivage-work');
   if (existsSync(externalGeneratedRoot)) throw new Error(`Obsolete generated work root blocks bootstrap: '${externalGeneratedRoot}'.`);
@@ -251,9 +239,6 @@ export function verifyBootstrapEligibleLayout(
     }
   }
 
-  const proof = { canonicalProjectRoot } as BootstrapEligibility;
-  issuedEligibility.add(proof);
-  return Object.freeze(proof);
 }
 
 function ensureDirectory(path: string): void {
@@ -331,27 +316,14 @@ function recordProjection(artifact: RecordVersionArtifact): RecordProjection {
   return Object.freeze({ cardId: artifact.card_id, filename: recordFilename(artifact.slot), slot: artifact.slot, version: artifact.version, recordUrl: recordUrl(artifact.card_id, artifact.slot, artifact.version), artifact });
 }
 
-class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter, ProjectMutationSession {
-  private cardGenerationDirty = false;
-  constructor(private readonly authority: ProjectPersistenceAuthorityImpl) {}
-
-  request<T>(mutationAuthority: MutationAuthority, operation: (session: ProjectMutationSession) => NotPromise<T>): T {
-    return this.authority.admitAuthorizedMutation(mutationAuthority, () => {
-      try {
-        const result = operation(this);
-        if (this.cardGenerationDirty) { this.cardGenerationDirty = false; this.authority.refreshGeneration(); }
-        return result;
-      } catch (error) {
-        if (this.cardGenerationDirty) { this.cardGenerationDirty = false; this.authority.fail(); }
-        throw error;
-      }
-    });
-  }
+class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter {
+  constructor(private readonly repository: ProjectStoreRepositoryImpl) {}
 
   createCard(card: CardRecord, briefContent: string, writer: 'analyst' | 'planner'): void {
-    if (this.authority.hasCard(card.id)) throw new Error(`Cannot create card '${card.id}': already exists.`);
+    this.repository.assertMutationHealthy();
+    if (this.repository.isReserved(card.id)) throw new Error(`Cannot create card '${card.id}': already exists or is reserved.`);
     if (card.version_seq !== 1) throw new Error(`New card '${card.id}' must have version_seq=1.`);
-    const namespacePath = join(this.authority.projectRoot, '.saivage', 'cards', card.id);
+    const namespacePath = join(this.repository.projectRoot, '.saivage', 'cards', card.id);
     for (const relative of ['brief', 'brief/versions', 'card', 'card/versions']) ensureDirectory(join(namespacePath, relative));
     const committedAt = new Date().toISOString();
     const brief = parseRecordVersionArtifact({
@@ -360,45 +332,43 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter, ProjectMut
       writer, format: 'markdown', schema: 'record.brief.markdown.v1', card_version_seq: 1, content: briefContent,
     }, join(namespacePath, 'brief', 'versions', '1.json'), { cardId: card.id, slot: 'brief', version: 1 });
     const cardArtifact = parseCardVersionArtifact({ kind: 'card-version', format_version: 1, card_id: card.id, version: 1, committed_at: committedAt, card, history: null }, join(namespacePath, 'card', 'versions', '1.json'), { cardId: card.id, version: 1 });
-    this.replaceJson(join(namespacePath, 'brief', 'versions', '1.json'), brief);
-    this.replaceJson(join(namespacePath, 'brief', 'index.json'), {
-      kind: 'record-slot-index', format_version: 1, card_id: card.id, slot: 'brief', latest: 1, open: null,
-      versions: { '1': { version: 1, state: 'closed', opened_at: committedAt, committed_at: committedAt, closed_at: committedAt, discarded_at: null, reason: null, writer, format: 'markdown', schema: brief.schema, card_version_seq: 1, size: Buffer.byteLength(briefContent) } },
-    });
+    this.replaceJson(join(namespacePath, 'brief', 'versions', '1.json'), brief, 'publish initial brief');
     this.replaceJson(join(namespacePath, 'card', 'versions', '1.json'), cardArtifact);
-    this.cardGenerationDirty = true;
+    this.repository.reloadCard(card.id);
   }
 
   createBootstrapRoot(input: NewProjectRootInput): void {
     validateBootstrapRootInput(input);
     this.createCard(input.card, input.brief, input.card.created_by === 'planner' ? 'planner' : 'analyst');
-    this.cardGenerationDirty = false;
-    this.authority.refreshGeneration();
   }
 
   writeCard(card: CardRecord, history: CardHistoryEntry | null): void {
-    const current = this.authority.generation.cards.get(card.id)?.current;
+    this.repository.assertMutationHealthy();
+    const current = this.repository.card(card.id)?.current;
     if (!current || card.version_seq !== current.version + 1) throw new Error(`Card '${card.id}' expected version ${current ? current.version + 1 : 1}, got ${card.version_seq}.`);
-    const path = join(this.authority.projectRoot, '.saivage', 'cards', card.id, 'card', 'versions', `${card.version_seq}.json`);
+    const path = join(this.repository.projectRoot, '.saivage', 'cards', card.id, 'card', 'versions', `${card.version_seq}.json`);
     const artifact = parseCardVersionArtifact({ kind: 'card-version', format_version: 1, card_id: card.id, version: card.version_seq, committed_at: new Date().toISOString(), card, history }, path, { cardId: card.id, version: card.version_seq });
-    this.replaceJson(path, artifact);
-    this.cardGenerationDirty = true;
+    this.replaceJson(path, artifact, 'publish card version');
+    this.repository.reloadCard(card.id);
   }
 
-  deleteCard(cardId: string): void {
+  deleteCard(cardId: string, finalCard: CardRecord, deletionHistory: CardHistoryEntry): void {
+    this.repository.assertMutationHealthy();
     if (cardId === 'project') throw new Error('Cannot delete the project card.');
-    const path = join(this.authority.projectRoot, '.saivage', 'cards', cardId);
-    if (!this.authority.hasCard(cardId)) throw new Error(`Cannot delete missing card '${cardId}'.`);
-    const reserved = [...new Set([...readDeletedCardIds(this.authority.projectRoot), cardId])].sort();
-    durablyReplaceFile(deletedCardIdsFile(this.authority.projectRoot), Buffer.from(`${JSON.stringify(reserved, null, 2)}\n`));
-    // Deletion durability remains the existing best-effort namespace removal contract.
-    rmSync(path, { recursive: true });
-    this.cardGenerationDirty = true;
+    if (!this.repository.card(cardId)) throw new Error(`Cannot delete missing card '${cardId}'.`);
+    const path = join(this.repository.projectRoot, '.saivage', 'cards', cardId, 'tombstone.json');
+    const tombstone: CardTombstone = parseCardTombstone({
+      kind: 'card-tombstone', format_version: 1, card_id: cardId,
+      deleted_at: deletionHistory.changed_at, final_card: finalCard, deletion_history: deletionHistory,
+    }, path, cardId);
+    this.replaceJson(path, tombstone, 'publish card tombstone');
+    this.repository.markTombstoned(cardId);
   }
 
   openRecord(cardId: string, filename: string): RecordProjection {
     const slot = recordSlot(filename);
-    const scanned = this.authority.generation.cards.get(cardId)?.records[slot];
+    this.repository.assertMutationHealthy();
+    const scanned = this.repository.card(cardId)?.records[slot];
     if (!scanned) throw new Error(`Card '${cardId}' not found.`);
     if (scanned.open) return recordProjection(scanned.open);
     const version = Math.max(0, ...scanned.artifacts.map((artifact) => artifact.version)) + 1;
@@ -406,16 +376,16 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter, ProjectMut
     ensureDirectory(dirname(path));
     const definition = slot === 'brief' ? 'record.brief.markdown.v1' : slot === 'status' ? 'record.status.markdown.v1' : 'record.review.markdown.v1';
     const artifact = parseRecordVersionArtifact({ kind: 'record-version', format_version: 1, card_id: cardId, slot, version, state: 'open', opened_at: new Date().toISOString(), committed_at: null, closed_at: null, discarded_at: null, reason: null, writer: null, format: 'markdown', schema: definition, card_version_seq: null, content: '' }, path, { cardId, slot, version });
-    this.replaceJson(path, artifact);
-    this.authority.refreshGeneration();
+    this.replaceJson(path, artifact, 'open authored record');
+    this.repository.reloadCard(cardId);
     return recordProjection(artifact);
   }
 
   editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection {
     const artifact = this.requireOpen(cardId, recordSlot(filename), version);
     const next = parseRecordVersionArtifact({ ...artifact, content }, this.recordArtifactPath(cardId, artifact.slot, version), { cardId, slot: artifact.slot, version });
-    this.replaceJson(this.recordArtifactPath(cardId, artifact.slot, version), next);
-    this.authority.refreshGeneration();
+    this.replaceJson(this.recordArtifactPath(cardId, artifact.slot, version), next, 'edit authored record');
+    this.repository.reloadCard(cardId);
     return recordProjection(next);
   }
 
@@ -424,8 +394,8 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter, ProjectMut
     const artifact = this.requireOpen(cardId, slot, version);
     const stamp = new Date().toISOString();
     const next = parseRecordVersionArtifact({ ...artifact, state: 'closed', committed_at: stamp, closed_at: stamp, writer, card_version_seq: cardVersionSeq }, this.recordArtifactPath(cardId, slot, version), { cardId, slot, version });
-    this.replaceJson(this.recordArtifactPath(cardId, slot, version), next);
-    this.authority.refreshGeneration();
+    this.replaceJson(this.recordArtifactPath(cardId, slot, version), next, 'close authored record');
+    this.repository.reloadCard(cardId);
     return recordProjection(next);
   }
 
@@ -433,46 +403,53 @@ class ProjectCardRecordWriterImpl implements ProjectCardRecordWriter, ProjectMut
     const slot = recordSlot(filename);
     const artifact = this.requireOpen(cardId, slot, version);
     const next = parseRecordVersionArtifact({ ...artifact, state: 'discarded', discarded_at: new Date().toISOString(), reason }, this.recordArtifactPath(cardId, slot, version), { cardId, slot, version });
-    this.replaceJson(this.recordArtifactPath(cardId, slot, version), next);
-    this.authority.refreshGeneration();
+    this.replaceJson(this.recordArtifactPath(cardId, slot, version), next, 'discard authored record');
+    this.repository.reloadCard(cardId);
     return recordProjection(next);
   }
 
   private requireOpen(cardId: string, slot: AuthoredRecordSlot, version: number): RecordVersionArtifact {
-    const artifact = this.authority.generation.cards.get(cardId)?.records[slot].artifacts.find((candidate) => candidate.version === version);
+    this.repository.assertMutationHealthy();
+    const artifact = this.repository.card(cardId)?.records[slot].artifacts.find((candidate) => candidate.version === version);
     if (!artifact || artifact.state !== 'open') throw new Error(`Record '${cardId}/${slot}/${version}' is not open.`);
     return artifact;
   }
 
   private recordArtifactPath(cardId: string, slot: AuthoredRecordSlot, version: number): string {
-    return join(this.authority.projectRoot, '.saivage', 'cards', cardId, slot, 'versions', `${version}.json`);
+    return join(this.repository.projectRoot, '.saivage', 'cards', cardId, slot, 'versions', `${version}.json`);
   }
 
-  private replaceJson(path: string, value: unknown): void {
+  private replaceJson(path: string, value: unknown, operation = 'publish card artifact'): void {
     try {
       durablyReplaceFile(path, Buffer.from(`${JSON.stringify(value, null, 2)}\n`));
     } catch (error) {
-      this.authority.fail();
+      if (error instanceof IndeterminatePublicationError) this.repository.reportUncertain(path, operation, error);
       throw error;
     }
   }
 }
 
-class ProjectPersistenceAuthorityImpl implements ProjectPersistenceAuthority {
-  private currentGeneration: CanonicalStoreGeneration | null = null;
+class ProjectStoreRepositoryImpl implements ProjectStoreRepository {
+  private model: ProjectStoreModel | null = null;
   readonly #writer: ProjectCardRecordWriterImpl;
   readonly reader: ProjectCardRecordReader;
 
   constructor(
     readonly projectRoot: string,
-    private readonly lane: MutationLane,
+    private readonly health: ApplicationPersistenceHealth,
   ) {
     this.#writer = new ProjectCardRecordWriterImpl(this);
     this.reader = Object.freeze({
-      generation: () => this.generation,
+      cards: () => [...this.requireModel().cards.values()].map((entry) => entry.current.card),
+      reservedCardIds: () => new Set([...this.requireModel().cards.keys(), ...this.requireModel().tombstonedIds]),
+      cardArtifacts: (cardId: string) => {
+        const card = this.card(cardId);
+        if (!card) throw new Error(`Card '${cardId}' not found.`);
+        return card;
+      },
       record: (cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest') => {
         const slot = recordSlot(filename);
-        const scanned = this.generation.cards.get(cardId)?.records[slot];
+        const scanned = this.card(cardId)?.records[slot];
         if (!scanned) throw new Error(`Card '${cardId}' not found.`);
         const artifact = version === 'latest' ? scanned.latest : version === 'open' ? scanned.open : scanned.artifacts.find((candidate) => candidate.version === version) ?? null;
         if (!artifact) throw new Error(`Record '${cardId}/${slot}/${String(version)}' does not exist.`);
@@ -482,73 +459,62 @@ class ProjectPersistenceAuthorityImpl implements ProjectPersistenceAuthority {
   }
 
   get writer(): ProjectCardRecordWriter { return this.#writer; }
+  get activeCardIds(): ReadonlySet<string> { return new Set(this.requireModel().cards.keys()); }
+  get tombstonedCardIds(): ReadonlySet<string> { return new Set(this.requireModel().tombstonedIds); }
 
-  hasCard(cardId: string): boolean { return this.currentGeneration?.cards.has(cardId) ?? false; }
-
-  get generation(): CanonicalStoreGeneration {
-    if (this.currentGeneration === null) throw new Error('Persistence authority has no published generation.');
-    return this.currentGeneration;
-  }
-
-  publish(generation: CanonicalStoreGeneration): void {
-    this.currentGeneration = generation;
-  }
+  card(cardId: string): ScannedCard | undefined { return this.requireModel().cards.get(cardId); }
+  isReserved(cardId: string): boolean { const model = this.requireModel(); return model.cards.has(cardId) || model.tombstonedIds.has(cardId); }
+  assertMutationHealthy(): void { this.health.assertMutationHealthy(); }
+  reportUncertain(target: string, operation: string, error: unknown): never { return this.health.reportUncertainFailure({ target, operation, error }); }
 
   createBootstrapRoot(input: NewProjectRootInput): void {
     this.#writer.createBootstrapRoot(input);
   }
 
-  refreshGeneration(): void {
-    try {
-      const observation = observeCanonicalProjectRoot(join(this.projectRoot, '.saivage', 'cards'));
-      this.currentGeneration = restabilizeCanonicalStore(this.projectRoot, join(this.projectRoot, '.saivage', 'cards'), observation);
-    } catch (error) { this.fail(); throw error; }
+  beginBootstrap(): void {
+    if (this.model !== null) throw new Error('Project store is already loaded.');
+    this.model = { cards: new Map(), tombstonedIds: new Set() };
   }
 
-  fail(): void {
-    this.currentGeneration = null;
+  load(): void {
+    this.model = loadProjectStore(join(this.projectRoot, '.saivage', 'cards'));
   }
 
-  admitAuthorizedMutation<T>(authority: MutationAuthority, operation: () => T): T {
-    if (this.currentGeneration === null) throw new Error('Persistence authority has failed.');
-    const result = this.lane.apply<T>(authority, 'card and authored-record mutation', operation as () => NotPromise<T>);
-    if (!result.applied) throw new Error('Card mutation authority is stale.');
-    return result.value;
+  reloadCard(cardId: string): void {
+    const card = loadActiveCardNamespace(join(this.projectRoot, '.saivage', 'cards'), cardId);
+    const model = this.requireModel();
+    model.cards.set(cardId, card);
+  }
+
+  markTombstoned(cardId: string): void {
+    const model = this.requireModel();
+    model.cards.delete(cardId);
+    model.tombstonedIds.add(cardId);
+  }
+
+  private requireModel(): ProjectStoreModel {
+    if (this.model === null) throw new Error('Project store has not loaded.');
+    return this.model;
   }
 }
 
-export function createProjectPersistenceAuthority(input: {
+export function createProjectStoreRepository(input: {
   projectRoot: string;
-  lane: MutationLane;
-  compositionAuthority: CompositionMutationAuthority;
+  persistenceHealth: ApplicationPersistenceHealth;
   mode: PersistenceOpenMode;
-}): ProjectPersistenceAuthority {
+}): ProjectStoreRepository {
   const projectRoot = realpathSync(input.projectRoot);
-  const authority = new ProjectPersistenceAuthorityImpl(projectRoot, input.lane);
-  try {
-    const initialized = input.lane.apply(input.compositionAuthority, 'card store restabilization', () => {
-      if (input.mode.kind === 'bootstrap') {
-        validateBootstrapRootInput(input.mode.root);
-        const eligibility = verifyBootstrapEligibleLayout(projectRoot);
-        if (!issuedEligibility.has(eligibility) || eligibility.canonicalProjectRoot !== projectRoot) {
-          throw new Error('Bootstrap eligibility proof is invalid or belongs to another project.');
-        }
-        establishBootstrapDefaults(projectRoot);
-        const cardsPath = join(projectRoot, '.saivage', 'cards');
-        const projectNamespace = join(cardsPath, 'project');
-        if (existsSync(projectNamespace)) discardIncompleteCardNamespace(cardsPath, 'project');
-        authority.createBootstrapRoot(input.mode.root);
-      }
-      const cardsPath = join(projectRoot, '.saivage', 'cards');
-      const observation = observeCanonicalProjectRoot(cardsPath);
-      return restabilizeCanonicalStore(projectRoot, cardsPath, observation);
-    });
-    if (!initialized.applied) throw new Error('Composition authority unexpectedly became stale.');
-    authority.publish(initialized.value);
-    return authority;
-  } catch (error) {
-    authority.fail();
-    if (error instanceof IndeterminatePublicationError) throw error;
-    throw error;
+  const repository = new ProjectStoreRepositoryImpl(projectRoot, input.persistenceHealth);
+  if (input.mode.kind === 'bootstrap') {
+    validateBootstrapRootInput(input.mode.root);
+    verifyBootstrapEligibleLayout(projectRoot);
+    establishBootstrapDefaults(projectRoot);
+    const cardsPath = join(projectRoot, '.saivage', 'cards');
+    const projectNamespace = join(cardsPath, 'project');
+    if (existsSync(projectNamespace)) discardIncompleteCardNamespace(cardsPath, 'project');
+    repository.beginBootstrap();
+    repository.createBootstrapRoot(input.mode.root);
   }
+  repository.load();
+  return repository;
 }

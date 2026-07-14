@@ -1,15 +1,15 @@
-import { initProjectTree, testCompositionAuthority } from '../../helpers/canonical-project.js';
+import { initProjectTree } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { appendTestConversationMessage as appendConversationMessage, testConversationMutations, writeTestConversationIndex as writeConversationIndex } from '../../helpers/conversation-mutations.js';
+import { appendTestConversationMessage as appendConversationMessage, testConversationMutations } from '../../helpers/conversation-mutations.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { ActorSnapshotStore, appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, ConversationLLMActor as ProductionConversationLLMActor, createConversationChangePublisher, LLMActor as ProductionLLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { ActorSnapshotStore, appendActivationMarker as productionAppendActivationMarker, appendUserContextMessage as productionAppendUserContextMessage, BaseMainLLMCardProcessorActor, ConversationLLMActor as ProductionConversationLLMActor, createConversationChangePublisher, LLMActor as ProductionLLMActor, readActorSnapshots, readConversationMessages, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 import { EventBus } from '../../../src/events/index.js';
-import { activeVersionPath, readConversationIndex } from '../../../src/runtime/actors/conversation-index.js';
+import { activeVersionPath, readConversationInventory } from '../../../src/runtime/actors/conversation-inventory.js';
 import { conversationDir } from '../../../src/runtime/actors/conversation-store.js';
 import { compact } from '../../../src/runtime/actors/compaction/compactor.js';
 import type { ConversationChangePublisher } from '../../../src/runtime/actors/conversation-publisher.js';
@@ -21,22 +21,22 @@ import type { InvocationSurface } from '../../../src/tools/invocation.js';
 import type { CompactionConfig } from '../../../src/runtime/actors/compaction/compactor.js';
 import { readAppLogEntries } from '../../../src/persistence/app-log.js';
 
-const appendActivationMarker = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, payload: Parameters<typeof productionAppendActivationMarker>[3]) => productionAppendActivationMarker(conversations, testCompositionAuthority(conversations.projectRoot), sessionId, payload);
-const appendUserContextMessage = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, inputId: string, category: Parameters<typeof productionAppendUserContextMessage>[4], ordinal: number, message: Parameters<typeof productionAppendUserContextMessage>[6]) => productionAppendUserContextMessage(conversations, testCompositionAuthority(conversations.projectRoot), sessionId, inputId, category, ordinal, message);
+const appendActivationMarker = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, payload: Parameters<typeof productionAppendActivationMarker>[2]) => productionAppendActivationMarker(conversations, sessionId, payload);
+const appendUserContextMessage = (conversations: ReturnType<typeof testConversationMutations>, sessionId: string, inputId: string, category: Parameters<typeof productionAppendUserContextMessage>[3], ordinal: number, message: Parameters<typeof productionAppendUserContextMessage>[5]) => productionAppendUserContextMessage(conversations, sessionId, inputId, category, ordinal, message);
 
 class LLMActor extends ProductionLLMActor {
-  constructor(args: Omit<ConstructorParameters<typeof ProductionLLMActor>[0], 'mutationAuthority'>) {
-    super({ ...args, mutationAuthority: () => testCompositionAuthority(args.projectRoot) });
+  constructor(args: ConstructorParameters<typeof ProductionLLMActor>[0]) {
+    super(args);
   }
 
-  static override fromActiveReconstruction(args: Omit<Parameters<typeof ProductionLLMActor.fromActiveReconstruction>[0], 'mutationAuthority'>): ProductionLLMActor {
-    return ProductionLLMActor.fromActiveReconstruction({ ...args, mutationAuthority: () => testCompositionAuthority(args.projectRoot) });
+  static override fromActiveReconstruction(args: Parameters<typeof ProductionLLMActor.fromActiveReconstruction>[0]): ProductionLLMActor {
+    return ProductionLLMActor.fromActiveReconstruction(args);
   }
 }
 
 class ConversationLLMActor extends ProductionConversationLLMActor {
-  constructor(args: Omit<ConstructorParameters<typeof ProductionConversationLLMActor>[0], 'mutationAuthority'>) {
-    super({ ...args, mutationAuthority: () => testCompositionAuthority(args.projectRoot) });
+  constructor(args: ConstructorParameters<typeof ProductionConversationLLMActor>[0]) {
+    super(args);
   }
 }
 
@@ -100,17 +100,14 @@ function recoveredTurn(inputRecord: LlmInvocationInput): LlmActiveReconstruction
 }
 
 function corruptActorMessages(projectRoot: string): void {
-  const indexPath = conversationIndexPath(projectRoot, 'planner:project');
-  mkdirSync(dirname(indexPath), { recursive: true });
-  writeFileSync(indexPath, JSON.stringify({ schema_version: 2, session_id: 'planner:project', active_version: 1, versions: { '1': { status: 'active', opened_at: '2026-07-09T00:00:00.000Z' } } }) + '\n', 'utf-8');
-  const path = join(dirname(indexPath), '1.jsonl');
+  const path = activeVersionPath(projectRoot, 'planner:project', 1);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, '{"partial"', 'utf-8');
 }
 
 class InitialOutcomeHarness extends BaseMainLLMCardProcessorActor {
   constructor(projectRoot: string, provider: LLMProviderPort) {
-    super({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), cardId: 'project', provider, mutationAuthority: () => testCompositionAuthority(projectRoot) });
+    super({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), cardId: 'project', provider });
   }
 
   resolveForTest(llm: LLMActor, buildInput: () => LlmInvocationInput, isTerminalToolName = () => false): Promise<LLMActorOutcome> {
@@ -134,7 +131,7 @@ async function eventually(assertion: () => void, attempts = 20): Promise<void> {
 describe('LLMActor', () => {
   it('projects provider success only after the visible conversation completion is durable', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
-    const projection = jest.fn((_authority, sessionId: string, sourceInputId: string) => {
+    const projection = jest.fn((sessionId: string, sourceInputId: string) => {
       expect(readConversationMessages(projectRoot, sessionId).map((row) => row.id)).toContain(`${sourceInputId}:message`);
     });
     const provider: LLMProviderPort = {
@@ -183,7 +180,6 @@ describe('LLMActor', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify({ id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
     writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
-    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
     const actor = new ConversationLLMActor({ projectRoot, conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
@@ -204,7 +200,6 @@ describe('LLMActor', () => {
     const prompt = { id: 'planner:project:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
     const tail = { ...prompt, id: 'existing-tail', kind: 'text', role: 'user', content: 'tail', message_index: 1 };
     writeFileSync(activeVersionPath(projectRoot, sessionId, 1), `${JSON.stringify(prompt)}\n${JSON.stringify(tail)}\n`);
-    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 1, versions: { '1': { status: 'active', opened_at: '2026-07-01T00:00:00.000Z' } } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
     const actor = LLMActor.fromActiveReconstruction({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher, state: 'calling_provider', activeReconstruction: recoveredTurn(input('recovered-turn')) });
@@ -226,7 +221,6 @@ describe('LLMActor', () => {
     const dir = conversationDir(projectRoot, sessionId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify({ id: 'executor:other:system-prompt', session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'other system', round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }) + '\n');
-    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 1, versions: { '1': { status: 'active', opened_at: '2026-07-01T00:00:00.000Z' } } });
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
     const publisher = recordingPublisher();
     const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: sessionId, provider, conversationPublisher: publisher });
@@ -254,14 +248,12 @@ describe('LLMActor', () => {
       conversations: testConversationMutations(projectRoot),
       sessionId,
       input: { ...input('compaction'), contextMessages: readConversationMessages(projectRoot, sessionId) },
-      mutationAuthority: testCompositionAuthority(projectRoot),
       config: compactionConfig,
       summarizerProvider: provider,
       bufferSizeEstimator: { estimate: (candidate) => ({ estimatedTokens: candidate.contextMessages.some((message) => typeof message === 'object' && message !== null && 'kind' in message && message.kind === 'context_compaction') ? 1 : 100, bufferTokens: 100 }) },
       signal: new AbortController().signal,
     });
-    const index = readConversationIndex(projectRoot, sessionId);
-    expect(index?.versions['1']?.status).toBe('frozen');
+    expect(readConversationInventory(projectRoot, sessionId)?.versions).toEqual([1, 2]);
     expect(readFileSync(activeVersionPath(projectRoot, sessionId, 1), 'utf-8')).toContain('planner:project:system-prompt');
     expect(readConversationMessages(projectRoot, sessionId).some((row) => row.kind === 'system_prompt')).toBe(false);
     const publisher = recordingPublisher();
@@ -288,7 +280,6 @@ describe('LLMActor', () => {
     writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify(row(frozenKind, 1)) + '\n');
     writeFileSync(activeVersionPath(projectRoot, sessionId, 2), JSON.stringify(row(activeKind, 2)) + '\n');
     writeFileSync(activeVersionPath(projectRoot, sessionId, 3), JSON.stringify({ ...row('text', 3), id: 'orphan' }) + '\n');
-    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
     const conversations = testConversationMutations(projectRoot);
     const before = sessionSnapshot(projectRoot, sessionId);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
@@ -318,7 +309,6 @@ describe('LLMActor', () => {
     writeFileSync(activeVersionPath(projectRoot, sessionId, 1), JSON.stringify(wrong) + '\n');
     writeFileSync(activeVersionPath(projectRoot, sessionId, 2), '');
     writeFileSync(activeVersionPath(projectRoot, sessionId, 3), JSON.stringify({ ...wrong, id: 'orphan' }) + '\n');
-    writeConversationIndex(projectRoot, sessionId, { schema_version: 2, session_id: sessionId, active_version: 2, versions: { '1': { status: 'frozen', opened_at: '2026-07-01T00:00:00.000Z', frozen_at: '2026-07-01T00:00:01.000Z' }, '2': { status: 'active', opened_at: '2026-07-01T00:00:01.000Z' } } });
     const conversations = testConversationMutations(projectRoot);
     const before = sessionSnapshot(projectRoot, sessionId);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => completion({ kind: 'message' as const, content: 'done' })) };
@@ -357,7 +347,7 @@ describe('LLMActor', () => {
     expect(compactor.shouldCompact).toHaveBeenCalledTimes(1);
     expect(compactor.compact).toHaveBeenCalledTimes(1);
     expect(compactor.compact).toHaveBeenCalledWith(expect.objectContaining({ projectRoot, conversations }));
-    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ contextMessages: [compacted] }), expect.any(AbortSignal), testCompositionAuthority(projectRoot));
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ contextMessages: [compacted] }), expect.any(AbortSignal));
     const invocationSignal = ((compactor.compact as jest.Mock).mock.calls[0]![0] as { signal: AbortSignal }).signal;
     expect(gateWait.mock.calls[0]![0]).toBe(invocationSignal);
     expect((provider.completeTurn as jest.Mock).mock.calls[0]![1]).toBe(invocationSignal);
@@ -901,8 +891,8 @@ describe('LLMActor', () => {
     };
     const compactor = {
       shouldCompact: jest.fn(() => ({ shouldCompact: true })),
-      compact: jest.fn(async ({ input: turnInput, mutationAuthority, summarizerProvider: summarizer, signal }: Parameters<CompactorPort['compact']>[0]) => {
-        await summarizer.completeTurn(turnInput, signal!, mutationAuthority);
+      compact: jest.fn(async ({ input: turnInput, summarizerProvider: summarizer, signal }: Parameters<CompactorPort['compact']>[0]) => {
+        await summarizer.completeTurn(turnInput, signal!);
         throw new Error('unreachable');
       }),
     };

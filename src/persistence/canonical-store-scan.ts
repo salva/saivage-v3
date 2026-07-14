@@ -6,13 +6,12 @@ import {
   openSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
 
 import { validateCardHistoryInvariant, validateParsedCards } from '../cards/validator.js';
-import type { CardRecord } from '../schemas/index.js';
+import { cardHistoryEntrySchema, cardRecordSchema, type CardHistoryEntry, type CardRecord } from '../schemas/index.js';
 import {
   parseCardVersionArtifact,
   parseCardVersionFilename,
@@ -25,20 +24,10 @@ import {
   type AuthoredRecordSlot,
   type RecordVersionArtifact,
 } from './canonical-record-artifacts.js';
-import {
-  assertIssuedProjectRootObservation,
-  type ObservedProjectRoot,
-} from './canonical-root-observation.js';
-import {
-  cleanupDurableReplacementTemporaries,
-  durableReplacementTemporaryTargetBasename,
-  durablyReplaceFile,
-  publishDirectory,
-} from './durable-file-replacement.js';
-import { readDeletedCardIds } from './deleted-card-ids.js';
+import { cleanupDurableReplacementTemporaries, durableReplacementTemporaryTargetBasename } from './durable-file-replacement.js';
 
-const CARD_NAMESPACE_ENTRIES = new Set(['card', 'brief', 'status', 'review', 'conversations', 'runtime']);
-const SLOT_ENTRIES = new Set(['versions', 'index.json']);
+const ACTIVE_NAMESPACE_ENTRIES = new Set(['card', 'brief', 'status', 'review', 'conversations', 'runtime']);
+const TOMBSTONED_NAMESPACE_ENTRIES = new Set([...ACTIVE_NAMESPACE_ENTRIES, 'tombstone.json']);
 
 export interface ScannedRecordSlot {
   readonly artifacts: readonly RecordVersionArtifact[];
@@ -52,40 +41,41 @@ export interface ScannedCard {
   readonly records: Readonly<Record<AuthoredRecordSlot, ScannedRecordSlot>>;
 }
 
-export interface CanonicalStoreGeneration {
-  readonly cards: ReadonlyMap<string, ScannedCard>;
+export interface ProjectStoreModel {
+  readonly cards: Map<string, ScannedCard>;
+  readonly tombstonedIds: Set<string>;
+}
+
+export interface CardTombstone {
+  readonly kind: 'card-tombstone';
+  readonly format_version: 1;
+  readonly card_id: string;
+  readonly deleted_at: string;
+  readonly final_card: CardRecord;
+  readonly deletion_history: CardHistoryEntry;
 }
 
 function parseJson(path: string): unknown {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8')) as unknown;
-  } catch (error) {
-    throw new Error(`Failed to parse JSON at '${path}': ${(error as Error).message}`);
-  }
+  try { return JSON.parse(readFileSync(path, 'utf8')) as unknown; }
+  catch (error) { throw new Error(`Failed to parse JSON at '${path}': ${(error as Error).message}`); }
 }
 
-function synchronizeDirectory(path: string): void {
-  const fd = openSync(path, 'r');
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
+export function isCanonicalCardId(cardId: string): boolean {
+  return cardId === 'project' || /^card-[1-9][0-9]*$/u.test(cardId);
 }
 
-function ensureDirectory(path: string): void {
-  if (existsSync(path)) {
-    if (!lstatSync(path).isDirectory()) throw new Error(`Required canonical store directory is not a directory: '${path}'.`);
-    return;
-  }
-  publishDirectory(path);
+function assertDirectory(path: string): void {
+  if (!lstatSync(path).isDirectory()) throw new Error(`Card store entry is not a directory: '${path}'.`);
 }
 
-function assertOnlyEntries(path: string, allowed: ReadonlySet<string>): void {
+function assertNamespaceEntries(path: string, allowed: ReadonlySet<string>): void {
   for (const entry of readdirSync(path, { withFileTypes: true })) {
-    if (!allowed.has(entry.name)) throw new Error(`Unknown canonical store entry: '${join(path, entry.name)}'.`);
-    if (entry.name !== 'index.json' && !entry.isDirectory()) throw new Error(`Canonical store entry is not a directory: '${join(path, entry.name)}'.`);
-    if (entry.name === 'index.json' && !entry.isFile()) throw new Error(`Derived index is not a regular file: '${join(path, entry.name)}'.`);
+    const child = join(path, entry.name);
+    if (!allowed.has(entry.name)) throw new Error(`Unknown card namespace entry: '${child}'.`);
+    if (entry.isSymbolicLink()) throw new Error(`Card namespace entry is a symlink: '${child}'.`);
+    if (entry.name === 'tombstone.json' ? !entry.isFile() : !entry.isDirectory()) {
+      throw new Error(`Card namespace entry has the wrong type: '${child}'.`);
+    }
   }
 }
 
@@ -93,14 +83,7 @@ function cleanupVersionTemporaries(versionsPath: string): void {
   const targets = readdirSync(versionsPath)
     .map(durableReplacementTemporaryTargetBasename)
     .filter((target): target is string => target !== null)
-    .filter((target) => {
-      try {
-        parseCardVersionFilename(target);
-        return true;
-      } catch {
-        return false;
-      }
-    });
+    .filter((target) => { try { parseCardVersionFilename(target); return true; } catch { return false; } });
   cleanupDurableReplacementTemporaries(versionsPath, targets);
 }
 
@@ -108,65 +91,40 @@ function enumerateCardArtifacts(cardId: string, versionsPath: string): CardVersi
   cleanupVersionTemporaries(versionsPath);
   return readdirSync(versionsPath, { withFileTypes: true }).map((entry) => {
     const path = join(versionsPath, entry.name);
-    if (!entry.isFile()) throw new Error(`Canonical card version is not a regular file: '${path}'.`);
+    if (!entry.isFile() || entry.isSymbolicLink()) throw new Error(`Canonical card version is not a regular file: '${path}'.`);
     const version = parseCardVersionFilename(entry.name, path);
     return parseCardVersionArtifact(parseJson(path), path, { cardId, version });
-  });
+  }).sort((left, right) => left.version - right.version);
 }
 
-function writeCardIndex(cardPath: string, cardId: string, artifacts: readonly CardVersionArtifact[], current: CardVersionArtifact): void {
-  const versions = Object.fromEntries([...artifacts]
-    .sort((left, right) => left.version - right.version)
-    .map((artifact) => [String(artifact.version), {
-      version: artifact.version,
-      committed_at: artifact.committed_at,
-      history: artifact.history,
-    }]));
-  const bytes = Buffer.from(`${JSON.stringify({ kind: 'card-index', format_version: 1, card_id: cardId, latest: current.version, versions }, null, 2)}\n`);
-  durablyReplaceFile(join(cardPath, 'index.json'), bytes);
+function emptySlot(): ScannedRecordSlot {
+  return Object.freeze({ artifacts: Object.freeze([]), latest: null, open: null });
 }
 
 function scanRecordSlot(cardNamespace: string, cardId: string, slot: AuthoredRecordSlot): ScannedRecordSlot {
   const slotPath = join(cardNamespace, slot);
-  ensureDirectory(slotPath);
+  if (!existsSync(slotPath)) return emptySlot();
+  assertDirectory(slotPath);
+  const entries = readdirSync(slotPath, { withFileTypes: true });
+  if (entries.length !== 1 || entries[0]!.name !== 'versions' || !entries[0]!.isDirectory() || entries[0]!.isSymbolicLink()) {
+    throw new Error(`Record slot '${slotPath}' must contain only its versions directory.`);
+  }
   const versionsPath = join(slotPath, 'versions');
-  ensureDirectory(versionsPath);
-  cleanupDurableReplacementTemporaries(slotPath, ['index.json']);
   cleanupVersionTemporaries(versionsPath);
-  assertOnlyEntries(slotPath, SLOT_ENTRIES);
-
   const artifacts = readdirSync(versionsPath, { withFileTypes: true }).map((entry) => {
     const path = join(versionsPath, entry.name);
-    if (!entry.isFile()) throw new Error(`Canonical record version is not a regular file: '${path}'.`);
+    if (!entry.isFile() || entry.isSymbolicLink()) throw new Error(`Canonical record version is not a regular file: '${path}'.`);
     const version = parseCardVersionFilename(entry.name, path);
     return parseRecordVersionArtifact(parseJson(path), path, { cardId, slot, version });
   }).sort((left, right) => left.version - right.version);
-
+  artifacts.forEach((artifact, index) => {
+    if (artifact.version !== index + 1) throw new Error(`Record slot '${slotPath}' has a version gap at ${index + 1}.`);
+  });
   const openArtifacts = artifacts.filter((artifact) => artifact.state === 'open');
   if (openArtifacts.length > 1) throw new Error(`Record slot '${slotPath}' contains more than one open artifact.`);
   const open = openArtifacts[0] ?? null;
   if (open !== null && open.version !== artifacts.at(-1)?.version) throw new Error(`Record slot '${slotPath}' contains an older orphan open artifact.`);
-  const closed = artifacts.filter((artifact) => artifact.state === 'closed');
-  const latest = closed.at(-1) ?? null;
-  const versions = Object.fromEntries(artifacts.map((artifact) => [String(artifact.version), {
-    version: artifact.version,
-    state: artifact.state,
-    opened_at: artifact.opened_at,
-    committed_at: artifact.committed_at,
-    closed_at: artifact.closed_at,
-    discarded_at: artifact.discarded_at,
-    reason: artifact.reason,
-    writer: artifact.writer,
-    format: artifact.format,
-    schema: artifact.schema,
-    card_version_seq: artifact.card_version_seq,
-    size: Buffer.byteLength(artifact.content),
-  }]));
-  const bytes = Buffer.from(`${JSON.stringify({
-    kind: 'record-slot-index', format_version: 1, card_id: cardId, slot,
-    latest: latest?.version ?? null, open: open?.version ?? null, versions,
-  }, null, 2)}\n`);
-  durablyReplaceFile(join(slotPath, 'index.json'), bytes);
+  const latest = artifacts.filter((artifact) => artifact.state === 'closed').at(-1) ?? null;
   return Object.freeze({ artifacts: Object.freeze(artifacts), latest, open });
 }
 
@@ -187,7 +145,8 @@ function incompleteNamespaceEntries(namespacePath: string): string[] {
 }
 
 export function validateIncompleteCardNamespace(namespacePath: string, cardId: string): void {
-  const allowedDirectories = new Set(['card', 'card/versions', 'brief', 'brief/versions']);
+  if (!isCanonicalCardId(cardId)) throw new Error(`Invalid card namespace identity '${cardId}'.`);
+  const allowedDirectories = new Set(['brief', 'brief/versions', 'card', 'card/versions']);
   for (const relative of incompleteNamespaceEntries(namespacePath)) {
     const path = join(namespacePath, relative);
     if (lstatSync(path).isDirectory()) {
@@ -199,96 +158,85 @@ export function validateIncompleteCardNamespace(namespacePath: string, cardId: s
       if (artifact.state !== 'closed' || artifact.card_version_seq !== 1) throw new Error(`Initial brief artifact is invalid: '${path}'.`);
       continue;
     }
-    if (relative === 'brief/index.json' || relative === 'card/index.json') continue;
     const parent = relative.slice(0, relative.lastIndexOf('/'));
     const name = relative.slice(relative.lastIndexOf('/') + 1);
     const target = durableReplacementTemporaryTargetBasename(name);
-    const permittedTarget =
-      (parent === 'brief/versions' && target === '1.json') ||
-      (parent === 'card/versions' && target === '1.json') ||
-      (parent === 'brief' && target === 'index.json') ||
-      (parent === 'card' && target === 'index.json');
-    if (!permittedTarget) throw new Error(`Unknown incomplete card namespace file: '${path}'.`);
+    if (!((parent === 'brief/versions' || parent === 'card/versions') && target === '1.json')) {
+      throw new Error(`Unknown incomplete card namespace file: '${path}'.`);
+    }
   }
 }
 
 export function hasCanonicalCardArtifact(namespacePath: string): boolean {
-  const versionsPath = join(namespacePath, 'card', 'versions');
-  if (!existsSync(versionsPath)) return false;
-  for (const entry of readdirSync(versionsPath, { withFileTypes: true })) {
-    if (!entry.isFile()) continue;
-    try {
-      parseCardVersionFilename(entry.name);
-      return true;
-    } catch {
-      // Exact temporaries and unknown entries do not establish commitment.
-    }
-  }
-  return false;
-}
-
-function cleanupIncompleteNamespaces(cardsPath: string): void {
-  for (const entry of readdirSync(cardsPath, { withFileTypes: true })) {
-    const namespacePath = join(cardsPath, entry.name);
-    if (!entry.isDirectory()) throw new Error(`Card namespace is not a directory: '${namespacePath}'.`);
-    if (hasCanonicalCardArtifact(namespacePath)) continue;
-    discardIncompleteCardNamespace(cardsPath, entry.name);
-  }
+  return existsSync(join(namespacePath, 'card', 'versions', '1.json'));
 }
 
 export function discardIncompleteCardNamespace(cardsPath: string, cardId: string): void {
   const namespacePath = join(cardsPath, cardId);
   validateIncompleteCardNamespace(namespacePath, cardId);
   rmSync(namespacePath, { recursive: true });
-  synchronizeDirectory(cardsPath);
+  const fd = openSync(cardsPath, 'r');
+  try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 
-function scanCard(cardsPath: string, cardId: string): ScannedCard {
+export function parseCardTombstone(raw: unknown, path: string, cardId: string): CardTombstone {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error(`Card tombstone is invalid at '${path}'.`);
+  const value = raw as Record<string, unknown>;
+  const keys = Object.keys(value).sort().join(',');
+  if (keys !== 'card_id,deleted_at,deletion_history,final_card,format_version,kind') throw new Error(`Card tombstone has unexpected fields at '${path}'.`);
+  if (value.kind !== 'card-tombstone' || value.format_version !== 1 || value.card_id !== cardId) throw new Error(`Card tombstone identity is invalid at '${path}'.`);
+  if (typeof value.deleted_at !== 'string' || Number.isNaN(Date.parse(value.deleted_at))) throw new Error(`Card tombstone timestamp is invalid at '${path}'.`);
+  const finalCard = cardRecordSchema.parse(value.final_card);
+  const deletionHistory = cardHistoryEntrySchema.parse(value.deletion_history);
+  if (finalCard.id !== cardId || deletionHistory.card_id !== cardId || deletionHistory.snapshot.id !== cardId) throw new Error(`Card tombstone card ids do not match at '${path}'.`);
+  if (deletionHistory.kind !== 'delete' && deletionHistory.kind !== 'archive') throw new Error(`Card tombstone history kind is invalid at '${path}'.`);
+  if (deletionHistory.version_seq !== finalCard.version_seq || JSON.stringify(deletionHistory.snapshot) !== JSON.stringify(finalCard)) throw new Error(`Card tombstone final snapshot is inconsistent at '${path}'.`);
+  if (deletionHistory.changed_at !== value.deleted_at || deletionHistory.changed_fields.length !== 1 || deletionHistory.changed_fields[0] !== '__deleted__') throw new Error(`Card tombstone deletion history is inconsistent at '${path}'.`);
+  return Object.freeze({ kind: 'card-tombstone', format_version: 1, card_id: cardId, deleted_at: value.deleted_at, final_card: finalCard, deletion_history: deletionHistory });
+}
+
+export function loadActiveCardNamespace(cardsPath: string, cardId: string): ScannedCard {
   const namespacePath = join(cardsPath, cardId);
-  assertOnlyEntries(namespacePath, CARD_NAMESPACE_ENTRIES);
+  assertNamespaceEntries(namespacePath, ACTIVE_NAMESPACE_ENTRIES);
   const cardPath = join(namespacePath, 'card');
-  if (!existsSync(cardPath) || !lstatSync(cardPath).isDirectory()) throw new Error(`Card '${cardId}' is missing its card directory.`);
-  cleanupDurableReplacementTemporaries(cardPath, ['index.json']);
-  assertOnlyEntries(cardPath, SLOT_ENTRIES);
   const versionsPath = join(cardPath, 'versions');
-  if (!existsSync(versionsPath) || !lstatSync(versionsPath).isDirectory()) throw new Error(`Card '${cardId}' is missing its versions directory.`);
-  const artifacts = enumerateCardArtifacts(cardId, versionsPath).sort((left, right) => left.version - right.version);
+  if (!existsSync(cardPath) || !existsSync(versionsPath)) throw new Error(`Card '${cardId}' is missing its card versions directory.`);
+  assertDirectory(cardPath);
+  const cardEntries = readdirSync(cardPath, { withFileTypes: true });
+  if (cardEntries.length !== 1 || cardEntries[0]!.name !== 'versions' || !cardEntries[0]!.isDirectory()) throw new Error(`Card '${cardId}' card directory must contain only versions.`);
+  const artifacts = enumerateCardArtifacts(cardId, versionsPath);
   const current = selectCurrentCardVersion(artifacts, versionsPath);
-  for (let version = 1; version <= current.version; version += 1) {
-    if (artifacts[version - 1]?.version !== version) throw new Error(`Card '${cardId}' canonical versions are not contiguous at version ${version}.`);
-  }
+  artifacts.forEach((artifact, index) => { if (artifact.version !== index + 1) throw new Error(`Card '${cardId}' canonical versions are not contiguous at version ${index + 1}.`); });
   validateCardHistoryInvariant(cardId, current.version, versionsPath, artifacts.flatMap((artifact) => artifact.history ? [artifact.history] : []));
-  writeCardIndex(cardPath, cardId, artifacts, current);
   const records = Object.fromEntries(authoredRecordSlotValues.map((slot) => [slot, scanRecordSlot(namespacePath, cardId, slot)])) as Record<AuthoredRecordSlot, ScannedRecordSlot>;
   if (records.brief.latest === null) throw new Error(`Current card '${cardId}' is missing a required closed brief artifact.`);
   return Object.freeze({ artifacts: Object.freeze(artifacts), current, records: Object.freeze(records) });
 }
 
-export function restabilizeCanonicalStore(
-  projectRoot: string,
-  cardsPath: string,
-  observation: ObservedProjectRoot,
-): CanonicalStoreGeneration {
-  assertIssuedProjectRootObservation(observation);
-  const canonicalProjectRoot = realpathSync(projectRoot);
-  const canonicalCardsPath = realpathSync(cardsPath);
-  if (canonicalCardsPath !== observation.cardsPath) throw new Error(`Project-root observation belongs to '${observation.cardsPath}', not '${canonicalCardsPath}'.`);
-  if (realpathSync(join(canonicalProjectRoot, '.saivage', 'cards')) !== canonicalCardsPath) {
-    throw new Error(`Canonical cards path '${canonicalCardsPath}' does not belong to project root '${canonicalProjectRoot}'.`);
-  }
-  cleanupIncompleteNamespaces(cardsPath);
+export function loadProjectStore(cardsPath: string): ProjectStoreModel {
+  if (!existsSync(cardsPath)) throw new Error(`Cannot enumerate canonical project cards at '${cardsPath}'.`);
   const cards = new Map<string, ScannedCard>();
-  for (const entry of readdirSync(cardsPath, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!entry.isDirectory()) throw new Error(`Card namespace is not a directory: '${join(cardsPath, entry.name)}'.`);
-    cards.set(entry.name, scanCard(cardsPath, entry.name));
+  const tombstonedIds = new Set<string>();
+  for (const entry of readdirSync(cardsPath, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const namespacePath = join(cardsPath, entry.name);
+    if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error(`Card namespace is not a real directory: '${namespacePath}'.`);
+    if (!isCanonicalCardId(entry.name)) throw new Error(`Invalid card namespace identity '${entry.name}'.`);
+    const tombstonePath = join(namespacePath, 'tombstone.json');
+    if (existsSync(tombstonePath)) {
+      assertNamespaceEntries(namespacePath, TOMBSTONED_NAMESPACE_ENTRIES);
+      parseCardTombstone(parseJson(tombstonePath), tombstonePath, entry.name);
+      tombstonedIds.add(entry.name);
+      continue;
+    }
+    if (!hasCanonicalCardArtifact(namespacePath)) {
+      discardIncompleteCardNamespace(cardsPath, entry.name);
+      continue;
+    }
+    cards.set(entry.name, loadActiveCardNamespace(cardsPath, entry.name));
   }
   const root = cards.get('project');
-  if (!root || root.current.version !== observation.selected.version || root.current.committed_at !== observation.selected.committed_at) {
-    throw new Error(`Canonical project root changed after observation at '${join(cardsPath, 'project')}'.`);
-  }
-  const currentCards: CardRecord[] = [...cards.values()].map((card) => card.current.card);
-  validateParsedCards({ cards: currentCards, maxDepth: 5 });
-  const deletedIds = new Set(readDeletedCardIds(projectRoot));
-  for (const card of currentCards) if (deletedIds.has(card.id)) throw new Error(`Live card '${card.id}' is also reserved as deleted.`);
-  return Object.freeze({ cards });
+  if (!root) throw new Error('Canonical project card is missing.');
+  if (tombstonedIds.has('project')) throw new Error('The project card cannot be tombstoned.');
+  validateParsedCards({ cards: [...cards.values()].map((entry) => entry.current.card), maxDepth: 5 });
+  return { cards, tombstonedIds };
 }

@@ -1,4 +1,4 @@
-import { initProjectTree, testCompositionAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
 import { testActorSnapshots } from '../helpers/actor-snapshots.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { testConversationMutations } from '../helpers/conversation-mutations.js';
@@ -17,7 +17,6 @@ import { LLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { readActorSnapshots } from '../../src/runtime/actors/snapshots.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestAuthProfileRepository } from '../helpers/mutation-composition.js';
-import { issueCompositionMutationAuthority } from '../../src/application/mutation-authority.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { readProviderExchangeLogEntries } from '../../src/persistence/provider-exchange-log.js';
 
@@ -46,7 +45,6 @@ function attempt(provider: string, status: 'ok' | 'error'): ProviderExchangeAtte
 
 function request(): InvocationRequest {
   return {
-    mutationAuthority: issueCompositionMutationAuthority(),
     inputId: 'planner:card:1',
     role: 'planner',
     sessionId: 'planner:card',
@@ -84,7 +82,7 @@ describe('InvocationService provider exchange accumulation', () => {
       ['b', 'ok', 1],
     ]);
     expect(readProviderExchangeLogEntries(projectRoot, invocation.sessionId)).toEqual([]);
-    service.projectProviderExchanges(invocation.mutationAuthority, invocation.sessionId, invocation.inputId, completion.provider_exchanges, [`${invocation.inputId}:message`]);
+    service.projectProviderExchanges(invocation.sessionId, invocation.inputId, completion.provider_exchanges, [`${invocation.inputId}:message`]);
     expect(readProviderExchangeLogEntries(projectRoot, invocation.sessionId).map((exchange) => [exchange.payload.provider, exchange.payload.status === 'ok' ? exchange.payload.assistant_output_ids : null])).toEqual([
       ['a', null],
       ['b', [`${invocation.inputId}:message`]],
@@ -109,7 +107,7 @@ describe('InvocationService provider exchange accumulation', () => {
           throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [], originalFailure: new Error('missing envelope') });
         },
       });
-      const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), mutationAuthority: () => testCompositionAuthority(projectRoot), agentId: 'planner:project', provider: createInvocationServiceProvider(service) });
+      const actor = new LLMActor({ projectRoot, snapshots: testActorSnapshots(projectRoot), conversations: testConversationMutations(projectRoot), agentId: 'planner:project', provider: createInvocationServiceProvider(service) });
       actor.start();
 
       await expect(actor.turn({

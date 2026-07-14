@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardStore, closeTestProject, initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
+import { CardStore, closeTestProject, initProjectTree, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from '../helpers/canonical-project.js';
 import { get_card, get_tree } from '../../src/tools/analyst-card-tools.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
@@ -32,7 +32,7 @@ describe('canonical persisted subtree ordering', () => {
     store = new CardStore(root);
     expect(store.listChildren(parent.id)).toEqual(expected);
     const processRunner = createTestProcessRunner(root);
-    const context = { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst' as const, surface: 'web-chat' as const, restartServerAvailable: false, appLogs: testAppLogs(root) };
+    const context = { projectRoot: root, configAuthority: testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst' as const, surface: 'web-chat' as const, restartServerAvailable: false, appLogs: testAppLogs(root) };
     const detail = await get_card(context, { id: parent.id });
     const tree = await get_tree(context, { rootId: parent.id });
     expect(detail.success).toBe(true);

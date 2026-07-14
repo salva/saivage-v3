@@ -3,10 +3,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { z } from 'zod';
 
-import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
-import type { MutationLane } from '../application/mutation-lane.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../persistence/durable-file-replacement.js';
-import { IndeterminatePublicationError } from '../persistence/errors.js';
 
 export interface AuthProfile {
   type: string;
@@ -65,18 +63,14 @@ function toError(error: unknown): Error { return error instanceof Error ? error 
 
 export class AuthProfileRepository {
   readonly filePath: string;
-  #failed = false;
 
-  constructor(projectRoot: string, private readonly lane: MutationLane) { this.filePath = authProfilePath(projectRoot); }
+  constructor(projectRoot: string, private readonly health: ApplicationPersistenceHealth) { this.filePath = authProfilePath(projectRoot); }
 
-  restabilize(authority: CompositionMutationAuthority): void {
-    const result = this.lane.apply(authority, 'auth profile restabilization', () => {
-      const parent = dirname(this.filePath);
-      mkdirSync(parent, { recursive: true });
-      cleanupDurableReplacementTemporaries(parent, [basename(this.filePath)]);
-      if (existsSync(this.filePath)) chmodSync(this.filePath, AUTH_PROFILE_FILE_MODE);
-    });
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  restabilize(): void {
+    const parent = dirname(this.filePath);
+    mkdirSync(parent, { recursive: true });
+    cleanupDurableReplacementTemporaries(parent, [basename(this.filePath)]);
+    if (existsSync(this.filePath)) chmodSync(this.filePath, AUTH_PROFILE_FILE_MODE);
   }
 
   read(): AuthProfileReadState {
@@ -104,33 +98,28 @@ export class AuthProfileRepository {
     return profile ? { profile, revision: authProfileRevision(profile) } : null;
   }
 
-  replaceProfile(authority: MutationAuthority, name: string, expectedRevision: string | null, profile: AuthProfile): void {
-    this.mutate(authority, 'auth profile replacement', (file) => {
-      const current = file.profiles[name];
-      const revision = current ? authProfileRevision(current) : null;
-      if (revision !== expectedRevision) throw new AuthProfileConflictError(name);
-      file.profiles[name] = profile;
-    });
+  replaceProfile(name: string, expectedRevision: string | null, profile: AuthProfile): void {
+    this.health.assertMutationHealthy();
+    const file = this.fileForWrite(this.read());
+    const current = file.profiles[name];
+    const revision = current ? authProfileRevision(current) : null;
+    if (revision !== expectedRevision) throw new AuthProfileConflictError(name);
+    file.profiles[name] = profile;
+    this.replaceFile(file, 'replace auth profile');
   }
 
-  deleteProfile(authority: MutationAuthority, name: string, expectedRevision: string): void {
-    this.mutate(authority, 'auth profile deletion', (file) => {
-      const current = file.profiles[name];
-      if (!current || authProfileRevision(current) !== expectedRevision) throw new AuthProfileConflictError(name);
-      delete file.profiles[name];
-    });
+  deleteProfile(name: string, expectedRevision: string): void {
+    this.health.assertMutationHealthy();
+    const file = this.fileForWrite(this.read());
+    const current = file.profiles[name];
+    if (!current || authProfileRevision(current) !== expectedRevision) throw new AuthProfileConflictError(name);
+    delete file.profiles[name];
+    this.replaceFile(file, 'delete auth profile');
   }
 
-  private mutate(authority: MutationAuthority, description: string, operation: (file: AuthProfilesFile) => void): void {
-    if (this.#failed) throw new Error('Auth profile repository has failed and requires restart.');
-    const result = this.lane.apply(authority, description, () => {
-      const state = this.read();
-      const file = this.fileForWrite(state);
-      operation(file);
-      try { durablyReplaceFile(this.filePath, Buffer.from(serializeAuthProfiles(file)), { mode: AUTH_PROFILE_FILE_MODE }); }
-      catch (error) { if (error instanceof IndeterminatePublicationError) this.#failed = true; throw error; }
-    });
-    if (!result.applied) throw new Error('Auth profile mutation authority is stale.');
+  private replaceFile(file: AuthProfilesFile, operation: string): void {
+    try { durablyReplaceFile(this.filePath, Buffer.from(serializeAuthProfiles(file)), { mode: AUTH_PROFILE_FILE_MODE }); }
+    catch (error) { this.health.reportUncertainFailure({ target: this.filePath, operation, error }); }
   }
 
   private fileForWrite(state: AuthProfileReadState): AuthProfilesFile {

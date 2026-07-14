@@ -1,4 +1,4 @@
-import { initProjectTree, testCompositionAuthority, testMutationComposition, testProjectAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, testPersistenceHealth, testProjectAuthority } from '../helpers/canonical-project.js';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -40,7 +40,7 @@ beforeEach(async () => {
   initProjectTree(root);
   ensureTestSaivageConfig(root);
   initRuntimeState(root);
-  server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testMutationComposition(root)), authority: testProjectAuthority(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root) });
+  server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testPersistenceHealth(root)), authority: testProjectAuthority(root), persistenceHealth: testPersistenceHealth(root) });
 });
 
 afterEach(async () => {

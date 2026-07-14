@@ -16,9 +16,8 @@ import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
 import { startTelegramNotifications } from './telegram-lifecycle.js';
 import { ReadModelChangeBroadcaster, type ReadModelChangeSubscription } from '../../application/read-model-changes.js';
-import type { ProjectPersistenceAuthority } from '../../persistence/project-persistence-authority.js';
-import type { CompositionMutationAuthority } from '../../application/mutation-authority.js';
-import type { MutationLane } from '../../application/mutation-lane.js';
+import type { ProjectStoreRepository } from '../../persistence/project-store-repository.js';
+import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
 import { AuthProfileRepository } from '../../auth/auth-profile-store.js';
 import { AppLogStore } from '../../persistence/app-log.js';
 
@@ -82,9 +81,8 @@ export async function createServerServices(input: {
   environment: Environment;
   scope?: ResourceScope;
   restartPort?: RestartPort;
-  authority: ProjectPersistenceAuthority;
-  compositionAuthority: CompositionMutationAuthority;
-  mutationLane: MutationLane;
+  authority: ProjectStoreRepository;
+  persistenceHealth: ApplicationPersistenceHealth;
 }): Promise<ServerServices> {
   const { environment } = input;
   const projectRoot = environment.projectRoot;
@@ -99,17 +97,17 @@ export async function createServerServices(input: {
   const eventBus = new EventBus();
   setProjectNotificationEventBus(projectRoot, eventBus);
   const readModelChanges = new ReadModelChangeBroadcaster();
-  const appLogs = new AppLogStore(projectRoot, input.mutationLane, readModelChanges);
-  appLogs.restabilize(input.compositionAuthority);
+  const appLogs = new AppLogStore(projectRoot, input.persistenceHealth, readModelChanges);
+  appLogs.restabilize();
   const eventLogger = new EventLogger(projectRoot, appLogs, eventBus);
   const errorLogger = new ErrorLogger(projectRoot, appLogs, eventBus);
   const cardStore = new CardStoreRepository({ projectRoot, reader: input.authority.reader, writer: input.authority.writer, eventBus, readModelChanges });
-  const authProfiles = new AuthProfileRepository(projectRoot, input.mutationLane);
-  authProfiles.restabilize(input.compositionAuthority);
+  const authProfiles = new AuthProfileRepository(projectRoot, input.persistenceHealth);
+  authProfiles.restabilize();
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, appLogs, cardStore, authProfiles, mutationLane: input.mutationLane, compositionAuthority: input.compositionAuthority, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, appLogs, cardStore, authProfiles, persistenceHealth: input.persistenceHealth, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
 

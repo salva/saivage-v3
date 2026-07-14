@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { AgentMessage } from '../../../schemas/index.js';
-import { conversationDir } from '../conversation-index.js';
+import { conversationDir } from '../conversation-inventory.js';
 import type { RecoverableEvidenceDescriptor } from './result-dropping.js';
 
 const recoverableEvidenceSchema = z.discriminatedUnion('flavor', [

@@ -126,7 +126,7 @@ describe('workspace and patch providers', () => {
       const result = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
 
       expect(result.success).toBe(true);
-      const latest = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
+      const latest = store.recordReader.cardArtifacts(card.id).records.brief.latest!.version;
       expect(latest).toBe(2);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latest}` });
       expect(store.readRecord(card.id, 'brief.md', latest).artifact.content).toBe(VALID_BRIEF);
@@ -178,14 +178,14 @@ describe('workspace and patch providers', () => {
         store.setStatus(card.id, 'running');
         store.setStatus(card.id, 'cancelled');
       }
-      const latestBefore = store.recordReader.generation().cards.get(card.id)!.records.brief.latest?.version ?? null;
+      const latestBefore = store.recordReader.cardArtifacts(card.id).records.brief.latest?.version ?? null;
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard: () => ({ ok: true }) })]);
 
       const result = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
 
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error).toContain('status backlog, done, failed, or running');
-      const slot = store.recordReader.generation().cards.get(card.id)!.records.brief;
+      const slot = store.recordReader.cardArtifacts(card.id).records.brief;
       expect(slot.latest?.version ?? null).toBe(latestBefore);
       expect(slot.open).toBeNull();
     } finally {
@@ -315,14 +315,14 @@ describe('workspace and patch providers', () => {
       const initialOpen = store.readRecord(card.id, 'brief.md', 'open');
       store.closeRecord(card.id, 'brief.md', initialOpen.version, 'planner', store.read(card.id)!.version_seq);
       markDone(store, card.id);
-      const latestBefore = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
+      const latestBefore = store.recordReader.cardArtifacts(card.id).records.brief.latest!.version;
       const notifyCard = jest.fn(() => ({ ok: false as const, reason: 'missing_card' as const, cardId: card.id }));
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard })]);
 
       const result = await invokeTool(surface, 'edit', { path: `record:///brief.md?card=${card.id}&v=next`, old_string: 'Do the work.', new_string: 'Do the updated work.' });
 
       expect(result.success).toBe(true);
-      const latestAfter = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
+      const latestAfter = store.recordReader.cardArtifacts(card.id).records.brief.latest!.version;
       expect(latestAfter).toBe(latestBefore + 1);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latestAfter}` });
       expect(store.readRecord(card.id, 'brief.md', latestAfter).artifact.content).toContain('Do the updated work.');
@@ -343,14 +343,14 @@ describe('workspace and patch providers', () => {
       store.closeRecord(card.id, 'brief.md', initialOpen.version, 'planner', store.read(card.id)!.version_seq);
       store.setStatus('project', 'running');
       markDone(store, parent.id);
-      const latestBefore = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
+      const latestBefore = store.recordReader.cardArtifacts(card.id).records.brief.latest!.version;
       const notifyCard = jest.fn(() => ({ ok: true as const }));
       const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store, notifyCard })]);
 
       const result = await invokeTool(surface, 'edit', { path: `record:///brief.md?card=${card.id}&v=next`, old_string: 'Do the work.', new_string: 'Do the updated work.' });
 
       expect(result.success).toBe(true);
-      const latestAfter = store.recordReader.generation().cards.get(card.id)!.records.brief.latest!.version;
+      const latestAfter = store.recordReader.cardArtifacts(card.id).records.brief.latest!.version;
       expect(latestAfter).toBe(latestBefore + 1);
       if (result.success) expect(result.data).toMatchObject({ record_url: `record:///brief.md?card=${card.id}&v=${latestAfter}` });
       expect(store.readRecord(card.id, 'brief.md', latestAfter).artifact.content).toContain('Do the updated work.');

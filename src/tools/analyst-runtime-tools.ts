@@ -5,7 +5,6 @@ import { listControlActions } from '../persistence/index.js';
 import { readAppLogEntries } from '../persistence/app-log.js';
 import type { ProcessRecord } from '../schemas/index.js';
 import { redactCommandForOperator, toContainedRelativePath, workUrlFromAbsolutePath } from '../workspace/index.js';
-import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
@@ -35,46 +34,31 @@ function processView(projectRoot: string, record: ProcessRecord): Record<string,
 }
 
 export async function start_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'runtime.start_project', safety_class: 'low', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
-    if (!ctx.runtime) return toolFailure('Active runtime is not available.');
-    const data = await ctx.runtime.startProject('analyst');
-    if (!data.error) return { success: true, data };
-    return toolFailure(data.error, { status: data.status, started: data.started, stopped: data.stopped });
-  } });
+  if (!ctx.runtime) return toolFailure('Active runtime is not available.');
+  const data = await ctx.runtime.startProject('analyst');
+  if (!data.error) return { success: true, data };
+  return toolFailure(data.error, { status: data.status, started: data.started, stopped: data.stopped });
 }
 
 export async function pause_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'runtime.pause', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
-    if (!ctx.runtime) return toolFailure('Active runtime is not available.');
-    ctx.runtime.pause();
-    const state = ctx.runtime.getStatus();
-    return { success: true, data: { status: state.status } };
-  } });
+  if (!ctx.runtime) return toolFailure('Active runtime is not available.');
+  ctx.runtime.pause();
+  const state = ctx.runtime.getStatus();
+  return { success: true, data: { status: state.status } };
 }
 
 export async function resume_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'runtime.resume', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
-    if (!ctx.runtime) return toolFailure('Active runtime is not available.');
-    const state = ctx.runtime.getStatus();
-    if (state.status === 'error') return toolFailure('Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
-    ctx.runtime.resume();
-    const updated = ctx.runtime.getStatus();
-    return { success: true, data: { status: updated.status } };
-  } });
+  if (!ctx.runtime) return toolFailure('Active runtime is not available.');
+  const state = ctx.runtime.getStatus();
+  if (state.status === 'error') return toolFailure('Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
+  ctx.runtime.resume();
+  const updated = ctx.runtime.getStatus();
+  return { success: true, data: { status: updated.status } };
 }
 
 export async function restart_server(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, {
-    action: 'runtime.restart_server',
-    safety_class: 'destructive',
-    target_kind: 'runtime',
-    getTargetId: () => 'server',
-    permissionCheck: () => ctx.restartServerAvailable
-      ? { allowed: true }
-      : { allowed: false, reason: 'restart unavailable: operator authentication disabled' },
-    successSummary: 'restart confirmation required',
-    run: async () => ({ success: true, data: { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } }),
-  });
+  if (!ctx.restartServerAvailable) return toolFailure('Denied by permission policy for runtime.restart_server: restart unavailable: operator authentication disabled.');
+  return { success: true, data: { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } };
 }
 
 export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<ToolResult> {

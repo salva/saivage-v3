@@ -4,7 +4,7 @@ import { basename, dirname } from 'node:path';
 import { z } from 'zod';
 import { recoveryDiagnosticsFile as layoutRecoveryDiagnosticsFile } from '../../persistence/layout.js';
 import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../../persistence/durable-file-replacement.js';
-import type { MutationLane } from '../../application/mutation-lane.js';
+import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
 import { readActorSnapshots } from './snapshots.js';
 import type { ActorSnapshotRecord, ActorSnapshotStore } from './snapshots.js';
 import { agentMessageSchema, type AgentMessage, type CardRecord, type CardStatus } from '../../schemas/index.js';
@@ -26,7 +26,6 @@ import { projectTerminalExecutorOutcome } from './terminal-card-processor-actor.
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 import { listConversationSessionIds, readActiveVersionMessages } from './conversation-store.js';
 import type { ConversationStore } from '../../persistence/conversation-store.js';
-import type { CompositionMutationAuthority } from '../../application/mutation-authority.js';
 import { classifyConversation, type ConversationImplicitState } from './conversation-recovery.js';
 import { loggedToolCallIdentity, loggedToolCallKey, loggedToolErrorIdentity, loggedToolResultIdentity } from '../../schemas/message-identity.js';
 
@@ -40,8 +39,8 @@ export interface ActorRecoveryOutcomeStore {
   listChildren?(cardId: string): string[];
   setStatus(cardId: string, status: CardStatus): CardRecord;
   commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
-  readRecord(cardId: string, filename: string, version?: number | 'latest' | 'open'): import('../../persistence/project-persistence-authority.js').RecordProjection;
-  closeRecord(cardId: string, filename: string, version: number, writer: import('../../schemas/index.js').AgentRole, cardVersionSeq: number): import('../../persistence/project-persistence-authority.js').RecordProjection;
+  readRecord(cardId: string, filename: string, version?: number | 'latest' | 'open'): import('../../persistence/project-store-repository.js').RecordProjection;
+  closeRecord(cardId: string, filename: string, version: number, writer: import('../../schemas/index.js').AgentRole, cardVersionSeq: number): import('../../persistence/project-store-repository.js').RecordProjection;
 }
 
 export interface ActorRecoveryOutcomeConversion {
@@ -56,7 +55,6 @@ export interface ActorRecoveryExecutionDeps {
   store: ActorRecoveryOutcomeStore;
   generatedAt?: string;
   conversations: ConversationStore;
-  mutationAuthority: CompositionMutationAuthority;
   snapshots: ActorSnapshotStore;
 }
 
@@ -220,44 +218,36 @@ export function readRecoveryDiagnostics(projectRoot: string): ActorRecoveryDiagn
 }
 
 export class RecoveryDiagnosticsStore {
-  #failed = false;
-  constructor(readonly projectRoot: string, private readonly lane: MutationLane) {}
-  restabilize(authority: CompositionMutationAuthority): void {
-    const result = this.lane.apply(authority, 'recovery diagnostics restabilization', () => {
-      const directory = dirname(recoveryDiagnosticsPath(this.projectRoot));
-      if (existsSync(directory)) cleanupDurableReplacementTemporaries(directory, [basename(recoveryDiagnosticsPath(this.projectRoot))]);
-      readRecoveryDiagnostics(this.projectRoot);
-    });
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  constructor(readonly projectRoot: string, private readonly health: ApplicationPersistenceHealth) {}
+  restabilize(): void {
+    const directory = dirname(recoveryDiagnosticsPath(this.projectRoot));
+    if (existsSync(directory)) cleanupDurableReplacementTemporaries(directory, [basename(recoveryDiagnosticsPath(this.projectRoot))]);
+    readRecoveryDiagnostics(this.projectRoot);
   }
-  project(authority: CompositionMutationAuthority, plan: ActorRecoveryPlan, generatedAt = new Date().toISOString()): ActorRecoveryDiagnosticsSnapshot | null {
+  project(plan: ActorRecoveryPlan, generatedAt = new Date().toISOString()): ActorRecoveryDiagnosticsSnapshot | null {
+    this.health.assertMutationHealthy();
     const projection = projectActorRecovery(plan);
     const snapshot = projection.diagnostics.length === 0 && projection.actions.length === 0 ? null : recoveryDiagnosticsSnapshotSchema.parse({ schema_version: 1, generated_at: generatedAt, diagnostics: projection.diagnostics, actions: projection.actions });
-    if (this.#failed) throw new Error('Recovery diagnostics store has failed and requires restart.');
-    const result = this.lane.apply(authority, 'recovery diagnostics projection', () => {
-      try {
-        const path = recoveryDiagnosticsPath(this.projectRoot);
-        if (snapshot === null) { if (existsSync(path)) unlinkSync(path); }
-        else { mkdirSync(dirname(path), { recursive: true }); durablyReplaceFile(path, Buffer.from(JSON.stringify(snapshot, null, 2) + '\n')); }
-      } catch (error) { this.#failed = true; throw error; }
-      return snapshot;
-    });
-    if (!result.applied) throw new Error('Recovery diagnostics mutation authority is stale.');
-    return result.value;
+    const path = recoveryDiagnosticsPath(this.projectRoot);
+    try {
+      if (snapshot === null) { if (existsSync(path)) unlinkSync(path); }
+      else { mkdirSync(dirname(path), { recursive: true }); durablyReplaceFile(path, Buffer.from(JSON.stringify(snapshot, null, 2) + '\n')); }
+    } catch (error) { this.health.reportUncertainFailure({ target: path, operation: 'project recovery diagnostics', error }); }
+    return snapshot;
   }
 }
 
 export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorStartupRecoveryDeps): ActorStartupRecoveryReport {
   const generatedAt = deps.generatedAt ?? new Date().toISOString();
-  const cancelledCleanup = cleanupCancelledCardSnapshots(deps.projectRoot, plan, deps.store, deps.snapshots, deps.mutationAuthority);
+  const cancelledCleanup = cleanupCancelledCardSnapshots(deps.projectRoot, plan, deps.store, deps.snapshots);
   const effectivePlan = cancelledCleanup.length > 0 ? buildActorRecoveryPlan(deps.projectRoot, deps.store) : plan;
   const nestedIncidents = recoverNestedActorConsistency(effectivePlan, { ...deps, generatedAt });
   const recoveries = recoverActorStartupOutcomes(effectivePlan, { ...deps, generatedAt });
-  cleanupRecoveredActorSnapshots(recoveries, deps.snapshots, deps.mutationAuthority);
-  const toolErrorSettlements = appendToolErrorSettlementResults(deps.projectRoot, deps.conversations, deps.mutationAuthority);
-  const abandonedToolCalls = abandonStalePendingToolCalls(deps.projectRoot, deps.conversations, deps.mutationAuthority, undefined, nestedIncidents.preservedToolCallKeys);
+  cleanupRecoveredActorSnapshots(recoveries, deps.snapshots);
+  const toolErrorSettlements = appendToolErrorSettlementResults(deps.projectRoot, deps.conversations);
+  const abandonedToolCalls = abandonStalePendingToolCalls(deps.projectRoot, deps.conversations, undefined, nestedIncidents.preservedToolCallKeys);
   const postCleanupPlan = buildActorRecoveryPlan(deps.projectRoot, deps.store);
-  const outstanding = deps.recoveryDiagnostics.project(deps.mutationAuthority, postCleanupPlan, generatedAt);
+  const outstanding = deps.recoveryDiagnostics.project(postCleanupPlan, generatedAt);
   return {
     generated_at: generatedAt,
     incidents: [
@@ -278,7 +268,7 @@ function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorRecov
   for (const processor of plan.processors) {
     const card = deps.store.read(processor.cardId);
     if (!processor.active || !card || card.status === 'running') continue;
-    deps.snapshots.remove(deps.mutationAuthority, processor.actorId);
+    deps.snapshots.remove(processor.actorId);
     incidents.push({ actorId: processor.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_non_running_card_processor_snapshot', cardId: processor.cardId, message: `Startup recovery removed active processor snapshot '${processor.actorId}' because card '${processor.cardId}' is '${card.status}'.` });
   }
 
@@ -287,14 +277,14 @@ function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorRecov
     const processor = entry.cardId ? plan.processors.find((candidate) => candidate.cardId === entry.cardId) ?? null : null;
     if (card && card.status !== 'running') {
       if (entry.llm?.active) {
-        deps.snapshots.remove(deps.mutationAuthority, entry.actorId);
+        deps.snapshots.remove(entry.actorId);
         incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_non_running_card_llm_snapshot', cardId: entry.cardId ?? undefined, message: `Startup recovery removed active LLM snapshot '${entry.actorId}' because card '${card.id}' is '${card.status}'.` });
       }
       continue;
     }
-    applyLlmRecoveryMatrix(deps.projectRoot, deps.conversations, deps.mutationAuthority, entry, processor, card, incidents, deps.store, preservedToolCallKeys, deps.snapshots);
+    applyLlmRecoveryMatrix(deps.projectRoot, deps.conversations, entry, processor, card, incidents, deps.store, preservedToolCallKeys, deps.snapshots);
     if (entry.llm?.active && card?.status === 'running' && !processor?.active && (entry.llm.snapshot.state_value === 'calling_provider' || entry.llm.snapshot.state_value === 'waiting_tool')) {
-      deps.snapshots.remove(deps.mutationAuthority, entry.actorId);
+      deps.snapshots.remove(entry.actorId);
       incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action: 'cleanup_llm_without_active_processor', cardId: entry.cardId ?? undefined, message: `Startup recovery removed active LLM snapshot '${entry.actorId}' because its card has no active processor snapshot.` });
     }
   }
@@ -312,22 +302,22 @@ function recoverNestedActorConsistency(plan: ActorRecoveryPlan, deps: ActorRecov
   return { incidents, preservedToolCallKeys };
 }
 
-function applyLlmRecoveryMatrix(projectRoot: string, conversations: ConversationStore, authority: CompositionMutationAuthority, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>, snapshots: ActorSnapshotStore): void {
+function applyLlmRecoveryMatrix(projectRoot: string, conversations: ConversationStore, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>, snapshots: ActorSnapshotStore): void {
   const llmState = entryLlmState(entry);
   switch (llmState) {
     case 'idle_or_absent':
-      applyIdleOrAbsentEntry(projectRoot, conversations, authority, entry, processor, card, incidents, store);
+      applyIdleOrAbsentEntry(projectRoot, conversations, entry, processor, card, incidents, store);
       return;
     case 'calling_provider':
-      applyCallingProviderEntry(projectRoot, conversations, authority, entry, incidents, snapshots);
+      applyCallingProviderEntry(projectRoot, conversations, entry, incidents, snapshots);
       return;
     case 'waiting_tool':
-      applyWaitingToolEntry(projectRoot, conversations, authority, entry, processor, card, incidents, store, preservedToolCallKeys, snapshots);
+      applyWaitingToolEntry(projectRoot, conversations, entry, processor, card, incidents, store, preservedToolCallKeys, snapshots);
       return;
   }
 }
 
-function applyIdleOrAbsentEntry(projectRoot: string, conversations: ConversationStore, authority: CompositionMutationAuthority, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore): void {
+function applyIdleOrAbsentEntry(projectRoot: string, conversations: ConversationStore, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore): void {
   switch (entry.conversation) {
     case 'empty':
     case 'system_prompt_only':
@@ -338,31 +328,31 @@ function applyIdleOrAbsentEntry(projectRoot: string, conversations: Conversation
       reportDanglingAwaitingTool(entry, processor, card, incidents, store, new Set());
       return;
     case 'assistant_text_pending':
-      appendPlainTextRecoveryRepair(conversations, authority, entry);
+      appendPlainTextRecoveryRepair(conversations, entry);
       incidents.push({ actorId: entry.actorId, kind: 'stale_tool_call', action: 'repair_assistant_text_pending', cardId: entry.cardId ?? undefined, message: `Startup recovery appended a model repair directive for assistant text in session '${entry.sessionId}'.` });
       return;
   }
 }
 
-function applyCallingProviderEntry(projectRoot: string, conversations: ConversationStore, authority: CompositionMutationAuthority, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], snapshots: ActorSnapshotStore): void {
+function applyCallingProviderEntry(projectRoot: string, conversations: ConversationStore, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], snapshots: ActorSnapshotStore): void {
   switch (entry.conversation) {
     case 'system_prompt_only':
     case 'pending_provider':
-      if (conversationNeedsProviderVisibleToolErrorSettlement(entry)) removeIncompatibleLlmSnapshot(snapshots, authority, entry, incidents, 'cleanup_provider_snapshot_for_tool_error_settlement', `Startup recovery removed provider snapshot '${entry.actorId}' so provider reissue reloads synthetic tool_error settlement rows from the active conversation.`);
+      if (conversationNeedsProviderVisibleToolErrorSettlement(entry)) removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'cleanup_provider_snapshot_for_tool_error_settlement', `Startup recovery removed provider snapshot '${entry.actorId}' so provider reissue reloads synthetic tool_error settlement rows from the active conversation.`);
       return;
     case 'empty':
     case 'awaiting_tool_result':
     case 'settled_terminal':
-      removeIncompatibleLlmSnapshot(snapshots, authority, entry, incidents, 'cleanup_incompatible_provider_snapshot', `Startup recovery removed provider snapshot '${entry.actorId}' for incompatible conversation state '${entry.conversation}'.`);
+      removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'cleanup_incompatible_provider_snapshot', `Startup recovery removed provider snapshot '${entry.actorId}' for incompatible conversation state '${entry.conversation}'.`);
       return;
     case 'assistant_text_pending':
-      appendPlainTextRecoveryRepair(conversations, authority, entry);
-      removeIncompatibleLlmSnapshot(snapshots, authority, entry, incidents, 'repair_assistant_text_pending_provider_snapshot', `Startup recovery appended a repair directive and removed stale provider snapshot '${entry.actorId}'.`);
+      appendPlainTextRecoveryRepair(conversations, entry);
+      removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'repair_assistant_text_pending_provider_snapshot', `Startup recovery appended a repair directive and removed stale provider snapshot '${entry.actorId}'.`);
       return;
   }
 }
 
-function applyWaitingToolEntry(projectRoot: string, conversations: ConversationStore, authority: CompositionMutationAuthority, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>, snapshots: ActorSnapshotStore): void {
+function applyWaitingToolEntry(projectRoot: string, conversations: ConversationStore, entry: LlmConversationRecoveryEntry, processor: ProcessorActorRecoveryRecord | null, card: CardRecord | null, incidents: ActorStartupRecoveryIncident[], store: ActorRecoveryOutcomeStore, preservedToolCallKeys: Set<string>, snapshots: ActorSnapshotStore): void {
   switch (entry.conversation) {
     case 'awaiting_tool_result':
       reportDanglingAwaitingTool(entry, processor, card, incidents, store, preservedToolCallKeys);
@@ -371,11 +361,11 @@ function applyWaitingToolEntry(projectRoot: string, conversations: ConversationS
     case 'system_prompt_only':
     case 'settled_terminal':
     case 'pending_provider':
-      removeIncompatibleLlmSnapshot(snapshots, authority, entry, incidents, 'cleanup_incompatible_waiting_tool_snapshot', `Startup recovery removed waiting_tool snapshot '${entry.actorId}' for conversation state '${entry.conversation}'.`);
+      removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'cleanup_incompatible_waiting_tool_snapshot', `Startup recovery removed waiting_tool snapshot '${entry.actorId}' for conversation state '${entry.conversation}'.`);
       return;
     case 'assistant_text_pending':
-      appendPlainTextRecoveryRepair(conversations, authority, entry);
-      removeIncompatibleLlmSnapshot(snapshots, authority, entry, incidents, 'repair_assistant_text_pending_wait_snapshot', `Startup recovery appended a repair directive and removed stale waiting_tool snapshot '${entry.actorId}'.`);
+      appendPlainTextRecoveryRepair(conversations, entry);
+      removeIncompatibleLlmSnapshot(snapshots, entry, incidents, 'repair_assistant_text_pending_wait_snapshot', `Startup recovery appended a repair directive and removed stale waiting_tool snapshot '${entry.actorId}'.`);
       return;
   }
 }
@@ -421,9 +411,9 @@ function danglingToolCallKey(entry: LlmConversationRecoveryEntry): string | null
   return identity ? loggedToolCallKey(identity) : null;
 }
 
-function removeIncompatibleLlmSnapshot(snapshots: ActorSnapshotStore, authority: CompositionMutationAuthority, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], action: string, message: string): void {
+function removeIncompatibleLlmSnapshot(snapshots: ActorSnapshotStore, entry: LlmConversationRecoveryEntry, incidents: ActorStartupRecoveryIncident[], action: string, message: string): void {
   if (!entry.llm) return;
-  snapshots.remove(authority, entry.actorId);
+  snapshots.remove(entry.actorId);
   incidents.push({ actorId: entry.actorId, kind: 'converted_actor_snapshots', action, cardId: entry.cardId ?? undefined, message });
 }
 
@@ -516,10 +506,10 @@ function safeToolErrorIdentity(message: AgentMessage) {
   try { return loggedToolErrorIdentity(message); } catch { return null; }
 }
 
-function appendPlainTextRecoveryRepair(conversations: ConversationStore, authority: CompositionMutationAuthority, entry: LlmConversationRecoveryEntry): void {
+function appendPlainTextRecoveryRepair(conversations: ConversationStore, entry: LlmConversationRecoveryEntry): void {
   const last = entry.messages.at(-1);
   const seed = last?.id ?? `${entry.sessionId}:recovery`;
-  conversations.appendBatch(authority, [agentMessageSchema.parse({
+  conversations.appendBatch([agentMessageSchema.parse({
     id: `${seed}:startup-repair`,
     session_id: entry.sessionId,
     role: 'user',
@@ -532,13 +522,13 @@ function appendPlainTextRecoveryRepair(conversations: ConversationStore, authori
   })]);
 }
 
-function cleanupRecoveredActorSnapshots(recoveries: ActorRecoveryOutcomeConversion[], snapshots: ActorSnapshotStore, authority: CompositionMutationAuthority): void {
+function cleanupRecoveredActorSnapshots(recoveries: ActorRecoveryOutcomeConversion[], snapshots: ActorSnapshotStore): void {
   for (const recovery of recoveries) {
-    for (const actorId of recovery.actorIds) snapshots.remove(authority, actorId);
+    for (const actorId of recovery.actorIds) snapshots.remove(actorId);
   }
 }
 
-export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRecoveryPlan, store: ActorRecoveryOutcomeStore, snapshots: ActorSnapshotStore, authority: CompositionMutationAuthority): ActorStartupRecoveryIncident[] {
+export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRecoveryPlan, store: ActorRecoveryOutcomeStore, snapshots: ActorSnapshotStore): ActorStartupRecoveryIncident[] {
   const actorIds = new Map<string, Set<string>>();
   for (const card of plan.cards) addCardSnapshotActor(actorIds, card.cardId, card.snapshot.actor_id);
   for (const processor of plan.processors) addCardSnapshotActor(actorIds, processor.cardId, processor.actorId);
@@ -547,7 +537,7 @@ export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRe
   const incidents: ActorStartupRecoveryIncident[] = [];
   for (const [cardId, ids] of actorIds) {
     if (store.read(cardId)?.status !== 'cancelled') continue;
-    for (const actorId of ids) snapshots.remove(authority, actorId);
+    for (const actorId of ids) snapshots.remove(actorId);
     incidents.push({
       actorId: [...ids].sort()[0] ?? cardId,
       kind: 'converted_actor_snapshots',
@@ -586,7 +576,7 @@ export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, de
     const projected = projectTerminalRecoveryOutcome(deps, processor.activeReconstruction, card, cardSnapshot.activeReconstruction, outcome);
     if (!projected) continue;
     deps.store.commitTerminalLifecyclePatch(llm.cardId, cardActivationOutcomePatch(projected, generatedAt));
-    appendTerminalProjectedToolResult(deps.conversations, deps.mutationAuthority, {
+    appendTerminalProjectedToolResult(deps.conversations, {
       sessionId: llm.activeReconstruction.input.sessionId,
       sourceInputId: waiting.sourceInputId,
       toolCallId: waiting.toolCallId,
@@ -635,8 +625,8 @@ function projectReviewerRecoveryOutcome(
   if (!closeRecoveredRecordSlot(deps.store, card.id, 'review.md', 'reviewer', card.version_seq)) return null;
   deps.store.commitTerminalLifecyclePatch(card.id, cardActivationOutcomePatch(projected, generatedAt));
   const plannerWaiting = planner.activeReconstruction!.waiting_tool_call!;
-  appendTerminalProjectedToolResult(deps.conversations, deps.mutationAuthority, { sessionId: planner.activeReconstruction!.input.sessionId, sourceInputId: plannerWaiting.sourceInputId, toolCallId: plannerWaiting.toolCallId, toolName: plannerWaiting.toolName });
-  appendTerminalProjectedToolResult(deps.conversations, deps.mutationAuthority, { sessionId, sourceInputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName });
+  appendTerminalProjectedToolResult(deps.conversations, { sessionId: planner.activeReconstruction!.input.sessionId, sourceInputId: plannerWaiting.sourceInputId, toolCallId: plannerWaiting.toolCallId, toolName: plannerWaiting.toolName });
+  appendTerminalProjectedToolResult(deps.conversations, { sessionId, sourceInputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName });
   return {
     cardId: card.id,
     actorIds: [cardSnapshot.snapshot.actor_id, processor.actorId, planner.actorId, reviewer.actorId].sort(),

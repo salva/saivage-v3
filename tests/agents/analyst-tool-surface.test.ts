@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testAuthProfiles, testCardRepository, testCompositionAuthority, testConfigAuthority, testMutationComposition } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testAuthProfiles, testCardRepository, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from '../helpers/canonical-project.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,12 +25,12 @@ import { EventLogger, ErrorLogger } from '../../src/observability/index.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import type { CardLifecycleState, CardStatus } from '../../src/schemas/index.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
-import { readDeletedCardIds } from '../../src/persistence/deleted-card-ids.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
 import { formatPromptToolList } from '../../src/utils/prompt-api.js';
 import { readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
+import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -121,7 +121,7 @@ function setCardStatusForTest(store: CardStore, cardId: string, status: CardStat
 
 function toolCtx(root: string, store: CardStore, overrides: Partial<ToolContext> = {}): ToolContext {
   const processRunner = overrides.processRunner ?? createTestProcessRunner(root);
-  return { projectRoot: root, configAuthority: overrides.configAuthority ?? testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: overrides.processScope ?? processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root), ...overrides };
+  return { projectRoot: root, configAuthority: overrides.configAuthority ?? testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), processRunner, processScope: overrides.processScope ?? processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root), ...overrides };
 }
 
 function toolResponse(tool: string, args: Record<string, unknown>): Response {
@@ -266,16 +266,12 @@ describe('Analyst paused card-management gates', () => {
     try {
       const store = seedDeleteCards(root);
       updateRuntimeState(root, { status: 'running' });
+      const interventionReadiness = new RuntimeInterventionBinding();
       const goalId = store.listChildren('project')[0];
       const childIds = store.listChildren(goalId);
-      for (const result of [
-        await cancel_card(toolCtx(root, store), { cardId: childIds[0] }),
-        await delete_card(toolCtx(root, store), { ids: [childIds[0]] }),
-        await reorder_child(toolCtx(root, store), { parentId: goalId, orderedChildIds: [...childIds].reverse() }),
-      ]) {
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('requires runtime status stopped or paused');
-      }
+      await expect(cancel_card(toolCtx(root, store, { interventionReadiness }), { cardId: childIds[0] })).rejects.toThrow('intervention-ready');
+      await expect(delete_card(toolCtx(root, store, { interventionReadiness }), { ids: [childIds[0]] })).rejects.toThrow('intervention-ready');
+      await expect(reorder_child(toolCtx(root, store, { interventionReadiness }), { parentId: goalId, orderedChildIds: [...childIds].reverse() })).rejects.toThrow('intervention-ready');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -308,7 +304,7 @@ describe('Analyst paused card-management gates', () => {
       const result = await delete_card(toolCtx(root, store), { ids: [childIds[0]] });
       expect(result.success).toBe(true);
       expect(store.read(childIds[0])).toBeNull();
-      expect(readDeletedCardIds(root)).toContain(childIds[0]);
+      expect(existsSync(join(root, '.saivage', 'cards', childIds[0]!, 'tombstone.json'))).toBe(true);
       expect(existsSync(join(root, '.saivage', 'archive'))).toBe(false);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -326,8 +322,8 @@ describe('Contract C1 unsupported-action reply', () => {
         return messageResponse('That action is not supported by the Analyst on this surface.');
       });
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
-      const response = await runtime.submit('s-c1', { userContent: 'perform unsupported action' });
-      const assistantText = readConversationMessages(root, resolveAnalystSessionId('s-c1')).filter((message) => message.role === 'assistant' && message.kind === 'text').at(-1)?.content;
+      const response = await runtime.submit('global', { userContent: 'perform unsupported action' });
+      const assistantText = readConversationMessages(root, resolveAnalystSessionId('global')).filter((message) => message.role === 'assistant' && message.kind === 'text').at(-1)?.content;
       expect(assistantText).toContain('That action is not supported by the Analyst on this surface.');
       expect(response.toolInvocations ?? []).toHaveLength(1);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -374,7 +370,7 @@ describe('Contract C2 partial-success reporting', () => {
         return messageResponse('Partial delete completed; one card could not be deleted.');
       });
       const runtime = new AnalystRuntime({ projectRoot: root, promptTemplates: createTestPromptTemplateRegistry(), config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
-      const response = await runtime.submit('s-c2', { userContent: 'delete code cards' });
+      const response = await runtime.submit('global', { userContent: 'delete code cards' });
       expect(response.toolInvocations ?? []).toHaveLength(1);
       expect(response.toolInvocations?.[0].tool).toBe('delete_card');
       expect(response.toolInvocations?.[0].result.success).toBe(true);
@@ -391,7 +387,7 @@ describe('pre-quiescent-Pause MCP configuration', () => {
         const config = loadTestConfig(root);
       const eventBus = new EventBus();
       const appLogs = testAppLogs(root);
-      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(root, appLogs, eventBus), errorLogger: new ErrorLogger(root, appLogs, eventBus), appLogs, cardStore: testCardRepository(root), authProfiles: testAuthProfiles(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root), readModelChanges: new ReadModelChangeBroadcaster() });
+      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(root, appLogs, eventBus), errorLogger: new ErrorLogger(root, appLogs, eventBus), appLogs, cardStore: testCardRepository(root), authProfiles: testAuthProfiles(root), persistenceHealth: testPersistenceHealth(root), readModelChanges: new ReadModelChangeBroadcaster() });
       const mcpManager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runtimeApplication.processRunner });
       const depsBeforeMcp = runtimeApplication.analystDeps;
       expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);
@@ -417,7 +413,7 @@ describe('internal runtime shutdown', () => {
     const root = setupRoot();
     const eventBus = new EventBus();
     const appLogs = testAppLogs(root);
-    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(root, appLogs, eventBus), errorLogger: new ErrorLogger(root, appLogs, eventBus), appLogs, cardStore: testCardRepository(root), authProfiles: testAuthProfiles(root), mutationLane: testMutationComposition(root).lane, compositionAuthority: testCompositionAuthority(root), readModelChanges: new ReadModelChangeBroadcaster() });
+    const runtimeApplication = createRuntimeApplication({ projectRoot: root, config: loadTestConfig(root), configAuthority: testConfigAuthority(root), eventBus, eventLogger: new EventLogger(root, appLogs, eventBus), errorLogger: new ErrorLogger(root, appLogs, eventBus), appLogs, cardStore: testCardRepository(root), authProfiles: testAuthProfiles(root), persistenceHealth: testPersistenceHealth(root), readModelChanges: new ReadModelChangeBroadcaster() });
     try {
       await runtimeApplication.runtimeApi.start();
       const processScope = runtimeApplication.processRunner.createDirectScope(runtimeApplication.processRunner.runtimeRootScope, 'test-runtime', 'runtime_card');

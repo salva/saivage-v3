@@ -141,7 +141,7 @@ function isFullStore(store: CardInspectionStore): store is CardStore {
 }
 
 function effectiveUpdatedAt(store: CardStore, cardId: string): string | null {
-  const committedTimes = [store.recordReader.generation().cards.get(cardId)?.current.committed_at, ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch { return null; } })].filter((value): value is string => Boolean(value));
+  const committedTimes = [store.recordReader.cardArtifacts(cardId).current.committed_at, ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch { return null; } })].filter((value): value is string => Boolean(value));
   if (committedTimes.length === 0) return null;
   return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
 }

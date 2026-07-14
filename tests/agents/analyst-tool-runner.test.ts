@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testConfigAuthority } from '../helpers/canonical-project.js';
+import { initProjectTree, CardStore, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,7 +28,7 @@ describe('Audited analyst tool runner', () => {
   function ctx(root: string): ToolContext {
     const processRunner = createTestProcessRunner(root);
     const store = new CardStore(root);
-    return { projectRoot: root, configAuthority: testConfigAuthority(root), mutationAuthority: () => store.currentMutationAuthority(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
+    return { projectRoot: root, configAuthority: testConfigAuthority(root), persistenceHealth: testPersistenceHealth(root), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable: false, appLogs: testAppLogs(root) };
   }
 
   it('records schema-safe audit entries for allowed mutations', async () => {
@@ -39,7 +39,9 @@ describe('Audited analyst tool runner', () => {
         safety_class: 'low',
         target_kind: 'card',
         getTargetId: (params) => String(params.id),
-        run: async () => ({ success: true, data: { applied: true } }),
+        lifecycle: 'intervention_ready',
+        recheck: () => ({ allowed: true }),
+        commit: () => ({ success: true, data: { applied: true } }),
       });
       expect(result.success).toBe(true);
       const [entry] = readAudit(root);
@@ -57,7 +59,9 @@ describe('Audited analyst tool runner', () => {
         safety_class: 'destructive',
         target_kind: 'card',
         getTargetId: (params) => String(params.id),
-        run: async () => ({ success: true, data: { deleted: ['card-1'] } }),
+        lifecycle: 'intervention_ready',
+        recheck: () => ({ allowed: true }),
+        commit: () => ({ success: true, data: { deleted: ['card-1'] } }),
       });
       expect(result.success).toBe(true);
       expect(readAudit(root)[0]).toMatchObject({ action: 'card.test_delete', outcome: 'ok' });

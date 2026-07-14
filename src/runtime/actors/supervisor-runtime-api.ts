@@ -26,8 +26,9 @@ import { createConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationStore } from '../../persistence/conversation-store.js';
 import type { AppLogStore } from '../../persistence/app-log.js';
 import type { CardStore, CardStoreRepository } from '../../cards/card-store.js';
-import { AutonomousCardCurrentness } from '../card-currentness.js';
-import type { CompositionMutationAuthority } from '../../application/mutation-authority.js';
+import { ActiveCardLeaf } from '../active-card-leaf.js';
+import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
+import type { RuntimeInterventionBinding } from '../../application/intervention-readiness.js';
 
 export interface ProjectRootCardReader {
   read(cardId: string): { id: string; type: string } | null;
@@ -39,7 +40,8 @@ export interface SupervisorRuntimeApiOptions {
   now?: () => string;
   rootCards?: ProjectRootCardReader;
   actorStore: CardStoreRepository;
-  compositionAuthority: CompositionMutationAuthority;
+  persistenceHealth: ApplicationPersistenceHealth;
+  interventionBinding: RuntimeInterventionBinding;
   provider: LLMProviderPort;
   conversations: ConversationStore;
   appLogs: AppLogStore;
@@ -70,7 +72,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private currentCardId: string | null = null;
   private startupRecoveryReport: ActorStartupRecoveryReport | null = null;
   private readonly cardActors = new Map<string, CardActor>();
-  private readonly cardCurrentness = new AutonomousCardCurrentness();
+  private readonly cardCurrentness = new ActiveCardLeaf();
   private readonly compositionStore: CardStore;
 
   constructor(private readonly options: SupervisorRuntimeApiOptions) {
@@ -79,10 +81,11 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.runtimeState = options.runtimeState;
     this.runtimeGate = options.runtimeGate ?? new RuntimeGate();
     this.snapshots = options.snapshots;
-    this.compositionStore = options.actorStore.authorize(() => options.compositionAuthority);
+    this.compositionStore = options.actorStore.cards();
   }
 
   async start(): Promise<void> {
+    this.options.persistenceHealth.assertMutationHealthy();
     if (this.lifecycle === 'shutting_down' || this.lifecycle === 'shutdown') throw new Error('Cannot start a shutdown runtime.');
     if (this.started) return;
 
@@ -98,7 +101,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       store: this.compositionStore,
       generatedAt: this.now(),
       conversations: this.options.conversations,
-      mutationAuthority: this.options.compositionAuthority,
       snapshots: this.snapshots,
       recoveryDiagnostics: this.options.recoveryDiagnostics,
     });
@@ -106,13 +108,17 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       this.cardCurrentness.startRoot(PROJECT_CARD_ID);
       this.constructRunningCardActors(recoveryPlan);
       this.recoverRootCard();
-      this.runtimeState.patch(this.options.compositionAuthority, { ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() }, false);
+      this.runtimeState.patch({ ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() }, false);
     } else {
       this.reconcileStaleRootRuns();
       this.runtimeGate.setOpen(readRuntimeState(this.options.projectRoot)?.status !== 'paused');
     }
     this.started = true;
     this.lifecycle = 'running';
+    const status = this.runtimeStatus();
+    if (status === 'stopped') this.options.interventionBinding.markStoppedReady();
+    else if (status === 'paused' && this.currentCardId === null) this.options.interventionBinding.markPausedReady();
+    else this.options.interventionBinding.markNotReady();
   }
 
   getStartupRecoveryReport(): ActorStartupRecoveryReport | null {
@@ -122,6 +128,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   shutdown(): Promise<void> {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.lifecycle = 'shutting_down';
+    this.options.interventionBinding.markNotReady();
     this.runtimeGate.close();
     ++this.runGeneration;
     this.cardCurrentness.clear();
@@ -142,7 +149,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.cardActors.clear();
     this.currentCardId = null;
     this.started = false;
-    this.runtimeState.patch(this.options.compositionAuthority, { status: 'stopped', active_card_run: null, updated_at: this.now() }, false);
+    this.runtimeState.patch({ status: 'stopped', active_card_run: null, updated_at: this.now() }, false);
+    this.options.interventionBinding.markStoppedReady();
     this.lifecycle = 'shutdown';
   }
 
@@ -152,7 +160,9 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const status = this.runtimeStatus() ?? 'stopped';
     if (status !== 'running') throw new Error(`Cannot pause runtime from '${status}'.`);
     this.runtimeGate.close();
-    this.runtimeState.patch(this.options.compositionAuthority, { ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() });
+    this.options.interventionBinding.markNotReady();
+    this.runtimeState.patch({ ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() });
+    if (this.currentCardId === null) this.options.interventionBinding.markPausedReady();
   }
 
   resume(): void {
@@ -161,7 +171,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const status = this.runtimeStatus() ?? 'stopped';
     if (status !== 'paused') throw new Error(`Cannot resume runtime from '${status}'.`);
     const activeRunStartedAt = readRuntimeState(this.options.projectRoot)?.active_card_run?.started_at ?? this.now();
-    this.runtimeState.patch(this.options.compositionAuthority, { ...buildResumeRuntimeStatePatch(readRuntimeState(this.options.projectRoot)), status: 'running', active_card_run: this.activeCardRun(activeRunStartedAt), updated_at: this.now() });
+    this.options.interventionBinding.markNotReady();
+    this.runtimeState.patch({ ...buildResumeRuntimeStatePatch(readRuntimeState(this.options.projectRoot)), status: 'running', active_card_run: this.activeCardRun(activeRunStartedAt), updated_at: this.now() });
     this.runtimeGate.open();
   }
 
@@ -176,7 +187,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     }
     const card = this.options.actorStore.read(cardId);
     if (!card) return { ok: false, reason: 'missing_card', cardId };
-    this.snapshots.appendNotification(this.compositionStore.currentMutationAuthority(), cardActorId(cardId), notification);
+    this.snapshots.appendNotification(cardActorId(cardId), notification);
     if (card.status === 'done' || card.status === 'failed') {
       // Notifications do not mutate card lifecycle; the authorized caller owns any change propagation.
     }
@@ -184,6 +195,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   async startProject(_source: RuntimeCommandSource = 'operator'): Promise<StartProjectResult> {
+    this.options.persistenceHealth.assertMutationHealthy();
+    this.options.interventionBinding.markNotReady();
     if (this.isShutdownLifecycle()) return this.rejectStart('Cannot start runtime: runtime is shutting down.');
     await this.start();
     if (this.isShutdownLifecycle()) return this.rejectStart('Cannot start runtime: runtime is shutting down.');
@@ -194,7 +207,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.cardCurrentness.startRoot(PROJECT_CARD_ID);
     this.runtimeGate.open();
     this.currentCardId = PROJECT_CARD_ID;
-    const runtime = this.runtimeState.replace(this.options.compositionAuthority, { ...(readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt)), status: 'running', active_card_run: this.activeCardRun(startedAt), updated_at: startedAt });
+    const runtime = this.runtimeState.replace({ ...(readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt)), status: 'running', active_card_run: this.activeCardRun(startedAt), updated_at: startedAt });
     const generation = ++this.runGeneration;
     void this.runRootProject(startedAt, generation);
     return { runtime, status: runtime.status, started: true, stopped: false };
@@ -276,7 +289,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       if (generation !== this.runGeneration || this.lifecycle !== 'running') return;
       const outcome = await actor.activate({ kind: 'root' });
       if (outcome.status !== 'cancelled') {
-        const rootStore = this.options.actorStore.authorize(() => this.cardCurrentness.forCard(PROJECT_CARD_ID).current());
+        const rootStore = this.options.actorStore.cards();
         rootStore.commitTerminalLifecyclePatch(PROJECT_CARD_ID, cardActivationOutcomePatch(outcome, this.now()));
       }
     } catch (err) {
@@ -284,12 +297,15 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       this.cardCurrentness.clear();
       const at = this.now();
       const current = readRuntimeState(this.options.projectRoot) ?? this.activeRuntimeState(startedAt);
-      this.runtimeState.replace(this.options.compositionAuthority, { ...current, status: 'error', active_card_run: null, updated_at: at });
+      this.runtimeState.replace({ ...current, status: 'error', active_card_run: null, updated_at: at });
     } finally {
       if (generation !== this.runGeneration || this.lifecycle !== 'running') return;
       this.currentCardId = null;
       const current = readRuntimeState(this.options.projectRoot);
-      if (current?.status === 'running') this.runtimeState.patch(this.options.compositionAuthority, { status: 'stopped', active_card_run: null, updated_at: this.now() });
+      if (current?.status === 'running') this.runtimeState.patch({ status: 'stopped', active_card_run: null, updated_at: this.now() });
+      const final = readRuntimeState(this.options.projectRoot);
+      if (final?.status === 'stopped') this.options.interventionBinding.markStoppedReady();
+      else if (final?.status === 'paused') this.options.interventionBinding.markPausedReady();
     }
   }
 
@@ -298,7 +314,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (!state) return;
     const at = this.now();
     if (state.status !== 'stopped' || state.active_card_run) {
-      this.runtimeState.patch(this.options.compositionAuthority, { status: 'stopped', active_card_run: null, updated_at: at }, false);
+      this.runtimeState.patch({ status: 'stopped', active_card_run: null, updated_at: at }, false);
     }
   }
 
@@ -347,7 +363,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private cardActorDeps(): CardActorDeps {
     return {
       projectRoot: this.options.projectRoot,
-      storeForCard: (cardId) => this.options.actorStore.authorize(() => this.cardCurrentness.forCard(cardId).current()),
+      storeForCard: (cardId) => { this.cardCurrentness.assertActive(cardId); return this.options.actorStore.cards(); },
       currentness: this.cardCurrentness,
       provider: this.options.provider,
       compactor: this.options.compactor,

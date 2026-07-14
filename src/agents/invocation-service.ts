@@ -12,7 +12,6 @@ import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { providerExchangeAppLogEntry } from '../persistence/provider-exchange-log.js';
 import type { AppLogStore } from '../persistence/app-log.js';
-import type { MutationAuthority } from '../application/mutation-authority.js';
 import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
@@ -31,7 +30,6 @@ interface CandidateRecoveryRecord {
 }
 
 export interface InvocationRequest {
-  mutationAuthority: MutationAuthority;
   inputId: string;
   role: OperationalAgentRole;
   sessionId: string;
@@ -107,7 +105,6 @@ export class InvocationService {
         request.inputId,
         undefined,
       ),
-      request.mutationAuthority,
     );
   }
 
@@ -145,7 +142,7 @@ export class InvocationService {
         try {
           const result = await this.invokeCall(request, candidate);
           settled.push(...indexProviderExchangeAttempts(request.inputId, settled.length, result.provider_exchanges));
-          this.candidateAvailability.markSucceeded(request.mutationAuthority, candidate);
+          this.candidateAvailability.markSucceeded(candidate);
           return { result: result.result, provider_exchanges: settled, provider_private_context: result.provider_private_context };
         } catch (err) {
           if (isAbortFromSignal(err, request.abortSignal)) throw err;
@@ -167,7 +164,7 @@ export class InvocationService {
             if (err.provider_exchanges.length === 0) throw new Error(`Provider attempt for input '${request.inputId}' settled without a provider_exchange envelope.`);
             settled.push(...indexProviderExchangeAttempts(request.inputId, settled.length, err.provider_exchanges));
           }
-          if (decision.markFailed && decision.availability) this.candidateAvailability.markFailed(request.mutationAuthority, candidate, decision.availability);
+          if (decision.markFailed && decision.availability) this.candidateAvailability.markFailed(candidate, decision.availability);
           if (decision.action === 'abort_without_retry' || decision.action === 'fail_invocation') {
             throw new ProviderTurnFailure({
               failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
@@ -195,11 +192,11 @@ export class InvocationService {
     }
   }
 
-  projectProviderExchanges(authority: MutationAuthority, sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void {
+  projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void {
     for (const attempt of attempts) {
       if (attempt.attempt_index === undefined) throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
       const payload = providerExchangePayloadSchema.parse(attempt.status === 'ok' ? { ...attempt, assistant_output_ids: assistantOutputIds } : attempt);
-      this.appLogs.append(authority, providerExchangeAppLogEntry({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload }));
+      this.appLogs.append(providerExchangeAppLogEntry({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload }));
     }
   }
 

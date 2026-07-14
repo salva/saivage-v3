@@ -1,4 +1,5 @@
-import { CardStore, testAuthProfiles, testCardRepository, testConfigAuthority } from './canonical-project.js';
+import { CardStore, testAuthProfiles, testCardRepository, testConfigAuthority, testPersistenceHealth } from './canonical-project.js';
+import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { testActorSnapshots } from './actor-snapshots.js';
 import { EventBus } from '../../src/events/bus.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -116,6 +117,8 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     candidateAvailability: availability,
     authProfiles: testAuthProfiles(projectRoot),
   });
+  const interventionReadiness = new RuntimeInterventionBinding();
+  interventionReadiness.markStoppedReady();
   return {
     configAuthority: testConfigAuthority(projectRoot),
     runtime: analystRuntime,
@@ -129,6 +132,8 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     mcpManager: analystRuntime.mcpManager,
     conversations: testConversationMutations(projectRoot),
     appLogs: testAppLogs(projectRoot),
+    persistenceHealth: testPersistenceHealth(projectRoot),
+    interventionReadiness,
   };
 }
 
@@ -167,6 +172,8 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         candidateAvailability: availability,
         authProfiles: testAuthProfiles(projectRoot),
       });
+      const interventionReadiness = new RuntimeInterventionBinding();
+      interventionReadiness.markStoppedReady();
       return {
         configAuthority: testConfigAuthority(projectRoot),
         runtime: analystRuntime,
@@ -180,6 +187,8 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         mcpManager: analystRuntime.mcpManager,
         conversations: testConversationMutations(projectRoot),
         appLogs: testAppLogs(projectRoot),
+        persistenceHealth: testPersistenceHealth(projectRoot),
+        interventionReadiness,
       };
     },
     get analystRuntime() {

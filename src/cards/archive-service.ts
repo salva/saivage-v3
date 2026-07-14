@@ -8,7 +8,6 @@ import {
   type ApplyMutationDeps,
   type ApplyMutationOp,
 } from './apply-mutation.js';
-import { readDeletedCardIds } from '../persistence/deleted-card-ids.js';
 
 export interface CardArchiveServiceConfig {
   projectRoot: string;
@@ -64,12 +63,11 @@ export class CardArchiveService {
   archiveAndDeleteSubtree(ids: string[]): void {
     const state = this.config.state();
     const idSet = new Set(ids);
-    const deletedIds = new Set(readDeletedCardIds(this.config.projectRoot));
     const cards: CardRecord[] = [];
     for (const id of ids) {
       const card = state.get(id);
       if (!card) {
-        if (deletedIds.has(id)) continue;
+        if (state.isReservedId(id)) continue;
         throw new Error(`Card '${id}' not found.`);
       }
       cards.push(deepClone(card));

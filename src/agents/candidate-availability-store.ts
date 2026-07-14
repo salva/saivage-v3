@@ -1,13 +1,11 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { z } from 'zod';
 
-import type { CompositionMutationAuthority, MutationAuthority } from '../application/mutation-authority.js';
-import type { MutationLane } from '../application/mutation-lane.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry } from '../contracts/candidate-availability.js';
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
-import { cleanupDurableReplacementTemporaries, durablyReplaceFile } from '../persistence/durable-file-replacement.js';
-import { IndeterminatePublicationError } from '../persistence/errors.js';
+import { cleanupDurableReplacementTemporaries } from '../persistence/durable-file-replacement.js';
 import { providerAvailabilityFile } from '../persistence/layout.js';
 import { discardIncompleteJsonlTail } from '../persistence/store-restabilization.js';
 
@@ -24,22 +22,17 @@ type AvailabilityRecord = z.infer<typeof recordSchema>;
 export class CandidateAvailabilityStore implements CandidateAvailability {
   readonly jsonlPath: string;
   readonly #entries = new Map<string, CandidateAvailabilityEntry>();
-  #bytesWritten = 0;
-  #failed = false;
 
-  constructor(projectRoot: string, private readonly lane: MutationLane, private readonly compactBytes = 262144) {
+  constructor(projectRoot: string, private readonly health: ApplicationPersistenceHealth) {
     this.jsonlPath = providerAvailabilityFile(projectRoot);
   }
 
-  restabilize(authority: CompositionMutationAuthority): void {
-    const result = this.lane.apply(authority, 'candidate availability restabilization', () => {
-      const directory = dirname(this.jsonlPath);
-      mkdirSync(directory, { recursive: true });
-      cleanupDurableReplacementTemporaries(directory, [basename(this.jsonlPath)]);
-      if (existsSync(this.jsonlPath)) discardIncompleteJsonlTail(this.jsonlPath);
-      this.replay();
-    });
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
+  restabilize(): void {
+    const directory = dirname(this.jsonlPath);
+    mkdirSync(directory, { recursive: true });
+    cleanupDurableReplacementTemporaries(directory, [basename(this.jsonlPath)]);
+    if (existsSync(this.jsonlPath)) discardIncompleteJsonlTail(this.jsonlPath);
+    this.replay();
   }
 
   isAvailable(candidate: Candidate): boolean {
@@ -47,18 +40,16 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
     return entry === undefined || entry.state === 'HEALTHY' || Date.now() >= entry.untilMs;
   }
 
-  markSucceeded(authority: MutationAuthority, candidate: Candidate): void {
-    this.apply(authority, () => ({ candidate, state: 'HEALTHY', untilMs: 0, updatedAtMs: Date.now() }));
+  markSucceeded(candidate: Candidate): void {
+    this.appendRecord({ candidate, state: 'HEALTHY', untilMs: 0, updatedAtMs: Date.now() });
   }
 
-  markFailed(authority: MutationAuthority, candidate: Candidate, decision: AvailabilityDecision): void {
-    this.apply(authority, () => {
-      const previous = this.#entries.get(candidateKey(candidate));
-      const untilMs = previous && previous.state !== 'HEALTHY' && previous.untilMs > decision.untilMs
-        ? previous.untilMs
-        : decision.untilMs;
-      return { candidate, state: decision.state, untilMs, reason: decision.reason, updatedAtMs: Date.now() };
-    });
+  markFailed(candidate: Candidate, decision: AvailabilityDecision): void {
+    const previous = this.#entries.get(candidateKey(candidate));
+    const untilMs = previous && previous.state !== 'HEALTHY' && previous.untilMs > decision.untilMs
+      ? previous.untilMs
+      : decision.untilMs;
+    this.appendRecord({ candidate, state: decision.state, untilMs, reason: decision.reason, updatedAtMs: Date.now() });
   }
 
   getEntry(candidate: Candidate): CandidateAvailabilityEntry | undefined {
@@ -69,23 +60,12 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
     return [...this.#entries.values()];
   }
 
-  private apply(authority: MutationAuthority, createEntry: () => CandidateAvailabilityEntry): void {
-    if (this.#failed) throw new Error('Candidate availability store has failed and requires restart.');
-    const result = this.lane.apply(authority, 'candidate availability append', () => {
-      const entry = createEntry();
-      const record = recordSchema.parse(entry);
-      const line = `${JSON.stringify(record)}\n`;
-      try {
-        this.append(line);
-        this.#entries.set(candidateKey(entry.candidate), entry);
-        this.#bytesWritten += Buffer.byteLength(line);
-        if (this.#bytesWritten > this.compactBytes) this.compact();
-      } catch (error) {
-        this.#failed = true;
-        throw error;
-      }
-    });
-    if (!result.applied) throw new Error('Candidate availability mutation authority is stale.');
+  private appendRecord(entry: CandidateAvailabilityEntry): void {
+    this.health.assertMutationHealthy();
+    const record = recordSchema.parse(entry);
+    try { this.append(`${JSON.stringify(record)}\n`); }
+    catch (error) { this.health.reportUncertainFailure({ target: this.jsonlPath, operation: 'append provider availability', error }); }
+    this.#entries.set(candidateKey(entry.candidate), entry);
   }
 
   private append(line: string): void {
@@ -105,21 +85,9 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
     }
   }
 
-  private compact(): void {
-    const payload = this.getAllEntries().map((entry) => JSON.stringify(recordSchema.parse(entry))).join('\n');
-    try {
-      durablyReplaceFile(this.jsonlPath, Buffer.from(payload.length === 0 ? '' : `${payload}\n`));
-      this.#bytesWritten = statSync(this.jsonlPath).size;
-    } catch (error) {
-      if (error instanceof IndeterminatePublicationError) this.#failed = true;
-      throw error;
-    }
-  }
-
   private replay(): void {
     this.#entries.clear();
     if (!existsSync(this.jsonlPath)) {
-      this.#bytesWritten = 0;
       return;
     }
     const raw = readFileSync(this.jsonlPath, 'utf8');
@@ -132,7 +100,6 @@ export class CandidateAvailabilityStore implements CandidateAvailability {
       const record: AvailabilityRecord = recordSchema.parse(parsed);
       this.#entries.set(candidateKey(record.candidate), record);
     }
-    this.#bytesWritten = Buffer.byteLength(raw);
   }
 }
 

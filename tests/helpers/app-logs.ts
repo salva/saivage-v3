@@ -1,19 +1,19 @@
 import { AppLogStore } from '../../src/persistence/app-log.js';
-import { createMutationLane } from '../../src/application/mutation-lane.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 
-const stores = new Map<string, { store: AppLogStore; authority: import('../../src/application/mutation-authority.js').CompositionMutationAuthority }>();
+const stores = new Map<string, { store: AppLogStore; health: ApplicationPersistenceHealth }>();
 
 export function testAppLogs(projectRoot: string): AppLogStore {
   const existing = stores.get(projectRoot);
   if (existing) return existing.store;
-  const mutation = createMutationLane();
-  const store = new AppLogStore(projectRoot, mutation.lane);
-  store.restabilize(mutation.authority);
-  stores.set(projectRoot, { store, authority: mutation.authority });
+  const health = new ApplicationPersistenceHealth();
+  const store = new AppLogStore(projectRoot, health);
+  store.restabilize();
+  stores.set(projectRoot, { store, health });
   return store;
 }
 
-export function testAppLogAuthority(projectRoot: string) {
+export function testAppLogHealth(projectRoot: string) {
   testAppLogs(projectRoot);
-  return stores.get(projectRoot)!.authority;
+  return stores.get(projectRoot)!.health;
 }

@@ -1,4 +1,4 @@
-import { initProjectTree, CardStore, testCompositionAuthority } from '../../helpers/canonical-project.js';
+import { initProjectTree, CardStore } from '../../helpers/canonical-project.js';
 import { testActorSnapshots } from '../../helpers/actor-snapshots.js';
 import { testRuntimePersistence } from '../../helpers/runtime-persistence.js';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -353,7 +353,6 @@ describe('CardActor', () => {
       projectRoot, conversations: testConversationMutations(projectRoot), appLogs: testAppLogs(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store.repository,
-      compositionAuthority: testCompositionAuthority(projectRoot),
       provider: { completeTurn: jest.fn() as never },
       processRunner: createTestProcessRunner(projectRoot),
     });
@@ -378,7 +377,6 @@ describe('CardActor', () => {
       projectRoot, conversations: testConversationMutations(projectRoot), appLogs: testAppLogs(projectRoot),
       promptTemplates: createTestPromptTemplateRegistry(),
       actorStore: store.repository,
-      compositionAuthority: testCompositionAuthority(projectRoot),
       provider: { completeTurn: jest.fn() as never },
       processRunner: createTestProcessRunner(projectRoot),
     });

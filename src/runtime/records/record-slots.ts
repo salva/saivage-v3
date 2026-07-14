@@ -2,7 +2,7 @@ import { basename, extname } from 'node:path';
 
 import type { AgentRole } from '../../schemas/index.js';
 import { buildScopedPathUrl } from '../../contracts/scoped-path-url.js';
-import type { ProjectCardRecordReader, RecordProjection } from '../../persistence/project-persistence-authority.js';
+import type { ProjectCardRecordReader, RecordProjection } from '../../persistence/project-store-repository.js';
 import type { AuthoredRecordSlot, RecordSlotIndexArtifact, RecordVersionArtifact } from '../../persistence/canonical-record-artifacts.js';
 
 export type RecordSlotVersionStatus = RecordVersionArtifact['state'];

@@ -1,4 +1,4 @@
-import { initProjectTree, testCompositionAuthority } from '../../helpers/canonical-project.js';
+import { initProjectTree } from '../../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { appendTestConversationMessage as appendConversationMessage, testConversationMutations, writeTestCompactedConversationVersion as writeCompactedConversationVersion } from '../../helpers/conversation-mutations.js';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,15 +6,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { abandonStalePendingToolCalls as productionAbandonStalePendingToolCalls, appendLlmTurnFinished as productionAppendLlmTurnFinished, appendLlmTurnMessageBatch, appendLlmTurnStarted as productionAppendLlmTurnStarted, appendTerminalProjectedToolResult as productionAppendTerminalProjectedToolResult, appendToolErrorSettlementResults as productionAppendToolErrorSettlementResults, loggedToolCallKey, readLoggedToolCall, sourceInputIdFromToolCallMessageId, sourceInputIdFromToolErrorMessageId, sourceInputIdFromToolResultMessageId } from '../../../src/runtime/actors/llm-delivery-log.js';
-import { buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
-import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
+import { buildContextTextMessage, conversationMessagesForModel, listConversationSessionIds, readConversationMessages } from '../../../src/runtime/actors/conversation-store.js';
+import { activeVersionPath, readConversationInventory } from '../../../src/runtime/actors/conversation-inventory.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 
-const appendLlmTurnStarted = (conversations: ReturnType<typeof testConversationMutations>, input: LlmInvocationInput, options?: { includeSystemPrompt?: boolean }) => productionAppendLlmTurnStarted(conversations, testCompositionAuthority(conversations.projectRoot), input, options);
-const appendLlmTurnFinished = (conversations: ReturnType<typeof testConversationMutations>, input: LlmInvocationInput, result: Parameters<typeof productionAppendLlmTurnFinished>[3]) => productionAppendLlmTurnFinished(conversations, testCompositionAuthority(conversations.projectRoot), input, result);
-const appendTerminalProjectedToolResult = (conversations: ReturnType<typeof testConversationMutations>, record: Parameters<typeof productionAppendTerminalProjectedToolResult>[2]) => productionAppendTerminalProjectedToolResult(conversations, testCompositionAuthority(conversations.projectRoot), record);
-const appendToolErrorSettlementResults = (projectRoot: string, conversations: ReturnType<typeof testConversationMutations>) => productionAppendToolErrorSettlementResults(projectRoot, conversations, testCompositionAuthority(projectRoot));
-const abandonStalePendingToolCalls = (projectRoot: string, conversations: ReturnType<typeof testConversationMutations>, reason?: string, preserveKeys?: ReadonlySet<string>) => productionAbandonStalePendingToolCalls(projectRoot, conversations, testCompositionAuthority(projectRoot), reason, preserveKeys);
+const appendLlmTurnStarted = (conversations: ReturnType<typeof testConversationMutations>, input: LlmInvocationInput, options?: { includeSystemPrompt?: boolean }) => productionAppendLlmTurnStarted(conversations, input, options);
+const appendLlmTurnFinished = (conversations: ReturnType<typeof testConversationMutations>, input: LlmInvocationInput, result: Parameters<typeof productionAppendLlmTurnFinished>[2]) => productionAppendLlmTurnFinished(conversations, input, result);
+const appendTerminalProjectedToolResult = (conversations: ReturnType<typeof testConversationMutations>, record: Parameters<typeof productionAppendTerminalProjectedToolResult>[1]) => productionAppendTerminalProjectedToolResult(conversations, record);
+const appendToolErrorSettlementResults = (projectRoot: string, conversations: ReturnType<typeof testConversationMutations>) => productionAppendToolErrorSettlementResults(projectRoot, conversations);
+const abandonStalePendingToolCalls = (projectRoot: string, conversations: ReturnType<typeof testConversationMutations>, reason?: string, preserveKeys?: ReadonlySet<string>) => productionAbandonStalePendingToolCalls(projectRoot, conversations, reason, preserveKeys);
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-delivery-log-'));
@@ -26,19 +26,19 @@ function withTempProject<T>(fn: (projectRoot: string) => T): T {
   }
 }
 
-function input(inputId = 'planner:G-1:1'): LlmInvocationInput {
+function input(inputId = 'planner:card-1:1'): LlmInvocationInput {
   return {
     inputId,
-    agentId: 'planner:G-1',
+    agentId: 'planner:card-1',
     role: 'planner',
-    sessionId: 'planner:G-1',
+    sessionId: 'planner:card-1',
     systemPrompt: 'system',
     contextMessages: [],
     tools: [],
     terminalToolNames: [],
     modelParams: {},
     capabilityRequest: {},
-    episodeContext: { cardId: 'G-1' },
+    episodeContext: { cardId: 'card-1' },
   };
 }
 
@@ -72,18 +72,18 @@ type AgentToolResult = ReturnType<typeof readConversationMessages>[number] & { k
 describe('llm delivery log recovery helpers', () => {
   it('commits OpenAI Responses private and visible rows as one idempotent batch', () => withTempProject((projectRoot) => {
     const conversations = testConversationMutations(projectRoot);
-    const turn = input('planner:G-1:responses');
+    const turn = input('planner:card-1:responses');
     const privateContext = { kind: 'openai_responses' as const, source_input_id: turn.inputId, provider: 'openai', model: 'gpt-5.6', output: [{ type: 'reasoning', encrypted_content: 'opaque' }] };
-    expect(appendLlmTurnMessageBatch(conversations, testCompositionAuthority(projectRoot), turn, 'visible', privateContext).appendResult.appended).toBe(true);
-    expect(appendLlmTurnMessageBatch(conversations, testCompositionAuthority(projectRoot), turn, 'visible', privateContext).appendResult.appended).toBe(false);
+    expect(appendLlmTurnMessageBatch(conversations, turn, 'visible', privateContext).appendResult.appended).toBe(true);
+    expect(appendLlmTurnMessageBatch(conversations, turn, 'visible', privateContext).appendResult.appended).toBe(false);
     expect(readConversationMessages(projectRoot, turn.sessionId).map((row) => row.kind)).toEqual(['provider_private', 'text']);
   }));
   it('logs the outbound system prompt before turn activity when requested', () => withTempProject((projectRoot) => {
     appendLlmTurnStarted(testConversationMutations(projectRoot), input());
-    appendLlmTurnStarted(testConversationMutations(projectRoot), input('planner:G-1:2'), { includeSystemPrompt: false });
+    appendLlmTurnStarted(testConversationMutations(projectRoot), input('planner:card-1:2'), { includeSystemPrompt: false });
 
-    expect(JSON.parse(readFileSync(conversationIndexPath(projectRoot, 'planner:G-1'), 'utf-8'))).toMatchObject({ schema_version: 2, active_version: 1 });
-    const rows = jsonl(activeVersionPath(projectRoot, 'planner:G-1', 1));
+    expect(readConversationInventory(projectRoot, 'planner:card-1')).toMatchObject({ activeVersion: 1 });
+    const rows = jsonl(activeVersionPath(projectRoot, 'planner:card-1', 1));
     expect(rows[0]).toMatchObject({ role: 'system', kind: 'system_prompt', content: 'system' });
     expect(rows.filter((entry) => entry.kind === 'system_prompt')).toHaveLength(1);
   }));
@@ -91,14 +91,14 @@ describe('llm delivery log recovery helpers', () => {
   it('reads an exact logged tool call by agent, input, and call id', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(testConversationMutations(projectRoot), input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }] });
 
-    expect(readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1', 'planner:G-1:1', 'call-1')).toEqual({
-      agent_id: 'planner:G-1',
-      source_input_id: 'planner:G-1:1',
+    expect(readLoggedToolCall(projectRoot, 'planner:card-1', 'planner:card-1', 'planner:card-1:1', 'call-1')).toEqual({
+      agent_id: 'planner:card-1',
+      source_input_id: 'planner:card-1:1',
       tool_call_id: 'call-1',
       tool_name: 'emit_result',
       args: { status: 'blocked', summary: 'blocked' },
     });
-    const toolCallMessage = jsonl(activeVersionPath(projectRoot, 'planner:G-1', 1)).find((entry) => entry.kind === 'tool_call');
+    const toolCallMessage = jsonl(activeVersionPath(projectRoot, 'planner:card-1', 1)).find((entry) => entry.kind === 'tool_call');
     expect(JSON.parse(String(toolCallMessage?.content))).toEqual({
       role: 'assistant',
       tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }],
@@ -106,53 +106,52 @@ describe('llm delivery log recovery helpers', () => {
   }));
 
   it('throws when the logged tool call is missing', () => withTempProject((projectRoot) => {
-    expect(() => readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1', 'planner:G-1:1', 'missing')).toThrow(/not found/);
+    expect(() => readLoggedToolCall(projectRoot, 'planner:card-1', 'planner:card-1', 'planner:card-1:1', 'missing')).toThrow(/not found/);
   }));
 
   it('throws when logged tool arguments are malformed JSON', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(testConversationMutations(projectRoot), input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: '{not json' } }] });
 
-    expect(() => readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1', 'planner:G-1:1', 'call-1')).toThrow(/malformed JSON/);
+    expect(() => readLoggedToolCall(projectRoot, 'planner:card-1', 'planner:card-1', 'planner:card-1:1', 'call-1')).toThrow(/malformed JSON/);
   }));
 
   it('reads reviewer tool calls by session when session differs from agent id', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(testConversationMutations(projectRoot), { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId: 'reviewer:G-1:assessment-G-1-1' }, { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done', summary: 'ok' }) } }] });
+    appendLlmTurnFinished(testConversationMutations(projectRoot), { ...input('reviewer:card-1:1'), agentId: 'reviewer:card-1', role: 'reviewer', sessionId: 'reviewer:card-1:assessment-card-1-1' }, { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done', summary: 'ok' }) } }] });
 
-    expect(readLoggedToolCall(projectRoot, 'reviewer:G-1:assessment-G-1-1', 'reviewer:G-1', 'reviewer:G-1:1', 'call-1')).toMatchObject({
-      agent_id: 'reviewer:G-1',
+    expect(readLoggedToolCall(projectRoot, 'reviewer:card-1:assessment-card-1-1', 'reviewer:card-1', 'reviewer:card-1:1', 'call-1')).toMatchObject({
+      agent_id: 'reviewer:card-1',
       tool_name: 'emit_result',
     });
-    expect(() => readLoggedToolCall(projectRoot, 'reviewer:G-1', 'reviewer:G-1', 'reviewer:G-1:1', 'call-1')).toThrow(/not found/);
+    expect(() => readLoggedToolCall(projectRoot, 'reviewer:card-1:assessment-card-1-1', 'reviewer:card-1', 'reviewer:card-1:other', 'call-1')).toThrow(/not found/);
   }));
 
   it('treats terminal-projected tool_result as terminal for stale pending abandonment', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(testConversationMutations(projectRoot), input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
-    appendTerminalProjectedToolResult(testConversationMutations(projectRoot), { sessionId: 'planner:G-1', sourceInputId: 'planner:G-1:1', toolCallId: 'call-1', toolName: 'emit_result' });
+    appendTerminalProjectedToolResult(testConversationMutations(projectRoot), { sessionId: 'planner:card-1', sourceInputId: 'planner:card-1:1', toolCallId: 'call-1', toolName: 'emit_result' });
 
     expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot))).toEqual([]);
-    expect(readConversationMessages(projectRoot, 'planner:G-1').filter((message) => message.kind === 'tool_result')).toEqual([
-      expect.objectContaining({ id: 'planner:G-1:1:tool:0:tool-result:call-1', tool_call_id: 'call-1', content: JSON.stringify({ projected: true }) }),
+    expect(readConversationMessages(projectRoot, 'planner:card-1').filter((message) => message.kind === 'tool_result')).toEqual([
+      expect.objectContaining({ id: 'planner:card-1:1:tool:0:tool-result:call-1', tool_call_id: 'call-1', content: JSON.stringify({ projected: true }) }),
     ]);
   }));
 
   it('writes reviewer terminal projection to the passed reviewer session id', () => withTempProject((projectRoot) => {
-    const sessionId = 'reviewer:G-1:assessment-G-1-1';
-    appendLlmTurnFinished(testConversationMutations(projectRoot), { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId }, { kind: 'tool_calls', tool_calls: [{ id: 'call-review', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done', summary: 'ok' }) } }] });
-    appendTerminalProjectedToolResult(testConversationMutations(projectRoot), { sessionId, sourceInputId: 'reviewer:G-1:1', toolCallId: 'call-review', toolName: 'emit_result' });
+    const sessionId = 'reviewer:card-1:assessment-card-1-1';
+    appendLlmTurnFinished(testConversationMutations(projectRoot), { ...input('reviewer:card-1:1'), agentId: 'reviewer:card-1', role: 'reviewer', sessionId }, { kind: 'tool_calls', tool_calls: [{ id: 'call-review', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done', summary: 'ok' }) } }] });
+    appendTerminalProjectedToolResult(testConversationMutations(projectRoot), { sessionId, sourceInputId: 'reviewer:card-1:1', toolCallId: 'call-review', toolName: 'emit_result' });
 
     expect(readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_result')).toEqual([
-      expect.objectContaining({ id: 'reviewer:G-1:1:tool:0:tool-result:call-review', tool_call_id: 'call-review', content: JSON.stringify({ projected: true }) }),
+      expect.objectContaining({ id: 'reviewer:card-1:1:tool:0:tool-result:call-review', tool_call_id: 'call-review', content: JSON.stringify({ projected: true }) }),
     ]);
-    expect(readConversationMessages(projectRoot, 'reviewer:G-1').filter((message) => message.kind === 'tool_result')).toEqual([]);
     expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot))).toEqual([]);
   }));
 
   it('matches settlement by session, source input, and tool call id', () => withTempProject((projectRoot) => {
-    const sessionId = 'planner:G-1';
-    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
-    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:G-1:2'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done' }) } }] });
+    const sessionId = 'planner:card-1';
+    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:2'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done' }) } }] });
     appendConversationMessage(projectRoot, {
-      id: 'planner:G-1:2:tool:1:tool-result:call_dup',
+      id: 'planner:card-1:2:tool:1:tool-result:call_dup',
       session_id: sessionId,
       role: 'tool',
       kind: 'tool_result',
@@ -166,20 +165,20 @@ describe('llm delivery log recovery helpers', () => {
     });
 
     const incidents = abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale');
-    expect(incidents.map((incident) => incident.source_input_id)).toEqual(['planner:G-1:1']);
+    expect(incidents.map((incident) => incident.source_input_id)).toEqual(['planner:card-1:1']);
     const toolResults = readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_result');
     expect(toolResults).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'planner:G-1:1:tool:0:tool-result:call_dup', content: JSON.stringify({ success: false, error: 'stale', data: { tool: 'emit_result' } }) }),
-      expect.objectContaining({ id: 'planner:G-1:2:tool:1:tool-result:call_dup', content: JSON.stringify({ success: true }) }),
+      expect.objectContaining({ id: 'planner:card-1:1:tool:0:tool-result:call_dup', content: JSON.stringify({ success: false, error: 'stale', data: { tool: 'emit_result' } }) }),
+      expect.objectContaining({ id: 'planner:card-1:2:tool:1:tool-result:call_dup', content: JSON.stringify({ success: true }) }),
     ]));
-    expect(toolResults.some((message) => message.id === 'planner:G-1:2:tool:0:tool-result:call_dup')).toBe(false);
+    expect(toolResults.some((message) => message.id === 'planner:card-1:2:tool:0:tool-result:call_dup')).toBe(false);
   }));
 
   it('ignores inactive-version tool calls after compaction when abandoning stale calls', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-frozen', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-frozen', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
     writeCompactedConversationVersion({
       projectRoot,
-      sessionId: 'planner:G-1',
+      sessionId: 'planner:card-1',
       sourceVersion: 1,
       content: '',
       compactedThrough: { message_id: 'summary', round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', timestamp: new Date().toISOString() },
@@ -189,42 +188,42 @@ describe('llm delivery log recovery helpers', () => {
     });
 
     expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot))).toEqual([]);
-    expect(jsonl(activeVersionPath(projectRoot, 'planner:G-1', 2))).toEqual([]);
+    expect(jsonl(activeVersionPath(projectRoot, 'planner:card-1', 2))).toEqual([]);
   }));
 
   it('appends provider-visible failed results for valid tool_error-only settlements', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
-    appendToolError(projectRoot, 'planner:G-1', 'planner:G-1:1', 'call-error', 'emit_result', 'provider-side tool failure');
+    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendToolError(projectRoot, 'planner:card-1', 'planner:card-1:1', 'call-error', 'emit_result', 'provider-side tool failure');
 
     expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot))).toEqual([]);
     const settled = appendToolErrorSettlementResults(projectRoot, testConversationMutations(projectRoot));
-    expect(settled).toEqual([expect.objectContaining({ source_input_id: 'planner:G-1:1', tool_call_id: 'call-error', error: 'provider-side tool failure' })]);
+    expect(settled).toEqual([expect.objectContaining({ source_input_id: 'planner:card-1:1', tool_call_id: 'call-error', error: 'provider-side tool failure' })]);
     expect(appendToolErrorSettlementResults(projectRoot, testConversationMutations(projectRoot))).toEqual([]);
-    const results = toolResults(projectRoot, 'planner:G-1');
+    const results = toolResults(projectRoot, 'planner:card-1');
     expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ id: 'planner:G-1:1:tool:0:tool-result:call-error', tool_call_id: 'call-error' });
+    expect(results[0]).toMatchObject({ id: 'planner:card-1:1:tool:0:tool-result:call-error', tool_call_id: 'call-error' });
     expect(JSON.parse(results[0]!.content)).toMatchObject({ success: false, error: 'provider-side tool failure', data: { tool: 'emit_result' } });
-    expect(conversationMessagesForModel(readConversationMessages(projectRoot, 'planner:G-1')).map((message) => message.kind)).toEqual(['tool_call', 'tool_result']);
+    expect(conversationMessagesForModel(readConversationMessages(projectRoot, 'planner:card-1')).map((message) => message.kind)).toEqual(['tool_call', 'tool_result']);
   }));
 
   it('matches tool_error settlements by full source-input triple and leaves collisions dangling', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
-    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:G-1:2'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done' }) } }] });
-    appendToolError(projectRoot, 'planner:G-1', 'planner:G-1:2', 'call_dup');
+    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:2'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done' }) } }] });
+    appendToolError(projectRoot, 'planner:card-1', 'planner:card-1:2', 'call_dup');
 
-    expect(appendToolErrorSettlementResults(projectRoot, testConversationMutations(projectRoot)).map((record) => record.source_input_id)).toEqual(['planner:G-1:2']);
-    expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale').map((record) => record.source_input_id)).toEqual(['planner:G-1:1']);
-    expect(toolResults(projectRoot, 'planner:G-1').map((message) => message.id).sort()).toEqual([
-      'planner:G-1:1:tool:0:tool-result:call_dup',
-      'planner:G-1:2:tool:0:tool-result:call_dup',
+    expect(appendToolErrorSettlementResults(projectRoot, testConversationMutations(projectRoot)).map((record) => record.source_input_id)).toEqual(['planner:card-1:2']);
+    expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale').map((record) => record.source_input_id)).toEqual(['planner:card-1:1']);
+    expect(toolResults(projectRoot, 'planner:card-1').map((message) => message.id).sort()).toEqual([
+      'planner:card-1:1:tool:0:tool-result:call_dup',
+      'planner:card-1:2:tool:0:tool-result:call_dup',
     ]);
   }));
 
   it('fails fast on invalid tool_error rows during active-version settlement reads', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-invalid-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
-    appendFileSync(activeVersionPath(projectRoot, 'planner:G-1', 1), `${JSON.stringify({
-      id: 'planner:G-1:1:tool-error:call-invalid-error',
-      session_id: 'planner:G-1',
+    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-invalid-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendFileSync(activeVersionPath(projectRoot, 'planner:card-1', 1), `${JSON.stringify({
+      id: 'planner:card-1:1:tool-error:call-invalid-error',
+      session_id: 'planner:card-1',
       role: 'tool',
       kind: 'tool_error',
       content: 'invalid row',
@@ -237,21 +236,21 @@ describe('llm delivery log recovery helpers', () => {
 
     expect(() => appendToolErrorSettlementResults(projectRoot, testConversationMutations(projectRoot))).toThrow(/tool_error rows require tool/);
     expect(() => abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale')).toThrow(/tool_error rows require tool/);
-    expect(jsonl(activeVersionPath(projectRoot, 'planner:G-1', 1)).some((row) => row.kind === 'tool_result')).toBe(false);
+    expect(jsonl(activeVersionPath(projectRoot, 'planner:card-1', 1)).some((row) => row.kind === 'tool_result')).toBe(false);
   }));
 
   it('skips Analyst active versions before both global settlement reads while settling autonomous sessions', () => withTempProject((projectRoot) => {
     appendConversationMessage(projectRoot, buildContextTextMessage('analyst:global', 'user', 'do not read this'));
     writeFileSync(activeVersionPath(projectRoot, 'analyst:global', 1), '{"malformed"\n', 'utf8');
-    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
-    appendToolError(projectRoot, 'planner:G-1', 'planner:G-1:1', 'call-error');
-    const reviewerSession = 'reviewer:G-1:assessment-G-1-1';
-    appendLlmTurnFinished(testConversationMutations(projectRoot), { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId: reviewerSession }, { kind: 'tool_calls', tool_calls: [{ id: 'call-dangling', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] });
+    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-error', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendToolError(projectRoot, 'planner:card-1', 'planner:card-1:1', 'call-error');
+    const reviewerSession = 'reviewer:card-1:assessment-card-1-1';
+    appendLlmTurnFinished(testConversationMutations(projectRoot), { ...input('reviewer:card-1:1'), agentId: 'reviewer:card-1', role: 'reviewer', sessionId: reviewerSession }, { kind: 'tool_calls', tool_calls: [{ id: 'call-dangling', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] });
 
-    expect(appendToolErrorSettlementResults(projectRoot, testConversationMutations(projectRoot))).toEqual([expect.objectContaining({ agent_id: 'planner:G-1', tool_call_id: 'call-error' })]);
-    expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale')).toEqual([expect.objectContaining({ agent_id: 'reviewer:G-1', tool_call_id: 'call-dangling' })]);
+    expect(appendToolErrorSettlementResults(projectRoot, testConversationMutations(projectRoot))).toEqual([expect.objectContaining({ agent_id: 'planner:card-1', tool_call_id: 'call-error' })]);
+    expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale')).toEqual([expect.objectContaining({ agent_id: 'reviewer:card-1', tool_call_id: 'call-dangling' })]);
     expect(readFileSync(activeVersionPath(projectRoot, 'analyst:global', 1), 'utf8')).toBe('{"malformed"\n');
-    expect(toolResults(projectRoot, 'planner:G-1')).toHaveLength(1);
+    expect(toolResults(projectRoot, 'planner:card-1')).toHaveLength(1);
     expect(toolResults(projectRoot, reviewerSession)).toHaveLength(1);
   }));
 
@@ -262,10 +261,10 @@ describe('llm delivery log recovery helpers', () => {
       { id: 'call-workspace', name: 'write_file', args: { path: 'src/index.ts' } },
       { id: 'call-generic', name: 'custom_tool', args: { value: true } },
     ];
-    calls.forEach((call, index) => appendLlmTurnFinished(testConversationMutations(projectRoot), input(`planner:G-1:${index + 1}`), { kind: 'tool_calls', tool_calls: [{ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] }));
+    calls.forEach((call, index) => appendLlmTurnFinished(testConversationMutations(projectRoot), input(`planner:card-1:${index + 1}`), { kind: 'tool_calls', tool_calls: [{ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] }));
 
     expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale')).toHaveLength(4);
-    const payloads = Object.fromEntries(toolResults(projectRoot, 'planner:G-1').map((message) => [message.tool_call_id, JSON.parse(message.content)]));
+    const payloads = Object.fromEntries(toolResults(projectRoot, 'planner:card-1').map((message) => [message.tool_call_id, JSON.parse(message.content)]));
     expect(payloads['call-activate']).toMatchObject({ success: false, data: { tool: 'activate_card', child_card_id: 'code-1', instruction: 'inspect child card state before retrying' } });
     expect(payloads['call-process']).toMatchObject({ success: false, data: { tool: 'wait_process', process_id: 'proc-1', instruction: 'process no longer exists, launch a new one if needed' } });
     expect(payloads['call-workspace']).toMatchObject({ success: false, data: { tool: 'write_file', target_path: 'src/index.ts' } });
@@ -273,18 +272,18 @@ describe('llm delivery log recovery helpers', () => {
   }));
 
   it('preserves relinked activation triples during interrupted settlement', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-preserved-activation', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ child_card_id: 'code-1' }) } }] });
-    const preserve = new Set([loggedToolCallKey({ session_id: 'planner:G-1', source_input_id: 'planner:G-1:1', tool_call_id: 'call-preserved-activation' })]);
+    appendLlmTurnFinished(testConversationMutations(projectRoot), input('planner:card-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call-preserved-activation', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ child_card_id: 'code-1' }) } }] });
+    const preserve = new Set([loggedToolCallKey({ session_id: 'planner:card-1', source_input_id: 'planner:card-1:1', tool_call_id: 'call-preserved-activation' })]);
 
     expect(abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale', preserve)).toEqual([]);
-    expect(toolResults(projectRoot, 'planner:G-1')).toEqual([]);
+    expect(toolResults(projectRoot, 'planner:card-1')).toEqual([]);
   }));
 
   it('preserves reviewer pending tool calls by session-scoped key', () => withTempProject((projectRoot) => {
-    const sessionId = 'reviewer:G-1:assessment-G-1-1';
-    appendLlmTurnFinished(testConversationMutations(projectRoot), { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId }, { kind: 'tool_calls', tool_calls: [{ id: 'call-preserve', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] });
+    const sessionId = 'reviewer:card-1:assessment-card-1-1';
+    appendLlmTurnFinished(testConversationMutations(projectRoot), { ...input('reviewer:card-1:1'), agentId: 'reviewer:card-1', role: 'reviewer', sessionId }, { kind: 'tool_calls', tool_calls: [{ id: 'call-preserve', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] });
 
-    const incidents = abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale', new Set([loggedToolCallKey({ session_id: sessionId, source_input_id: 'reviewer:G-1:1', tool_call_id: 'call-preserve' })]));
+    const incidents = abandonStalePendingToolCalls(projectRoot, testConversationMutations(projectRoot), 'stale', new Set([loggedToolCallKey({ session_id: sessionId, source_input_id: 'reviewer:card-1:1', tool_call_id: 'call-preserve' })]));
 
     expect(incidents).toEqual([]);
     expect(readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_result')).toEqual([]);
@@ -301,11 +300,11 @@ describe('llm delivery log recovery helpers', () => {
     expect(() => sourceInputIdFromToolErrorMessageId('planner:G-1:3:tool-error:', '')).toThrow(/missing tool_call_id/);
   });
 
-  it('lists encoded conversation session directories as decoded ids', () => withTempProject((projectRoot) => {
-    appendConversationMessage(projectRoot, buildContextTextMessage('reviewer:G-1:assessment 1', 'user', 'hello'));
+  it('lists canonical encoded conversation session directories as decoded ids', () => withTempProject((projectRoot) => {
+    appendConversationMessage(projectRoot, buildContextTextMessage('reviewer:card-1:assessment-card-1-1', 'user', 'hello'));
     appendConversationMessage(projectRoot, buildContextTextMessage('analyst:global', 'user', 'hello'));
 
-    expect(listConversationSessionIds(projectRoot)).toEqual(['analyst:global', 'reviewer:G-1:assessment 1']);
+    expect(listConversationSessionIds(projectRoot)).toEqual(['analyst:global', 'reviewer:card-1:assessment-card-1-1']);
   }));
 
   it('builds valid provider-visible caller context rows', () => withTempProject((projectRoot) => {
@@ -319,7 +318,7 @@ describe('llm delivery log recovery helpers', () => {
   }));
 
   it('projects only provider-visible conversation messages for model reconstruction', () => withTempProject((projectRoot) => {
-    const sessionId = 'planner:G-1';
+    const sessionId = 'planner:card-1';
     appendLlmTurnStarted(testConversationMutations(projectRoot), input());
     appendLlmTurnFinished(testConversationMutations(projectRoot), input(), { kind: 'message', content: 'assistant text' });
     appendConversationMessage(projectRoot, { ...buildContextTextMessage(sessionId, 'user', 'repair'), id: 'repair', kind: 'model_repair' });

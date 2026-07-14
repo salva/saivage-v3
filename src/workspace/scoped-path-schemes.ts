@@ -2,7 +2,7 @@ import { relative, resolve } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
 import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot } from '../runtime/records/record-slots.js';
-import type { ProjectCardRecordReader, RecordProjection } from '../persistence/project-persistence-authority.js';
+import type { ProjectCardRecordReader, RecordProjection } from '../persistence/project-store-repository.js';
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';

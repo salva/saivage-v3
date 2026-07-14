@@ -1,7 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { createInvocationProviderTurnPort } from '../../../src/runtime/actors/index.js';
 import type { InvocationTurnService, LlmInvocationInput } from '../../../src/runtime/actors/index.js';
-import { issueCompositionMutationAuthority } from '../../../src/application/mutation-authority.js';
 
 function input(overrides: Partial<LlmInvocationInput> = {}): LlmInvocationInput {
   return {
@@ -29,13 +28,11 @@ describe('InvocationProviderTurnPort', () => {
     const port = createInvocationProviderTurnPort(service);
     const signal = new AbortController().signal;
 
-    const mutationAuthority = issueCompositionMutationAuthority();
-    const result = await port.completeTurn(input(), signal, mutationAuthority);
+    const result = await port.completeTurn(input(), signal);
 
     expect(result).toEqual({ result: { kind: 'message', content: 'done' }, provider_exchanges: [] });
     expect(service.invokeWithRecovery).toHaveBeenCalledWith({
       inputId: 'turn-1',
-      mutationAuthority,
       role: 'planner',
       sessionId: 'planner:project',
       systemPrompt: 'plan',
@@ -55,7 +52,7 @@ describe('InvocationProviderTurnPort', () => {
     };
     const port = createInvocationProviderTurnPort(service);
 
-    await expect(port.completeTurn(input({ contextMessages: [{ role: 'user' }] }), new AbortController().signal, issueCompositionMutationAuthority())).rejects.toThrow("Invalid LLM context messages for 'turn-1'");
+    await expect(port.completeTurn(input({ contextMessages: [{ role: 'user' }] }), new AbortController().signal)).rejects.toThrow("Invalid LLM context messages for 'turn-1'");
     expect(service.invokeWithRecovery).not.toHaveBeenCalled();
   });
 });

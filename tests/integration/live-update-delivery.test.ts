@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { ConversationStore } from '../../src/persistence/conversation-store.js';
-import { createMutationLane } from '../../src/application/mutation-lane.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 import { RuntimeStateStore } from '../../src/runtime/state.js';
 import { ActorSnapshotStore } from '../../src/runtime/actors/snapshots.js';
 import { initRuntimeState } from '../helpers/runtime-state.js';
@@ -30,7 +30,7 @@ describe('live-update semantic-owner inventory', () => {
       'src/runtime/actors/conversation-store.ts',
       'src/runtime/actors/llm-delivery-log.ts',
     ]);
-    expect(owners(/\.replaceActiveVersion\(/)).toEqual(['src/runtime/actors/compaction/compactor.ts']);
+    expect(owners(/\.publishCompactedVersion\(/)).toEqual(['src/runtime/actors/compaction/compactor.ts']);
     expect(owners(/(?:appLogs|\.appLogs)\.append\(/)).toEqual([
       'src/agents/invocation-service.ts',
       'src/observability/error-logger.ts',
@@ -43,7 +43,7 @@ describe('live-update semantic-owner inventory', () => {
   it('keeps conversation and provider exchange raw writers behind their singular mutation ports', () => {
     const inventory = [
       { symbol: 'appendBatch', owners: [] },
-      { symbol: 'replaceActiveVersion', owners: [] },
+      { symbol: 'publishCompactedVersion', owners: [] },
       {
         symbol: 'appendProviderExchangeLogEntry',
         roots: [sourceRoot, join(process.cwd(), 'tests')],
@@ -84,13 +84,13 @@ describe('server-composed semantic delivery', () => {
       const changes = new ReadModelChangeBroadcaster();
       const subscription = changes.subscribe(hub);
 
-      const mutation = createMutationLane();
-      const runtimeState = new RuntimeStateStore(root, mutation.lane, changes);
-      runtimeState.patch(mutation.authority, { status: 'paused' });
-      const conversations = new ConversationStore(root, mutation.lane, changes);
-      conversations.restabilize(mutation.authority);
-      conversations.appendBatch(mutation.authority, [message('planner:project')]);
-      new ActorSnapshotStore(root, mutation.lane, changes).save(mutation.authority, {
+      const health = new ApplicationPersistenceHealth();
+      const runtimeState = new RuntimeStateStore(root, health, changes);
+      runtimeState.patch({ status: 'paused' });
+      const conversations = new ConversationStore(root, health, changes);
+      conversations.restabilize();
+      conversations.appendBatch([message('planner:project')]);
+      new ActorSnapshotStore(root, health, changes).save({
         actor_id: 'processor:project', actor_kind: 'processor', state_value: 'idle', context: {}, updated_at: '2026-07-13T00:00:00.000Z',
       });
       jest.advanceTimersByTime(1);

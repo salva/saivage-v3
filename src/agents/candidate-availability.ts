@@ -8,8 +8,6 @@
 
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry } from '../contracts/candidate-availability.js';
-import type { MutationAuthority } from '../application/mutation-authority.js';
-import { isAuthorityCurrent } from '../application/mutation-authority.js';
 export type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry, CandidateState } from '../contracts/candidate-availability.js';
 
 /** In-memory implementation suitable for tests and short-lived processes. */
@@ -23,8 +21,7 @@ export class MemoryCandidateAvailability implements CandidateAvailability {
     return Date.now() >= entry.untilMs;
   }
 
-  markSucceeded(_authority: MutationAuthority, candidate: Candidate): void {
-    if (!isAuthorityCurrent(_authority)) throw new Error('Candidate availability mutation authority is stale.');
+  markSucceeded(candidate: Candidate): void {
     const key = candidateKey(candidate);
     const next: CandidateAvailabilityEntry = {
       candidate,
@@ -35,8 +32,7 @@ export class MemoryCandidateAvailability implements CandidateAvailability {
     this.entries.set(key, next);
   }
 
-  markFailed(_authority: MutationAuthority, candidate: Candidate, decision: AvailabilityDecision): void {
-    if (!isAuthorityCurrent(_authority)) throw new Error('Candidate availability mutation authority is stale.');
+  markFailed(candidate: Candidate, decision: AvailabilityDecision): void {
     const key = candidateKey(candidate);
     const now = Date.now();
     const prev = this.entries.get(key);

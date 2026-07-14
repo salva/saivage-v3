@@ -200,7 +200,7 @@ describe('PlanningCardProcessorActor', () => {
       terminalToolNames: ['emit_result'],
       systemPrompt: expect.stringContaining('record:///status.md?v=next'),
       tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_result' }) })]),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
       agentId: `reviewer:${project.id}`,
       role: 'reviewer',
@@ -208,7 +208,7 @@ describe('PlanningCardProcessorActor', () => {
       terminalToolNames: ['emit_result'],
       systemPrompt: expect.stringContaining('record:///review.md?v=next'),
       tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call', 'emit_result'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
 
     const plannerToolNames = invocationToolNames(capturedInput(provider, 'planner'));
     expect(plannerToolNames).toEqual([
@@ -398,7 +398,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(5);
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ data: expect.objectContaining({ outcome: 'done', card_id: goal.id }) }) }) }),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
   }));
 
   it('settles a real child provider-contract failure through its parent activate_card barrier', async () => withTempProject(async (projectRoot) => {
@@ -473,7 +473,7 @@ describe('PlanningCardProcessorActor', () => {
         expect.objectContaining({ function: expect.objectContaining({ name: 'get_card' }) }),
         expect.objectContaining({ function: expect.objectContaining({ name: 'get_tree' }) }),
       ]),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
   }));
 
   it('returns planner create_card project attempts as recoverable tool errors', async () => withTempProject(async (projectRoot) => {
@@ -491,7 +491,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'project create rejected' });
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: { success: false, error: 'create_card cannot create project cards.' } }) }),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
   }));
 
   it('edits a failed immediate child to changed so the planner can activate it again', async () => withTempProject(async (projectRoot) => {
@@ -551,8 +551,8 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'edits rejected' });
     expect(store.read(runningGoal.id)).toMatchObject({ status: 'running', title: 'goal' });
     expect(store.read(nestedChild.id)).toMatchObject({ status: 'backlog', title: 'goal' });
-    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: false, error: expect.stringContaining('cannot edit running child') }) }) }) }), expect.any(AbortSignal), store.currentMutationAuthority());
-    expect(provider.completeTurn).toHaveBeenNthCalledWith(3, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: false, error: expect.stringContaining('can target only immediate children') }) }) }) }), expect.any(AbortSignal), store.currentMutationAuthority());
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: false, error: expect.stringContaining('cannot edit running child') }) }) }) }), expect.any(AbortSignal));
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(3, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: false, error: expect.stringContaining('can target only immediate children') }) }) }) }), expect.any(AbortSignal));
   }));
 
   it('cancels a parked immediate child through the child actor', async () => withTempProject(async (projectRoot) => {
@@ -571,7 +571,7 @@ describe('PlanningCardProcessorActor', () => {
 
     expect(store.read(child.id)?.status).toBe('cancelled');
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'cancelled obsolete child' });
-    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, data: expect.objectContaining({ card_id: child.id, status: 'cancelled' }) }) }) }) }), expect.any(AbortSignal), store.currentMutationAuthority());
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, data: expect.objectContaining({ card_id: child.id, status: 'cancelled' }) }) }) }) }), expect.any(AbortSignal));
   }));
 
   it('authoritatively cancels a running immediate child', async () => withTempProject(async (projectRoot) => {
@@ -593,7 +593,7 @@ describe('PlanningCardProcessorActor', () => {
 
     expect(store.read(child.id)?.status).toBe('cancelled');
     expect(childActor.listPendingNotifications()).toEqual([]);
-    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, data: expect.objectContaining({ card_id: child.id, status: 'cancelled' }) }) }) }) }), expect.any(AbortSignal), store.currentMutationAuthority());
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, data: expect.objectContaining({ card_id: child.id, status: 'cancelled' }) }) }) }) }), expect.any(AbortSignal));
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'running cancel requested' });
     await expect(childActivation).resolves.toMatchObject({ status: 'cancelled' });
     finish();
@@ -616,7 +616,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'unsupported rejected' });
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: { success: false, error: "Unsupported planner tool call 'restart_card'." } }) }),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
   }));
 
   it('returns malformed activate_card arguments as a recoverable tool result', async () => withTempProject(async (projectRoot) => {
@@ -635,7 +635,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(3);
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: { success: false, error: 'activate_card requires card_id.' } }) }),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
   }));
 
   it('returns failed child activation as a recoverable tool result', async () => withTempProject(async (projectRoot) => {
@@ -661,7 +661,7 @@ describe('PlanningCardProcessorActor', () => {
           result: { success: false, error: `Card '${failedGoal.id}' in status 'failed' is not activatable.` },
         }),
       }),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
   }));
 
   it('rejects old activate_card cardId alias instead of normalizing it', async () => withTempProject(async (projectRoot) => {
@@ -679,7 +679,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'alias rejected' });
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: false, error: expect.stringContaining('card_id') }) }) }),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
   }));
 
   it('delivers card notifications to planner continuation turns by input id', async () => withTempProject(async (projectRoot) => {
@@ -706,7 +706,7 @@ describe('PlanningCardProcessorActor', () => {
       contextMessages: expect.arrayContaining([
         expect.objectContaining({ role: 'user', content: 'mid-turn notice' }),
       ]),
-    }), expect.any(AbortSignal), store.currentMutationAuthority());
+    }), expect.any(AbortSignal));
   }));
 
   it('does not drain main-agent notifications into reviewer turns', async () => withTempProject(async (projectRoot) => {
@@ -860,7 +860,7 @@ describe('PlanningCardProcessorActor', () => {
     const outcome = await actor.activate({ card: goal, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', result: { kind: 'done', summary: 'review ok' } });
-    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `reviewer:${goal.id}`, role: 'reviewer', sessionId: `reviewer:${goal.id}:assessment-${goal.id}-1` }), expect.any(AbortSignal), store.currentMutationAuthority());
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `reviewer:${goal.id}`, role: 'reviewer', sessionId: `reviewer:${goal.id}:assessment-${goal.id}-1` }), expect.any(AbortSignal));
   }));
 
   it('blocks planner done when planner-owned reviewer requests rework', async () => withTempProject(async (projectRoot) => {

@@ -15,7 +15,8 @@ import { activeConversationReplayForInvocation, genericContextMessagesForInvocat
 import type { ConversationStore } from '../persistence/conversation-store.js';
 import type { AppLogStore } from '../persistence/app-log.js';
 import type { ReadModelChanges } from './read-model-changes.js';
-import type { CompositionMutationAuthority } from './mutation-authority.js';
+import type { ApplicationPersistenceHealth } from './persistence-health.js';
+import type { RuntimeInterventionBinding } from './intervention-readiness.js';
 import type { RuntimeStateStore } from '../runtime/state.js';
 import type { ActorSnapshotStore } from '../runtime/actors/snapshots.js';
 import type { RecoveryDiagnosticsStore } from '../runtime/actors/actor-recovery.js';
@@ -24,7 +25,8 @@ export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
   eventBus: EventBus;
   cardStore: CardStoreRepository & ProjectRootCardReader;
-  compositionAuthority: CompositionMutationAuthority;
+  persistenceHealth: ApplicationPersistenceHealth;
+  interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
   config?: SaivageConfig;
@@ -47,7 +49,8 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     eventBus: deps.eventBus,
     rootCards: deps.cardStore,
     actorStore: deps.cardStore,
-    compositionAuthority: deps.compositionAuthority,
+    persistenceHealth: deps.persistenceHealth,
+    interventionBinding: deps.interventionBinding,
     provider: createInvocationServiceProvider(deps.invocationService),
     compactor: compaction?.compactor,
     compactionConfig: compaction?.compactionConfig,
@@ -78,9 +81,8 @@ function buildCompactionWiring(invocationService: InvocationService, config: Sai
     compactionConfig,
     bufferSizeEstimator: heuristicBufferSizeEstimator,
     summarizerProvider: {
-      completeTurn: (input: Parameters<LLMProviderPort['completeTurn']>[0], signal: AbortSignal, mutationAuthority: Parameters<LLMProviderPort['completeTurn']>[2]) => invocationService.invokeWithRecovery({
+      completeTurn: (input: Parameters<LLMProviderPort['completeTurn']>[0], signal: AbortSignal) => invocationService.invokeWithRecovery({
         inputId: input.inputId,
-        mutationAuthority,
         role: input.role,
         sessionId: input.sessionId,
         systemPrompt: input.systemPrompt,
@@ -99,9 +101,8 @@ function buildCompactionWiring(invocationService: InvocationService, config: Sai
 
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
-    completeTurn: (input, signal, mutationAuthority) => invocationService.invokeWithRecovery({
+    completeTurn: (input, signal) => invocationService.invokeWithRecovery({
       inputId: input.inputId,
-      mutationAuthority,
       role: input.role,
       sessionId: input.sessionId,
       systemPrompt: input.systemPrompt,
@@ -113,6 +114,6 @@ export function createInvocationServiceProvider(invocationService: InvocationSer
       capabilityRequest: input.capabilityRequest,
       abortSignal: signal,
     }),
-    projectProviderExchanges: (authority, sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(authority, sessionId, sourceInputId, attempts, assistantOutputIds),
+    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
   };
 }

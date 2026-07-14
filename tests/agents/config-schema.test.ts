@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as YAML from 'yaml';
 import { createResolvedConfigAuthority } from '../../src/config/index.js';
-import { createMutationLane } from '../../src/application/mutation-lane.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-config-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
@@ -40,7 +40,7 @@ beforeEach(() => cleanup());
 afterEach(() => cleanup());
 
 function loadConfig(projectRoot: string) {
-  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: process.env, lane: createMutationLane().lane }).loadEffective();
+  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: process.env, health: new ApplicationPersistenceHealth() }).loadEffective();
 }
 
 describe('config-schema', () => {

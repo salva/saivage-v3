@@ -60,7 +60,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly appLogs: AppLogStore;
 
   constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; store: CardStore; children: PlannerChildActorPort; provider: LLMProviderPort; conversations: ConversationStore; appLogs: AppLogStore; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
-    super({ ...args, mutationAuthority: () => args.store.currentMutationAuthority() });
+    super(args);
     this.store = args.store;
     this.children = args.children;
     this.notifyCard = args.notifyCard;
@@ -142,11 +142,10 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const sessionId = plannerActorId(this.cardId);
     const loadedRows = readActiveVersionMessages(this.projectRoot, sessionId);
     const loaded = conversationMessagesForModel(loadedRows);
-    const authority = this.mutationAuthority();
-    const activationMarker = appendActivationMarker(this.conversations, authority, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
+    const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
     const notifications = this.notificationContext(input, inputId).map((message, index) => {
-      const result = appendUserContextMessage(this.conversations, authority, sessionId, inputId, 'notification', index, message);
+      const result = appendUserContextMessage(this.conversations, sessionId, inputId, 'notification', index, message);
       this.conversationPublisher?.entryAppended(result);
       return result.message;
     });
@@ -173,7 +172,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private plannerInvocationSurface(parentCardId: string) {
-    return buildRoleSurface('planner', { projectRoot: this.projectRoot, cardId: parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children, notifyCard: this.notifyCard, appLogs: this.appLogs, mutationAuthority: () => this.mutationAuthority() });
+    return buildRoleSurface('planner', { projectRoot: this.projectRoot, cardId: parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children, notifyCard: this.notifyCard, appLogs: this.appLogs });
   }
 
   private async projectPlannerTerminal(input: CardActivationInput, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal, contract = createPlannerContract()): Promise<PlannerProcessorOutcome> {
@@ -199,7 +198,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, sessionId: string): void {
-    const result = appendTerminalProjectedToolResult(this.conversations, this.mutationAuthority(), {
+    const result = appendTerminalProjectedToolResult(this.conversations, {
       sessionId,
       sourceInputId: outcome.inputId,
       toolCallId: outcome.toolCallId,
@@ -271,10 +270,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const inputId = this.nextInvocationInputId('reviewer');
     const loadedRows = readActiveVersionMessages(this.projectRoot, sessionId);
     const loaded = conversationMessagesForModel(loadedRows);
-    const authority = this.mutationAuthority();
-    const activationMarker = appendActivationMarker(this.conversations, authority, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
+    const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
-    const descendantContext = appendUserContextMessage(this.conversations, authority, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness));
+    const descendantContext = appendUserContextMessage(this.conversations, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness));
     this.conversationPublisher?.entryAppended(descendantContext);
     return {
       inputId,
@@ -445,7 +443,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private reviewerInvocationSurface(cardId: string, sessionId: string) {
-    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store.records(), mcpManagerProvider: this.mcpManagerProvider, mutationAuthority: () => this.mutationAuthority() });
+    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store.records(), mcpManagerProvider: this.mcpManagerProvider });
   }
 
   protected get processorLabel(): string {

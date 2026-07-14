@@ -6,14 +6,14 @@ import { join } from 'node:path';
 
 
 import { providerExchangeAppLogEntry } from '../../src/persistence/provider-exchange-log.js';
-import { testAppLogAuthority, testAppLogs } from '../helpers/app-logs.js';
+import { testAppLogs } from '../helpers/app-logs.js';
 import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
 
 describe('agents.llmExchange handler', () => {
   it('returns the latest app-log-backed provider exchange payload without changing response shape', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-agent-llm-exchange-'));
     initProjectTree(projectRoot);
-    testAppLogs(projectRoot).append(testAppLogAuthority(projectRoot), providerExchangeAppLogEntry({
+    testAppLogs(projectRoot).append(providerExchangeAppLogEntry({
       session_id: 'planner:project',
       source_input_id: 'planner:project:1',
       attempt_index: 0,

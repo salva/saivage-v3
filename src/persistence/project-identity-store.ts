@@ -3,8 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { projectConfigSchema, type ProjectConfig } from '../schemas/index.js';
-import type { CompositionMutationAuthority } from '../application/mutation-authority.js';
-import type { MutationLane } from '../application/mutation-lane.js';
+import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import { durablyReplaceFile } from './durable-file-replacement.js';
 
 const projectIdentitySchema = projectConfigSchema.strict();
@@ -36,8 +35,7 @@ export class ProjectIdentityStore {
 
   constructor(
     projectRoot: string,
-    private readonly lane: MutationLane,
-    private readonly compositionAuthority: CompositionMutationAuthority,
+    private readonly health: ApplicationPersistenceHealth,
   ) {
     this.#path = join(projectRoot, '.saivage', 'project.json');
   }
@@ -47,24 +45,16 @@ export class ProjectIdentityStore {
   }
 
   create(name: string): ProjectConfig {
-    const result = this.lane.apply(this.compositionAuthority, 'create project identity', () => {
-      if (existsSync(this.#path)) throw new Error(`Project identity already exists at '${this.#path}'.`);
-      const stamp = new Date().toISOString();
-      const project = parseProjectIdentity({
-        id: 'project',
-        name,
-        context: '',
-        goals_summary: '',
-        constraints: [],
-        planner_enabled: true,
-        created_at: stamp,
-        updated_at: stamp,
-      }, this.#path);
-      mkdirSync(dirname(this.#path), { recursive: true });
-      durablyReplaceFile(this.#path, Buffer.from(`${JSON.stringify(project, null, 2)}\n`));
-      return project;
-    });
-    if (!result.applied) throw new Error('Composition authority unexpectedly became stale.');
-    return result.value;
+    this.health.assertMutationHealthy();
+    if (existsSync(this.#path)) throw new Error(`Project identity already exists at '${this.#path}'.`);
+    const stamp = new Date().toISOString();
+    const project = parseProjectIdentity({
+      id: 'project', name, context: '', goals_summary: '', constraints: [], planner_enabled: true,
+      created_at: stamp, updated_at: stamp,
+    }, this.#path);
+    mkdirSync(dirname(this.#path), { recursive: true });
+    try { durablyReplaceFile(this.#path, Buffer.from(`${JSON.stringify(project, null, 2)}\n`)); }
+    catch (error) { this.health.reportUncertainFailure({ target: this.#path, operation: 'create project identity', error }); }
+    return project;
   }
 }

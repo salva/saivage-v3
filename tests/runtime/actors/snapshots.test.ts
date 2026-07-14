@@ -5,8 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { ActorSnapshotStore, actorSnapshotPath, readActorSnapshot, readActorSnapshots } from '../../../src/runtime/actors/snapshots.js';
 import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
-import { createMutationLane } from '../../../src/application/mutation-lane.js';
-import { RootCurrentness } from '../../../src/application/mutation-authority.js';
+import { ApplicationPersistenceHealth } from '../../../src/application/persistence-health.js';
 
 function snapshot(actorId: string, actorKind: 'card' | 'llm' | 'processor') {
   return {
@@ -95,28 +94,14 @@ describe('actor snapshots', () => {
     expect(remove.observed).toEqual([]);
   });
 
-  it('rejects stale actor authority without publishing a snapshot', () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-snapshots-currentness-'));
-    const changes = new ReadModelChangeBroadcaster();
-    const composition = createMutationLane();
-    const store = new ActorSnapshotStore(root, composition.lane, changes);
-    const currentness = new RootCurrentness();
-    const rootAuthority = currentness.installRoot();
-    const stale = currentness.installLeaf(rootAuthority);
-    currentness.clearRoot();
-    expect(() => store.save(stale, snapshot('planner:card-7', 'llm'))).toThrow(/stale/);
-    expect(existsSync(actorSnapshotPath(root, 'planner:card-7'))).toBe(false);
-  });
-
   it('removes owned snapshot replacement temporaries before strict replay', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-snapshots-temp-'));
-    const composition = createMutationLane();
-    const store = new ActorSnapshotStore(root, composition.lane, new ReadModelChangeBroadcaster());
-    store.save(composition.authority, snapshot('planner:card-7', 'llm'));
+    const store = new ActorSnapshotStore(root, new ApplicationPersistenceHealth(), new ReadModelChangeBroadcaster());
+    store.save(snapshot('planner:card-7', 'llm'));
     const path = actorSnapshotPath(root, 'planner:card-7');
     const temporary = join(dirname(path), `.${path.split('/').at(-1)}.saivage-write-00000000-0000-0000-0000-000000000000.tmp`);
     writeFileSync(temporary, 'incomplete');
-    store.restabilize(composition.authority);
+    store.restabilize();
     expect(existsSync(temporary)).toBe(false);
     expect(readActorSnapshot(root, 'planner:card-7')?.actor_id).toBe('planner:card-7');
   });
