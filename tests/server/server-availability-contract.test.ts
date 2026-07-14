@@ -120,4 +120,25 @@ describe('server availability contract', () => {
     expect(state.statusCode).toBe(200);
     expect(state.json()).toEqual(expect.objectContaining({ runtime: expect.any(Object), cardIndex: expect.any(Object), serverAvailability: expect.any(Object) }));
   });
+
+  it('returns not-ready and retains read projections when app-log persistence is uncertain', async () => {
+    setupProject(tmpDir, true);
+    server = await createTestServer(tmpDir);
+    const health = testPersistenceHealth(tmpDir);
+    expect(() => health.reportUncertainFailure({ target: join(tmpDir, '.saivage/logs/app.jsonl'), operation: 'append', error: new Error(`fsync failed under ${tmpDir}`) })).toThrow();
+
+    const ready = await server.fastify.inject({ method: 'GET', url: '/health/ready' });
+    expect(ready.statusCode).toBe(503);
+    expect(ready.json()).toMatchObject({ status: 'not_ready', serverAvailability: { components: { persistence: { state: 'unavailable', source: 'runtime-application' } } } });
+    expect(JSON.stringify(ready.json())).not.toContain(tmpDir);
+
+    const runtimeStatus = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
+    expect(runtimeStatus.statusCode).toBe(200);
+    expect(runtimeStatus.json().serverAvailability.components.persistence.state).toBe('unavailable');
+
+    const debug = await server.fastify.inject({ method: 'GET', url: '/api/debug/state', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
+    expect(debug.statusCode).toBe(200);
+    expect(debug.json().persistenceHealth).toMatchObject({ state: 'mutation_unhealthy', diagnostic: { operation: 'append' } });
+    expect(JSON.stringify(debug.json())).not.toContain(tmpDir);
+  });
 });

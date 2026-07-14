@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 
-import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi, type SupervisorRuntimeApiOptions } from '../../../src/runtime/actors/supervisor-runtime-api.js';
+import { RuntimeControlService } from '../../../src/application/runtime-control-service.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { readRuntimeState } from '../../../src/runtime/state-api.js';
@@ -26,6 +27,11 @@ function descendantAlive(pid: number): boolean {
   }
 }
 
+function createControlledRuntime(options: SupervisorRuntimeApiOptions) {
+  const mechanics = createSupervisorRuntimeApi(options);
+  return new RuntimeControlService({ projectRoot: options.projectRoot, persistenceHealth: options.persistenceHealth, interventionBinding: options.interventionBinding, runtimeState: options.runtimeState, appLogs: options.appLogs, eventBus: options.eventBus, mechanics });
+}
+
 describe('SupervisorRuntimeApi shutdown', () => {
   it('publishes serving pause/resume writes but excludes startup and shutdown writes', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-supervisor-freshness-'));
@@ -35,7 +41,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       const changes = new ReadModelChangeBroadcaster();
       const runtimeChanged = jest.fn();
       changes.subscribe({ runtimeChanged, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {} });
-    const runtime = createSupervisorRuntimeApi({ ...testRuntimePersistence(root, changes),
+    const runtime = createControlledRuntime({ ...testRuntimePersistence(root, changes),
         projectRoot: root,
         conversations: testConversationMutations(root),
         appLogs: testAppLogs(root),
@@ -69,7 +75,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       initProjectTree(root);
       const store = new CardStore(root);
       const changes = new ReadModelChangeBroadcaster();
-      const runtime = createSupervisorRuntimeApi({ ...testRuntimePersistence(root, changes),
+      const runtime = createControlledRuntime({ ...testRuntimePersistence(root, changes),
         projectRoot: root,
         conversations: testConversationMutations(root),
         appLogs: testAppLogs(root),
@@ -114,7 +120,7 @@ describe('SupervisorRuntimeApi shutdown', () => {
       initProjectTree(root);
       const store = new CardStore(root);
       const changes = new ReadModelChangeBroadcaster();
-      const runtime = createSupervisorRuntimeApi({ ...testRuntimePersistence(root, changes),
+      const runtime = createControlledRuntime({ ...testRuntimePersistence(root, changes),
         projectRoot: root,
         conversations: testConversationMutations(root),
         appLogs: testAppLogs(root),

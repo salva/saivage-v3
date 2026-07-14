@@ -16,7 +16,7 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
   fastify.post('/api/debug/runtime/start', { preHandler: requireOperator }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       if (!runtimeApplication) return reply.status(503).send({ error: 'Runtime application unavailable.' });
-      return reply.send(await runtimeApplication.runtimeApi.startProject('operator'));
+      return reply.send(await runtimeApplication.runtimeControl.startProject('operator', { actor: 'user', surface: 'rest', paramsSummary: '{}' }));
     } catch (err) {
       return reply.status(500).send({ error: 'Failed to start runtime', message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot) });
     }

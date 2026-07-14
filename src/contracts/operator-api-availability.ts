@@ -12,15 +12,29 @@ export const AvailabilityComponentSchema = z.object({
   checkedAt: z.string().datetime(),
   diagnostic: AvailabilityDiagnosticSchema.optional(),
 });
+export const ApplicationPersistenceHealthSnapshotSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('healthy') }),
+  z.object({
+    state: z.literal('mutation_unhealthy'),
+    diagnostic: z.object({
+      target: z.string().min(1).max(240),
+      operation: z.string().min(1).max(240),
+      message: z.string().min(1).max(240),
+      reported_at: z.string().datetime(),
+    }),
+  }),
+]);
 export const ServerAvailabilitySchema = z.object({
   generatedAt: z.string().datetime(),
   components: z.object({
     api: AvailabilityComponentSchema,
     runtime: AvailabilityComponentSchema,
     mcp: AvailabilityComponentSchema,
+    persistence: AvailabilityComponentSchema,
   }),
 });
 
 export type AvailabilityState = z.infer<typeof AvailabilityStateSchema>;
 export type AvailabilityComponent = z.infer<typeof AvailabilityComponentSchema>;
 export type ServerAvailability = z.infer<typeof ServerAvailabilitySchema>;
+export type ApplicationPersistenceHealthProjection = z.infer<typeof ApplicationPersistenceHealthSnapshotSchema>;

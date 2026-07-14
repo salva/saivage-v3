@@ -2,7 +2,7 @@
 
 Tombstoned cards are absent from all existing card, tree, history, exact-version, diff, record, conversation, and recovery projections and return the same not-found contract as an unknown id. The UI has no deleted-card state, retained-evidence browser, restore action, or forensic view.
 
-When application persistence becomes mutation-unhealthy, existing read surfaces remain usable while readiness and the existing availability projection report that mutation is unavailable until restart. The diagnostic remains visible even when the app log itself is the failed target. Conversation physical version inventories and persistence-health internals are not exposed as editable UI state. Returned `work:///tmp/stash/...` URLs retain their existing presentation but refer to disposable work output with no retention guarantee.
+When application persistence becomes mutation-unhealthy, existing read surfaces remain usable while `/health/ready` returns 503 and the existing availability projection's persistence component reports that mutation is unavailable until restart. Runtime and state projections carry that same availability, Debug state carries the bounded redacted health snapshot, and the availability detail indicator explains the restart requirement. The diagnostic remains visible even when the app log itself is the failed target. Conversation physical version inventories and persistence-health internals are not exposed as editable UI state. Returned `work:///tmp/stash/...` URLs retain their existing presentation but refer to disposable work output with no retention guarantee.
 
 Status: current functional UI authority.
 
@@ -165,7 +165,7 @@ The only user-visible controls permitted outside the Analyst are the minimum con
 
 Once an Analyst-capable profile exists, additional provider/profile/model/configuration management is Analyst-owned.
 
-The configuration projection and every Analyst configuration mutation address the exact file selected when the active server started, including a custom `--config` or `SAIVAGE_CONFIG` path. The UI does not derive `.saivage/saivage.yaml`, choose another file, or expose a write-in-progress retry state; accepted mutations apply synchronously through the shared lane under the current Analyst turn. Analyst MCP desired-config mutation and explicit reconciliation remain unavailable until the final quiescent-Pause lifecycle cutover. No UI shape change is required.
+The configuration projection and every Analyst configuration mutation address the exact file selected when the active server started, including a custom `--config` or `SAIVAGE_CONFIG` path. The UI does not derive `.saivage/saivage.yaml`, choose another file, or expose a write-in-progress retry state; accepted mutations apply synchronously after fresh health, intervention-readiness, permission, and current-config checks. Analyst MCP desired-config mutation and explicit reconciliation remain unconditionally unavailable with their existing rejection results until a separately designed lifecycle cutover. No MCP topology UI shape change is required.
 
 An MCP mutation response distinguishes persisted desired configuration from active runtime convergence. A pending activation is reported as persisted but not reconciled, includes the desired/active/pending reconciliation projection, and names `mcp_reconcile` as the explicit mutation-free retry. The Analyst must retry that action rather than replaying add/edit/remove; Saivage does not roll desired config back. No graphical MCP control panel is added.
 

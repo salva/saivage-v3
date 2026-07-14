@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ApplicationPersistenceHealthSnapshotSchema } from './operator-api-availability.js';
 import { runtimeStateSchema } from '../schemas/index.js';
 import {
   ApiErrorSchema,
@@ -37,6 +38,7 @@ export const DebugStateResponseSchema = z.object({
   runtime: DebugRuntimeStateSchema.nullable(),
   cards: z.array(z.record(z.string(), z.unknown())),
   totalCards: z.number().int().nonnegative(),
+  persistenceHealth: ApplicationPersistenceHealthSnapshotSchema,
 });
 export const DebugErrorsResponseSchema = z.object({ errors: z.array(z.unknown()), total: z.number().int().nonnegative() });
 export const DebugTimelineResponseSchema = z.object({ events: z.array(z.unknown()), total: z.number().int().nonnegative() });

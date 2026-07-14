@@ -11,6 +11,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
+import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 
 function createRuntimeApplication(projectRoot: string, calls: { pause: number; resume: number }): RuntimeApplication {
   let status: ReturnType<RuntimeApi['getStatus']>['status'] = 'running';
@@ -36,6 +37,13 @@ function createRuntimeApplication(projectRoot: string, calls: { pause: number; r
   const cardStore = testCardRepository(projectRoot);
   return {
     runtimeApi,
+    runtimeControl: {
+      startProject: (source) => runtimeApi.startProject(source),
+      pause: () => runtimeApi.pause(),
+      resume: () => runtimeApi.resume(),
+      getStatus: () => runtimeApi.getStatus(),
+    },
+    persistenceHealth: new ApplicationPersistenceHealth(),
     cardStore,
     processRunner: createTestProcessRunner(projectRoot),
     analystDeps: undefined as never,

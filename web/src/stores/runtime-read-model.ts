@@ -62,6 +62,7 @@ export function selectAvailabilityDetail(availability: ServerAvailability | null
   if (!availability) return null;
   const runtimeComponent = availability.components.runtime;
   const mcpComponent = availability.components.mcp;
+  const persistenceComponent = availability.components.persistence;
   const parts: string[] = [];
   if (runtimeComponent.state === 'unavailable') parts.push(`Runtime unavailable: ${runtimeComponent.diagnostic?.summary ?? runtimeComponent.source}.`);
   else if (runtimeComponent.state === 'degraded') parts.push('Runtime is using persisted state fallback.');
@@ -69,6 +70,7 @@ export function selectAvailabilityDetail(availability: ServerAvailability | null
   if (mcpComponent.state === 'unavailable') parts.push(`MCP unavailable: ${mcpComponent.diagnostic?.summary ?? mcpComponent.source}.`);
   else if (mcpComponent.state === 'degraded') parts.push(mcpComponent.diagnostic?.summary ?? 'MCP manager is degraded or empty.');
   else if (mcpComponent.state === 'unknown') parts.push('MCP startup availability is unknown.');
+  if (persistenceComponent.state === 'unavailable') parts.push(`Persistence mutation unavailable until restart: ${persistenceComponent.diagnostic?.summary ?? persistenceComponent.source}.`);
   return parts.length > 0 ? parts.join(' ') : null;
 }
 

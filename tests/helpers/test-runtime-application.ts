@@ -144,6 +144,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
   const cardStore = opts.cardStore ?? new CardStore(projectRoot);
   const processRunner = createTestProcessRunner(projectRoot);
   const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus, cardStore, projectRoot });
+  const persistenceHealth = testPersistenceHealth(projectRoot);
   let analystRuntimeService: AnalystRuntime | null = null;
   const runtimeApplication: RuntimeApplication = {
     cardStore: cardStore.repository,
@@ -159,6 +160,13 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       getStatus: () => analystRuntime.getStatus(),
       getActorRuntimeReadModel: () => analystRuntime.getActorRuntimeReadModel(),
     },
+    runtimeControl: {
+      startProject: (source) => analystRuntime.startProject(source),
+      pause: () => analystRuntime.pause(),
+      resume: () => analystRuntime.resume(),
+      getStatus: () => analystRuntime.getStatus(),
+    },
+    persistenceHealth,
     get analystDeps() {
       const config = loadTestConfig(projectRoot);
       const availability = new MemoryCandidateAvailability();

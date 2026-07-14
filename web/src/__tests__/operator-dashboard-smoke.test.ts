@@ -46,7 +46,7 @@ function installOperatorApiFetch(): void {
           files: [],
         });
       case '/api/debug/state':
-        return jsonResponse({ runtime: null, cards: [], totalCards: 0 });
+        return jsonResponse({ runtime: null, cards: [], totalCards: 0, persistenceHealth: { state: 'healthy' } });
       case '/api/debug/errors':
         return jsonResponse({ errors: [], total: 0 });
       case '/api/debug/timeline':

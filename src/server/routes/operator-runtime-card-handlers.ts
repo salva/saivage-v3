@@ -30,7 +30,8 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
     'health.liveness': () => ({ body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' } }),
     'health.readiness': () => {
       const serverAvailability = options.serverAvailabilityProvider?.();
-      return { statusCode: 200, body: { status: 'ready', ...(serverAvailability ? { serverAvailability } : {}) } };
+      const ready = serverAvailability?.components.persistence.state !== 'unavailable';
+      return { statusCode: ready ? 200 : 503, body: { status: ready ? 'ready' : 'not_ready', ...(serverAvailability ? { serverAvailability } : {}) } };
     },
     'runtime.getState': () => getCardsReadModel().getRuntimeState(options.serverAvailabilityProvider?.()),
     'cards.list': () => getCardsReadModel().listCards(),
@@ -47,12 +48,12 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
     },
     'runtime.pause': () => {
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime pause.');
-      options.runtimeApplication.runtimeApi.pause();
+      options.runtimeApplication.runtimeControl.pause({ actor: 'user', surface: 'rest', paramsSummary: '{}' });
       return { body: buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }) };
     },
     'runtime.resume': () => {
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime resume.');
-      options.runtimeApplication.runtimeApi.resume();
+      options.runtimeApplication.runtimeControl.resume({ actor: 'user', surface: 'rest', paramsSummary: '{}' });
       return { body: buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }) };
     },
     'runtime.cardRuns': () => ({ body: buildCardRunsResponse(projectRoot, requireCardStore(options.cardStore)) }),

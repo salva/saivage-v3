@@ -7,9 +7,9 @@ import * as YAML from 'yaml';
 import { evaluateAuthz } from './agents/tool-api.js';
 import { startApp } from './boot/index.js';
 import { newProjectRootInput } from './boot/app.js';
-import { recordControlAction, stableStringify, isInitialized, findProjectRoot } from './persistence/index.js';
+import { stableStringify, isInitialized, findProjectRoot } from './persistence/index.js';
 import { classifyPersistenceOpenMode, createProjectStoreRepository } from './persistence/project-store-repository.js';
-import { isLocked, pauseRuntimeControl, resumeRuntimeControl } from './runtime/control-api.js';
+import { isLocked } from './runtime/control-api.js';
 import { readRuntimeState } from './runtime/state-api.js';
 import { RuntimeStateStore } from './runtime/state.js';
 import { deriveCurrentCardId } from './runtime/current-run.js';
@@ -17,6 +17,8 @@ import { readRuntimeLockStatus } from './runtime/lock.js';
 import { runtimeProcessLockFile } from './persistence/layout.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
 import { AppLogStore } from './persistence/app-log.js';
+import { RuntimeControlService } from './application/runtime-control-service.js';
+import { RuntimeInterventionBinding } from './application/intervention-readiness.js';
 
 interface CliOptions { force?: boolean; port?: string; host?: string; config?: string; 'project-root'?: string; 'create-runtime'?: boolean; }
 const USAGE = `Saivage v3 CLI
@@ -76,8 +78,9 @@ async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resum
     runtimeState.restabilize();
     const appLogs = new AppLogStore(projectRoot, composition.persistenceHealth);
     appLogs.restabilize();
-    const controlResult = action === 'pause' ? pauseRuntimeControl({ projectRoot, runtimeState }) : resumeRuntimeControl({ projectRoot, runtimeState });
-    recordControlAction(appLogs, { actor: 'user', surface: 'cli', action: `runtime.${action}`, target_kind: 'runtime', target_id: 'project', params_summary: stableStringify({ action, liveRuntimeUpdated: false }), outcome: controlResult.ok ? 'ok' : 'error', outcome_summary: controlResult.ok ? 'persisted-only mutation applied (server not running)' : (controlResult.message ?? controlResult.error ?? 'mutation failed'), ...(controlResult.ok ? {} : { error: controlResult.message ?? controlResult.error ?? 'mutation failed' }) });
+    const runtimeControl = new RuntimeControlService({ projectRoot, persistenceHealth: composition.persistenceHealth, interventionBinding: new RuntimeInterventionBinding(), runtimeState, appLogs });
+    const request = { actor: 'user' as const, surface: 'cli' as const, paramsSummary: stableStringify({ action, liveRuntimeUpdated: false }) };
+    const controlResult = action === 'pause' ? runtimeControl.pauseOffline(request) : runtimeControl.resumeOffline(request);
     return controlResult;
   });
   if (!result.ok) throw new Error(result.message ?? result.error ?? `Failed to ${action} runtime`);

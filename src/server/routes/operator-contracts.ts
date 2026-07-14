@@ -40,7 +40,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildAgentOperatorContractHandlers({ projectRoot, cardStore: options.cardStore }),
     ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication, restartPort: options.restartPort, saivageConfig: options.saivageConfig }),
-    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardStoreProvider: () => options.cardStore }),
+    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardStoreProvider: () => options.cardStore, runtimeApplication: options.runtimeApplication }),
     ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication?.processRunner }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
     ...buildConfigOperatorContractHandlers({

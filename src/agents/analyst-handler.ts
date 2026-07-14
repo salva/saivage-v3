@@ -87,6 +87,7 @@ export interface AnalystRuntimeDeps {
   configAuthority: ResolvedConfigAuthority;
   cardStore: CardStoreRepository;
   runtime: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
+  runtimeControl?: import('../application/runtime-control-service.js').RuntimeControlApplicationPort;
   eventLogger?: EventLogger;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   eventBus: EventBus;
@@ -158,7 +159,7 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
 }
 
 function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardStore; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
-  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, persistenceHealth: args.runtimeDeps.persistenceHealth, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs };
+  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, persistenceHealth: args.runtimeDeps.persistenceHealth, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs };
 }
 
 type PendingAnalystTurn = {

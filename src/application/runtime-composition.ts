@@ -32,6 +32,7 @@ import { RuntimeInterventionBinding } from './intervention-readiness.js';
 import { RuntimeStateStore } from '../runtime/state.js';
 import { ActorSnapshotStore } from '../runtime/actors/snapshots.js';
 import { RecoveryDiagnosticsStore } from '../runtime/actors/actor-recovery.js';
+import { RuntimeControlService, type RuntimeControlApplicationPort, type RuntimeControlMechanics } from './runtime-control-service.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -55,6 +56,8 @@ export interface RuntimeApiFactoryDeps {
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
+  readonly runtimeControl: RuntimeControlApplicationPort;
+  readonly persistenceHealth: ApplicationPersistenceHealth;
   readonly cardStore: CardStoreRepository;
   readonly processRunner: ProcessRunner;
   readonly analystDeps: AnalystRuntimeDeps;
@@ -74,7 +77,7 @@ export interface RuntimeApplicationServices {
   cardStore: CardStoreRepository;
   authProfiles: AuthProfileRepository;
   persistenceHealth: ApplicationPersistenceHealth;
-  runtimeApiFactory?: (deps: RuntimeApiFactoryDeps) => RuntimeApi;
+  runtimeApiFactory?: (deps: RuntimeApiFactoryDeps) => RuntimeControlMechanics;
   restartServerAvailable?: boolean;
   restartPort?: RestartPort;
   readModelChanges: ReadModelChanges;
@@ -82,6 +85,7 @@ export interface RuntimeApplicationServices {
 
 function buildAnalystDeps(input: {
   runtimeApi: RuntimeApi;
+  runtimeControl: RuntimeControlService;
   cardStore: CardStoreRepository;
   eventLogger: EventLogger;
   eventBus: EventBus;
@@ -98,6 +102,7 @@ function buildAnalystDeps(input: {
   return {
     configAuthority: input.configAuthority,
     runtime: input.runtimeApi,
+    runtimeControl: input.runtimeControl,
     cardStore: input.cardStore,
     eventLogger: input.eventLogger,
     eventBus: input.eventBus,
@@ -161,8 +166,10 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
+  const runtimeMechanics = runtimeFactory({ projectRoot, eventBus, cardStore, persistenceHealth: services.persistenceHealth, interventionBinding, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, runtimeState, snapshots, recoveryDiagnostics, readModelChanges: services.readModelChanges });
+  const runtimeControl = new RuntimeControlService({ projectRoot, persistenceHealth: services.persistenceHealth, interventionBinding, runtimeState, appLogs: services.appLogs, eventBus, mechanics: runtimeMechanics });
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, persistenceHealth: services.persistenceHealth, interventionBinding, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, runtimeState, snapshots, recoveryDiagnostics, readModelChanges: services.readModelChanges }),
+    runtimeApi: runtimeControl,
     eventLogger,
     errorLogger,
     eventBus,
@@ -175,6 +182,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const getAnalystDeps = (): AnalystRuntimeDeps => {
     analystDepsCache ??= buildAnalystDeps({
       runtimeApi,
+      runtimeControl,
       cardStore,
       eventLogger,
       eventBus,
@@ -193,6 +201,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   return {
     runtimeApi,
+    runtimeControl,
+    persistenceHealth: services.persistenceHealth,
     cardStore,
     processRunner,
     get analystRuntime() {

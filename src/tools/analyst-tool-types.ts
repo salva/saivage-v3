@@ -10,6 +10,7 @@ import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runn
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { InterventionReadinessFacet } from '../application/intervention-readiness.js';
+import type { RuntimeControlApplicationPort } from '../application/runtime-control-service.js';
 
 export type { ToolResult };
 
@@ -29,6 +30,7 @@ export interface ToolContext {
   store: CardStore;
   sessionId?: string;
   runtime?: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
+  runtimeControl?: RuntimeControlApplicationPort;
   mcpManager?: McpManager;
   restartServerAvailable: boolean;
   actor: ActorRole;

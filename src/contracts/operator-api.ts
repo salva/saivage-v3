@@ -102,9 +102,10 @@ export {
   AvailabilityComponentSourceSchema,
   AvailabilityDiagnosticSchema,
   AvailabilityStateSchema,
+  ApplicationPersistenceHealthSnapshotSchema,
   ServerAvailabilitySchema,
 } from './operator-api-availability.js';
-export type { AvailabilityComponent, AvailabilityState, ServerAvailability } from './operator-api-availability.js';
+export type { ApplicationPersistenceHealthProjection, AvailabilityComponent, AvailabilityState, ServerAvailability } from './operator-api-availability.js';
 export {
   authOperatorApiContracts,
   WebSocketTicketResponseSchema,

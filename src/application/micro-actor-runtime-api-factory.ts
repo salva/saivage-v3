@@ -1,6 +1,6 @@
 import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
 import type { EventBus } from '../events/index.js';
-import type { RuntimeApi } from '../runtime/control-api.js';
+import type { RuntimeControlMechanics } from './runtime-control-service.js';
 import type { LLMProviderPort, ProjectRootCardReader } from '../runtime/actors/index.js';
 import type { CardStoreRepository } from '../cards/card-store.js';
 import type { InvocationService } from '../agents/invocation-service.js';
@@ -42,7 +42,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   readModelChanges: ReadModelChanges;
 }
 
-export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps): RuntimeApi {
+export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps): RuntimeControlMechanics {
   const compaction = deps.config?.compaction?.enabled === true ? buildCompactionWiring(deps.invocationService, deps.config) : undefined;
   return createSupervisorRuntimeApi({
     projectRoot: deps.projectRoot,

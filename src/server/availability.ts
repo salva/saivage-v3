@@ -3,6 +3,7 @@ import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactSnippetForOutbound } from '../redaction/index.js';
 import type { ServerAvailability } from '../contracts/index.js';
+import type { ApplicationPersistenceHealthSnapshot } from '../application/persistence-health.js';
 
 export interface ServerAvailabilityInputs {
   projectRoot: string;
@@ -17,9 +18,13 @@ function nowIso(): string {
 function boundedSummary(error: unknown, projectRoot: string): string {
   const name = error instanceof Error ? error.name : 'Error';
   const rawMessage = error instanceof Error ? error.message : String(error);
-  const redacted = redactSnippetForOutbound(redactOperatorErrorMessage(rawMessage, projectRoot), 'operator.api', 180, { source: 'availability.diagnostic' });
+  const redacted = boundedValue(rawMessage, projectRoot, 180);
   const summary = `${name}: ${redacted}`.replace(/\s+/g, ' ').trim();
   return summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
+}
+
+function boundedValue(value: string, projectRoot: string, limit = 240): string {
+  return redactSnippetForOutbound(redactOperatorErrorMessage(value, projectRoot), 'operator.api', limit, { source: 'availability.diagnostic' }).replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
 function diagnostic(code: string, error: unknown, projectRoot: string) {
@@ -76,8 +81,34 @@ export function buildServerAvailability(inputs: ServerAvailabilityInputs): Serve
     };
   }
 
+  const persistenceSnapshot = projectPersistenceHealthSnapshot(inputs.runtimeApplication.persistenceHealth.snapshot(), inputs.projectRoot);
+  const persistence: ServerAvailability['components']['persistence'] = persistenceSnapshot.state === 'healthy'
+    ? { state: 'available', source: 'runtime-application', checkedAt }
+    : {
+        state: 'unavailable',
+        source: 'runtime-application',
+        checkedAt,
+        diagnostic: {
+          code: 'persistence-mutation-unhealthy',
+          summary: `${persistenceSnapshot.diagnostic.operation} on ${persistenceSnapshot.diagnostic.target}: ${persistenceSnapshot.diagnostic.message}`.slice(0, 240),
+        },
+      };
+
   return {
     generatedAt,
-    components: { api, runtime, mcp },
+    components: { api, runtime, mcp, persistence },
   };
+}
+
+export function projectPersistenceHealthSnapshot(snapshot: ApplicationPersistenceHealthSnapshot, projectRoot: string) {
+  if (snapshot.state === 'healthy') return snapshot;
+  return {
+    state: snapshot.state,
+    diagnostic: {
+      target: boundedValue(snapshot.diagnostic.target, projectRoot),
+      operation: snapshot.diagnostic.operation.slice(0, 240),
+      message: boundedValue(snapshot.diagnostic.message, projectRoot),
+      reported_at: snapshot.diagnostic.reported_at,
+    },
+  } as const;
 }
