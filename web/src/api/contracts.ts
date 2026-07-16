@@ -2,7 +2,6 @@ export {
   operatorApiContracts,
   operatorRouteInventory,
   parseOperatorResponse,
-  safeParseOperatorResponse,
   ProcessDetailResponseSchema,
   ProcessIdParamsSchema,
   ProcessListResponseSchema,

@@ -197,10 +197,6 @@ export function parseOperatorResponse<K extends OperatorApiOperationId>(operatio
   return operatorApiContracts[operationId].success.parse(payload) as OperatorApiSuccess<K>;
 }
 
-export function safeParseOperatorResponse<K extends OperatorApiOperationId>(operationId: K, payload: unknown) {
-  return operatorApiContracts[operationId].success.safeParse(payload);
-}
-
 export function operatorRouteInventory(): Array<{
   operationId: OperatorApiOperationId;
   method: HttpMethod;

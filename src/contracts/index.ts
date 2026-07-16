@@ -63,7 +63,6 @@ export {
   runtimeCardsOperatorApiContracts,
   operatorRouteInventory,
   parseOperatorResponse,
-  safeParseOperatorResponse,
 } from './operator-api.js';
 
 export {
