@@ -28,7 +28,8 @@ Saivage-owned persistence is direct stateless synchronous file I/O by the domain
 - `authored-record-files.ts` owns record reads, open replacement, close, and discard.
 - `conversation-file.ts` owns one stable append-only conversation per role session.
 - `app-log.ts` owns strict event, error, unrelated control-action, provider-exchange, and content-review entries.
-- `config-file.ts`, `auth-profile-file.ts`, and `project-identity.ts` own their single canonical files.
+- `ResolvedConfigAuthority` owns selected YAML document reads, effective validation, and config mutation orchestration; `config-file.ts` owns canonical atomic replacement.
+- `auth-profile-file.ts` and `project-identity.ts` own their single canonical files.
 - `runtime/lock.ts` is the exceptional process-exclusion boundary only.
 
 `CardService` performs operation-local rereads and invokes these direct functions. A disposable `CardIndex` may project one read, but it never authorizes a later write. There are no repositories, generic stores, persistence health latches, writer registries, queues, generations, transactions, repair orchestrators, or durable runtime owners.
