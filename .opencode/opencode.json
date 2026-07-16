@@ -11,6 +11,7 @@
       "/home/salva/g/ml/saivage-v3/.github/skills"
     ]
   },
+  "subagent_depth": 3,
   "watcher": {
     "ignore": [
       "**/.git",
