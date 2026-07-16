@@ -179,11 +179,10 @@ This appendix is maintained as source-derived reference data for documentation d
 <!-- saivage:internal-debug-routes:start -->
 | Route | Purpose | Source |
 |---|---|---|
-| `POST /api/debug/runtime/start` | Internal runtime start. | `src/server/routes/chats-files-debug.ts:16` |
-| `GET /api/debug/doctor` | Internal card diagnostic. | `src/server/routes/chats-files-debug.ts:25` |
+| `GET /api/debug/doctor` | Internal card diagnostic. | `src/server/routes/chats-files-debug.ts:16` |
 | `GET /api/debug/errors` | Internal error projection. | `src/contracts/operator-api-files-debug.ts:86` |
 | `GET /api/debug/state` | Internal state projection. | `src/contracts/operator-api-files-debug.ts:76` |
-| `GET /api/debug/supervision` | Internal supervision projection. | `src/server/routes/chats-files-debug.ts:46` |
+| `GET /api/debug/supervision` | Internal supervision projection. | `src/server/routes/chats-files-debug.ts:37` |
 | `GET /api/debug/timeline` | Internal timeline projection. | `src/contracts/operator-api-files-debug.ts:96` |
 <!-- saivage:internal-debug-routes:end -->
 

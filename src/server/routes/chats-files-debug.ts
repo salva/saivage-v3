@@ -1,26 +1,17 @@
 import { existsSync } from 'node:fs';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { CardService } from '../../cards/card-api.js';
-import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import { listRecentReviews } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
 import { cardRecordsRoot } from '../../persistence/card-loader.js';
 import type { AuthPolicy } from '../auth-policy.js';
 
-export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardService, authPolicy: AuthPolicy, runtimeApplication?: RuntimeApplication): void {
+export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardService, authPolicy: AuthPolicy): void {
   const requireOperator = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (authPolicy.validateHttpRequest(request).ok) return;
     await reply.status(401).send({ error: 'Unauthorized', statusCode: 401 });
   };
-  fastify.post('/api/debug/runtime/start', { preHandler: requireOperator }, async (_request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      if (!runtimeApplication) return reply.status(503).send({ error: 'Runtime application unavailable.' });
-      return reply.send(await runtimeApplication.runtimeControl.startProject('operator', { actor: 'user', surface: 'rest', paramsSummary: '{}' }));
-    } catch (err) {
-      return reply.status(500).send({ error: 'Failed to start runtime', message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot) });
-    }
-  });
 
   fastify.get('/api/debug/doctor', { preHandler: requireOperator }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {

@@ -38,7 +38,7 @@ export function registerServerRoutes(options: {
     restartPort: options.restartPort,
     authPolicy: options.authPolicy,
   });
-  registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore, options.authPolicy, options.runtimeApplication);
+  registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore, options.authPolicy);
   registerWebSocket(options.fastify, options.projectRoot, {
     authPolicy: options.authPolicy,
     liveSyncSocket: options.liveSyncSocket,

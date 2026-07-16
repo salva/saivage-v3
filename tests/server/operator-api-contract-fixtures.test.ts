@@ -59,4 +59,9 @@ describe('operator API response contracts', () => {
       runtime: expect.any(Object),
     });
   });
+
+  it('does not register the removed debug runtime start route', async () => {
+    const response = await app.server.fastify.inject({ method: 'POST', url: '/api/debug/runtime/start' });
+    expect(response.statusCode).toBe(404);
+  });
 });
