@@ -115,6 +115,7 @@ export class ManagedProcessGroupRegistry {
     }
 
     const child = this.platform.spawn(input.file, input.args, { ...input.options, detached: true });
+    child.on('error', () => {});
     if (!child.pid) {
       child.kill();
       throw new Error(`Managed process group '${input.groupId}' has no leader PID.`);

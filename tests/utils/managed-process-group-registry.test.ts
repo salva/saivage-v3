@@ -93,6 +93,22 @@ describe('ManagedProcessGroupRegistry capabilities and process-group truth', () 
     expect(spawnCount()).toBe(0);
   });
 
+  it('contains asynchronous child errors after rejecting a launch without a leader PID', () => {
+    const child = Object.assign(new EventEmitter(), { pid: undefined, kill: jest.fn() }) as unknown as ChildProcess;
+    const platform: ManagedProcessPlatform = {
+      spawn: () => child,
+      probe: () => {},
+      signal: () => {},
+    };
+    const registry = new ManagedProcessGroupRegistry(platform);
+    const scope = registry.createDirectScope(registry.rootScope, 'direct', 'runtime_card');
+
+    expect(() => launch(registry, scope)).toThrow("Managed process group 'group-1' has no leader PID.");
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(() => child.emit('error', errno('ENOENT'))).not.toThrow();
+    expect(registry.isLive('group-1')).toBe(false);
+  });
+
   it('tolerates overlapping project-Stop/App runtime-root signals and removals without sibling-root impact', async () => {
     const operations: string[] = [];
     let nextPid = 5000;

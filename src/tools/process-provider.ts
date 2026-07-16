@@ -6,7 +6,7 @@ import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ManagedProcessScope, ProcessCategory, ProcessRunner } from '../runtime/process-runner.js';
 import type { AgentRole, ProcessRecord, ProcessStatus } from '../schemas/index.js';
-import { resolveContainedProjectPath } from '../workspace/index.js';
+import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
 interface ProcessToolResult {
@@ -82,17 +82,17 @@ function timeoutMs(value: number | undefined): number {
 
 function scopedCwd(projectRoot: string, raw: string | undefined): string {
   if (!raw) return projectRoot;
-  if (raw.startsWith('system:///')) {
-    const parsed = parseScopedPathUrl(raw, 'system');
-    if (parsed.query !== null || parsed.hadFragment) throw new Error(`Invalid system cwd '${raw}'.`);
-    return resolve(`/${parsed.segments.join('/')}`);
+  const scheme = parseScopedPathScheme(raw);
+  if (scheme === 'project' || scheme === 'system') {
+    const parsed = parseScopedPathUrl(raw, scheme);
+    if (parsed.query !== null || parsed.hadFragment) throw new Error(`Invalid ${scheme} cwd '${raw}'.`);
+    if (scheme === 'system') return resolve(`/${parsed.segments.join('/')}`);
+    const resolved = resolveContainedProjectPath(projectRoot, parsed.segments.join('/') || '.');
+    if (!resolved.safe) throw new Error(resolved.reason ?? 'cwd must resolve inside the project root.');
+    return resolved.absolutePath;
   }
-  const projectPath = raw.startsWith('project:///') ? (() => {
-    const parsed = parseScopedPathUrl(raw, 'project');
-    if (parsed.query !== null || parsed.hadFragment) throw new Error(`Invalid project cwd '${raw}'.`);
-    return parsed.segments.join('/');
-  })() : raw;
-  const resolved = resolveContainedProjectPath(projectRoot, projectPath || '.');
+  if (scheme !== null) throw new Error(`Scoped URL scheme '${scheme}' is not supported for cwd.`);
+  const resolved = resolveContainedProjectPath(projectRoot, raw);
   if (!resolved.safe) throw new Error(resolved.reason ?? 'cwd must resolve inside the project root.');
   return resolved.absolutePath;
 }
@@ -163,7 +163,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
     tools: [
       defineTool({
         name: 'run_command',
-        description: 'Run a shell command. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
+        description: 'Run a Bash command. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
         inputSchema: runCommandSchema,
         executor: async (args, signal) => {
           try {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -52,6 +52,60 @@ describe('process provider', () => {
       expect(result.data).not.toHaveProperty('log_path');
       expect(result.data).not.toHaveProperty('truncated');
     }
+  }));
+
+  it('runs commands in canonical project and system cwd URLs', async () => withRoot(async (root) => {
+    mkdirSync(join(root, 'packages', 'api'), { recursive: true });
+    const processRunner = createTestProcessRunner(root);
+    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const cases = [
+      ['project:///', root],
+      ['project:///packages/api', join(root, 'packages', 'api')],
+      ['packages/api', join(root, 'packages', 'api')],
+      ['system:///', '/'],
+      ['system:///tmp', '/tmp'],
+    ] as const;
+
+    for (const [cwd, expected] of cases) {
+      const result = await invokeTool(surface, 'run_command', { command: 'exit 0', cwd, timeout_ms: 1000 });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        const processId = (result.data as { process_id: string }).process_id;
+        expect(processRunner.get(processId)?.cwd).toBe(expected);
+      }
+    }
+  }));
+
+  it('rejects malformed and unsupported scoped cwd values before launch', async () => withRoot(async (root) => {
+    const processRunner = createTestProcessRunner(root);
+    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const cases = [
+      ['record:///', 'not supported for cwd'],
+      ['tmp:///', 'not supported for cwd'],
+      ['work:///', 'not supported for cwd'],
+      ['unknown:///path', "Unsupported scoped URL scheme 'unknown'"],
+      ['project://', 'expected project:///'],
+      ['project://host/path', 'expected project:///'],
+      ['project:///packages?mode=test', 'Invalid project cwd'],
+      ['project:///packages#fragment', 'Invalid project cwd'],
+      ['../outside', 'Path traversal detected'],
+    ] as const;
+
+    for (const [cwd, message] of cases) {
+      const result = await invokeTool(surface, 'run_command', { command: 'exit 0', cwd });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error).toContain(message);
+      expect(processRunner.list()).toEqual([]);
+    }
+  }));
+
+  it('executes run_command with Bash semantics', async () => withRoot(async (root) => {
+    const processRunner = createTestProcessRunner(root);
+    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+
+    const result = await invokeTool(surface, 'run_command', { command: 'set -o pipefail; [[ value == v* ]]', timeout_ms: 1000 });
+
+    expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ status: 'exited', exit_code: 0 }) }));
   }));
 
   it('starts and inspects background commands', async () => withRoot(async (root) => {

@@ -42,6 +42,23 @@ describe('ProcessRunner managed process groups', () => {
     expect(createTestProcessRunner(root).list()).toEqual([]);
   });
 
+  it('contains a real spawn error and remains usable after a nonexistent cwd', async () => {
+    const failedScope = direct('runtime_card', 'failed-launch');
+    expect(() => runner.spawn({
+      command: 'exit 0',
+      directScope: failedScope,
+      category: 'runtime_card',
+      ownerId: 'same-owner',
+      ownerKind: 'agent',
+      cwd: join(root, 'missing-cwd'),
+    })).toThrow('has no leader PID');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(runner.list()).toEqual([]);
+
+    const subsequent = launch('exit 0');
+    await expect(runner.waitForSettlement(subsequent.id)).resolves.toMatchObject({ status: 'exited', exitCode: 0 });
+  });
+
   it.each<ProcessCategory>(['runtime_card', 'operator_session', 'service_infrastructure'])('does not finalize an exited wrapper while its %s descendant remains', async (category) => {
     const scope = direct(category);
     const pidFile = join(root, `${category}.pid`);

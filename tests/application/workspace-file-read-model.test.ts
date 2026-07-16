@@ -32,4 +32,21 @@ describe('WorkspaceFileReadModelService work URLs', () => {
     expect(service.readFileContent('README.md')).toEqual(expect.objectContaining({ body: expect.objectContaining({ path: 'README.md', content: 'readme' }) }));
     expect(service.readFileContent('work:///processes/proc-1/missing.log').statusCode).toBe(404);
   }));
+
+  it('lists the canonical work root and treats it as a directory for content reads', () => withRoot((root) => {
+    mkdirSync(join(root, '.saivage/work', 'processes'), { recursive: true });
+    mkdirSync(join(root, '.saivage/work', 'tmp'), { recursive: true });
+    const service = new WorkspaceFileReadModelService(root);
+
+    expect(service.listFiles('work:///')).toEqual({
+      body: {
+        path: 'work:///',
+        files: expect.arrayContaining([
+          expect.objectContaining({ name: 'processes', path: 'work:///processes', type: 'directory' }),
+          expect.objectContaining({ name: 'tmp', path: 'work:///tmp', type: 'directory' }),
+        ]),
+      },
+    });
+    expect(service.readFileContent('work:///')).toEqual({ statusCode: 400, body: { error: 'Path is a directory', path: 'work:///' } });
+  }));
 });

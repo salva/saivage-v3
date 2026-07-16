@@ -9,8 +9,13 @@ import { registerOperatorContractRoutes } from '../../src/server/routes/operator
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
+import { ProcessLogRefsSchema } from '../../src/contracts/operator-api-processes.js';
 
 describe('contract-backed process routes', () => {
+  it('keeps the work root invalid as a concrete process-log reference', () => {
+    expect(ProcessLogRefsSchema.safeParse({ stdout: 'work:///', stderr: null }).success).toBe(false);
+  });
+
   it('lists and reads safe process views without the old hand-mounted route owner', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
     initProjectTree(projectRoot);

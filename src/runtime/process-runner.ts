@@ -89,7 +89,7 @@ export class ProcessRunner {
   }
 
   spawn(spec: ProcessSpawnSpec): ProcessRecord {
-    return this.launch(spec, 'sh', ['-c', spec.command], ['ignore', 'pipe', 'pipe'], true, { ...sanitizedCommandEnv(), PROJECT_ROOT: this.projectRoot, SAIVAGE_ROOT: this.projectRoot, ...spec.env }).record;
+    return this.launch(spec, 'bash', ['-c', spec.command], ['ignore', 'pipe', 'pipe'], true, { ...sanitizedCommandEnv(), PROJECT_ROOT: this.projectRoot, SAIVAGE_ROOT: this.projectRoot, ...spec.env }).record;
   }
 
   spawnInteractive(spec: InteractiveProcessSpawnSpec): InteractiveProcessLaunch {

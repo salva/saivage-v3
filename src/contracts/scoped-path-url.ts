@@ -14,9 +14,8 @@ export function parseScopedPathUrl(raw: string, scheme: string): ParsedScopedPat
   const pathPart = rest.slice(0, cut);
   const queryPart = firstQ >= 0 && (firstH < 0 || firstQ < firstH) ? rest.slice(firstQ + 1, firstH < 0 ? undefined : firstH) : null;
   const hadFragment = firstH >= 0;
-  if (pathPart === '') throw new Error(`Invalid ${scheme} URL '${raw}' (empty path).`);
   const segments: string[] = [];
-  for (const rawSeg of pathPart.split('/')) {
+  for (const rawSeg of pathPart === '' ? [] : pathPart.split('/')) {
     if (rawSeg === '') throw new Error(`Invalid ${scheme} URL '${raw}' (empty/double/trailing slash).`);
     let seg: string;
     try {
@@ -34,9 +33,8 @@ export function parseScopedPathUrl(raw: string, scheme: string): ParsedScopedPat
 export function buildScopedPathUrl(scheme: string, segments: readonly string[]): string {
   const enc: string[] = [];
   for (const s of segments) {
-    if (s === '' || s === '.' || s === '..' || /[\/\\?#]/.test(s)) throw new Error(`Unrepresentable segment for ${scheme} URL: '${s}'.`);
+    if (s === '' || s === '.' || s === '..' || /[/\\?#]/.test(s)) throw new Error(`Unrepresentable segment for ${scheme} URL: '${s}'.`);
     enc.push(encodeURIComponent(s));
   }
-  if (enc.length === 0) throw new Error(`${scheme}:/// requires at least one segment.`);
   return `${scheme}:///${enc.join('/')}`;
 }

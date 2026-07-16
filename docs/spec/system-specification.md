@@ -66,6 +66,8 @@ The App terminal coordinator is separate and deliberately best effort. `App.stop
 
 Each process-owning component leaf closes admission/revokes callbacks and starts exactly one owned-root termination before any await, then awaits that termination with its actor/session/operation joins. A fulfilled `ProcessStopReport` is successful only when `failed` is empty. One shared runner/registry owns disjoint runtime, Analyst, and MCP roots; a timed-out component may continue only in its root while later leaves run, and App runtime termination may overlap project Stop on the runtime root. Repeated signals and already-exited/missing/removal observations are accepted without a global drain, deduplication, shared join, or collector coupling.
 
+`run_command` executes its command as one argument to `bash -c`. A missing or empty cwd and canonical `project:///` select the project root; plain cwd values are project-relative and contained; `project:///...` selects a contained project descendant; and `system:///` or `system:///...` selects the system root or descendant. Malformed scoped URLs, query/fragment cwd values, unknown scoped schemes, and the `record`, `tmp`, and `work` schemes fail before launch. The managed-process registry consumes child `error` events immediately from spawn return, so a handled OS launch failure cannot independently crash the runtime, and it never registers a process group without a positive leader PID.
+
 Every leaf uses the coordinator's referenced ten-second timer, above the managed-process five-second TERM grace plus two-second post-KILL verification. Fast settlement clears the timer; timeout does not cancel or retain the leaf. `App.stop()` resolves an immutable `ShutdownReport` containing only ordered allowlisted `{component, code}` warnings, where code is `closer_failed`, `cleanup_failed`, or `cleanup_timeout`; caught messages, paths, payloads, stacks, and causes are never inspected or exposed. It never logs or changes exit status. Process-owning signal/restart/startup adapters log only fixed component and code fields and preserve ordinary behavior. Public terminal access remains confirmed `restart_server` only with operator authentication; Stop remains available in both auth modes.
 
 Run, Pause, Resume, and Stop produce no lifecycle-control audit entries. Unrelated audits remain.
@@ -108,6 +110,8 @@ Each protocol candidate builds and canonical-serializes its actual request body 
 ## 11. API And Operator Projection
 
 REST is authoritative; WebSocket supplies lossy freshness hints. Cards expose pending notifications and opaque IDs, not role/retry/recovery fields. Runtime, readiness, and debug responses expose process-local runtime state and no persistence-health, runtime-file, snapshot, or recovery component. Provider routing labels availability `process_local_reset_on_restart`.
+
+The Files read model accepts canonical `work:///` as the listable `.saivage/work` root and returns canonical `work:///...` child paths. Content reads of `work:///` reject it as a directory, and process-log fields continue to require concrete canonical log URLs.
 
 The UI displays title/hierarchy labels and preserves UUID links. It exposes Stop project with contained/no-op/conflict results. Restart server appears only when required `restart_server_available` is true and requires confirmation. No UI action optimistically writes a running card cancelled. Raw conversations preserve canonical compaction JSON while rendered views show one synthetic system context.
 
