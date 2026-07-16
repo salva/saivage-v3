@@ -127,11 +127,6 @@ export interface ActionableErrorEnvelope {
 export interface RuntimeSummary {}
 
 
-export interface RuntimeCommandErrorResponse {
-  success: false;
-  actionable_error: ActionableErrorEnvelope;
-}
-
 
 
 
