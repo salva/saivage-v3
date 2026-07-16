@@ -16,20 +16,23 @@ const source = '11111111-1111-4111-8111-111111111111';
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('stable same-session recovery', () => {
-  it('settles the sole latest-round unmatched call under its original source UUID', () => {
+  it('settles an unmatched activate_card call locally as outcome unknown under its original identity', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-recovery-'));
     roots.push(projectRoot);
     const sessionId = 'planner:project';
     const base = { session_id: sessionId, round_id: 'r-pre-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
     const rows: AgentMessage[] = [
       { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source }) },
-      { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), tool: 'read', tool_call_id: 'call-1', message_index: 1 },
+      { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '22222222-2222-4222-8222-222222222222' }) } }] }), tool: 'activate_card', tool_call_id: 'call-1', message_index: 1 },
     ];
     appendConversationBatch(projectRoot, rows);
     const result = stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     expect(result.interrupted).toBe(true);
-    const settlement = readConversation(projectRoot, sessionId).at(-1)!;
+    const recovered = readConversation(projectRoot, sessionId);
+    expect(recovered).toHaveLength(rows.length + 1);
+    const settlement = recovered.at(-1)!;
     expect(settlement.id).toBe(`${source}:tool-result:call-1`);
+    expect(settlement).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-1' });
     expect(JSON.parse(settlement.content)).toEqual({ success: false, error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.', data: { outcome_unknown: true } });
   });
 

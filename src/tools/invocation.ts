@@ -14,12 +14,7 @@ export interface ToolDefinition<Args = unknown> {
   readonly description: string;
   readonly inputSchema: z.ZodType<Args>;
   readonly executor: (args: Args, signal: AbortSignal) => Promise<ToolResult>;
-  readonly replay?: (args: Args) => Promise<ToolReplayOutcome>;
 }
-
-export type ToolReplayOutcome =
-  | { kind: 'settled'; result: ToolResult }
-  | { kind: 'redispatch' };
 
 export type ToolProviderCleanupReason =
   | { kind: 'activation_settled'; status: 'done' | 'blocked' | 'failed' | 'cancelled' }
@@ -43,7 +38,6 @@ export function defineTool<Schema extends z.ZodTypeAny>(definition: {
   readonly description: string;
   readonly inputSchema: Schema;
   readonly executor: (args: z.infer<Schema>, signal: AbortSignal) => Promise<ToolResult>;
-  readonly replay?: (args: z.infer<Schema>) => Promise<ToolReplayOutcome>;
 }): ToolDefinition<z.infer<Schema>> {
   return definition;
 }
@@ -79,18 +73,6 @@ export async function invokeToolForLlm(surface: InvocationSurface, name: string,
     if (signal?.aborted) throw error;
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
-}
-
-export async function replayToolForRecovery(surface: InvocationSurface, name: string, args: unknown): Promise<ToolReplayOutcome> {
-  const definition = surface.tools.get(name);
-  if (!definition) return { kind: 'settled', result: defaultInterruptedToolResult(name) };
-  const parsed = definition.inputSchema.safeParse(args);
-  if (!parsed.success) return { kind: 'settled', result: { success: false, error: parsed.error.message } };
-  return definition.replay?.(parsed.data) ?? { kind: 'settled', result: defaultInterruptedToolResult(name) };
-}
-
-function defaultInterruptedToolResult(toolName: string): ToolResult {
-  return { success: false, error: `Runtime restarted before '${toolName}' completed. Re-issue the call after inspecting current state.` };
 }
 
 export async function invokeToolCall(surface: InvocationSurface, name: string, rawArgs: string, signal?: AbortSignal): Promise<ToolResult> {

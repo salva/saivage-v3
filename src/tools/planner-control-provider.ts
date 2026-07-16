@@ -71,7 +71,7 @@ export function createPlannerControlProvider(ctx: PlannerControlProviderContext)
       defineTool({ name: 'create_card', description: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.', inputSchema: createCardSchema, executor: async (args) => createCard(ctx, args) }),
       defineTool({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', inputSchema: editCardSchema, executor: async (args) => editCard(ctx, args) }),
       defineTool({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: cancelCardSchema, executor: async (args) => cancelCard(ctx, args) }),
-      defineTool({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardSchema, executor: async (args) => activateCard(ctx, args), replay: async (args) => replayActivateCard(ctx, args) }),
+      defineTool({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardSchema, executor: async (args) => activateCard(ctx, args) }),
       defineTool({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: reorderChildSchema, executor: async (args) => reorderChild(ctx, args) }),
       defineTool({ name: 'queue_notification', description: 'Queue operator context on one nonterminal card for its planner or executor.', inputSchema: queueNotificationSchema, executor: async (args) => queueNotificationTool(ctx, args) }),
     ],
@@ -191,17 +191,6 @@ async function activateCard(ctx: PlannerControlProviderContext, record: z.infer<
   }
 }
 
-async function replayActivateCard(ctx: PlannerControlProviderContext, record: z.infer<typeof activateCardSchema>) {
-  const child = ctx.store.read(record.card_id);
-  if (!child) return { kind: 'settled' as const, result: failure(`Child card '${record.card_id}' not found.`) };
-  if (child.parent !== ctx.parentCardId) return { kind: 'settled' as const, result: failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`) };
-  if (child.status === 'done' || child.status === 'failed' || child.status === 'blocked') {
-    return { kind: 'settled' as const, result: { success: true as const, data: { card_id: child.id, outcome: child.status, summary: cardLifecycleSummary(child), result: child.lifecycle?.result ?? null } } };
-  }
-  if (child.status === 'cancelled') return { kind: 'settled' as const, result: failure(`Child card '${record.card_id}' was cancelled.`) };
-  return { kind: 'redispatch' as const };
-}
-
 function requireImmediateChild(ctx: PlannerControlProviderContext, cardId: string, toolName: string): { success: true; card: CardRecord } | { success: false; error: string } {
   const child = ctx.store.read(cardId);
   if (!child) return failure(`${toolName} target child '${cardId}' not found.`);
@@ -255,11 +244,4 @@ function compactPlannerToolCard(card: CardRecord): Pick<CardRecord, 'id' | 'type
 
 function failure(error: string): { success: false; error: string } {
   return { success: false, error };
-}
-
-function cardLifecycleSummary(card: CardRecord): string {
-  const summary = card.lifecycle?.result?.summary;
-  if (typeof summary === 'string' && summary.length > 0) return summary;
-  if (typeof card.status_text === 'string' && card.status_text.length > 0) return card.status_text;
-  return `Child card '${card.id}' finished with status '${card.status}'.`;
 }
