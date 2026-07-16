@@ -29,7 +29,7 @@
           v-else
           :cards="orderedCards"
           :tree="orderedCardTree"
-          :expanded-ids="expandedTreeIds"
+          :expanded-ids="effectiveExpandedTreeIds"
           @toggle="toggleTreeNode"
           @select="selectCard"
         />
@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useCardStore } from '../stores/cards';
 import type { CardStatus, CardType } from '../types/view-models';
@@ -70,9 +70,8 @@ const {
   filterStatus,
   filterType,
   searchQuery,
-  expandedTreeIds,
+  effectiveExpandedTreeIds,
   toggleTreeNode,
-  expandProjectByDefault,
 } = useCardBrowserReadModel(cardStore);
 
 const currentCardId = computed<string | null>(() => {
@@ -98,14 +97,6 @@ function clearFilters(): void {
   cardStore.clearFilters();
 }
 
-onMounted(async () => {
-  try {
-    await cardStore.fetchCards();
-  } catch {
-    // Error surfaced via store state.
-  }
-  expandProjectByDefault();
-});
 </script>
 
 <style scoped>

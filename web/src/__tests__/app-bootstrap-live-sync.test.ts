@@ -38,26 +38,67 @@ describe('application bootstrap live sync', () => {
     setActivePinia(createPinia());
   });
 
-  it('registers the runtime refetch through bootstrap and dispatches the canonical runtime frame', async () => {
+  it('starts each canonical owner once, targets invalidations, and refreshes each owner once on token change', async () => {
     const harness = connectionHarness();
     const client = new SyncClient(harness.conn);
     const runtimeRefetch = vi.fn(async () => undefined);
+    const cardsRefetch = vi.fn(async () => undefined);
+    const agentsRefetch = vi.fn(async () => undefined);
+    const fetchSessions = vi.fn(async () => undefined);
+    const authRefresh = vi.fn();
     vi.doMock('../sync/client', () => ({ syncClient: client }));
     vi.doMock('../stores/runtime', () => ({ useRuntimeStore: () => ({ refetch: runtimeRefetch, markWsSync: vi.fn() }) }));
-    vi.doMock('../stores/cards', () => ({ useCardStore: () => ({ refetch: vi.fn(async () => undefined) }) }));
-    vi.doMock('../stores/agents', () => ({ useAgentStore: () => ({ refetch: vi.fn(async () => undefined), markWsSync: vi.fn() }) }));
-    vi.doMock('../stores/auth', () => ({ AUTH_TOKEN_CHANGED_EVENT: 'saivage-auth-token-changed', useAuthStore: () => ({ refresh: vi.fn() }) }));
+    vi.doMock('../stores/cards', () => ({ useCardStore: () => ({ refetch: cardsRefetch }) }));
+    vi.doMock('../stores/agents', () => ({ useAgentStore: () => ({ fetchSessions, refetch: agentsRefetch, markWsSync: vi.fn() }) }));
+    vi.doMock('../stores/auth', () => ({ AUTH_TOKEN_CHANGED_EVENT: 'saivage-auth-token-changed', useAuthStore: () => ({ refresh: authRefresh }) }));
     const { startAppBootstrap } = await import('../composables/useAppBootstrap');
 
     startAppBootstrap();
     await flush();
     expect(harness.conn.connect).toHaveBeenCalledTimes(1);
     expect(runtimeRefetch).toHaveBeenCalledTimes(1);
+    expect(cardsRefetch).toHaveBeenCalledTimes(1);
+    expect(fetchSessions).toHaveBeenCalledTimes(1);
+    expect(agentsRefetch).not.toHaveBeenCalled();
+    startAppBootstrap();
+    await flush();
+    expect(harness.conn.connect).toHaveBeenCalledTimes(1);
+    expect(runtimeRefetch).toHaveBeenCalledTimes(1);
+    expect(cardsRefetch).toHaveBeenCalledTimes(1);
+    expect(fetchSessions).toHaveBeenCalledTimes(1);
+
     runtimeRefetch.mockClear();
+    cardsRefetch.mockClear();
+    agentsRefetch.mockClear();
 
     harness.emit({ t: 'invalidate', resource: 'runtime' });
     await flush();
-
     expect(runtimeRefetch).toHaveBeenCalledTimes(1);
+    expect(cardsRefetch).not.toHaveBeenCalled();
+    expect(agentsRefetch).not.toHaveBeenCalled();
+
+    runtimeRefetch.mockClear();
+    harness.emit({ t: 'invalidate', resource: 'cards' });
+    await flush();
+    expect(cardsRefetch).toHaveBeenCalledTimes(1);
+    expect(runtimeRefetch).not.toHaveBeenCalled();
+    expect(agentsRefetch).not.toHaveBeenCalled();
+
+    cardsRefetch.mockClear();
+    harness.emit({ t: 'invalidate', resource: 'agents' });
+    await flush();
+    expect(agentsRefetch).toHaveBeenCalledTimes(1);
+    expect(runtimeRefetch).not.toHaveBeenCalled();
+    expect(cardsRefetch).not.toHaveBeenCalled();
+
+    agentsRefetch.mockClear();
+    window.dispatchEvent(new Event('saivage-auth-token-changed'));
+    await flush();
+    expect(authRefresh).toHaveBeenCalledTimes(1);
+    expect(harness.conn.reconfigure).toHaveBeenCalledTimes(1);
+    expect(runtimeRefetch).toHaveBeenCalledTimes(1);
+    expect(cardsRefetch).toHaveBeenCalledTimes(1);
+    expect(agentsRefetch).toHaveBeenCalledTimes(1);
+    expect(fetchSessions).toHaveBeenCalledTimes(1);
   });
 });

@@ -17,25 +17,29 @@ export function startAppBootstrap(): void {
   const authStore = useAuthStore();
 
   syncStore.registerResource({
-      resource: 'runtime',
-      scope: 'core',
-      refetch: runtimeStore.refetch,
-      onRefetch: runtimeStore.markWsSync,
-    });
+    resource: 'runtime',
+    scope: 'core',
+    refetch: runtimeStore.refetch,
+    onRefetch: runtimeStore.markWsSync,
+  });
   syncStore.registerResource({ resource: 'cards', scope: 'core', refetch: cardStore.refetch });
   syncStore.registerResource({
-      resource: 'agents',
-      scope: 'core',
-      refetch: agentStore.refetch,
-      onRefetch: agentStore.markWsSync,
-    });
+    resource: 'agents',
+    scope: 'core',
+    refetch: agentStore.refetch,
+    onRefetch: agentStore.markWsSync,
+  });
 
   syncStore.connect();
   runtimeStore.refetch().catch(() => {});
+  cardStore.refetch().catch(() => {});
+  agentStore.fetchSessions().catch(() => {});
 
   window.addEventListener(AUTH_TOKEN_CHANGED_EVENT, () => {
     authStore.refresh();
     syncStore.reconfigure();
     runtimeStore.refetch().catch(() => {});
+    cardStore.refetch().catch(() => {});
+    agentStore.refetch().catch(() => {});
   });
 }

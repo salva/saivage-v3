@@ -60,13 +60,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../stores/agents';
 import { useCardStore } from '../stores/cards';
 import type { AgentRole, AgentSession } from '../types/view-models';
-import { createLogger } from '../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { statusForAgentSession } from '../utils/status';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
@@ -76,7 +75,6 @@ import StatusBadge from '../components/ui/StatusBadge.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 import ViewState from '../components/ui/ViewState.vue';
 
-const log = createLogger('view:agents');
 const route = useRoute();
 const router = useRouter();
 const agentStore = useAgentStore();
@@ -111,11 +109,6 @@ function cardTitle(id: string | null | undefined): string {
   return card?.title ?? id;
 }
 
-onMounted(() => {
-  agentStore.fetchSessions().catch((err) => {
-    log.warn('fetchSessions failed', err);
-  });
-});
 </script>
 
 <style scoped>

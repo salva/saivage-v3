@@ -160,6 +160,7 @@ async function mountAgentsView(opts?: {
 
   const pinia = createPinia();
   setActivePinia(pinia);
+  await useAgentStore().fetchSessions().catch(() => {});
   const router = makeRouter();
   await router.push(opts?.initialRoute ?? '/agents');
   await router.isReady();

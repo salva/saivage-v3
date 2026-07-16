@@ -3,15 +3,16 @@
     <div class="conv-header-row">
       <PanelHeader title="Agent conversations">
         <template #actions>
-          <button type="button" class="conv-refresh" :disabled="loading" @click="loadSessions">Refresh</button>
+          <button type="button" class="conv-refresh" :disabled="requestPending" @click="loadSessions">Refresh</button>
         </template>
       </PanelHeader>
     </div>
 
-    <ViewState v-if="loading && sessions.length === 0" state="loading" title="Loading agent sessions" />
+    <ViewState v-if="sessionsLoading && sessions.length === 0" state="loading" title="Loading agent sessions" />
     <ViewState v-else-if="loadError" state="error" title="Could not load sessions" :message="loadError" />
+    <StatusBanner v-if="refreshError" tone="warning" :message="refreshError" />
 
-    <ViewState v-if="!loading && cardSessions.length === 0" state="empty" title="No agent sessions" message="No agent sessions have run against this card yet." />
+    <ViewState v-if="!sessionsLoading && cardSessions.length === 0" state="empty" title="No agent sessions" message="No agent sessions have run against this card yet." />
     <ul v-else class="session-list">
       <li v-for="session in cardSessions" :key="session.id">
         <SelectableRow class="session-row" :class="'status-' + session.status" @select="openSession(session.id)">
@@ -26,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
@@ -35,13 +36,21 @@ import { statusForAgentSession } from '../../utils/status';
 import PanelHeader from '../ui/PanelHeader.vue';
 import SelectableRow from '../ui/SelectableRow.vue';
 import StatusBadge from '../ui/StatusBadge.vue';
+import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 
 const props = defineProps<{ cardId: string }>();
 
 const router = useRouter();
 const agentStore = useAgentStore();
-const { sessions, sessionsLoading: loading, sessionsError: loadError } = storeToRefs(agentStore);
+const {
+  sessions,
+  sessionsLoading,
+  sessionsRefreshing,
+  sessionsError: loadError,
+  sessionsRefreshError: refreshError,
+} = storeToRefs(agentStore);
+const requestPending = computed(() => sessionsLoading.value || sessionsRefreshing.value);
 
 const cardSessions = computed(() =>
   sessions.value.filter((s) => s.card_id === props.cardId || s.goal_card_id === props.cardId),
@@ -59,8 +68,6 @@ async function loadSessions(): Promise<void> {
   await agentStore.fetchSessions().catch(() => {});
 }
 
-onMounted(() => { void loadSessions(); });
-watch(() => props.cardId, () => { void loadSessions(); });
 </script>
 
 <style scoped>

@@ -4,22 +4,28 @@ import type { useCardStore } from '../stores/cards';
 
 export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStore>) {
   const refs = storeToRefs(cardStore);
-  const expandedTreeIds = ref<Set<string>>(new Set());
+  const explicitlyExpandedTreeIds = ref<Set<string>>(new Set());
+  const explicitlyCollapsedTreeIds = ref<Set<string>>(new Set());
+  const projectCardId = computed(() => refs.cards.value.find((card) => card.type === 'project')?.id ?? null);
+  const effectiveExpandedTreeIds = computed(() => {
+    const ids = new Set(explicitlyExpandedTreeIds.value);
+    const projectId = projectCardId.value;
+    if (projectId && !explicitlyCollapsedTreeIds.value.has(projectId)) ids.add(projectId);
+    return ids;
+  });
 
   function toggleTreeNode(id: string): void {
-    const set = new Set(expandedTreeIds.value);
-    if (set.has(id)) {
-      set.delete(id);
+    const expanded = new Set(explicitlyExpandedTreeIds.value);
+    const collapsed = new Set(explicitlyCollapsedTreeIds.value);
+    if (effectiveExpandedTreeIds.value.has(id)) {
+      expanded.delete(id);
+      collapsed.add(id);
     } else {
-      set.add(id);
+      collapsed.delete(id);
+      expanded.add(id);
     }
-    expandedTreeIds.value = set;
-  }
-
-  function expandProjectByDefault(): void {
-    if (refs.cards.value.length === 0) return;
-    const projectCard = refs.cards.value.find((card) => card.type === 'project');
-    if (projectCard) expandedTreeIds.value = new Set([projectCard.id]);
+    explicitlyExpandedTreeIds.value = expanded;
+    explicitlyCollapsedTreeIds.value = collapsed;
   }
 
   return {
@@ -31,8 +37,7 @@ export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStor
     filterStatus: refs.filterStatus,
     filterType: refs.filterType,
     searchQuery: refs.searchQuery,
-    expandedTreeIds,
+    effectiveExpandedTreeIds,
     toggleTreeNode,
-    expandProjectByDefault,
   };
 }

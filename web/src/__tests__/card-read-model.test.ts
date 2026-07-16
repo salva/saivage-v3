@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { describe, expect, it, vi } from 'vitest';
 import type { CardRecord } from '../api/types';
+import { useCardBrowserReadModel } from '../composables/useCardBrowserReadModel';
 import { applyCardFilters, buildTree, selectChildrenOf } from '../stores/cards';
+import { useCardStore } from '../stores/cards';
 
 function card(overrides: Partial<CardRecord>): CardRecord {
   return {
@@ -46,5 +49,25 @@ describe('card selectors', () => {
 
     expect((buildTree(cards)[0].children ?? []).map((entry) => entry.id)).toEqual(['22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111']);
     expect(selectChildrenOf(cards, 'project').map((entry) => entry.id)).toEqual(['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']);
+  });
+
+  it('derives late project expansion and preserves explicit collapse across canonical refreshes without fetching', () => {
+    setActivePinia(createPinia());
+    const store = useCardStore();
+    const fetchCards = vi.spyOn(store, 'fetchCards');
+    const model = useCardBrowserReadModel(store);
+
+    expect(model.effectiveExpandedTreeIds.value).toEqual(new Set());
+    store.cards = [card({ id: 'project', type: 'project' })];
+    expect(model.effectiveExpandedTreeIds.value).toEqual(new Set(['project']));
+
+    model.toggleTreeNode('project');
+    expect(model.effectiveExpandedTreeIds.value).toEqual(new Set());
+    store.cards = [card({ id: 'project', type: 'project', title: 'Refreshed project' })];
+    expect(model.effectiveExpandedTreeIds.value).toEqual(new Set());
+
+    model.toggleTreeNode('project');
+    expect(model.effectiveExpandedTreeIds.value).toEqual(new Set(['project']));
+    expect(fetchCards).not.toHaveBeenCalled();
   });
 });

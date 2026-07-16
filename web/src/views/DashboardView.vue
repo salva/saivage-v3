@@ -120,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useRuntimeStore } from '../stores/runtime';
@@ -206,9 +206,6 @@ async function refreshRuntime(): Promise<void> {
   }
 }
 
-onMounted(async () => {
-  await refreshRuntime();
-});
 </script>
 
 <style scoped>

@@ -9,7 +9,6 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import CardsTimelineView from '../components/cards/CardsTimelineView.vue';
@@ -24,9 +23,6 @@ function selectCard(id: string): void {
   router.push({ name: 'card-detail', params: { id } });
 }
 
-onMounted(() => {
-  cardStore.fetchCards().catch(() => {});
-});
 </script>
 
 <style scoped>
