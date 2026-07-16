@@ -27,6 +27,14 @@ describe('terminal cleanup call graph', () => {
     for (const removed of ['runtime-owner', 'runtime-processes', 'analyst-processes', 'mcp-processes', 'remaining-processes']) expect(source).not.toContain(removed);
   });
 
+  it('registers runtime admission exactly once under its owner', () => {
+    const source = readFileSync(join(root, 'src/server/composition/server-services.ts'), 'utf8');
+    expect(source.match(/registerAdmissionCloser\('runtime'/g)).toHaveLength(1);
+    for (const removedEffect of ['tool', 'provider', 'child']) {
+      expect(source).not.toContain(`registerAdmissionCloser('${removedEffect}-admission'`);
+    }
+  });
+
   it('keeps root termination before the first cleanup await in all component owners', () => {
     for (const file of ['src/runtime/actors/supervisor-runtime-api.ts', 'src/agents/analyst-handler.ts', 'src/mcp/mcp-manager.ts']) {
       const source = readFileSync(join(root, file), 'utf8');

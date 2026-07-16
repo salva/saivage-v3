@@ -9,13 +9,13 @@ describe('App terminal coordinator', () => {
     const calls: string[] = [];
     const log = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     terminal.registerAdmissionCloser('http-admission', () => { calls.push('http'); throw new Error('/secret/path token=secret'); });
-    terminal.registerAdmissionCloser('provider-admission', () => { calls.push('provider'); });
+    terminal.registerAdmissionCloser('runtime', () => { calls.push('runtime'); });
     terminal.registerCleanupLeaf('fastify', async () => { calls.push('fastify'); throw { payload: 'secret' }; });
     terminal.registerCleanupLeaf('live-sync', async () => { calls.push('live-sync'); });
 
     const report = await terminal.stop();
 
-    expect(calls).toEqual(['http', 'provider', 'live-sync', 'fastify']);
+    expect(calls).toEqual(['http', 'runtime', 'live-sync', 'fastify']);
     expect(report).toEqual({ warnings: [
       { component: 'http-admission', code: 'closer_failed' },
       { component: 'fastify', code: 'cleanup_failed' },

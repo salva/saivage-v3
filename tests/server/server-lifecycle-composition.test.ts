@@ -42,7 +42,7 @@ describe('server lifecycle composition', () => {
     }
   });
 
-  it('disposes LiveSync once before independently closing Fastify once', async () => {
+  it('closes runtime admission once before runtime and Fastify cleanup while disposing LiveSync once', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-server-cleanup-'));
     try {
       initProjectTree(projectRoot);
@@ -51,11 +51,25 @@ describe('server lifecycle composition', () => {
       const terminal = createAppTerminalCoordinator();
       const services = await createServerServices({ environment, terminal });
       const order: string[] = [];
+      const closeRuntimeAdmission = services.runtimeApplication.closeRuntimeAdmission.bind(services.runtimeApplication);
+      const runtimeAdmissionClose = jest.spyOn(services.runtimeApplication, 'closeRuntimeAdmission').mockImplementation(() => {
+        order.push('runtime-admission');
+        closeRuntimeAdmission();
+      });
+      const cleanupRuntime = services.runtimeApplication.cleanupRuntimeForApplicationStop.bind(services.runtimeApplication);
+      const runtimeCleanup = jest.spyOn(services.runtimeApplication, 'cleanupRuntimeForApplicationStop').mockImplementation(async () => {
+        order.push('runtime');
+        await cleanupRuntime();
+      });
       const liveDispose = jest.spyOn(services.liveSyncSocket, 'dispose').mockImplementation(() => { order.push('live-sync'); });
       const fastifyClose = jest.spyOn(services.fastify, 'close').mockImplementation((closeListener?: () => void) => { order.push('fastify'); closeListener?.(); return undefined; });
 
       expect((await terminal.stop()).warnings).toEqual([]);
+      expect(order.indexOf('runtime-admission')).toBeLessThan(order.indexOf('runtime'));
+      expect(order.indexOf('runtime-admission')).toBeLessThan(order.indexOf('fastify'));
       expect(order.indexOf('live-sync')).toBeLessThan(order.indexOf('fastify'));
+      expect(runtimeAdmissionClose).toHaveBeenCalledTimes(1);
+      expect(runtimeCleanup).toHaveBeenCalledTimes(1);
       expect(liveDispose).toHaveBeenCalledTimes(1);
       expect(fastifyClose).toHaveBeenCalledTimes(1);
     } finally {

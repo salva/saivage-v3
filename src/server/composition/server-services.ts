@@ -68,9 +68,7 @@ export async function createServerServices(input: {
   const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, appLogs, cardStore, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
-  terminal.registerAdmissionCloser('tool-admission', () => runtimeApplication.closeRuntimeAdmission());
-  terminal.registerAdmissionCloser('provider-admission', () => runtimeApplication.closeRuntimeAdmission());
-  terminal.registerAdmissionCloser('child-admission', () => runtimeApplication.closeRuntimeAdmission());
+  terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());
   terminal.registerAdmissionCloser('process-admission', () => runtimeApplication.processRunner.closeLaunchAdmission());
   terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());
   terminal.registerCleanupLeaf('runtime', () => runtimeApplication.cleanupRuntimeForApplicationStop());
