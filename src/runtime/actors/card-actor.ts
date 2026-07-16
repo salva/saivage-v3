@@ -93,6 +93,7 @@ export interface CardActorDeps {
   notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
   lookup: Map<string, CardActor>;
   liveLookup: Map<string, CardActor>;
+  releaseSettledActor(actor: CardActor): void;
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
   conversationPublisher?: ConversationChangePublisher;
   conversations: ConversationFileContext;
@@ -439,8 +440,8 @@ export class CardActor extends BaseActor {
     this.#result?.resolve(outcome);
     this.#result = null;
     this.#activationCaller = null;
-    if (!this.deps.isRuntimeClosing()) this.removeLiveOwnership();
     this.sendEvent('settled');
+    this.releaseSettledOwnership();
   }
 
   private writeStoreStatus(status: CardStatus, mutationStore: CardActorStorePort = this.store): void {
@@ -467,9 +468,8 @@ export class CardActor extends BaseActor {
     this.deps.liveLookup.set(this.cardId, this);
   }
 
-  private removeLiveOwnership(): void {
-    if (this.deps.liveLookup.get(this.cardId) !== this) throw new Error(`Card '${this.cardId}' live activation ownership changed unexpectedly.`);
-    this.deps.liveLookup.delete(this.cardId);
+  private releaseSettledOwnership(): void {
+    if (!this.deps.isRuntimeClosing()) this.deps.releaseSettledActor(this);
   }
 
   private async finishCancellation(reason: CardCancelReason): Promise<CardCancellationResult> {
@@ -489,7 +489,7 @@ export class CardActor extends BaseActor {
     this.#activationAbort = null;
     if (this.state() === 'running') this.sendEvent('cancel');
     else this.parkedSendEvent('cancel');
-    if (!this.deps.isRuntimeClosing()) this.removeLiveOwnership();
+    this.releaseSettledOwnership();
     return { card_id: this.cardId, status: 'cancelled', cancelled_card_ids: cancelledIds };
   }
 

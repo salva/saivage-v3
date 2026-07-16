@@ -55,6 +55,7 @@ describe('CardActor authoritative cancellation', () => {
   let identityIndex: number;
   let lookup: Map<string, CardActor>;
   let liveLookup: Map<string, CardActor>;
+  let releaseSettledActor: jest.Mock<(actor: CardActor) => void>;
   let runtimeClosing: boolean;
 
   beforeEach(() => {
@@ -64,6 +65,11 @@ describe('CardActor authoritative cancellation', () => {
     cards = new CardService(root, undefined, undefined, () => IDS[identityIndex++]!);
     lookup = new Map();
     liveLookup = new Map();
+    releaseSettledActor = jest.fn((settledActor: CardActor) => {
+      if (lookup.get(settledActor.cardId) !== settledActor || liveLookup.get(settledActor.cardId) !== settledActor) throw new Error('settled actor ownership changed unexpectedly');
+      liveLookup.delete(settledActor.cardId);
+      lookup.delete(settledActor.cardId);
+    });
     runtimeClosing = false;
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -74,7 +80,7 @@ describe('CardActor authoritative cancellation', () => {
       storeForCard: () => cards,
       currentness: { enterChild: jest.fn(), resumeParent: jest.fn() },
       provider: {}, processRunner: {}, promptTemplates: {}, notifyCard: () => ({ ok: true, notificationId: 'n' }),
-      lookup, liveLookup, cancelCard: async (id: string, reason: string) => {
+      lookup, liveLookup, releaseSettledActor, cancelCard: async (id: string, reason: string) => {
         const live = liveLookup.get(id);
         if (!live) throw new Error(`No live owner for ${id}`);
         return live.cancel({ reason });
@@ -97,6 +103,9 @@ describe('CardActor authoritative cancellation', () => {
     expect(owned.processor.disposed).toBe(true);
     expect(cards.read('project')?.status).toBe('cancelled');
     expect(liveLookup.size).toBe(0);
+    expect(lookup.size).toBe(0);
+    expect(releaseSettledActor).toHaveBeenCalledTimes(1);
+    expect(releaseSettledActor).toHaveBeenCalledWith(owned.actor);
     const version = cards.read('project')!.version_seq;
     owned.processor.outcome.resolve({ status: 'done', summary: 'late', result: { kind: 'done', summary: 'late' } });
     await Promise.resolve();
@@ -114,6 +123,9 @@ describe('CardActor authoritative cancellation', () => {
     await expect(activation).resolves.toMatchObject({ status: 'done' });
     await expect(owned.actor.cancel({ reason: 'too late' })).rejects.toThrow('no live activation owner');
     expect(liveLookup.size).toBe(0);
+    expect(lookup.size).toBe(0);
+    expect(releaseSettledActor).toHaveBeenCalledTimes(1);
+    expect(releaseSettledActor).toHaveBeenCalledWith(owned.actor);
   });
 
   it('recursively claims live descendants, cancels inactive descendants, and preserves done descendants', async () => {
@@ -137,6 +149,8 @@ describe('CardActor authoritative cancellation', () => {
     expect(cards.read(inactiveChild.id)?.status).toBe('cancelled');
     expect(cards.read(doneChild.id)?.status).toBe('done');
     expect(liveLookup.size).toBe(0);
+    expect(lookup.size).toBe(0);
+    expect(releaseSettledActor).toHaveBeenCalledTimes(2);
   });
 
   it('fails fast for a running descendant without an exact live owner', async () => {
@@ -163,6 +177,8 @@ describe('CardActor authoritative cancellation', () => {
     expect(owned.actor.claim).toBe('claimed_stop');
     expect(cards.read('project')?.status).toBe('running');
     expect(liveLookup.get('project')).toBe(owned.actor);
+    expect(lookup.get('project')).toBe(owned.actor);
+    expect(releaseSettledActor).not.toHaveBeenCalled();
   });
 
   it.each(['success' as const, 'failure' as const])('preserves a result winner across Stop cleanup %s', async (cleanup) => {
@@ -188,6 +204,8 @@ describe('CardActor authoritative cancellation', () => {
     expect(owned.processor.continuationSuppressed).toBe(true);
     expect(failures).toEqual(cleanup === 'failure' ? ['card:project'] : []);
     expect(liveLookup.get('project')).toBe(owned.actor);
+    expect(lookup.get('project')).toBe(owned.actor);
+    expect(releaseSettledActor).not.toHaveBeenCalled();
   });
 
   it('keeps Stop pending until caller-first cancellation publishes and settles its activation caller', async () => {
@@ -220,6 +238,8 @@ describe('CardActor authoritative cancellation', () => {
     expect(cards.read('project')?.status).toBe('cancelled');
     expect(failures).toEqual([]);
     expect(liveLookup.get('project')).toBe(owned.actor);
+    expect(lookup.get('project')).toBe(owned.actor);
+    expect(releaseSettledActor).not.toHaveBeenCalled();
   });
 
   it('lets Stop start the exact claim-owned cancellation settlement before the normal caller reaches it', async () => {
@@ -248,6 +268,7 @@ describe('CardActor authoritative cancellation', () => {
     await expect(activation).resolves.toEqual({ status: 'cancelled', summary: 'winning reason' });
     await stopped;
     expect(cards.read('project')?.status).toBe('cancelled');
+    expect(releaseSettledActor).not.toHaveBeenCalled();
   });
 
   it('reports caller-first cancellation settlement failure through Stop containment without replacing the cancellation error', async () => {
@@ -269,6 +290,8 @@ describe('CardActor authoritative cancellation', () => {
     expect(failures).toEqual([{ component: 'card:project', error: cleanupError }]);
     expect(cards.read('project')?.status).toBe('running');
     expect(liveLookup.get('project')).toBe(owned.actor);
+    expect(lookup.get('project')).toBe(owned.actor);
+    expect(releaseSettledActor).not.toHaveBeenCalled();
   });
 
   it('wakes only the immediate structural parent through a three-level chain', async () => {

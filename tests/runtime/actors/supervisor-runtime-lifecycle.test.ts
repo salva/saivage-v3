@@ -11,6 +11,7 @@ import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-run
 import { RuntimeContainmentError, RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
 import type { InvocationJoinOutcome } from '../../../src/runtime/actors/invocation-lifecycle.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
+import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 
 function deferred<T>() {
@@ -19,6 +20,10 @@ function deferred<T>() {
   const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
   return { promise, resolve, reject };
 }
+
+function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { result, provider_exchanges: [] }; }
+function tool(id: string, name: string, args: object): LlmCompleteResult { return { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }; }
+async function waitUntil(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error('condition not reached'); }
 
 type SupervisorInternals = {
   runIdentity: object | null;
@@ -58,6 +63,57 @@ async function startRunningRoot(projectRoot: string) {
 describe('Supervisor running-chain and non-domain Stop', () => {
   let projectRoot: string;
   afterEach(() => { if (projectRoot) rmSync(projectRoot, { recursive: true, force: true }); });
+
+  it('releases a naturally completed actor from both ownership maps and the actor read model', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-natural-settlement-'));
+    initProjectTree(projectRoot);
+    const cards = new CardService(projectRoot);
+    const intervention = new RuntimeInterventionBinding();
+    let call = 0;
+    let releaseTerminal!: () => void;
+    const provider = { completeTurn: jest.fn(async () => {
+      call += 1;
+      if (call === 1) return complete(tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'Ready.' }));
+      return new Promise<ProviderTurnCompletion>((resolve) => { releaseTerminal = () => resolve(complete(tool('emit-done', 'emit_result', { status: 'done', summary: 'Complete.' }))); });
+    }) };
+    const supervisor = new SupervisorRuntimeApi({
+      projectRoot, actorStore: cards, interventionBinding: intervention, provider,
+      conversations: { projectRoot }, appLogs: { projectRoot },
+      readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
+      processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
+    });
+    const prepared = await supervisor.beginStartProject();
+    if (!prepared.accepted) throw new Error('runtime start was not accepted');
+    supervisor.launchStartedProject(prepared.state);
+    await waitUntil(() => releaseTerminal !== undefined);
+    const internals = supervisor as unknown as SupervisorInternals;
+    const owner = internals.cardActors.get('project');
+    if (!owner) throw new Error('root actor ownership was not installed');
+    expect(internals.liveCardActors.get('project')).toBe(owner);
+    expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [{ cardId: 'project' }], agents: [{ cardId: 'project', role: 'planner' }] });
+
+    releaseTerminal();
+    await waitUntil(() => supervisor.getStatus().status === 'stopped');
+
+    expect(cards.read('project')).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'Complete.' } } });
+    expect(internals.liveCardActors.has('project')).toBe(false);
+    expect(internals.cardActors.has('project')).toBe(false);
+    expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [], agents: [] });
+    expect(supervisor.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
+    expect(intervention.interventionReadiness()).toBe('stopped');
+  });
+
+  it('rejects stale settled-actor release without changing current ownership', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-stale-settlement-'));
+    const { supervisor, internals, owner } = await startRunningRoot(projectRoot);
+    const stale = { cardId: 'project' } as CardActor;
+    const release = (supervisor as unknown as { releaseSettledActor(actor: CardActor): void }).releaseSettledActor.bind(supervisor);
+
+    expect(() => release(stale)).toThrow("Card 'project' settled actor ownership changed unexpectedly.");
+    expect(internals.liveCardActors.get('project')).toBe(owner);
+    expect(internals.cardActors.get('project')).toBe(owner);
+    await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+  });
 
   it('installs every chain owner, activates only the deepest role, and stops without card mutation', async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-lifecycle-'));
