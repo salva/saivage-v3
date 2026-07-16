@@ -328,31 +328,4 @@ describe('AgentsView', () => {
     expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(false);
   });
 
-  it('resets the raw LLM exchange panel when the session id prop changes', async () => {
-    apiMockState.conversation = { session: plannerSession, entries: [] };
-    const router = makeRouter();
-    await router.push('/agents/planner-1');
-    await router.isReady();
-    const pinia = createPinia();
-    setActivePinia(pinia);
-    const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'planner-1' },
-      global: { plugins: [router, pinia] },
-    });
-    await flushPromises();
-
-    const store = useAgentStore();
-    vi.spyOn(store, 'fetchLlmExchange').mockResolvedValue(undefined);
-
-    const toggleBtn = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Raw exchange'));
-    await toggleBtn!.trigger('click');
-    await flushPromises();
-    const RawLlmExchangePanel = (await import('../components/agents/RawLlmExchangePanel.vue')).default;
-    expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(true);
-
-    await wrapper.setProps({ sessionId: 'executor-1' } as any);
-    await flushPromises();
-    expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(false);
-  });
-
 });

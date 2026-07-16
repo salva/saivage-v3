@@ -6,7 +6,7 @@
         <button
           type="button"
           class="rlp-refresh"
-          :disabled="llmExchangeLoading"
+          :disabled="llmExchangeLoading || llmExchangeRefreshing"
           @click="onRefresh"
         >Refresh</button>
       </div>
@@ -24,6 +24,9 @@
       </p>
     </header>
 
+    <div v-if="llmExchangeRefreshing" class="rlp-status rlp-status--loading">Refreshing raw LLM exchange…</div>
+    <div v-if="llmExchangeRefreshError" class="rlp-status rlp-status--error" role="alert">{{ llmExchangeRefreshError }}</div>
+
     <div v-if="llmExchangeLoading" class="rlp-status rlp-status--loading">
       Loading raw LLM exchange…
     </div>
@@ -32,11 +35,11 @@
       {{ llmExchangeError }}
     </div>
 
-    <div v-else-if="!exchange" class="rlp-status rlp-status--empty">
-      No LLM exchange recorded yet for this session.
+    <div v-else-if="llmExchangeLoaded && !exchange" class="rlp-status rlp-status--empty">
+      No LLM exchange recorded
     </div>
 
-    <template v-else>
+    <template v-else-if="exchange">
       <div class="rlp-attempt-meta">
         <span class="rlp-meta-item">Status: <span class="rlp-meta-value">{{ exchange.status }}</span></span>
         <span
@@ -82,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
 import { formatJson } from '../../utils/format-json';
@@ -93,25 +96,27 @@ const props = defineProps<{ sessionId: string }>();
 const agentStore = useAgentStore();
 const {
   currentLlmExchange,
+  llmExchangeLoaded,
   llmExchangeLoading,
+  llmExchangeRefreshing,
   llmExchangeError,
-  llmExchangeSessionId,
+  llmExchangeRefreshError,
 } = storeToRefs(agentStore);
 
 const exchange = computed(() => currentLlmExchange.value);
+let exchangeToken: ReturnType<typeof agentStore.beginLlmExchangeSelection> | null = null;
 
 async function onRefresh(): Promise<void> {
-  await agentStore.fetchLlmExchange(props.sessionId);
+  if (exchangeToken) await agentStore.fetchLlmExchange(exchangeToken);
 }
 
-function maybeFetch(): void {
-  if (llmExchangeSessionId.value !== props.sessionId) {
-    void agentStore.fetchLlmExchange(props.sessionId);
-  }
-}
-
-maybeFetch();
-watch(() => props.sessionId, maybeFetch);
+onMounted(() => {
+  exchangeToken = agentStore.beginLlmExchangeSelection(props.sessionId);
+  void agentStore.fetchLlmExchange(exchangeToken);
+});
+onUnmounted(() => {
+  if (exchangeToken) agentStore.clearLlmExchange(exchangeToken);
+});
 </script>
 
 <style scoped>

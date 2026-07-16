@@ -41,7 +41,7 @@ const props = defineProps<{ cardId: string }>();
 
 const router = useRouter();
 const agentStore = useAgentStore();
-const { sessions, loading, error: loadError } = storeToRefs(agentStore);
+const { sessions, sessionsLoading: loading, sessionsError: loadError } = storeToRefs(agentStore);
 
 const cardSessions = computed(() =>
   sessions.value.filter((s) => s.card_id === props.cardId || s.goal_card_id === props.cardId),

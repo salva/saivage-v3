@@ -223,8 +223,8 @@ export function getAgentConversation(sessionId: string, signal?: AbortSignal): P
   return operatorRequest('agents.conversation', { params: { id: sessionId }, signal }) as Promise<AgentConversationResponse>;
 }
 
-export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: ProviderExchangePayload }> {
-  return operatorRequest('agents.llmExchange', { params: { id: sessionId } }) as Promise<{ exchange: ProviderExchangePayload }>;
+export function getAgentLlmExchange(sessionId: string, signal?: AbortSignal): Promise<{ exchange: ProviderExchangePayload }> {
+  return operatorRequest('agents.llmExchange', { params: { id: sessionId }, signal }) as Promise<{ exchange: ProviderExchangePayload }>;
 }
 
 export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {

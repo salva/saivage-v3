@@ -10,12 +10,12 @@
       @back="backToAgents"
     >
       <template #list>
-      <ViewState v-if="loading" class="agents-loading" state="loading" title="Loading agents" />
-      <ViewState v-else-if="unauthorized" class="agents-unauthorized" state="unauthorized" title="Agent sessions unavailable" message="Provide a valid API token to load agent sessions." />
+      <ViewState v-if="sessionsLoading" class="agents-loading" state="loading" title="Loading agents" />
+      <ViewState v-else-if="sessionsUnauthorized && !agentStore.sessionsLoaded" class="agents-unauthorized" state="unauthorized" title="Agent sessions unavailable" message="Provide a valid API token to load agent sessions." />
       <ViewState v-else-if="errorMsg" class="agents-error" state="error" title="Could not load agents" :message="errorMsg" />
       <div v-else class="agents-content">
         <StatusBanner v-if="isStale" class="agents-stale" tone="stale" message="Agent session data is stale. Refresh or wait for reconnect to resync with the authoritative REST state." />
-        <StatusBanner v-if="conversationWarning" tone="warning" :message="conversationWarning" />
+        <StatusBanner v-if="sessionsRefreshError" tone="warning" :message="sessionsRefreshError" />
         <template v-for="entry in roleEntries" :key="entry.role">
           <div class="role-section">
             <h3 class="role-heading">
@@ -53,7 +53,7 @@
       </template>
 
       <template #detail>
-        <AgentConversationView v-if="selectedSessionId" :session-id="selectedSessionId" />
+        <AgentConversationView v-if="selectedSessionId" :key="selectedSessionId" :session-id="selectedSessionId" />
       </template>
     </EntityInspectorShell>
   </div>
@@ -81,8 +81,8 @@ const route = useRoute();
 const router = useRouter();
 const agentStore = useAgentStore();
 const cardStore = useCardStore();
-const { sessionsByRole, loading, error, unauthorized, isStale, conversationWarning } = storeToRefs(agentStore);
-const errorMsg = computed(() => error.value);
+const { sessionsByRole, sessionsLoading, sessionsError, sessionsRefreshError, sessionsUnauthorized, isStale } = storeToRefs(agentStore);
+const errorMsg = computed(() => sessionsError.value);
 
 const selectedSessionId = computed(() => typeof route.params.id === 'string' ? route.params.id : null);
 
