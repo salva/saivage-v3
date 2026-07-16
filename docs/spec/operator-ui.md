@@ -6,7 +6,7 @@ Direct persistence operations fail at their owning request and do not poison unr
 
 Status: current functional UI authority.
 
-Last updated: 2026-07-13.
+Last updated: 2026-07-17.
 
 ## 1. Purpose
 
@@ -16,16 +16,18 @@ The UI must help the user understand what the autonomous runtime is doing, inspe
 
 ## 2. Layout
 
-At typical desktop widths, the operator web UI is a single screen with two always-visible regions:
+At typical desktop widths, ordinary workspace routes display a single screen with two always-visible regions:
 
 - A left workspace area, roughly 70-80% of the viewport.
 - A right Analyst panel, roughly 20-30% of the viewport.
 
-The Analyst panel contains the current Analyst session, chat history, and composer. It is not a drawer, modal, popover, slide-over, or hidden panel. At desktop widths there is no control whose job is to open, close, hide, reveal, expand-to-full-screen, or toggle the Analyst panel.
+On those routes, the Analyst panel contains the current Analyst session, chat history, and composer. It is not a drawer, modal, popover, slide-over, or hidden panel. At desktop widths there is no control whose job is to open, close, hide, reveal, expand-to-full-screen, or toggle the Analyst panel.
 
-At narrow widths, the shell collapses to a single column and exposes a presentation-only `Workspace` / `Analyst` pane switch so the user can choose which region is visible. The switch changes only the local layout; it does not mutate server state and does not turn the Analyst into a modal or separate control surface.
+At narrow widths on ordinary workspace routes, the shell collapses to a single column and exposes a presentation-only `Workspace` / `Analyst` pane switch so the user can choose which region is visible. The switch changes only the local layout; it does not mutate server state and does not turn the Analyst into a modal or separate control surface.
 
-The current project name is shown in a slim header at the top of the Analyst panel only, occupying the top of the Analyst column rather than a full-width page bar.
+On ordinary workspace routes, the current project name is shown in a slim header at the top of the Analyst panel only, occupying the top of the Analyst column rather than a full-width page bar.
+
+The one layout exception is the canonical Agents detail route for the exact session `analyst:global`. On that route, the workspace hosts the read-only Analyst conversation-inspection component, which may show loading, unauthorized, error, empty, or loaded-conversation state and has no chat composer. To avoid duplicating that conversation surface, the shell omits the persistent Analyst panel, including its project-name header and composer, and omits the narrow `Analyst` pane switch. Navigating to any other route, including another agent's detail, restores the persistent panel/composer surface without guaranteeing loaded transcript data, authorization, or writable sending.
 
 ## 3. Workspace Area
 
@@ -105,7 +107,7 @@ When shutdown is scheduled, the global toaster shows warning title `Server resta
 
 Planner, executor, reviewer, and analyst prompts are configurable by editing Markdown overrides under `.saivage/config/prompts/<cardType>/<role>.md`; rendered prompts still appear through the normal agent transcript and Debug conversation surfaces.
 
-The chat composer must be reachable without opening a drawer or switching page modes. The user should be able to inspect the workspace and talk to the Analyst at the same time.
+On ordinary workspace routes, the chat composer must be reachable without opening a drawer or switching page modes, and the user should be able to inspect the workspace and talk to the Analyst at the same time. The exact `analyst:global` Agents detail exception in Section 2 instead provides read-only conversation inspection without the persistent panel or composer.
 
 Card management is Analyst-owned and process-lifecycle-gated. A displayed or persisted `stopped`/`paused` status is not by itself mutation admission: the private runtime facet must report stopped-ready or settled-paused after admitted work has settled. The Analyst may then use supported semantic card operations such as creating cards, reordering direct children where supported, cancelling dormant work, and delete/archive removal with deleted-id reservation. The Analyst updates a card's goal/instructions/acceptance content by using `write`, `edit`, or `webfetch.save_as` for `record:///brief.md?card=<id>&v=next` when the target card is `backlog`, `done`, `failed`, or `running`; `changed`, `blocked`, and `cancelled` brief edits fail before writing. Scoped file URLs shown by the UI use canonical triple-slash form (`project:///`, `record:///`, `tmp:///`, `work:///`, `system:///`). The UI may show the relevant record URLs and metadata, but it must not perform these mutations directly.
 
@@ -207,9 +209,9 @@ Oversized `webfetch` text returns `stash_url: work:///tmp/stash/<file>`. The web
 
 The UI satisfies this specification when:
 
-- the Analyst panel is visible on first paint at desktop widths;
-- no drawer/toggle control is required to reach the Analyst;
-- the workspace remains visible beside the Analyst panel;
+- on ordinary workspace routes, the Analyst panel is visible on first paint at desktop widths; on the exact `analyst:global` Agents detail route, the workspace instead hosts the read-only conversation-inspection component and the persistent panel, header, composer, and narrow `Analyst` pane switch are omitted;
+- no drawer/toggle control is required to reach the ordinary persistent Analyst panel;
+- on ordinary workspace routes, the workspace remains visible beside the Analyst panel;
 - card detail distinguishes structured card state, live `working_status`, accepted `result`, and versioned card document records including `brief.md`, `status.md`, and `review.md`;
 - card detail can expose record URLs, metadata, and history when available, while leaving record mutation to the Analyst;
 - read-only workspace navigation/filtering/copy/refresh still works;
