@@ -6,10 +6,54 @@ import { CardService } from '../../../src/cards/card-service.js';
 import { RuntimeInterventionBinding } from '../../../src/application/intervention-readiness.js';
 import { ManagedProcessGroupRegistry } from '../../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import type { CardActor } from '../../../src/runtime/actors/card-actor.js';
 import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { RuntimeContainmentError, RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
+import type { InvocationJoinOutcome } from '../../../src/runtime/actors/invocation-lifecycle.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+type SupervisorInternals = {
+  runIdentity: object | null;
+  currentCardId: string | null;
+  liveCardActors: Map<string, CardActor>;
+  cardActors: Map<string, CardActor>;
+};
+
+async function startRunningRoot(projectRoot: string) {
+  initProjectTree(projectRoot);
+  const cards = new CardService(projectRoot);
+  cards.setStatus('project', 'running');
+  const intervention = new RuntimeInterventionBinding();
+  const provider = {
+    completeTurn: (_input: LlmInvocationInput, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })),
+  };
+  const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
+  jest.spyOn(processRunner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
+  const supervisor = new SupervisorRuntimeApi({
+    projectRoot, actorStore: cards, interventionBinding: intervention, provider,
+    conversations: { projectRoot }, appLogs: { projectRoot },
+    readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
+    processRunner, promptTemplates: { render: () => 'test prompt' },
+  });
+  const prepared = await supervisor.beginStartProject();
+  if (!prepared.accepted) throw new Error('runtime start was not accepted');
+  supervisor.launchStartedProject(prepared.state);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const internals = supervisor as unknown as SupervisorInternals;
+  const identity = internals.runIdentity;
+  const owner = internals.liveCardActors.get('project');
+  const processor = owner?.processor;
+  if (!identity || !owner || !processor) throw new Error('running root ownership was not installed');
+  return { cards, intervention, supervisor, internals, identity, owner, processor };
+}
 
 describe('Supervisor running-chain and non-domain Stop', () => {
   let projectRoot: string;
@@ -145,8 +189,6 @@ describe('Supervisor running-chain and non-domain Stop', () => {
   it.each([
     { winner: 'claimed_result' as const, cleanupFails: false },
     { winner: 'claimed_result' as const, cleanupFails: true },
-    { winner: 'claimed_cancel' as const, cleanupFails: false },
-    { winner: 'claimed_cancel' as const, cleanupFails: true },
   ])('keeps $winner authoritative through root cleanup (fails=$cleanupFails)', async ({ winner, cleanupFails }) => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-winner-cleanup-'));
     initProjectTree(projectRoot);
@@ -201,5 +243,73 @@ describe('Supervisor running-chain and non-domain Stop', () => {
       expect(internals.liveCardActors.size).toBe(0);
       expect(internals.cardActors.size).toBe(0);
     }
+  });
+
+  it('keeps real cancellation ownership installed until publication and activation settlement complete', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-cancellation-stop-'));
+    const { cards, intervention, supervisor, internals, identity, owner, processor } = await startRunningRoot(projectRoot);
+    const cleanup = deferred<readonly InvocationJoinOutcome[]>();
+    const joinActivation = processor.joinActivation.bind(processor);
+    jest.spyOn(processor, 'joinActivation').mockImplementation(async () => [...await cleanup.promise, ...await joinActivation()]);
+    const activation = owner.awaitSettlement();
+    const order: string[] = [];
+    void activation.then(() => order.push(`activation:${cards.read('project')?.status}:${internals.liveCardActors.get('project') === owner}:${internals.cardActors.get('project') === owner}`));
+
+    const cancellation = supervisor.cancelCard('project', 'winning cancellation');
+    expect(owner.claim).toBe('claimed_cancel');
+    const stopped = supervisor.stopProject();
+    void cancellation.then(() => order.push('cancellation'));
+    void stopped.then(() => order.push('stop'));
+    await Promise.resolve();
+
+    expect(cards.read('project')?.status).toBe('running');
+    expect(supervisor.getStatus()).toMatchObject({ status: 'closing', currentCardId: 'project' });
+    expect(intervention.interventionReadiness()).toBe('not_ready');
+    expect(internals.runIdentity).toBe(identity);
+    expect(internals.liveCardActors.get('project')).toBe(owner);
+    expect(internals.cardActors.get('project')).toBe(owner);
+    expect(order).toEqual([]);
+
+    cleanup.resolve([]);
+    await expect(cancellation).resolves.toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['project'] });
+    await expect(activation).resolves.toEqual({ status: 'cancelled', summary: 'winning cancellation' });
+    await expect(stopped).resolves.toEqual({ status: 'stopped', contained: true });
+
+    expect(order).toEqual(['activation:cancelled:true:true', 'cancellation', 'stop']);
+    expect(cards.read('project')?.status).toBe('cancelled');
+    expect(internals.runIdentity).toBeNull();
+    expect(internals.currentCardId).toBeNull();
+    expect(internals.liveCardActors.size).toBe(0);
+    expect(internals.cardActors.size).toBe(0);
+    expect(intervention.interventionReadiness()).toBe('stopped');
+  });
+
+  it('retains real cancellation ownership when cancellation settlement rejects during Stop', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-cancellation-failure-'));
+    const { cards, intervention, supervisor, internals, identity, owner, processor } = await startRunningRoot(projectRoot);
+    const cleanup = deferred<readonly InvocationJoinOutcome[]>();
+    const joinActivation = processor.joinActivation.bind(processor);
+    jest.spyOn(processor, 'joinActivation').mockImplementation(async () => [...await cleanup.promise, ...await joinActivation()]);
+
+    const cancellation = supervisor.cancelCard('project', 'winning cancellation');
+    const stopped = supervisor.stopProject();
+    const stopFailure = stopped.catch((error: unknown) => error);
+    const cancellationFailure = new Error('cancellation cleanup failed');
+    cleanup.reject(cancellationFailure);
+
+    await expect(cancellation).rejects.toBe(cancellationFailure);
+    const containmentFailure = await stopFailure;
+    expect(containmentFailure).toBeInstanceOf(RuntimeContainmentError);
+    expect(containmentFailure).toMatchObject({
+      code: 'runtime_containment_error',
+      failures: [{ component: 'card:project' }],
+    });
+    expect(cards.read('project')?.status).toBe('running');
+    expect(supervisor.getStatus()).toMatchObject({ status: 'closing', currentCardId: 'project' });
+    expect(intervention.interventionReadiness()).toBe('not_ready');
+    expect(internals.runIdentity).toBe(identity);
+    expect(internals.currentCardId).toBe('project');
+    expect(internals.liveCardActors.get('project')).toBe(owner);
+    expect(internals.cardActors.get('project')).toBe(owner);
   });
 });
