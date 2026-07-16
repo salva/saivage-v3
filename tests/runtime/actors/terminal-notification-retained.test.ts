@@ -61,7 +61,7 @@ describe('retained terminal ordering and notification arbitration', () => {
     expect(close).toHaveBeenCalledTimes(1);
     expect(commit).toHaveBeenCalledTimes(1);
     expect(store.read('project')).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'Complete.' } } });
-    const rows = readConversation(projectRoot, 'planner:project');
+    const rows = readConversation(projectRoot, 'planner:project').physicalRows;
     expect(rows.at(-1)).toMatchObject({ kind: 'tool_result', tool_call_id: 'emit-done', content: JSON.stringify({ success: true, data: { accepted: true } }) });
   });
 
@@ -90,7 +90,7 @@ describe('retained terminal ordering and notification arbitration', () => {
 
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
     expect(store.read(card.id)!.pending_notifications).toEqual([]);
-    const prefix = readConversation(projectRoot, `executor:${card.id}`);
+    const prefix = readConversation(projectRoot, `executor:${card.id}`).physicalRows;
     const failedIndex = prefix.findIndex((row) => row.tool_call_id === 'emit-first' && row.kind === 'tool_result');
     const notificationIndex = prefix.findIndex((row) => row.kind === 'text' && row.content === 'Use the new requirement.');
     expect(failedIndex).toBeGreaterThanOrEqual(0);

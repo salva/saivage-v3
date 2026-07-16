@@ -69,12 +69,12 @@ describe('reviewer deferral crash prefixes and Pause races', () => {
     await scenario.activation.catch(() => undefined);
 
     expect(() => scenario.cards.readRecord('project', 'review.md', 'open')).toThrow();
-    const beforeRecovery = readConversation(scenario.projectRoot, 'reviewer:project');
+    const beforeRecovery = readConversation(scenario.projectRoot, 'reviewer:project').physicalRows;
     expect(beforeRecovery.some((row) => row.tool_call_id === 'review-result' && row.kind === 'tool_result')).toBe(false);
     expect(scenario.cards.read('project')!.pending_notifications).toHaveLength(1);
     const recovered = stabilizeRoleSession({ projectRoot: scenario.projectRoot, sessionId: 'reviewer:project', conversations: { projectRoot: scenario.projectRoot }, terminalToolNames: new Set(['emit_result']) });
     expect(recovered.interrupted).toBe(true);
-    expect(JSON.parse(readConversation(scenario.projectRoot, 'reviewer:project').at(-1)!.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
+    expect(JSON.parse(readConversation(scenario.projectRoot, 'reviewer:project').physicalRows.at(-1)!.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
   });
 
   it.each(['done', 'blocked', 'failed', 'rework'] as const)('completes reviewer %s discard/result while Pause defers fresh planner provider admission', async (status) => {
@@ -83,10 +83,10 @@ describe('reviewer deferral crash prefixes and Pause races', () => {
     scenario.cards.enqueueNotification('project', { id: `pause-${status}`, content: `context ${status}`, created_at: '2026-07-16T00:00:01.000Z' });
     scenario.gate.requestPause(() => undefined);
     scenario.releaseReviewer();
-    await waitUntil(() => readConversation(scenario.projectRoot, 'reviewer:project').some((row) => row.tool_call_id === 'review-result' && row.kind === 'tool_result'));
+    await waitUntil(() => readConversation(scenario.projectRoot, 'reviewer:project').physicalRows.some((row) => row.tool_call_id === 'review-result' && row.kind === 'tool_result'));
     await waitUntil(() => scenario.cards.read('project')!.pending_notifications.length === 0);
 
-    const reviewerRows = readConversation(scenario.projectRoot, 'reviewer:project');
+    const reviewerRows = readConversation(scenario.projectRoot, 'reviewer:project').physicalRows;
     expect(JSON.parse(reviewerRows.find((row) => row.tool_call_id === 'review-result' && row.kind === 'tool_result')!.content)).toMatchObject({ success: false, data: { reason: 'pending_notifications' } });
     expect(() => scenario.cards.readRecord('project', 'review.md', 'open')).toThrow();
     expect(scenario.plannerCalls()).toBe(2);

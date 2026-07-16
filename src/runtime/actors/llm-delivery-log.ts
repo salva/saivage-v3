@@ -152,6 +152,7 @@ export function appendToolResult(conversations: ConversationFileContext, record:
 
 export function readLoggedToolCall(projectRoot: string, sessionId: string, agentId: string, sourceInputId: string, toolCallId: string): LoggedToolCall {
   const matches = readConversationMessages(projectRoot, sessionId)
+    .physicalRows
     .filter((message) => message.session_id === sessionId && message.kind === 'tool_call' && message.id === `${sourceInputId}:tool-call:${toolCallId}` && message.tool_call_id === toolCallId);
   if (matches.length === 0) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' input '${sourceInputId}' was not found.`);
   if (matches.length > 1) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' input '${sourceInputId}' is duplicated.`);

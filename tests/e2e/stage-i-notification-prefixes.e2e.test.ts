@@ -97,11 +97,11 @@ describe('planner/executor notification crash prefixes', () => {
     releaseTerminal();
     await waitUntil(() => continuationSelection);
     const sessionId = `${role}:${card.id}`;
-    await waitUntil(() => readConversation(projectRoot, sessionId).some((row) => row.tool_call_id === 'emit-stale' && row.kind === 'tool_result'));
+    await waitUntil(() => readConversation(projectRoot, sessionId).physicalRows.some((row) => row.tool_call_id === 'emit-stale' && row.kind === 'tool_result'));
     if (prefix === 'after_exact_removal') await waitUntil(() => cards.read(card.id)!.pending_notifications.length === 0);
     else await activation.catch(() => undefined);
 
-    const rows = readConversation(projectRoot, sessionId);
+    const rows = readConversation(projectRoot, sessionId).physicalRows;
     const failedIndex = rows.findIndex((row) => row.tool_call_id === 'emit-stale' && row.kind === 'tool_result');
     const notificationIndex = rows.findIndex((row) => row.kind === 'text' && row.content === notification.content);
     expect(JSON.parse(rows[failedIndex]!.content)).toMatchObject({ success: false, data: { reason: 'pending_notifications' } });

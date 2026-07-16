@@ -1,4 +1,5 @@
 import type { AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
+import { validateConversationRows } from '../contracts/conversation-compaction.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import {
@@ -431,10 +432,10 @@ export class AnalystSessionActor extends BaseActor {
     const modelParams = getModelParamsForRole(this.args.config, 'analyst');
     const activeRows = this.llm.input
       ? [...activeConversationReplayForInvocation(this.llm.input).messages, ...newMessages]
-      : [...readConversationMessages(this.args.projectRoot, this.sessionId), ...newMessages];
+      : [...readConversationMessages(this.args.projectRoot, this.sessionId).physicalRows, ...newMessages];
     const genericContextMessages = this.llm.input
       ? [...genericContextMessagesForInvocation(this.llm.input), ...newMessages]
-      : conversationMessagesForModel(activeRows);
+      : conversationMessagesForModel(validateConversationRows(activeRows));
     return {
       inputId: randomUUID(),
       agentId: this.llm.agentId,

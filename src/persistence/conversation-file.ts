@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { ReadModelChanges } from '../application/read-model-changes.js';
+import { validateConversationRows, type ValidatedConversation } from '../contracts/conversation-compaction.js';
 import { agentMessageSchema, type AgentMessage } from '../schemas/index.js';
 import { readCanonicalGrowingFile, serializeGrowingEnvelope, appendEnvelope, publishFirstEnvelope } from './growing-file.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
@@ -19,13 +20,13 @@ export function probeConversation(projectRoot: string, sessionId: string): boole
   return readExact(conversationFile(projectRoot, sessionId)) !== null;
 }
 
-export function readConversation(projectRoot: string, sessionId: string): AgentMessage[] {
+export function readConversation(projectRoot: string, sessionId: string): ValidatedConversation {
   const path = conversationFile(projectRoot, sessionId);
   let rows: AgentMessage[];
   try { rows = readCanonicalGrowingFile(path, agentMessageSchema); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
-  if (new Set(rows.map((row) => row.id)).size !== rows.length) throw new Error(`Conversation '${sessionId}' contains duplicate message ids.`);
-  return rows;
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return validateConversationRows([]); throw error; }
+  try { return validateConversationRows(rows); }
+  catch (error) { throw new Error(`Conversation '${sessionId}' is invalid: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
 export function listConversationSessionIds(projectRoot: string): string[] {
@@ -62,6 +63,7 @@ function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] {
 export function publishConversationFirstBatch(projectRoot: string, messages: readonly AgentMessage[], changes?: ReadModelChanges, publicationTemporaryId?: PublicationTemporaryIdFactory): void {
   const parsed = validateBatch(messages);
   const sessionId = parsed[0]!.session_id;
+  validateConversationRows(parsed);
   publishFirstEnvelope(conversationFile(projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), publicationTemporaryId);
   changes?.conversationChanged(sessionId);
   changes?.agentsChanged();
@@ -71,10 +73,11 @@ export function appendConversationBatch(projectRoot: string, messages: readonly 
   const parsed = validateBatch(messages);
   const sessionId = parsed[0]!.session_id;
   const current = readConversation(projectRoot, sessionId);
-  const existingIds = new Set(current.map((message) => message.id));
+  const existingIds = new Set(current.physicalRows.map((message) => message.id));
   const duplicate = parsed.find((message) => existingIds.has(message.id));
   if (duplicate) throw new Error(`Conversation message '${duplicate.id}' already exists.`);
-  if (current.length === 0) publishConversationFirstBatch(projectRoot, parsed, changes, publicationTemporaryId);
+  validateConversationRows([...current.physicalRows, ...parsed]);
+  if (current.physicalRows.length === 0) publishConversationFirstBatch(projectRoot, parsed, changes, publicationTemporaryId);
   else {
     appendEnvelope(conversationFile(projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema));
     changes?.conversationChanged(sessionId);

@@ -136,7 +136,7 @@ export class ConversationLLMActor extends BaseActor {
       inputId: continuationInputId,
       genericContextMessages: contextMessages,
       contextMessages,
-      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readConversationMessages(this.projectRoot, input.sessionId)),
+      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readConversationMessages(this.projectRoot, input.sessionId).physicalRows),
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, result } },
     };
     this.waitingToolCall = null;
@@ -187,7 +187,7 @@ export class ConversationLLMActor extends BaseActor {
       inputId: repairInputId,
       genericContextMessages: [...genericContextMessagesForInvocation(input), repairMessage, ...extraMessages],
       contextMessages: [...input.contextMessages, { role: 'user', content: repairDirective }, ...extraMessages],
-      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readConversationMessages(this.projectRoot, input.sessionId)),
+      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readConversationMessages(this.projectRoot, input.sessionId).physicalRows),
       episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
     }, { resetDeliveredToolCalls: false, signal });
   }
@@ -301,8 +301,8 @@ export class ConversationLLMActor extends BaseActor {
     const result = completion.result;
     if (persisted.kind === 'message' && result.kind === 'message') {
       this.conversationPublisher?.entryAppended(persisted.appended);
-      const activeRows = readConversationMessages(this.projectRoot, input.sessionId);
-      this.input = { ...input, genericContextMessages: conversationMessagesForModel(activeRows), contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }], activeConversationReplay: buildResponsesReplayProjection(input.sessionId, activeRows) };
+      const activeConversation = readConversationMessages(this.projectRoot, input.sessionId);
+      this.input = { ...input, genericContextMessages: conversationMessagesForModel(activeConversation), contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }], activeConversationReplay: buildResponsesReplayProjection(input.sessionId, activeConversation.physicalRows) };
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.onTurnSettled();
       this.#activationSignal = null;
@@ -524,7 +524,7 @@ export class LLMActor extends ConversationLLMActor {
       const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, conversations: this.conversations, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, signal });
       signal.throwIfAborted();
       const compactedRows = compacted.rows as AgentMessage[];
-      const compactedInput = { ...input, genericContextMessages: conversationMessagesForModel(compactedRows), contextMessages: conversationMessagesForModel(compactedRows), activeConversationReplay: buildResponsesReplayProjection(input.sessionId, compactedRows) } as LlmInvocationInput;
+      const compactedInput = { ...input, genericContextMessages: compactedRows, contextMessages: compactedRows, activeConversationReplay: buildResponsesReplayProjection(input.sessionId, compactedRows) } as LlmInvocationInput;
       this.#compacting = false;
       return compactedInput;
     } finally {

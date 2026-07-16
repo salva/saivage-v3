@@ -48,11 +48,12 @@ describe('Stage-I compaction contracts', () => {
   });
 
   it('requires a system row containing strict canonical JSON text', () => {
-    const payload = contextCompactionContentSchema.parse({ cutoff: { round_id: 'round-1', through_message_id: 'm1', boundary: 'round' }, retained_static_message_ids: [], merged_history: null, individual_rounds: [{ round_id: 'round-1', complete: true, through_message_id: 'm1', source_message_ids: ['m1'], content_hash: 'a'.repeat(64), summary_text: 'summary', evidence: [] }], round_coverage: [{ round_id: 'round-1', complete: true, through_message_id: 'm1', segments: [{ kind: 'initial', anchor_message_id: null, source_message_ids: ['m1'] }] }], rendered_context: 'Round round-1:\nsummary', applied_policy: { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, requested_completion_tokens: 200, canonical_message_hard_ceiling: 790, trigger_line_tokens: 800, trigger_message_threshold: 790, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, tail_budget_tokens: 300, middle_budget_tokens: 200, snap: 'compact_straddler' } });
+    const payload = contextCompactionContentSchema.parse({ boundary: 'round', retained_static_message_ids: [], summaries: [{ kind: 'individual', rounds: [{ complete: true, segments: [{ kind: 'initial', source_message_ids: ['m1'] }] }], content_hash: 'a'.repeat(64), summary_text: 'summary', evidence: [] }], applied_policy: { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, requested_completion_tokens: 200, canonical_message_hard_ceiling: 790, trigger_line_tokens: 800, trigger_message_threshold: 790, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, tail_budget_tokens: 300, middle_budget_tokens: 200, snap: 'compact_straddler' } });
     const row = { id: 'c1', session_id: 'planner:project', role: 'system', kind: 'context_compaction', content: canonicalJson(payload), round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
     expect(agentMessageSchema.parse(row).content).toBe(canonicalJson(payload));
     expect(agentMessageSchema.safeParse({ ...row, role: 'user' }).success).toBe(false);
     expect(agentMessageSchema.safeParse({ ...row, content: JSON.stringify(payload, null, 2) }).success).toBe(false);
+    expect(contextCompactionContentSchema.safeParse({ ...payload, cutoff: { round_id: 'm1', through_message_id: 'm1', boundary: 'round' } }).success).toBe(false);
   });
 
   it.each(['compact_straddler', 'keep_straddler_verbatim'] as const)('appends C1/C2/C3 latest-only raw-authoritative projections with a monotonic cutoff (%s)', async (snap) => {
@@ -64,31 +65,31 @@ describe('Stage-I compaction contracts', () => {
       const invocation = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner' as const, sessionId: 'planner:project', systemPrompt: 'system', genericContextMessages: [], contextMessages: [], activeConversationReplay: { sessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 80 }, capabilityRequest: { requestedCompletionTokens: 80 }, episodeContext: {} };
       await compact({ projectRoot: root, conversations: { projectRoot: root }, sessionId: 'planner:project', input: invocation, config: integrationConfig, summarizerProvider: provider, signal: new AbortController().signal });
       const first = readConversation(root, 'planner:project');
-      const firstPayload = JSON.parse(first.filter((row) => row.kind === 'context_compaction').at(-1)!.content) as { cutoff: { through_message_id: string } };
+      const firstCutoff = first.latestCompaction!.cutoffMessageId;
       for (let ordinal = 5; ordinal <= 7; ordinal++) appendRawRound(root, ordinal);
       await compact({ projectRoot: root, conversations: { projectRoot: root }, sessionId: 'planner:project', input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000002', genericContextMessages: conversationMessagesForModel(first), contextMessages: conversationMessagesForModel(first) }, config: integrationConfig, summarizerProvider: provider, signal: new AbortController().signal });
       const second = readConversation(root, 'planner:project');
-      const metadata = second.filter((row) => row.kind === 'context_compaction');
+      const metadata = second.physicalRows.filter((row) => row.kind === 'context_compaction');
       expect(metadata).toHaveLength(2);
-      const secondPayload = JSON.parse(metadata[1]!.content) as { cutoff: { through_message_id: string }; round_coverage: Array<{ segments: Array<{ source_message_ids: string[] }> }> };
-      const sourceIds = second.filter((row) => row.kind !== 'context_compaction').map((row) => row.id);
-      expect(sourceIds.indexOf(secondPayload.cutoff.through_message_id)).toBeGreaterThan(sourceIds.indexOf(firstPayload.cutoff.through_message_id));
-      expect(secondPayload.round_coverage.flatMap((round) => round.segments.flatMap((segment) => segment.source_message_ids)).every((id) => sourceIds.includes(id))).toBe(true);
+      const secondPayload = second.latestCompaction!.payload;
+      const sourceIds = second.sourceRows.map((row) => row.id);
+      expect(sourceIds.indexOf(second.latestCompaction!.cutoffMessageId)).toBeGreaterThan(sourceIds.indexOf(firstCutoff));
+      expect(secondPayload.summaries.flatMap((group) => group.rounds.flatMap((round) => round.segments.flatMap((segment) => segment.source_message_ids))).every((id) => sourceIds.includes(id))).toBe(true);
       const projected = conversationMessagesForModel(second);
       expect(projected.filter((row) => row.id.endsWith(':rendered'))).toHaveLength(1);
       expect(projected.some((row) => row.kind === 'context_compaction')).toBe(false);
       for (let ordinal = 8; ordinal <= 10; ordinal++) appendRawRound(root, ordinal);
       await compact({ projectRoot: root, conversations: { projectRoot: root }, sessionId: 'planner:project', input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000003', genericContextMessages: conversationMessagesForModel(second), contextMessages: conversationMessagesForModel(second) }, config: integrationConfig, summarizerProvider: provider, signal: new AbortController().signal });
       const third = readConversation(root, 'planner:project');
-      const allMetadata = third.filter((row) => row.kind === 'context_compaction');
+      const allMetadata = third.physicalRows.filter((row) => row.kind === 'context_compaction');
       expect(allMetadata).toHaveLength(3);
-      const thirdPayload = JSON.parse(allMetadata[2]!.content) as { cutoff: { through_message_id: string }; round_coverage: Array<{ segments: Array<{ source_message_ids: string[] }> }>; rendered_context: string };
-      expect(sourceIds.indexOf(secondPayload.cutoff.through_message_id)).toBeLessThan(third.filter((row) => row.kind !== 'context_compaction').map((row) => row.id).indexOf(thirdPayload.cutoff.through_message_id));
+      const thirdPayload = third.latestCompaction!.payload;
+      expect(sourceIds.indexOf(second.latestCompaction!.cutoffMessageId)).toBeLessThan(third.sourceRows.map((row) => row.id).indexOf(third.latestCompaction!.cutoffMessageId));
       const thirdProjection = conversationMessagesForModel(third);
       expect(thirdProjection.filter((row) => row.id.endsWith(':rendered'))).toHaveLength(1);
-      expect(thirdProjection.some((row) => row.content === JSON.parse(allMetadata[0]!.content).rendered_context)).toBe(false);
-      expect(thirdProjection.some((row) => row.content === JSON.parse(allMetadata[1]!.content).rendered_context)).toBe(false);
-      expect(thirdPayload.round_coverage.flatMap((round) => round.segments.flatMap((segment) => segment.source_message_ids)).every((id) => third.some((row) => row.kind !== 'context_compaction' && row.id === id))).toBe(true);
+      expect(thirdProjection.some((row) => row.content === third.compactions[0]!.renderedContext)).toBe(false);
+      expect(thirdProjection.some((row) => row.content === third.compactions[1]!.renderedContext)).toBe(false);
+      expect(thirdPayload.summaries.flatMap((group) => group.rounds.flatMap((round) => round.segments.flatMap((segment) => segment.source_message_ids))).every((id) => third.sourceRows.some((row) => row.id === id))).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -107,13 +108,13 @@ describe('Stage-I compaction contracts', () => {
       const invocation = { inputId: source_input_id, agentId: session_id, role: 'planner' as const, sessionId: session_id, systemPrompt: 'system', genericContextMessages: rows, contextMessages: rows, activeConversationReplay: { sessionId: session_id, messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 80 }, capabilityRequest: { requestedCompletionTokens: 80 }, episodeContext: {} };
 
       const result = await compact({ projectRoot: root, conversations: { projectRoot: root }, sessionId: session_id, input: invocation, config: hardConfig, summarizerProvider: provider, signal: new AbortController().signal });
-      const payload = JSON.parse(result.compactionMessage.content) as { applied_policy: { mode: string; trigger_message_threshold: number }; cutoff: { through_message_id: string }; individual_rounds: Array<{ complete: boolean; source_message_ids: string[]; content_hash: string }> };
+      const payload = contextCompactionContentSchema.parse(JSON.parse(result.compactionMessage.content));
       expect(payload.applied_policy.mode).toBe('hard_limit_fallback');
-      expect(payload.individual_rounds.at(-1)?.complete).toBe(false);
+      expect(payload.summaries.at(-1)?.rounds[0]?.complete).toBe(false);
       const projected = conversationMessagesForModel(readConversation(root, session_id));
       expect(projected.filter((row) => row.id.endsWith(':rendered'))).toHaveLength(1);
       expect(projected.some((row) => row.id === 'hard-message-9')).toBe(true);
-      expect(payload.cutoff.through_message_id).not.toBe('hard-message-9');
+      expect(readConversation(root, session_id).latestCompaction!.cutoffMessageId).not.toBe('hard-message-9');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

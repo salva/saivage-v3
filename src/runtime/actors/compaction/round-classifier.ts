@@ -1,4 +1,5 @@
 import type { AgentMessage } from '../../../schemas/index.js';
+import { classifyConversationSourceRows, classifySourceSegments } from '../../../contracts/conversation-source-classification.js';
 import { isConversationBudgetVisible } from '../conversation-session.js';
 
 export type SubRoundKind = 'repair';
@@ -35,30 +36,12 @@ export type ClassifiedConversation = {
 };
 
 export function classifyConversationRounds(messages: AgentMessage[]): ClassifiedConversation {
-  const positioned = positionMessages(messages.filter((message) => message.kind !== 'context_compaction'));
-  const preamble: PositionedMessage[] = [];
-  const rounds: ClassifiedRound[] = [];
-  let currentRoundRows: PositionedMessage[] | null = null;
-  let currentMarker: PositionedMessage | null = null;
-  let sawActivation = false;
-
-  for (const row of positioned) {
-    if (isActivationOpenMarker(row.message)) {
-      if (currentRoundRows && currentMarker) rounds.push(buildRound(currentMarker, currentRoundRows));
-      sawActivation = true;
-      currentMarker = row;
-      currentRoundRows = [row];
-      continue;
-    }
-    if (!sawActivation) {
-      preamble.push(row);
-      continue;
-    }
-    if (!currentRoundRows) throw new Error('Round classifier reached activated state without an open round.');
-    currentRoundRows.push(row);
-  }
-
-  if (currentRoundRows && currentMarker) rounds.push(buildRound(currentMarker, currentRoundRows));
+  const sourceRows = messages.filter((message) => message.kind !== 'context_compaction');
+  const positioned = positionMessages(sourceRows);
+  const byId = new Map(positioned.map((row) => [row.message.id, row]));
+  const source = classifyConversationSourceRows(sourceRows);
+  const preamble = source.preamble.map((row) => byId.get(row.id)!);
+  const rounds = source.rounds.map((round) => buildRound(byId.get(round.activationMarker.id)!, round.rows.map((row) => byId.get(row.id)!)));
 
   return {
     preamble,
@@ -97,42 +80,17 @@ function buildRound(marker: PositionedMessage, rows: PositionedMessage[]): Class
 }
 
 function buildSubRounds(roundId: string, rows: PositionedMessage[]): ClassifiedSubRound[] {
-  const anchors = rows
-    .map((row, index) => ({ row, index }))
-    .filter(({ row }) => row.message.kind === 'model_repair' || isFailedToolResult(row.message));
-
-  return anchors.map(({ row, index }, anchorIndex) => {
-    const next = anchors[anchorIndex + 1]?.index ?? rows.length;
-    const subRows = rows.slice(index, next);
+  const byId = new Map(rows.map((row) => [row.message.id, row]));
+  return classifySourceSegments(rows.map((row) => row.message)).filter((segment) => segment.kind === 'repair').map((segment) => {
+    const subRows = segment.rows.map((row) => byId.get(row.id)!);
+    const anchor = subRows[0]!;
     return {
-      id: `${roundId}#${row.message.id}`,
+      id: `${roundId}#${anchor.message.id}`,
       kind: 'repair',
-      anchor_message_id: row.message.id,
+      anchor_message_id: anchor.message.id,
       rows: subRows,
       start_token: subRows[0].start_token,
       end_token: subRows[subRows.length - 1].end_token,
     };
   });
-}
-
-function isActivationOpenMarker(message: AgentMessage): boolean {
-  if (message.kind !== 'activity') return false;
-  const parsed = parseJsonObject(message.content);
-  return parsed.event === 'activation_open';
-}
-
-function isFailedToolResult(message: AgentMessage): boolean {
-  if (message.kind !== 'tool_result') return false;
-  const parsed = parseJsonObject(message.content);
-  return parsed.success === false;
-}
-
-function parseJsonObject(content: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
-    return {};
-  } catch {
-    return {};
-  }
 }

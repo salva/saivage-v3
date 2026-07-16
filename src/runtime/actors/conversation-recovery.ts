@@ -62,7 +62,7 @@ export function stabilizeRoleSession(args: {
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
 }): { interrupted: boolean; messages: AgentMessage[] } {
-  const messages = readConversationMessages(args.projectRoot, args.sessionId);
+  const messages = readConversationMessages(args.projectRoot, args.sessionId).physicalRows;
   const activationIndexes = messages.flatMap((message, index) => isActivationOpen(message) ? [index] : []);
   if (activationIndexes.length === 0) {
     validateCallSettlementPairs(messages, null, false, args.terminalToolNames);
@@ -81,7 +81,7 @@ export function stabilizeRoleSession(args: {
       data: { outcome_unknown: true },
     });
   }
-  return { interrupted, messages: readConversationMessages(args.projectRoot, args.sessionId) };
+  return { interrupted, messages: readConversationMessages(args.projectRoot, args.sessionId).physicalRows };
 }
 
 function isActivationOpen(message: AgentMessage): boolean {

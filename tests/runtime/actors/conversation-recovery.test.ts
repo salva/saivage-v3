@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
-import type { AgentMessage, MessageKind, MessageRole } from '../../../src/schemas/index.js';
+import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type MessageKind, type MessageRole } from '../../../src/schemas/index.js';
 import { classifyConversation } from '../../../src/runtime/actors/conversation-recovery.js';
+import { hashConversationRows, validateConversationRows } from '../../../src/contracts/conversation-compaction.js';
 
 const terminalTools = new Set(['emit_result']);
 
@@ -64,6 +65,15 @@ describe('classifyConversation', () => {
     expect(classifyConversation([toolCall('planner:G-1:1', 'call-1')], terminalTools)).toBe('awaiting_tool_result');
     expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), toolResult('planner:G-1:1', 'call-1')], terminalTools)).toBe('settled_terminal');
     expect(classifyConversation([message({ kind: 'system_prompt' }), message({ kind: 'activity' })], terminalTools)).toBe('system_prompt_only');
+  });
+
+  it('classifies a strictly validated current-format compaction row as pending_provider', () => {
+    const source = agentMessageSchema.parse(message({ id: 'activation', kind: 'activity', content: JSON.stringify({ event: 'activation_open' }) }));
+    const payload = contextCompactionContentSchema.parse({ boundary: 'round', retained_static_message_ids: [], summaries: [{ kind: 'individual', rounds: [{ complete: true, segments: [{ kind: 'initial', source_message_ids: [source.id] }] }], content_hash: hashConversationRows([source]), summary_text: 'summary', evidence: [] }], applied_policy: { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, requested_completion_tokens: 200, canonical_message_hard_ceiling: 790, trigger_line_tokens: 800, trigger_message_threshold: 790, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, tail_budget_tokens: 300, middle_budget_tokens: 200, snap: 'compact_straddler' } });
+    const metadata = agentMessageSchema.parse(message({ id: 'compaction', kind: 'context_compaction', content: canonicalJson(payload), round_id: 'r-compacted-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }));
+    const validated = validateConversationRows([source, metadata]);
+    expect(classifyConversation(validated.physicalRows, terminalTools)).toBe('pending_provider');
+    expect(() => validateConversationRows([source, { ...metadata, content: canonicalJson({ ...payload, summaries: [{ ...payload.summaries[0]!, content_hash: '0'.repeat(64) }] }) }])).toThrow(/hash mismatch/);
   });
 
   it('matches tool settlements by full session, source input, and tool call id', () => {

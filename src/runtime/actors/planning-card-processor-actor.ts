@@ -8,6 +8,7 @@ import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
+import { validateConversationRows } from '../../contracts/conversation-compaction.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
@@ -150,7 +151,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const budget = this.compactionConfig?.enabled ? validateCompactionStaticCapacity(this.compactionConfig, systemPrompt, tools) : null;
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
     const loadedRows = stabilized.messages;
-    const loaded = conversationMessagesForModel(loadedRows);
+    const loaded = conversationMessagesForModel(validateConversationRows(loadedRows));
     const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
     const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
@@ -282,7 +283,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const budget = this.compactionConfig?.enabled ? validateCompactionStaticCapacity(this.compactionConfig, systemPrompt, tools) : null;
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
     const loadedRows = stabilized.messages;
-    const loaded = conversationMessagesForModel(loadedRows);
+    const loaded = conversationMessagesForModel(validateConversationRows(loadedRows));
     const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
     const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;

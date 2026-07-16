@@ -61,11 +61,11 @@ describe('reviewer pending-notification deferral and semantic currentness', () =
       releaseReview();
       await waitUntil(() => freshPlannerObserved);
 
-      const reviewerRows = readConversation(projectRoot, 'reviewer:project');
+      const reviewerRows = readConversation(projectRoot, 'reviewer:project').physicalRows;
       const deferral = reviewerRows.find((row) => row.kind === 'tool_result' && row.tool_call_id === 'review-result')!;
       expect(JSON.parse(deferral.content)).toMatchObject({ success: false, data: { reason: 'pending_notifications' } });
       expect(reviewerRows.some((row) => row.content.includes(`operator context ${reviewStatus} ${stale}`))).toBe(false);
-      expect(readConversation(projectRoot, 'planner:project').some((row) => row.content === `operator context ${reviewStatus} ${stale}`)).toBe(true);
+      expect(readConversation(projectRoot, 'planner:project').physicalRows.some((row) => row.content === `operator context ${reviewStatus} ${stale}`)).toBe(true);
       expect(() => store.readRecord('project', 'review.md', 'open')).toThrow();
       expect(store.read('project')).toMatchObject({ status: 'backlog', pending_notifications: [] });
       controller.abort(new Error('test complete'));

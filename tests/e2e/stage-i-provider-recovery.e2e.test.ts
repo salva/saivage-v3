@@ -28,7 +28,7 @@ describe('stable same-session recovery', () => {
     appendConversationBatch(projectRoot, rows);
     const result = stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     expect(result.interrupted).toBe(true);
-    const recovered = readConversation(projectRoot, sessionId);
+    const recovered = readConversation(projectRoot, sessionId).physicalRows;
     expect(recovered).toHaveLength(rows.length + 1);
     const settlement = recovered.at(-1)!;
     expect(settlement.id).toBe(`${source}:tool-result:call-1`);

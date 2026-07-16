@@ -26,7 +26,7 @@ export class AgentOperatorReadModelService {
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
     const sessions = listConversationSessionIds(this.projectRoot)
-      .map((sessionId) => this.buildSessionSummary(sessionId, readConversation(this.projectRoot, sessionId)))
+      .map((sessionId) => this.buildSessionSummary(sessionId, readConversation(this.projectRoot, sessionId).physicalRows))
       .filter((session): session is AgentOperatorSessionSummary => Boolean(session));
     sessions.sort((a, b) => String(b.started_at ?? '').localeCompare(String(a.started_at ?? '')) || String(a.id).localeCompare(String(b.id)));
     return { sessions };
@@ -35,7 +35,7 @@ export class AgentOperatorReadModelService {
   getSession(sessionId: string): { statusCode?: number; body: { session?: Record<string, unknown>; error?: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
     if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const messages = readConversation(this.projectRoot, sessionId);
+    const messages = readConversation(this.projectRoot, sessionId).physicalRows;
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const base = this.buildSessionSummary(sessionId, messages);
     if (!base) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
@@ -46,7 +46,7 @@ export class AgentOperatorReadModelService {
   getConversation(sessionId: string): { statusCode?: number; body: AgentOperatorConversationResponse | { error: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
     if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const messages = readConversation(this.projectRoot, sessionId);
+    const messages = readConversation(this.projectRoot, sessionId).physicalRows;
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const session = this.buildSessionSummary(sessionId, messages);
     if (!session) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };

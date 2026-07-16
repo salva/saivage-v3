@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../../persistence/conversation-file.js';
-import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, parseCanonicalContextCompaction, type AgentMessage, type ContextCompactionContent } from '../../../schemas/index.js';
+import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type ContextCompactionContent } from '../../../schemas/index.js';
+import { validateConversationRows, type ValidatedContextCompaction } from '../../../contracts/conversation-compaction.js';
 import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { ToolDefinition } from '../../../agents/llm-contracts.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
@@ -65,16 +66,17 @@ export type ShouldCompactResult = { shouldCompact: boolean; estimatedMessageToke
 export function shouldCompact(input: LlmInvocationInput, config: CompactionConfig): ShouldCompactResult {
   if (!config.enabled) return { shouldCompact: false, estimatedMessageTokens: 0, triggerMessageThreshold: Number.POSITIVE_INFINITY };
   const budget = validateCompactionStaticCapacity(config, input.systemPrompt, input.tools);
-  const estimatedMessageTokens = conversationMessagesForModel(input.contextMessages as AgentMessage[]).reduce((sum, row) => sum + estimateMessageTokens(row), 0);
+  const estimatedMessageTokens = (input.contextMessages as AgentMessage[]).reduce((sum, row) => sum + estimateMessageTokens(row), 0);
   return { shouldCompact: estimatedMessageTokens >= budget.triggerMessageThreshold, estimatedMessageTokens, triggerMessageThreshold: budget.triggerMessageThreshold };
 }
 
 export async function compact(args: { projectRoot: string; conversations: ConversationFileContext; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: SummarizerProviderPort; signal: AbortSignal }): Promise<{ rows: AgentMessage[]; compactionMessage: AgentMessage }> {
   if (!args.config.summarizer_model?.trim()) throw new Error('Compaction is enabled but compaction.summarizer_model is unset.');
   const budget = validateCompactionStaticCapacity(args.config, args.input.systemPrompt, args.input.tools);
-  const physicalRows = readConversation(args.projectRoot, args.sessionId);
-  const sourceRows = physicalRows.filter((row) => row.kind !== 'context_compaction');
-  const latest = latestPayload(physicalRows, sourceRows);
+  const conversation = readConversation(args.projectRoot, args.sessionId);
+  const physicalRows = conversation.physicalRows;
+  const sourceRows = conversation.sourceRows;
+  const latest = conversation.latestCompaction;
   const classified = classifyConversationRounds(sourceRows);
   const normal = computeSlidingCompactionBands(classified.rounds, { tail_budget_tokens: budget.normalTailBudget, middle_budget_tokens: budget.normalMiddleBudget, snap: args.config.snap });
   const escalated = computeSlidingCompactionBands(classified.rounds, { tail_budget_tokens: budget.escalatedTailBudget, middle_budget_tokens: budget.escalatedMiddleBudget, snap: args.config.snap });
@@ -89,38 +91,39 @@ export async function compact(args: { projectRoot: string; conversations: Conver
   }
   if (effectivePayloadTokens(built.payload, sourceRows) > budget.triggerMessageThreshold) throw new Error('Compaction could not fit the residual context below the trigger threshold without splitting an indivisible provider bundle. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
   args.signal.throwIfAborted();
-  assertMonotonicCutoff(latest?.payload, built.payload, sourceRows);
+  assertMonotonicCutoff(latest, built.payload, sourceRows);
   const content = canonicalJson(contextCompactionContentSchema.parse(built.payload));
   const compactionMessage = agentMessageSchema.parse({ id: `${args.sessionId}:compaction:${randomUUID()}`, session_id: args.sessionId, role: 'system', kind: 'context_compaction', content, round_id: generateRoundId('compacted'), message_index: 0, block_index: 0, timestamp: new Date().toISOString() });
+  const prospective = validateConversationRows([...physicalRows, compactionMessage]);
   appendConversationBatch(args.projectRoot, [compactionMessage], args.conversations.changes);
-  return { rows: conversationMessagesForModel([...physicalRows, compactionMessage]), compactionMessage };
+  return { rows: conversationMessagesForModel(prospective), compactionMessage };
 }
 
 type BuiltPayload = { payload: ContextCompactionContent; coveredRows: AgentMessage[] };
-async function buildPayload(args: Parameters<typeof compact>[0], sourceRows: AgentMessage[], preamble: AgentMessage[], partition: SlidingBandPartitions, budget: CompactionBudget, band: 'normal' | 'escalated', latest: LatestPayload | null): Promise<BuiltPayload> {
+async function buildPayload(args: Parameters<typeof compact>[0], sourceRows: AgentMessage[], preamble: AgentMessage[], partition: SlidingBandPartitions, budget: CompactionBudget, band: 'normal' | 'escalated', latest: ValidatedContextCompaction | null): Promise<BuiltPayload> {
   const mergedRounds = partition.merge_rounds;
   const individual = await Promise.all(partition.summary_rounds.map((round) => summarizeRawRound(args, round)));
-  let mergedHistory: ContextCompactionContent['merged_history'] = null;
+  let mergedHistory: ContextCompactionContent['summaries'][number] | null = null;
   if (mergedRounds.length > 0) {
     const mergedRows = mergedRounds.flatMap(rawRoundRows);
     const mergeInputs: MergeSummaryInput[] = [];
-    const prior = latest?.payload.merged_history;
-    const priorIds = prior?.source_message_ids ?? [];
+    const prior = latest?.groups[0]?.payload.kind === 'merged' ? latest.groups[0] : null;
+    const priorIds = prior?.sourceRows.map((row) => row.id) ?? [];
     const newIds = mergedRows.map((row) => row.id);
     let firstNewRound = 0;
-    if (prior && isExactPrefix(priorIds, newIds) && hashRows(mergedRows.slice(0, priorIds.length)) === prior.content_hash) {
-      mergeInputs.push({ round_id: prior.round_ids.join(','), summary_text: prior.summary_text });
+    if (prior && isExactPrefix(priorIds, newIds) && hashRows(mergedRows.slice(0, priorIds.length)) === prior.payload.content_hash) {
+      mergeInputs.push({ round_id: prior.rounds.map((round) => round.label).join(','), summary_text: prior.payload.summary_text });
       firstNewRound = mergedRounds.findIndex((round) => round.rows.some((row) => row.message.id === newIds[priorIds.length]));
       if (firstNewRound < 0) firstNewRound = mergedRounds.length;
     }
     for (const round of mergedRounds.slice(firstNewRound)) mergeInputs.push({ round_id: round.round_id, summary_text: (await summarizeRawRound(args, round)).summary_text });
     const summaryText = await mergeSummaryGroups(args, mergeInputs);
     args.signal.throwIfAborted();
-    mergedHistory = { round_ids: mergedRounds.map((round) => round.round_id), source_message_ids: newIds, content_hash: hashRows(mergedRows), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(mergedRows) };
+    mergedHistory = { kind: 'merged', rounds: mergedRounds.map((round) => summaryRoundForRows(rawRoundRows(round), true)), content_hash: hashRows(mergedRows), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(mergedRows) };
   }
   const coveredRounds = [...mergedRounds, ...partition.summary_rounds];
   if (coveredRounds.length === 0) {
-    if (latest) return { payload: latest.payload, coveredRows: sourceRows.slice(0, latest.cutoffIndex) };
+    if (latest) return { payload: latest.payload, coveredRows: sourceRows.slice(0, latest.cutoffSourceIndex + 1) };
     return fallbackFromScratch(args, sourceRows, preamble, partition, budget, band);
   }
   const coveredRows = coveredRounds.flatMap(rawRoundRows);
@@ -151,18 +154,18 @@ async function fallbackFromScratch(args: Parameters<typeof compact>[0], sourceRo
     const prefix = boundaryRows.slice(0, length);
     if (!safeFallbackBoundary(prefix, boundaryRows[length])) continue;
     const last = prefix[prefix.length - 1]!;
-    const partial = { round_id: boundaryRound.round_id, complete: false, through_message_id: last.id, source_message_ids: prefix.map((row) => row.id), content_hash: hashRows(prefix), summary_text: await summarizeRound({ round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model!, signal: args.signal }), evidence: recoverableEvidenceDescriptors(prefix) };
+    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [summaryRoundForRows(prefix, false)], content_hash: hashRows(prefix), summary_text: await summarizeRound({ round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model!, signal: args.signal }), evidence: recoverableEvidenceDescriptors(prefix) };
     args.signal.throwIfAborted();
     const retainedStatic = preamble.filter((row) => row.role === 'system' && row.kind !== 'activity').map((row) => row.id);
     const modeBand = band;
-    const payload = contextCompactionContentSchema.parse({ cutoff: { round_id: boundaryRound.round_id, through_message_id: last.id, boundary: fallbackBoundary(last) }, retained_static_message_ids: retainedStatic, merged_history: null, individual_rounds: [partial], round_coverage: [coverageForRows(boundaryRound.round_id, prefix, false)], rendered_context: renderContext(null, [partial]), applied_policy: { mode: 'hard_limit_fallback', band: modeBand, input_budget_tokens: budget.inputBudgetTokens, canonical_estimated_static_tokens: budget.estimatedStaticTokens, requested_completion_tokens: budget.requestedCompletionTokens, canonical_message_hard_ceiling: budget.canonicalMessageHardCeiling, trigger_line_tokens: budget.triggerLineTokens, trigger_message_threshold: budget.triggerMessageThreshold, trigger_fraction: args.config.trigger_fraction, completion_reserve_fraction: args.config.completion_reserve_fraction, merge_line_fraction: band === 'normal' ? args.config.merge_line_fraction : args.config.escalate_merge_line_fraction, summary_line_fraction: band === 'normal' ? args.config.summary_line_fraction : args.config.escalate_summary_line_fraction, tail_budget_tokens: band === 'normal' ? budget.normalTailBudget : budget.escalatedTailBudget, middle_budget_tokens: band === 'normal' ? budget.normalMiddleBudget : budget.escalatedMiddleBudget, snap: args.config.snap } });
+    const payload = contextCompactionContentSchema.parse({ boundary: fallbackBoundary(last), retained_static_message_ids: retainedStatic, summaries: [partial], applied_policy: { mode: 'hard_limit_fallback', band: modeBand, input_budget_tokens: budget.inputBudgetTokens, canonical_estimated_static_tokens: budget.estimatedStaticTokens, requested_completion_tokens: budget.requestedCompletionTokens, canonical_message_hard_ceiling: budget.canonicalMessageHardCeiling, trigger_line_tokens: budget.triggerLineTokens, trigger_message_threshold: budget.triggerMessageThreshold, trigger_fraction: args.config.trigger_fraction, completion_reserve_fraction: args.config.completion_reserve_fraction, merge_line_fraction: band === 'normal' ? args.config.merge_line_fraction : args.config.escalate_merge_line_fraction, summary_line_fraction: band === 'normal' ? args.config.summary_line_fraction : args.config.escalate_summary_line_fraction, tail_budget_tokens: band === 'normal' ? budget.normalTailBudget : budget.escalatedTailBudget, middle_budget_tokens: band === 'normal' ? budget.normalMiddleBudget : budget.escalatedMiddleBudget, snap: args.config.snap } });
     if (effectivePayloadTokens(payload, sourceRows) <= budget.triggerMessageThreshold) return { payload, coveredRows: prefix };
   }
   throw new Error('Compaction could not find a safe residual prefix below the trigger threshold. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
 }
 
-async function applyHardFallback(args: Parameters<typeof compact>[0], sourceRows: AgentMessage[], base: BuiltPayload, budget: CompactionBudget, latest: LatestPayload | null): Promise<BuiltPayload> {
-  const start = sourceRows.findIndex((row) => row.id === base.payload.cutoff.through_message_id) + 1;
+async function applyHardFallback(args: Parameters<typeof compact>[0], sourceRows: AgentMessage[], base: BuiltPayload, budget: CompactionBudget, latest: ValidatedContextCompaction | null): Promise<BuiltPayload> {
+  const start = sourceRows.findIndex((row) => row.id === coveredSourceIds(base.payload).at(-1)) + 1;
   if (start <= 0) throw new Error('Hard fallback base cutoff is not an immutable source row.');
   const remaining = sourceRows.slice(start);
   const boundaryRound = classifyConversationRounds(remaining).rounds[0];
@@ -172,87 +175,68 @@ async function applyHardFallback(args: Parameters<typeof compact>[0], sourceRows
     const prefix = boundaryRows.slice(0, length);
     if (!safeFallbackBoundary(prefix, boundaryRows[length])) continue;
     const allCovered = sourceRows.slice(0, start + length);
-    if (latest && allCovered.length <= latest.cutoffIndex) continue;
+    if (latest && allCovered.length <= latest.cutoffSourceIndex + 1) continue;
     const last = prefix[prefix.length - 1]!;
     const summaryText = await summarizeRound({ round_id: last.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model!, signal: args.signal });
     args.signal.throwIfAborted();
-    const partial = { round_id: boundaryRound.round_id, complete: false, through_message_id: last.id, source_message_ids: prefix.map((row) => row.id), content_hash: hashRows(prefix), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(prefix) };
-    const payload = { ...base.payload, cutoff: { round_id: boundaryRound.round_id, through_message_id: last.id, boundary: fallbackBoundary(last) }, individual_rounds: [...base.payload.individual_rounds, partial], round_coverage: [...base.payload.round_coverage, coverageForRows(boundaryRound.round_id, prefix, false)], applied_policy: { ...base.payload.applied_policy, mode: 'hard_limit_fallback' as const }, rendered_context: renderContext(base.payload.merged_history, [...base.payload.individual_rounds, partial]) };
+    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [summaryRoundForRows(prefix, false)], content_hash: hashRows(prefix), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(prefix) };
+    const payload = { ...base.payload, boundary: fallbackBoundary(last), summaries: [...base.payload.summaries, partial], applied_policy: { ...base.payload.applied_policy, mode: 'hard_limit_fallback' as const } };
     const parsed = contextCompactionContentSchema.parse(payload);
     if (effectivePayloadTokens(parsed, sourceRows) <= budget.triggerMessageThreshold) return { payload: parsed, coveredRows: allCovered };
   }
   return base;
 }
 
-function payloadFor(args: Parameters<typeof compact>[0], sourceRows: AgentMessage[], preamble: AgentMessage[], coveredRows: AgentMessage[], merged: ContextCompactionContent['merged_history'], individual: ContextCompactionContent['individual_rounds'], partition: SlidingBandPartitions, budget: CompactionBudget, mode: 'normal' | 'escalated', band: 'normal' | 'escalated'): ContextCompactionContent {
-  const last = coveredRows[coveredRows.length - 1]!;
+function payloadFor(args: Parameters<typeof compact>[0], sourceRows: AgentMessage[], preamble: AgentMessage[], coveredRows: AgentMessage[], merged: ContextCompactionContent['summaries'][number] | null, individual: ContextCompactionContent['summaries'], partition: SlidingBandPartitions, budget: CompactionBudget, mode: 'normal' | 'escalated', band: 'normal' | 'escalated'): ContextCompactionContent {
   const retainedStatic = preamble.filter((row) => row.role === 'system' && row.kind !== 'activity').map((row) => row.id);
-  const coveredRoundIds = new Set([...partition.merge_rounds, ...partition.summary_rounds].map((round) => round.round_id));
-  const roundCoverage = classifyConversationRounds(sourceRows).rounds.filter((round) => coveredRoundIds.has(round.round_id)).map((round) => coverageForRows(round.round_id, rawRoundRows(round), true));
+  void sourceRows;
+  void coveredRows;
   return contextCompactionContentSchema.parse({
-    cutoff: { round_id: roundCoverage[roundCoverage.length - 1]!.round_id, through_message_id: last.id, boundary: 'round' }, retained_static_message_ids: retainedStatic,
-    merged_history: merged, individual_rounds: individual, round_coverage: roundCoverage, rendered_context: renderContext(merged, individual),
+    boundary: 'round', retained_static_message_ids: retainedStatic, summaries: [...(merged ? [merged] : []), ...individual],
     applied_policy: { mode, band, input_budget_tokens: budget.inputBudgetTokens, canonical_estimated_static_tokens: budget.estimatedStaticTokens, requested_completion_tokens: budget.requestedCompletionTokens, canonical_message_hard_ceiling: budget.canonicalMessageHardCeiling, trigger_line_tokens: budget.triggerLineTokens, trigger_message_threshold: budget.triggerMessageThreshold, trigger_fraction: args.config.trigger_fraction, completion_reserve_fraction: args.config.completion_reserve_fraction, merge_line_fraction: band === 'normal' ? args.config.merge_line_fraction : args.config.escalate_merge_line_fraction, summary_line_fraction: band === 'normal' ? args.config.summary_line_fraction : args.config.escalate_summary_line_fraction, tail_budget_tokens: band === 'normal' ? budget.normalTailBudget : budget.escalatedTailBudget, middle_budget_tokens: band === 'normal' ? budget.normalMiddleBudget : budget.escalatedMiddleBudget, snap: args.config.snap },
   });
 }
 
-async function summarizeRawRound(args: Parameters<typeof compact>[0], round: ClassifiedRound): Promise<ContextCompactionContent['individual_rounds'][number]> {
+async function summarizeRawRound(args: Parameters<typeof compact>[0], round: ClassifiedRound): Promise<ContextCompactionContent['summaries'][number]> {
   const rows = rawRoundRows(round);
   const summaryText = await summarizeRound({ round_id: round.round_id, rows: dropRecoverableResultBodies(rows), summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model!, signal: args.signal });
   args.signal.throwIfAborted();
-  return { round_id: round.round_id, complete: true, through_message_id: rows[rows.length - 1]!.id, source_message_ids: rows.map((row) => row.id), content_hash: hashRows(rows), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(rows) };
+  return { kind: 'individual', rounds: [summaryRoundForRows(rows, true)], content_hash: hashRows(rows), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(rows) };
 }
 
-function coverageForRows(roundId: string, rows: AgentMessage[], complete: boolean): ContextCompactionContent['round_coverage'][number] {
+function summaryRoundForRows(rows: AgentMessage[], complete: boolean): ContextCompactionContent['summaries'][number]['rounds'][number] {
   const anchors = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.kind === 'model_repair' || (row.kind === 'tool_result' && failedResult(row)));
-  const segments: ContextCompactionContent['round_coverage'][number]['segments'] = [];
+  const segments: ContextCompactionContent['summaries'][number]['rounds'][number]['segments'] = [];
   const firstRepair = anchors[0]?.index ?? rows.length;
-  if (firstRepair > 0) segments.push({ kind: 'initial', anchor_message_id: null, source_message_ids: rows.slice(0, firstRepair).map((row) => row.id) });
-  anchors.forEach(({ row, index }, ordinal) => segments.push({ kind: 'repair', anchor_message_id: row.id, source_message_ids: rows.slice(index, anchors[ordinal + 1]?.index ?? rows.length).map((item) => item.id) }));
-  if (segments.length === 0) segments.push({ kind: 'initial', anchor_message_id: null, source_message_ids: rows.map((row) => row.id) });
-  return { round_id: roundId, complete, through_message_id: rows[rows.length - 1]!.id, segments };
+  if (firstRepair > 0) segments.push({ kind: 'initial', source_message_ids: rows.slice(0, firstRepair).map((row) => row.id) });
+  anchors.forEach(({ index }, ordinal) => segments.push({ kind: 'repair', source_message_ids: rows.slice(index, anchors[ordinal + 1]?.index ?? rows.length).map((item) => item.id) }));
+  if (segments.length === 0) segments.push({ kind: 'initial', source_message_ids: rows.map((row) => row.id) });
+  return { complete, segments };
 }
 
-function renderContext(merged: ContextCompactionContent['merged_history'], rounds: ContextCompactionContent['individual_rounds']): string {
+function renderContext(groups: ContextCompactionContent['summaries']): string {
   const sections: string[] = [];
-  if (merged) sections.push(`Merged history rounds ${merged.round_ids.join(', ')}:\n${merged.summary_text}${renderEvidence(merged.evidence)}`);
-  for (const round of rounds) sections.push(`Round ${round.round_id}${round.complete ? '' : ' (partial prefix)'}:\n${round.summary_text}${renderEvidence(round.evidence)}`);
+  for (const group of groups) {
+    const labels = group.rounds.map((round) => round.segments[0]!.source_message_ids[0]!);
+    const heading = group.kind === 'merged' ? `Merged history rounds ${labels.join(', ')}` : `Round ${labels[0]}${group.rounds[0]!.complete ? '' : ' (partial prefix)'}`;
+    sections.push(`${heading}:\n${group.summary_text}${renderEvidence(group.evidence)}`);
+  }
   return sections.join('\n\n');
 }
 function renderEvidence(evidence: readonly unknown[]): string { return evidence.length === 0 ? '' : `\nRecoverable evidence:\n${evidence.map((item) => `- ${canonicalJson(item)}`).join('\n')}`; }
 
-type LatestPayload = { payload: ContextCompactionContent; cutoffIndex: number };
-function latestPayload(physicalRows: AgentMessage[], sourceRows: AgentMessage[]): LatestPayload | null {
-  const row = [...physicalRows].reverse().find((item) => item.kind === 'context_compaction');
-  if (!row) return null;
-  const payload = parseCanonicalContextCompaction(row.content);
-  const cutoffIndex = sourceRows.findIndex((item) => item.id === payload.cutoff.through_message_id) + 1;
-  if (cutoffIndex === 0) throw new Error(`Compaction cutoff '${payload.cutoff.through_message_id}' is not an immutable source row.`);
-  validatePayloadCoverage(payload, sourceRows.slice(0, cutoffIndex));
-  return { payload, cutoffIndex };
-}
-function validatePayloadCoverage(payload: ContextCompactionContent, prefix: AgentMessage[]): void {
-  const coverageIds = payload.round_coverage.flatMap((round) => round.segments.flatMap((segment) => segment.source_message_ids));
-  const summarizedIds = [...(payload.merged_history?.source_message_ids ?? []), ...payload.individual_rounds.flatMap((round) => round.source_message_ids)];
-  if (JSON.stringify(coverageIds) !== JSON.stringify(summarizedIds)) throw new Error('Compaction coverage and summarized source ids differ.');
-  const start = prefix.length - summarizedIds.length;
-  if (start < 0 || JSON.stringify(prefix.slice(start).map((row) => row.id)) !== JSON.stringify(summarizedIds)) throw new Error('Compaction coverage is not the canonical covered source suffix ending at cutoff.');
-  const byId = new Map(prefix.map((row) => [row.id, row]));
-  if (payload.merged_history && hashRows(payload.merged_history.source_message_ids.map((id) => byId.get(id)!)) !== payload.merged_history.content_hash) throw new Error('Compaction merged raw content hash mismatch.');
-  for (const round of payload.individual_rounds) if (hashRows(round.source_message_ids.map((id) => byId.get(id)!)) !== round.content_hash) throw new Error(`Compaction raw content hash mismatch for round '${round.round_id}'.`);
-}
-
 function effectivePayloadTokens(payload: ContextCompactionContent, sourceRows: AgentMessage[]): number {
-  const cutoff = sourceRows.findIndex((row) => row.id === payload.cutoff.through_message_id);
+  const cutoff = sourceRows.findIndex((row) => row.id === coveredSourceIds(payload).at(-1));
   const retained = new Set(payload.retained_static_message_ids);
-  return estimateTextTokens(payload.rendered_context) + sourceRows.reduce((sum, row, index) => sum + ((retained.has(row.id) || index > cutoff) ? estimateMessageTokens(row) : 0), 0);
+  return estimateTextTokens(renderContext(payload.summaries)) + sourceRows.reduce((sum, row, index) => sum + ((retained.has(row.id) || index > cutoff) ? estimateMessageTokens(row) : 0), 0);
 }
-function assertMonotonicCutoff(previous: ContextCompactionContent | undefined, next: ContextCompactionContent, sourceRows: AgentMessage[]): void {
+function assertMonotonicCutoff(previous: ValidatedContextCompaction | null, next: ContextCompactionContent, sourceRows: AgentMessage[]): void {
   if (!previous) return;
-  const oldIndex = sourceRows.findIndex((row) => row.id === previous.cutoff.through_message_id);
-  const newIndex = sourceRows.findIndex((row) => row.id === next.cutoff.through_message_id);
+  const oldIndex = previous.cutoffSourceIndex;
+  const newIndex = sourceRows.findIndex((row) => row.id === coveredSourceIds(next).at(-1));
   if (newIndex < oldIndex) throw new Error('Compaction cutoff would retreat; reset or start a new conversation.');
 }
+function coveredSourceIds(payload: ContextCompactionContent): string[] { return payload.summaries.flatMap((group) => group.rounds.flatMap((round) => round.segments.flatMap((segment) => segment.source_message_ids))); }
 function safeFallbackBoundary(prefix: AgentMessage[], next: AgentMessage | undefined): boolean {
   const last = prefix[prefix.length - 1]!;
   if (last.kind === 'tool_call') return false;

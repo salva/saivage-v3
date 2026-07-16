@@ -28,7 +28,7 @@ describe('LLM delivery log', () => {
       result,
     });
 
-    const messages = readConversation(projectRoot, sessionId);
+    const messages = readConversation(projectRoot, sessionId).physicalRows;
     expect(messages).toHaveLength(1);
     expect(messages[0]).toEqual(appended.message);
     expect(messages[0]).toMatchObject({

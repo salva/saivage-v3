@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
-import { agentMessageSchema, parseCanonicalContextCompaction } from '../../schemas/index.js';
+import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
+import type { ValidatedConversation } from '../../contracts/conversation-compaction.js';
 import { appendConversationBatch, listConversationSessionIds as listDirectConversationSessionIds, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 
 export { conversationDir } from './conversation-inventory.js';
 
-export function readConversationMessages(projectRoot: string, sessionId: string): AgentMessage[] {
+export function readConversationMessages(projectRoot: string, sessionId: string): ValidatedConversation {
   return readConversation(projectRoot, sessionId);
 }
 
@@ -100,19 +101,14 @@ export function appendCanonicalUserText(conversations: ConversationFileContext, 
   return message;
 }
 
-export function conversationMessagesForModel(messages: AgentMessage[]): AgentMessage[] {
-  let latestIndex = -1;
-  for (let index = messages.length - 1; index >= 0; index--) if (messages[index]!.kind === 'context_compaction') { latestIndex = index; break; }
-  if (latestIndex < 0) return messages.filter(isModelVisibleConversationMessage);
-  const metadata = messages[latestIndex]!;
-  const payload = parseCanonicalContextCompaction(metadata.content);
-  const sourceRows = messages.filter((message) => message.kind !== 'context_compaction');
-  const cutoffIndex = sourceRows.findIndex((message) => message.id === payload.cutoff.through_message_id);
-  if (cutoffIndex < 0) throw new Error(`Compaction cutoff '${payload.cutoff.through_message_id}' is not a source row.`);
-  const retainedIds = new Set(payload.retained_static_message_ids);
-  const retained = sourceRows.filter((message, index) => index <= cutoffIndex && retainedIds.has(message.id) && isModelVisibleConversationMessage(message));
-  const synthetic = agentMessageSchema.parse({ id: `${metadata.id}:rendered`, session_id: metadata.session_id, role: 'system', kind: 'text', content: payload.rendered_context, round_id: metadata.round_id, message_index: metadata.message_index, block_index: metadata.block_index, timestamp: metadata.timestamp });
-  return [...retained, synthetic, ...sourceRows.slice(cutoffIndex + 1).filter(isModelVisibleConversationMessage)];
+export function conversationMessagesForModel(conversation: ValidatedConversation): AgentMessage[] {
+  const latest = conversation.latestCompaction;
+  if (!latest) return conversation.sourceRows.filter(isModelVisibleConversationMessage);
+  const retainedIds = new Set(latest.payload.retained_static_message_ids);
+  const retained = conversation.sourceRows.filter((message, index) => index <= latest.cutoffSourceIndex && retainedIds.has(message.id) && isModelVisibleConversationMessage(message));
+  const metadata = latest.metadataRow;
+  const synthetic = agentMessageSchema.parse({ id: `${metadata.id}:rendered`, session_id: metadata.session_id, role: 'system', kind: 'text', content: latest.renderedContext, round_id: metadata.round_id, message_index: metadata.message_index, block_index: metadata.block_index, timestamp: metadata.timestamp });
+  return [...retained, synthetic, ...conversation.sourceRows.slice(latest.cutoffSourceIndex + 1).filter(isModelVisibleConversationMessage)];
 }
 
 export function isModelVisibleConversationMessage(message: AgentMessage): boolean {

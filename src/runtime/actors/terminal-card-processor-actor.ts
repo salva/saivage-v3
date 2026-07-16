@@ -6,6 +6,7 @@ import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-acto
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
+import { validateConversationRows } from '../../contracts/conversation-compaction.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../../tools/invocation.js';
@@ -137,7 +138,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const budget = this.compactionConfig?.enabled ? validateCompactionStaticCapacity(this.compactionConfig, systemPrompt, tools) : null;
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
     const loadedRows = stabilized.messages;
-    const loaded = conversationMessagesForModel(loadedRows);
+    const loaded = conversationMessagesForModel(validateConversationRows(loadedRows));
     this.conversationPublisher?.entryAppended(appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId }));
     const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
     if (recovery) this.conversationPublisher?.entryAppended(recovery);
