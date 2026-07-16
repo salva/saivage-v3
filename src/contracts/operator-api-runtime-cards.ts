@@ -97,7 +97,6 @@ export const RuntimeControlConflictSchema = z.object({ code: z.literal('runtime_
 export const RestartServerRequestSchema = z.object({ confirmation: z.literal('RESTART SERVER') }).strict();
 export const RestartServerResponseSchema = z.object({ status: z.literal('restart_scheduled') }).strict();
 export const RestartUnavailableErrorSchema = z.object({ code: z.literal('restart_unavailable'), message: z.literal('restart unavailable: operator authentication disabled') }).strict();
-const EmptyRuntimeControlBodySchema = z.object({}).strict();
 
 export const RuntimeCardRunsResponseSchema = z.object({
   active_card_run: z.unknown().nullable(),
@@ -235,7 +234,6 @@ export const runtimeCardsOperatorApiContracts = {
     operationId: 'runtime.pause',
     method: 'POST',
     path: '/api/runtime/pause',
-    body: EmptyRuntimeControlBodySchema,
     success: RuntimeStatusResponseSchema,
     error: ApiErrorSchema,
     response: { 200: RuntimeStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
@@ -246,7 +244,6 @@ export const runtimeCardsOperatorApiContracts = {
     operationId: 'runtime.resume',
     method: 'POST',
     path: '/api/runtime/resume',
-    body: EmptyRuntimeControlBodySchema,
     success: RuntimeStatusResponseSchema,
     error: ApiErrorSchema,
     response: { 200: RuntimeStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
@@ -257,7 +254,6 @@ export const runtimeCardsOperatorApiContracts = {
     operationId: 'stop_project',
     method: 'POST',
     path: '/api/runtime/stop-project',
-    body: EmptyRuntimeControlBodySchema,
     success: StopProjectResponseSchema,
     error: ApiErrorSchema,
     response: { 200: StopProjectResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 409: RuntimeControlConflictSchema, 500: ApiErrorSchema },

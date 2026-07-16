@@ -223,7 +223,7 @@ function createComposedRuntimeApi(input: {
       stopProject: () => input.runtimeApi.stopProject(),
       notifyCard: (cardId, notification) => input.runtimeApi.notifyCard(cardId, notification),
       cancelCard: (cardId, reason) => input.runtimeApi.cancelCard(cardId, reason),
-      startProject: (source) => input.runtimeApi.startProject(source),
+      startProject: () => input.runtimeApi.startProject(),
       subscribe: (options) => input.runtimeApi.subscribe(options),
       getStatus: () => input.runtimeApi.getStatus(),
       getRuntimeState: () => input.runtimeApi.getRuntimeState(),

@@ -71,6 +71,8 @@ Reviewer never drains the queue. Before accepting `done`, `blocked`, `failed`, o
 
 Runtime lifecycle is process-local. Startup is stopped. An installed instance is starting, running, pausing, paused, or closing. Pause uses one boolean and at most one parked frontier; admitted synchronous settlement may finish, but no fresh provider/tool/process/child/reviewer admission begins until Resume.
 
+The operation-specific REST contracts are distinct: Pause, Resume, and `stop_project` declare no request body, while `restart_server` declares the strict exact `{confirmation:'RESTART SERVER'}` body. The three bodyless handlers inspect the raw request first and locally return their declared 400 validation envelope for every defined body before invoking runtime control; this is not a shared `ContractRuntime` parser policy. Clients emit JSON `Content-Type` only with an actually serialized JSON body. Authentication and ordinary headers remain independent, so bodyless Stop retains them without advertising JSON.
+
 Run validates the unique contiguous project-rooted running chain and installs its complete ownership in both supervisor maps before admission. Every owner is a fresh process-local `CardActor`; the micro-actor lifecycle has only initial-state `start()` and no recover or rehydrate entrypoint. Every ancestor holds only an immediate-child `structural_wait`; only the deepest owner creates a processor and starts planner/executor by card type. After durable outcome and activation-caller settlement, the supervisor's identity-checked natural release removes the settled actor from both maps synchronously. Normal child settlement wakes one parent at a time with current facts and no reconstructed child ToolResult.
 
 `stop_project` is restartable non-domain containment, never cancellation. It closes global continuation/admission and freezes both complete ownership maps before first-claim classification. Open owners receive one identity-preserved `RuntimeStoppedInterruption` and preserve durable `running` state; result winners are not reclaimed or aborted and only suppress continuation. A cancellation winner is likewise not reclaimed or aborted: Stop starts or joins its cached actor-local cancellation promise and waits for `finishCancellation()` to publish `cancelled` and settle its caller. While the runtime is closing, result and cancellation settlement do not invoke natural release and leave both ownership entries installed for the supervisor. LLM, processor, card, structural-parent, child-tool, and root catches rethrow the exact Stop interruption rather than mapping it to domain failure. Cancellation-settlement, cleanup, and process failures side-report to one Stop-local collector and cannot replace a committed winner. Only after every owner settlement succeeds does the supervisor atomically clear both frozen maps and the current instance; this aggregate clear is separate from per-actor natural release. Otherwise one `RuntimeContainmentError` leaves both full closed maps and the runtime closing. Stop itself writes no card/root outcome or event.
@@ -93,7 +95,7 @@ CLI status, pause, resume, stop, and restart delegate only for a verified live r
 - dead also reports manual abandoned-lock repair;
 - indeterminate/malformed fails closed.
 
-The shared operator HTTP client appends only canonical operation paths. It never rediscovers YAML, flags, host/port environment, defaults, runtime files, or current process config. Published disabled auth omits Authorization; published bearer requires `SAIVAGE_API_TOKEN` and sends it only in a header. Connection, authentication, response, or schema failure has no fallback.
+The shared operator HTTP client appends only canonical operation paths. It sends bodyless Pause, Resume, and Stop requests without JSON `Content-Type`, while confirmed Restart carries its exact JSON body and content type. It never rediscovers YAML, flags, host/port environment, defaults, runtime files, or current process config. Published disabled auth omits Authorization; published bearer requires `SAIVAGE_API_TOKEN` and sends it only in a header. Connection, authentication, response, or schema failure has no fallback.
 
 ## Conversation Compaction
 
@@ -160,20 +162,20 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:82` |
 | `GET /api/processes` | Process list. | `src/contracts/operator-api-processes.ts:71` |
 | `GET /api/processes/:id` | Process detail. | `src/contracts/operator-api-processes.ts:81` |
-| `GET /health` | Liveness. | `src/contracts/operator-api-runtime-cards.ts:139` |
-| `GET /health/ready` | Readiness. | `src/contracts/operator-api-runtime-cards.ts:150` |
-| `GET /api/state` | Operator runtime state. | `src/contracts/operator-api-runtime-cards.ts:161` |
-| `GET /api/cards` | Card list. | `src/contracts/operator-api-runtime-cards.ts:171` |
-| `GET /api/cards/:id` | Card detail. | `src/contracts/operator-api-runtime-cards.ts:181` |
-| `GET /api/cards/:id/history` | Card history. | `src/contracts/operator-api-runtime-cards.ts:193` |
-| `GET /api/cards/:id/history/:seq` | Card history entry. | `src/contracts/operator-api-runtime-cards.ts:204` |
-| `GET /api/cards/:id/diff` | Card diff. | `src/contracts/operator-api-runtime-cards.ts:215` |
-| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:227` |
-| `POST /api/runtime/pause` | Pause project work. | `src/contracts/operator-api-runtime-cards.ts:237` |
-| `POST /api/runtime/resume` | Resume project work. | `src/contracts/operator-api-runtime-cards.ts:248` |
-| `POST /api/runtime/stop-project` | Stop project work. | `src/contracts/operator-api-runtime-cards.ts:259` |
-| `POST /api/runtime/restart-server` | Confirmed authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:270` |
-| `GET /api/runtime/card-runs` | Current card-run projection. | `src/contracts/operator-api-runtime-cards.ts:281` |
+| `GET /health` | Liveness. | `src/contracts/operator-api-runtime-cards.ts:138` |
+| `GET /health/ready` | Readiness. | `src/contracts/operator-api-runtime-cards.ts:149` |
+| `GET /api/state` | Operator runtime state. | `src/contracts/operator-api-runtime-cards.ts:160` |
+| `GET /api/cards` | Card list. | `src/contracts/operator-api-runtime-cards.ts:170` |
+| `GET /api/cards/:id` | Card detail. | `src/contracts/operator-api-runtime-cards.ts:180` |
+| `GET /api/cards/:id/history` | Card history. | `src/contracts/operator-api-runtime-cards.ts:192` |
+| `GET /api/cards/:id/history/:seq` | Card history entry. | `src/contracts/operator-api-runtime-cards.ts:203` |
+| `GET /api/cards/:id/diff` | Card diff. | `src/contracts/operator-api-runtime-cards.ts:214` |
+| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:226` |
+| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:236` |
+| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:246` |
+| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:256` |
+| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:266` |
+| `GET /api/runtime/card-runs` | Current card-run projection. | `src/contracts/operator-api-runtime-cards.ts:277` |
 <!-- saivage:operator-routes:end -->
 
 ### Internal debug routes

@@ -7,7 +7,7 @@ import { parseLlmActorId } from './ids.js';
 import { toPublicAgentPhase, toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import type { ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
 import type { RuntimeControlMechanics } from '../../application/runtime-control-service.js';
-import type { NotifyCardResult, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
+import type { NotifyCardResult, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { ActiveCardLeaf } from '../active-card-leaf.js';
 import { selectRunningCardChain } from '../running-card-chain.js';
@@ -131,7 +131,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     return tracked;
   }
 
-  async beginStartProject(_source: RuntimeCommandSource = 'operator'): Promise<{ accepted: false; result: StartProjectResult } | { accepted: true; state: RuntimeState }> {
+  async beginStartProject(): Promise<{ accepted: false; result: StartProjectResult } | { accepted: true; state: RuntimeState }> {
     await this.start();
     if (this.status !== 'stopped') return { accepted: false, result: { runtime: this.runtimeState(), status: this.status, started: false, stopped: false, error: `Cannot start runtime from '${this.status}'.` } };
     const chain = selectRunningCardChain(this.options.actorStore.list());

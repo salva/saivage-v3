@@ -7,9 +7,9 @@ export class OperatorRuntimeHttpClient {
   constructor(private readonly request: typeof fetch = fetch) {}
 
   getRuntimeStatus(endpoint: RuntimeControlEndpoint): Promise<OperatorApiSuccess<'runtime.status'>> { return this.call('runtime.status', endpoint); }
-  pauseRuntime(endpoint: RuntimeControlEndpoint): Promise<OperatorApiSuccess<'runtime.pause'>> { return this.call('runtime.pause', endpoint, {}); }
-  resumeRuntime(endpoint: RuntimeControlEndpoint): Promise<OperatorApiSuccess<'runtime.resume'>> { return this.call('runtime.resume', endpoint, {}); }
-  stopProject(endpoint: RuntimeControlEndpoint): Promise<OperatorApiSuccess<'stop_project'>> { return this.call('stop_project', endpoint, {}); }
+  pauseRuntime(endpoint: RuntimeControlEndpoint): Promise<OperatorApiSuccess<'runtime.pause'>> { return this.call('runtime.pause', endpoint); }
+  resumeRuntime(endpoint: RuntimeControlEndpoint): Promise<OperatorApiSuccess<'runtime.resume'>> { return this.call('runtime.resume', endpoint); }
+  stopProject(endpoint: RuntimeControlEndpoint): Promise<OperatorApiSuccess<'stop_project'>> { return this.call('stop_project', endpoint); }
   restartServer(endpoint: RuntimeControlEndpoint): Promise<OperatorApiSuccess<'restart_server'>> { return this.call('restart_server', endpoint, { confirmation: 'RESTART SERVER' }); }
 
   private async call<K extends RuntimeOperation>(operationId: K, endpoint: RuntimeControlEndpoint, body?: unknown): Promise<OperatorApiSuccess<K>> {

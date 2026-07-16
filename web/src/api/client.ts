@@ -43,9 +43,7 @@ import type { ProviderExchangePayload } from './contracts';
 import { dispatchApiAuthRequired } from '../utils/auth-events';
 
 function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+  const headers: Record<string, string> = {};
   const token = getAuthToken();
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -98,6 +96,7 @@ async function request<T>(
 
   if (body !== undefined && method !== 'GET' && method !== 'HEAD') {
     init.body = JSON.stringify(body);
+    (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
   }
 
   const response = await fetch(url.toString(), init);
@@ -207,9 +206,7 @@ export function getRuntimeState(signal?: AbortSignal): Promise<RuntimeStateRespo
 }
 
 export function getRuntimeStatus(signal?: AbortSignal): Promise<OperatorApiSuccess<'runtime.status'>> { return operatorRequest('runtime.status', { signal }); }
-export function pauseRuntime(): Promise<OperatorApiSuccess<'runtime.pause'>> { return operatorRequest('runtime.pause', { body: {} }); }
-export function resumeRuntime(): Promise<OperatorApiSuccess<'runtime.resume'>> { return operatorRequest('runtime.resume', { body: {} }); }
-export function stopProject(): Promise<OperatorApiSuccess<'stop_project'>> { return operatorRequest('stop_project', { body: {} }); }
+export function stopProject(): Promise<OperatorApiSuccess<'stop_project'>> { return operatorRequest('stop_project'); }
 export function restartServer(): Promise<OperatorApiSuccess<'restart_server'>> { return operatorRequest('restart_server', { body: { confirmation: 'RESTART SERVER' } }); }
 
 

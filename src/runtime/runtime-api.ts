@@ -4,7 +4,6 @@ import type { ActorRuntimeReadModel } from '../application/read-models/actor-run
 import type { CardNotification } from '../schemas/index.js';
 import type { CardCancellationResult } from './actors/card-actor.js';
 
-export type RuntimeCommandSource = 'operator' | 'tool' | 'runtime' | 'analyst';
 export interface RuntimeControlStateResult {
   runtime: RuntimeState | null;
   status: RuntimeStatus;
@@ -27,7 +26,7 @@ export interface RuntimeApi {
   stopProject(): Promise<StopProjectResult>;
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult;
-  startProject(source?: RuntimeCommandSource): Promise<StartProjectResult>;
+  startProject(): Promise<StartProjectResult>;
   subscribe(options: SubscriptionOptions): Subscription;
   getStatus(): {
     status: RuntimeStatus;

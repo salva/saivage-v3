@@ -26,6 +26,16 @@ function mechanics(): RuntimeControlMechanics {
 }
 
 describe('RuntimeControlService process-local control', () => {
+  it('starts through source-free preparation and launches the prepared project', async () => {
+    const runtime = mechanics();
+    const service = new RuntimeControlService({ projectRoot: '/project', interventionBinding: new RuntimeInterventionBinding(), mechanics: runtime });
+
+    await expect(service.startProject()).resolves.toEqual({ runtime: state, status: 'starting', started: true, stopped: false });
+    expect(runtime.beginStartProject).toHaveBeenCalledWith();
+    expect(runtime.launchStartedProject).toHaveBeenCalledWith(state);
+    expect(service.getRuntimeState()).toBe(state);
+  });
+
   it('keeps project stop separate from terminal application disposal', async () => {
     const runtime = mechanics();
     const service = new RuntimeControlService({ projectRoot: '/project', interventionBinding: new RuntimeInterventionBinding(), mechanics: runtime });

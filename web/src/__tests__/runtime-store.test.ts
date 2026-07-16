@@ -17,6 +17,8 @@ vi.mock('../api/client', () => ({
     cardIndex: { total: 0, byStatus: {}, byType: {} },
   })),
   getRuntimeStatus: vi.fn(async () => ({ restart_server_available: false })),
+  stopProject: vi.fn(async () => ({ status: 'stopped', contained: false })),
+  restartServer: vi.fn(async () => ({ status: 'restart_scheduled' })),
 }));
 vi.mock('../stores/sync', () => ({
   useSyncStore: () => ({
@@ -38,6 +40,11 @@ describe('runtime store S06 read-only projection', () => {
     expect(store).not.toHaveProperty('resumeRuntime');
     expect(store).not.toHaveProperty('freezeRuntime');
     expect(store).not.toHaveProperty('resumeRuntimeFromFreeze');
+    expect(store).not.toHaveProperty('pause');
+    expect(store).not.toHaveProperty('resume');
+    expect(store).not.toHaveProperty('pauseActionDisabledReason');
+    expect(store).toHaveProperty('stopProject');
+    expect(store).toHaveProperty('restartServer');
   });
 
   it('keeps read-only runtime projections and fetch actions', async () => {

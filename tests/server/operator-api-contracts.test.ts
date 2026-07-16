@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, parseOperatorResponse } from '../../src/contracts/operator-api.js';
+import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, parseOperatorResponse, type OperatorApiBody } from '../../src/contracts/operator-api.js';
 
 const runtimeState = {
   status: 'stopped',
@@ -11,6 +11,20 @@ const runtimeState = {
 };
 
 describe('operator API runtime contract without runtime ledgers', () => {
+  it('declares Pause, Resume, and Stop as bodyless while Restart retains exact confirmation', () => {
+    expect(operatorApiContracts['runtime.pause']).not.toHaveProperty('body');
+    expect(operatorApiContracts['runtime.resume']).not.toHaveProperty('body');
+    expect(operatorApiContracts.stop_project).not.toHaveProperty('body');
+    expect(operatorApiContracts.restart_server.body.parse({ confirmation: 'RESTART SERVER' })).toEqual({ confirmation: 'RESTART SERVER' });
+
+    const pauseBody: OperatorApiBody<'runtime.pause'> = undefined;
+    const resumeBody: OperatorApiBody<'runtime.resume'> = undefined;
+    const stopBody: OperatorApiBody<'stop_project'> = undefined;
+    // @ts-expect-error Bodyless runtime control operations do not admit an empty object.
+    const invalidPauseBody: OperatorApiBody<'runtime.pause'> = {};
+    expect([pauseBody, resumeBody, stopBody, invalidPauseBody]).toEqual([undefined, undefined, undefined, {}]);
+  });
+
   it('parses runtime state/status without command/run/activation projections', () => {
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } }).runtime).toEqual(runtimeState);
     const status = parseOperatorResponse('runtime.status', {

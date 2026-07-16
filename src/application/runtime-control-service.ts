@@ -1,20 +1,13 @@
-import { stableStringify } from '../persistence/index.js';
-import type { ControlActionSurface, NoteAuthor, RuntimeState } from '../schemas/index.js';
+import type { RuntimeState } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
-import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime/runtime-api.js';
+import type { RuntimeApi, StartProjectResult, StopProjectResult } from '../runtime/runtime-api.js';
 import type { RuntimeInterventionBinding } from './intervention-readiness.js';
 
-export interface RuntimeControlRequest {
-  readonly actor: NoteAuthor;
-  readonly surface: ControlActionSurface;
-  readonly paramsSummary: string;
-}
-
 export interface RuntimeControlApplicationPort {
-  startProject(source: RuntimeCommandSource, request: RuntimeControlRequest): Promise<StartProjectResult>;
-  pause(request: RuntimeControlRequest): void;
-  resume(request: RuntimeControlRequest): void;
-  stopProject(request: RuntimeControlRequest): Promise<StopProjectResult>;
+  startProject(): Promise<StartProjectResult>;
+  pause(): void;
+  resume(): void;
+  stopProject(): Promise<StopProjectResult>;
   getStatus(): ReturnType<RuntimeApi['getStatus']>;
   cancelCard(cardId: string, reason: string): ReturnType<RuntimeApi['cancelCard']>;
 }
@@ -23,7 +16,7 @@ export interface RuntimeControlMechanics extends Omit<RuntimeApi, 'pause' | 'res
   closeApplicationAdmission(): void;
   cleanupForApplicationStop(): Promise<void>;
   stopProject(): Promise<StopProjectResult>;
-  beginStartProject(source: RuntimeCommandSource): Promise<
+  beginStartProject(): Promise<
     | { readonly accepted: false; readonly result: StartProjectResult }
     | { readonly accepted: true; readonly state: RuntimeState }
   >;
@@ -48,10 +41,10 @@ export class RuntimeControlService implements RuntimeApi {
   closeApplicationAdmission(): void { this.requireMechanics().closeApplicationAdmission(); }
   cleanupForApplicationStop(): Promise<void> { return this.requireMechanics().cleanupForApplicationStop(); }
 
-  async startProject(source: RuntimeCommandSource = 'operator', request = requestForSource(source)): Promise<StartProjectResult> {
+  async startProject(): Promise<StartProjectResult> {
     try {
       this.options.interventionBinding.markNotReady();
-      const prepared = await this.requireMechanics().beginStartProject(source);
+      const prepared = await this.requireMechanics().beginStartProject();
       this.options.interventionBinding.markNotReady();
       if (!prepared.accepted) {
         return prepared.result;
@@ -66,7 +59,7 @@ export class RuntimeControlService implements RuntimeApi {
     }
   }
 
-  pause(request = requestForSource('runtime')): void {
+  pause(): void {
     try {
       const mechanics = this.requireMechanics();
       const prepared = mechanics.beginPause();
@@ -78,7 +71,7 @@ export class RuntimeControlService implements RuntimeApi {
     }
   }
 
-  resume(request = requestForSource('runtime')): void {
+  resume(): void {
     try {
       const current = this.currentState;
       if (!current) throw new Error('Runtime state is unavailable');
@@ -92,7 +85,7 @@ export class RuntimeControlService implements RuntimeApi {
     }
   }
 
-  async stopProject(_request = requestForSource('runtime')): Promise<StopProjectResult> {
+  async stopProject(): Promise<StopProjectResult> {
     const result = await this.requireMechanics().stopProject();
     if (result.contained) this.currentState = null;
     this.options.interventionBinding.markStoppedReady();
@@ -110,10 +103,4 @@ export class RuntimeControlService implements RuntimeApi {
     if (!this.options.mechanics) throw new Error('Serving runtime mechanics are unavailable.');
     return this.options.mechanics;
   }
-}
-
-export function requestForSource(source: RuntimeCommandSource): RuntimeControlRequest {
-  if (source === 'analyst') return { actor: 'analyst', surface: 'web-chat', paramsSummary: stableStringify({ source }) };
-  if (source === 'operator') return { actor: 'user', surface: 'rest', paramsSummary: stableStringify({ source }) };
-  return { actor: 'runtime', surface: 'runtime', paramsSummary: stableStringify({ source }) };
 }

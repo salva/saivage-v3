@@ -19,8 +19,6 @@ import type {
 import {
   getRuntimeState,
   getRuntimeStatus,
-  pauseRuntime,
-  resumeRuntime,
   stopProject as stopProjectRequest,
   restartServer as restartServerRequest,
   ApiError,
@@ -108,15 +106,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   });
   const liveUpdateLabel = computed(() => selectLiveUpdateLabel(liveUpdateState.value));
   const liveUpdateDetail = computed(() => selectLiveUpdateDetail(liveUpdateState.value));
-  const pauseActionDisabledReason = computed(() => {
-    if (loading.value) return 'Runtime state is still loading.';
-    if (unauthorized.value) return 'Pause/resume requires a valid API token.';
-    if (!runtime.value) return 'Runtime state is unavailable.';
-    if (status.value === 'error') return 'Runtime is in an error state; inspect Debug before pausing.';
-    return null;
-  });
-
-
   function applyRuntimeSummaryFromState(nextRuntime: RuntimeState | null): void {
     const summary = selectRuntimeSummary(nextRuntime);
     lastActionableError.value = summary.lastActionableError;
@@ -173,8 +162,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   }
   const refetch = fetchState;
 
-  async function pause(): Promise<void> { await pauseRuntime(); await fetchState(); }
-  async function resume(): Promise<void> { await resumeRuntime(); await fetchState(); }
   async function stopProject(): Promise<void> { await stopProjectRequest(); await fetchState(); }
   async function restartServer(): Promise<void> { if (!restartServerAvailable.value) throw new Error('restart unavailable: operator authentication disabled'); await restartServerRequest(); }
 
@@ -209,13 +196,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
     liveUpdateState,
     liveUpdateLabel,
     liveUpdateDetail,
-    pauseActionDisabledReason,
     commandDisabledReason,
     fetchState,
     markWsSync,
     refetch,
-    pause,
-    resume,
     stopProject,
     restartServer,
   };

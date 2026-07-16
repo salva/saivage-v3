@@ -13,6 +13,18 @@ import type {
 
 type RuntimeCardOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorAvailabilityContext & OperatorCardServiceContext;
 
+function rejectSuppliedRuntimeControlBody(body: unknown) {
+  if (body === undefined) return null;
+  return {
+    statusCode: 400,
+    body: {
+      error: 'ValidationError',
+      message: 'Runtime control request must not include a body',
+      issues: [{ path: 'body', message: 'Request body must be absent' }],
+    },
+  } as const;
+}
+
 function requireCardService(service: RuntimeCardOperatorHandlerOptions['cardStore']) {
   if (!service) throw new Error('Card service is unavailable. Use the production server composition or provide a route test service.');
   return service;
@@ -47,19 +59,25 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime status.');
       return { body: { ...buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
     },
-    'runtime.pause': () => {
+    'runtime.pause': ({ request }) => {
+      const rejection = rejectSuppliedRuntimeControlBody(request.body);
+      if (rejection) return rejection;
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime pause.');
-      options.runtimeApplication.runtimeControl.pause({ actor: 'user', surface: 'rest', paramsSummary: '{}' });
+      options.runtimeApplication.runtimeControl.pause();
       return { body: { ...buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
     },
-    'runtime.resume': () => {
+    'runtime.resume': ({ request }) => {
+      const rejection = rejectSuppliedRuntimeControlBody(request.body);
+      if (rejection) return rejection;
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime resume.');
-      options.runtimeApplication.runtimeControl.resume({ actor: 'user', surface: 'rest', paramsSummary: '{}' });
+      options.runtimeApplication.runtimeControl.resume();
       return { body: { ...buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
     },
-    stop_project: async () => {
+    stop_project: async ({ request }) => {
+      const rejection = rejectSuppliedRuntimeControlBody(request.body);
+      if (rejection) return rejection;
       if (!options.runtimeApplication) throw new Error('Runtime application is required for project stop.');
-      try { return { body: await options.runtimeApplication.runtimeControl.stopProject({ actor: 'user', surface: 'rest', paramsSummary: '{}' }) }; }
+      try { return { body: await options.runtimeApplication.runtimeControl.stopProject() }; }
       catch (error) {
         if (error instanceof Error && 'code' in error && error.code === 'runtime_control_conflict') return { statusCode: 409, body: { code: 'runtime_control_conflict', message: error.message } };
         throw error;

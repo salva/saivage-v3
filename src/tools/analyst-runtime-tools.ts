@@ -9,7 +9,6 @@ import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
-import { stableStringify } from '../persistence/control-action-audit.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
@@ -34,32 +33,32 @@ function processView(projectRoot: string, record: ProcessRecord): Record<string,
   };
 }
 
-export async function start_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
+export async function start_project(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
   if (!ctx.runtimeControl) return toolFailure('Active runtime is not available.');
-  const data = await ctx.runtimeControl.startProject('analyst', { actor: ctx.actor, surface: ctx.surface, paramsSummary: stableStringify(params) });
+  const data = await ctx.runtimeControl.startProject();
   if (!data.error) return { success: true, data };
   return toolFailure(data.error, { status: data.status, started: data.started, stopped: data.stopped });
 }
 
-export async function pause_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
+export async function pause_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
   if (!ctx.runtimeControl) return toolFailure('Active runtime is not available.');
-  ctx.runtimeControl.pause({ actor: ctx.actor, surface: ctx.surface, paramsSummary: stableStringify(params) });
+  ctx.runtimeControl.pause();
   const state = ctx.runtimeControl.getStatus();
   return { success: true, data: { status: state.status } };
 }
 
-export async function resume_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
+export async function resume_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
   if (!ctx.runtimeControl) return toolFailure('Active runtime is not available.');
   const state = ctx.runtimeControl.getStatus();
   if (state.status === 'error') return toolFailure('Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
-  ctx.runtimeControl.resume({ actor: ctx.actor, surface: ctx.surface, paramsSummary: stableStringify(params) });
+  ctx.runtimeControl.resume();
   const updated = ctx.runtimeControl.getStatus();
   return { success: true, data: { status: updated.status } };
 }
 
-export async function stop_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
+export async function stop_project(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
   if (!ctx.runtimeControl) return toolFailure('Active runtime is not available.');
-  return { success: true, data: await ctx.runtimeControl.stopProject({ actor: ctx.actor, surface: ctx.surface, paramsSummary: stableStringify(params) }) };
+  return { success: true, data: await ctx.runtimeControl.stopProject() };
 }
 
 export async function restart_server(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {

@@ -49,6 +49,12 @@ describe('OperatorRuntimeHttpClient', () => {
       ['http://127.0.0.1:49123/api/runtime/restart-server', 'POST'],
     ]);
     expect(request.mock.calls[4]![1]?.body).toBe('{"confirmation":"RESTART SERVER"}');
+    for (const call of request.mock.calls.slice(1, 4)) {
+      expect(call[1]).not.toHaveProperty('body');
+      expect(call[1]?.headers).not.toHaveProperty('content-type');
+      expect(call[1]?.headers).toMatchObject({ accept: 'application/json' });
+    }
+    expect(request.mock.calls[4]![1]?.headers).toMatchObject({ accept: 'application/json', 'content-type': 'application/json' });
   });
 
   const directFailures: Array<[string, () => Promise<Response>, RegExp]> = [

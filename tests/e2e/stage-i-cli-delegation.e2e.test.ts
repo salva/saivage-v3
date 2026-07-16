@@ -21,12 +21,16 @@ describe('Stage-I verified-live CLI delegation E2E', () => {
     createProjectIdentity(root, 'CLI E2E');
     writeFileSync(join(root, '.saivage', 'saivage.yaml'), 'server:\n  host: divergent.invalid\n  port: 1\n');
     process.chdir(root);
-    const requests: Array<{ method: string; url: string; authorization: string | undefined }> = [];
+    const requests: Array<{ method: string; url: string; authorization: string | undefined; contentType: string | undefined; body: string }> = [];
     const server = createServer((request: IncomingMessage, response: ServerResponse) => {
-      requests.push({ method: request.method!, url: request.url!, authorization: request.headers.authorization });
-      response.setHeader('Content-Type', 'application/json');
-      if (request.url === '/api/runtime/stop-project') response.end(JSON.stringify({ status: 'stopped', contained: true }));
-      else response.end(JSON.stringify(runtimeStatus(request.url === '/api/runtime/pause' ? 'paused' : 'running')));
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        requests.push({ method: request.method!, url: request.url!, authorization: request.headers.authorization, contentType: request.headers['content-type'], body: Buffer.concat(chunks).toString('utf8') });
+        response.setHeader('Content-Type', 'application/json');
+        if (request.url === '/api/runtime/stop-project') response.end(JSON.stringify({ status: 'stopped', contained: true }));
+        else response.end(JSON.stringify(runtimeStatus(request.url === '/api/runtime/pause' ? 'paused' : 'running')));
+      });
     });
     await new Promise<void>((resolve, reject) => server.listen(0, '127.0.0.1', resolve).once('error', reject));
     const address = server.address();
@@ -39,10 +43,10 @@ describe('Stage-I verified-live CLI delegation E2E', () => {
     try {
       for (const command of ['status', 'pause', 'resume', 'stop'] as const) await run(['node', 'saivage', command]);
       expect(requests).toEqual([
-        { method: 'GET', url: '/api/runtime/status', authorization: 'Bearer e2e-bearer-token' },
-        { method: 'POST', url: '/api/runtime/pause', authorization: 'Bearer e2e-bearer-token' },
-        { method: 'POST', url: '/api/runtime/resume', authorization: 'Bearer e2e-bearer-token' },
-        { method: 'POST', url: '/api/runtime/stop-project', authorization: 'Bearer e2e-bearer-token' },
+        { method: 'GET', url: '/api/runtime/status', authorization: 'Bearer e2e-bearer-token', contentType: undefined, body: '' },
+        { method: 'POST', url: '/api/runtime/pause', authorization: 'Bearer e2e-bearer-token', contentType: undefined, body: '' },
+        { method: 'POST', url: '/api/runtime/resume', authorization: 'Bearer e2e-bearer-token', contentType: undefined, body: '' },
+        { method: 'POST', url: '/api/runtime/stop-project', authorization: 'Bearer e2e-bearer-token', contentType: undefined, body: '' },
       ]);
     } finally {
       if (prior === undefined) delete process.env.SAIVAGE_API_TOKEN; else process.env.SAIVAGE_API_TOKEN = prior;

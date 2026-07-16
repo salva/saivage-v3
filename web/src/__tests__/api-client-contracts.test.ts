@@ -15,6 +15,8 @@ const removedMutationExports = [
   'clearAllNotes',
   'acknowledgeNotification',
   'terminateProcess',
+  'pauseRuntime',
+  'resumeRuntime',
 ] as const;
 
 const preservedReadAndBoundedWriteExports = [
@@ -22,9 +24,8 @@ const preservedReadAndBoundedWriteExports = [
   'getCard',
   'getRuntimeState',
   'getRuntimeStatus',
-  'pauseRuntime',
-  'resumeRuntime',
   'stopProject',
+  'restartServer',
   'issueWebSocketTicket',
   'sendChatMessage',
 ] as const;
