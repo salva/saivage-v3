@@ -166,6 +166,8 @@ export class McpServerRuntime {
       ownerId: `mcp:${this.name}`, ownerKind: 'runtime', launchReason: `MCP stdio server ${this.name}`,
       env: { ...process.env, ...(cfg.env ?? {}) }, stdio: ['pipe', 'pipe', 'pipe'],
     });
+    launch.process.stderr!.on('error', () => undefined);
+    launch.process.stderr!.resume();
     this.handle = { process: launch.process, processId: launch.record.id };
     this.startedAt = new Date().toISOString();
     launch.process.stdin?.on('error', () => undefined);

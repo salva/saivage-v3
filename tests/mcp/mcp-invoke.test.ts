@@ -146,4 +146,35 @@ describe('contained MCP invocation', () => {
     ]);
     expect(results).toEqual([['first'], ['second']]);
   });
+
+  it('drains high-volume stdio server stderr before protocol responses', async () => {
+    const projectRoot = root();
+    const script = join(projectRoot, 'noisy-server.cjs');
+    writeFileSync(script, `
+const readline = require('node:readline');
+const { once } = require('node:events');
+const rl = readline.createInterface({ input: process.stdin });
+const stderrChunk = Buffer.alloc(64 * 1024, 'x');
+async function writeStderr() {
+  for (let written = 0; written < 8 * 1024 * 1024; written += stderrChunk.length) {
+    if (!process.stderr.write(stderrChunk)) await once(process.stderr, 'drain');
+  }
+}
+rl.on('line', async (line) => {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2025-06-18' } }) + '\\n');
+  if (request.method === 'tools/list') {
+    await writeStderr();
+    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { tools: [{ name: 'echo', inputSchema: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] } }] } }) + '\\n');
+  }
+  if (request.method === 'tools/call') process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: 'echo:' + request.params.arguments.value }] } }) + '\\n');
+});`);
+    writeConfig(projectRoot, { local: { transport: 'stdio', command: process.execPath, args: [script], autostart: true } });
+    const mcp = manager(projectRoot);
+
+    expect((await mcp.reconcilePersistedConfig()).converged).toBe(true);
+    await expect(mcp.invokeTool('local', 'echo', { value: 'complete' })).resolves.toEqual([
+      { type: 'text', text: 'echo:complete' },
+    ]);
+  });
 });
