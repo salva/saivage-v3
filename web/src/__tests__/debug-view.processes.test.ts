@@ -16,7 +16,6 @@ vi.mock('../api/client', () => {
     }
   };
   return {
-    getDebugState: vi.fn().mockResolvedValue({ runtime: null, cards: [], totalCards: 0 }),
     getDebugErrors: vi.fn().mockResolvedValue({ errors: [], total: 0 }),
     getDebugTimeline: vi.fn().mockResolvedValue({ events: [], total: 0 }),
     getDoctor: vi.fn().mockResolvedValue({ status: 'ok', checks: [], issues: [] }),

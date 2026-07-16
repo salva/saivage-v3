@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import source from '../views/DebugView.vue?raw';
 import readModelSource from '../composables/useDebugReadModel?raw';
+import debugStoreSource from '../stores/debug?raw';
 
 describe('DebugView S06 diagnostic-only integration contract', () => {
   it('exposes a route-owned root and route-body content for browser smoke assertions', () => {
@@ -33,5 +34,18 @@ describe('DebugView S06 diagnostic-only integration contract', () => {
     const end = source.indexOf('</section>', start);
     const childSection = source.slice(start, end);
     expect(childSection).not.toMatch(/@click|@submit|@drag|createCard|updateCard|deleteCard/);
+  });
+
+  it('derives core rows from domain owners and performs no Debug aggregate or agent-list read', () => {
+    expect(source).toContain('useRuntimeStore');
+    expect(source).toContain('useCardStore');
+    expect(source).toContain('useAgentStore');
+    expect(source).toContain('validExplicitAgentSessionId');
+    expect(source).toContain('effectiveAgentSessionId');
+    expect(source).toContain(':key="`${effectiveAgentSessionId}:${selectedAgentDebugKind}`"');
+    expect(source).not.toContain('getDebugState');
+    expect(debugStoreSource).not.toMatch(/getDebugState|listAgentSessions|getAgentConversation|getAgentLlmExchange/);
+    expect(debugStoreSource).toContain('fetchErrors(),');
+    expect(debugStoreSource).toContain('fetchTimeline(),');
   });
 });

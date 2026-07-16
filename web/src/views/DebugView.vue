@@ -12,15 +12,16 @@
 
     <div class="debug-content">
       <div v-if="localActiveTab === 'state'" class="debug-tab-content">
-        <ViewState v-if="loading" state="loading" title="Loading state..." />
-        <ViewState v-else-if="error" state="error" title="Failed to load" :message="error" />
-        <template v-else>
-          <section class="debug-section">
+          <section class="debug-section" data-testid="debug-runtime-state">
             <h4 class="debug-section-title">Runtime State</h4>
-            <div v-if="debugRuntime" class="debug-grid">
-              <div class="debug-grid-item"><span class="dg-key">Status:</span><span class="dg-value">{{ debugRuntime.status }}</span></div>
-              <div class="debug-grid-item"><span class="dg-key">PID:</span><span class="dg-value">{{ debugRuntime.pid }}</span></div>
-              <div class="debug-grid-item"><span class="dg-key">Started:</span><span class="dg-value">{{ fmtDate(debugRuntime.started_at) }}</span></div>
+            <ViewState v-if="runtimeLoading" state="loading" title="Loading runtime state..." />
+            <ViewState v-else-if="runtimeError" state="error" title="Failed to load runtime state" :message="runtimeError" />
+            <StatusBanner v-if="runtimeRefreshing" tone="stale" message="Refreshing runtime state…" />
+            <StatusBanner v-else-if="runtimeRefreshError" tone="warning" :message="runtimeRefreshError" />
+            <div v-if="runtime" class="debug-grid">
+              <div class="debug-grid-item"><span class="dg-key">Status:</span><span class="dg-value">{{ runtime.status }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">PID:</span><span class="dg-value">{{ runtime.pid }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Started:</span><span class="dg-value">{{ fmtDate(runtime.started_at) }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
@@ -28,7 +29,11 @@
           </section>
 
           <section class="debug-section">
-            <h4 class="debug-section-title">Cards ({{ debugTotalCards }} total)</h4>
+            <h4 class="debug-section-title">Cards ({{ cardsTotal }} total)</h4>
+            <ViewState v-if="cardsLoading" state="loading" title="Loading cards..." />
+            <ViewState v-else-if="cardsError" state="error" title="Failed to load cards" :message="cardsError" />
+            <StatusBanner v-if="cardsRefreshing" tone="stale" message="Refreshing cards…" />
+            <StatusBanner v-else-if="cardsRefreshError" tone="warning" :message="cardsRefreshError" />
             <div class="card-summary-bars">
               <div v-for="entry in cardStatusEntries" :key="entry.status" class="csb-row">
                 <span class="csb-label">{{ entry.status }}</span>
@@ -37,7 +42,7 @@
               </div>
             </div>
             <div class="debug-card-list">
-              <div v-for="card in debugCards" :key="card.id" class="dc-item" :class="'dc-' + card.status">
+              <div v-for="card in cards" :key="card.id" class="dc-item" :class="'dc-' + card.status">
                 <span class="dc-type">{{ card.type[0].toUpperCase() }}</span>
                 <span class="dc-title">{{ card.title }}</span>
                 <span class="dc-status" :class="'s-' + card.status">{{ card.status }}</span>
@@ -52,9 +57,8 @@
                 </section>
               </div>
             </div>
-            <ViewState v-if="debugCards.length === 0" state="empty" title="No cards." />
+            <ViewState v-if="!cardsLoading && !cardsError && cards.length === 0" state="empty" title="No cards." />
           </section>
-        </template>
       </div>
 
       <div v-if="localActiveTab === 'operator'" class="debug-tab-content">
@@ -69,13 +73,14 @@
             </div>
           </div>
 
-          <div v-if="operatorLastFetchedAt" class="operator-freshness" role="status">
-            Last refreshed {{ fmtDate(operatorLastFetchedAt) }}
+          <div v-if="runtimeLastFetchedAt" class="operator-freshness" role="status">
+            Last refreshed {{ fmtDate(runtimeLastFetchedAt) }}
             <span v-if="operatorDataFreshnessLabel === 'stale'">(stale)</span>
           </div>
           <div v-else class="operator-freshness" role="status">Not refreshed yet.</div>
 
-          <ViewState v-if="loading && !debugRuntime" state="loading" title="Loading runtime control state..." />
+          <ViewState v-if="runtimeLoading && !runtime" state="loading" title="Loading runtime control state..." />
+          <ViewState v-else-if="runtimeError && !runtime" state="error" title="Failed to load runtime state" :message="runtimeError" />
           <div v-else class="operator-runtime-card">
             <div class="operator-runtime-summary">
               <div class="debug-grid-item"><span class="dg-key">Status:</span><StatusBadge :status="statusForRuntimeStatus(runtimeStatusLabel)" /></div>
@@ -83,13 +88,14 @@
               <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
 
-            <ViewState v-if="!debugRuntime" state="empty" title="Runtime state is unavailable." message="Ask the Analyst to Run the project or open Dashboard to inspect recovery state." />
+            <StatusBanner v-if="runtimeRefreshError" tone="warning" :message="runtimeRefreshError" />
+            <ViewState v-if="!runtime" state="empty" title="Runtime state is unavailable." message="Ask the Analyst to Run the project or open Dashboard to inspect recovery state." />
 
             <div class="operator-runtime-guidance" role="note">
               DebugView is diagnostic-only. Lifecycle changes are Analyst-owned; Dashboard owns command errors, root runs, child activation edges, and recovery state.
             </div>
 
-            <div v-if="!debugRuntime" class="operator-help-text">Runtime diagnostics are unavailable because runtime state is not initialized. Ask the Analyst to Run the project or open Dashboard to inspect recovery state.</div>
+            <div v-if="!runtime" class="operator-help-text">Runtime diagnostics are unavailable because runtime state is not initialized. Ask the Analyst to Run the project or open Dashboard to inspect recovery state.</div>
           </div>
         </section>
 
@@ -160,72 +166,47 @@
               <p class="operator-subtitle">Segment-backed conversations from the operator API, with raw tool-delivery and LLM exchange ledgers where available.</p>
             </div>
             <div class="operator-actions-inline">
-              <button class="sv-fetch-btn" :disabled="agentDebugLoading" @click="debugStore.refreshAgentDebug">Refresh</button>
+              <button class="sv-fetch-btn" :disabled="sessionsLoading || sessionsRefreshing" @click="agentStore.fetchSessions">Refresh</button>
             </div>
           </div>
 
-          <StatusBanner v-if="agentDebugError" tone="danger" :message="agentDebugError" />
-          <ViewState v-if="agentDebugLoading" state="loading" title="Loading agent conversations..." />
-          <ViewState v-else-if="agentDebugSessions.length === 0" state="empty" title="No agent conversations recorded yet." />
+          <StatusBanner v-if="sessionsRefreshError" tone="warning" :message="sessionsRefreshError" />
+          <StatusBanner v-if="sessionsRefreshing" tone="stale" message="Refreshing agent sessions…" />
+          <ViewState v-if="sessionsLoading" state="loading" title="Loading agent conversations..." />
+          <ViewState v-else-if="sessionsUnauthorized" state="unauthorized" title="Agent sessions unavailable" message="Provide a valid API token to load agent sessions." />
+          <ViewState v-else-if="sessionsError" state="error" title="Failed to load agent conversations" :message="sessionsError" />
+          <ViewState v-else-if="sessionsLoaded && sessions.length === 0" state="empty" title="No agent sessions" />
           <div v-else class="agent-debug-layout">
             <aside class="agent-debug-sidebar" aria-label="Persisted agent sessions">
               <button
-                v-for="session in agentDebugSessions"
+                v-for="session in sessions"
                 :key="session.id"
                 type="button"
                 class="agent-debug-session"
-                :class="{ selected: selectedAgentDebugSessionId === session.id }"
-                @click="debugStore.selectAgentDebugSession(session.id)"
+                :class="{ selected: effectiveAgentSessionId === session.id }"
+                @click="explicitAgentSessionId = session.id"
               >
                 <span class="agent-debug-session-id mono">{{ session.id }}</span>
                 <span class="agent-debug-session-meta">{{ session.role }} · {{ session.status }}</span>
               </button>
             </aside>
-            <div class="agent-debug-detail">
+            <div>
               <div class="agent-debug-toolbar">
                 <button
-                  v-for="kind in debugStore.agentDebugKinds"
+                  v-for="kind in agentDebugKinds"
                   :key="kind.id"
                   type="button"
                   class="pill debug-tab-button"
                   :aria-pressed="selectedAgentDebugKind === kind.id"
-                  :disabled="!debugStore.agentDebugKindAvailable(kind.id)"
-                  @click="debugStore.selectAgentDebugKind(kind.id)"
+                  @click="selectedAgentDebugKind = kind.id"
                 >{{ kind.label }}</button>
-                <label v-if="selectedAgentDebugKind === 'conversation'" class="auto-scroll-pause-toggle">
-                  <input
-                    type="checkbox"
-                    :checked="agentDebugTimeline.autoScrollPaused.value"
-                    @change="agentDebugTimeline.toggleAutoScrollPause()"
-                  />
-                  Pause auto-scroll
-                </label>
-                <button v-if="selectedAgentDebugPath" class="sv-fetch-btn" :disabled="agentDebugContentLoading" @click="debugStore.loadSelectedAgentDebugContent">Reload</button>
               </div>
-              <div v-if="selectedAgentDebugSession" class="agent-debug-path mono">{{ selectedAgentDebugPath || 'No file recorded for this view.' }}</div>
-              <StatusBanner v-if="agentDebugContentRefreshError" tone="warning" :message="agentDebugContentRefreshError" />
-              <ViewState v-if="agentDebugContentLoading" state="loading" title="Loading agent file..." />
-              <ViewState v-else-if="agentDebugContentError" state="error" title="Failed to load" :message="agentDebugContentError" />
-              <ViewState v-else-if="!selectedAgentDebugPath" state="empty" title="Select a session and an available file type." />
-              <div
-                v-else-if="selectedAgentDebugKind === 'conversation' && selectedAgentDebugConversation"
-                ref="agentDebugTimeline.scrollAreaRef"
-                class="agent-debug-conversation"
-                @scroll="agentDebugTimeline.handleTimelineScroll"
-              >
-                <ConversationTimeline
-                  :timeline="agentDebugTimeline.timeline.value"
-                  :expanded-ids="agentDebugTimeline.expandedIds.value"
-                  @toggle="agentDebugTimeline.toggleExpanded"
-                />
-                <button
-                  v-if="!agentDebugTimeline.pinnedToLatest.value || agentDebugTimeline.unseenCount.value > 0"
-                  type="button"
-                  class="agent-debug-jump-latest"
-                  @click="agentDebugTimeline.jumpToLatest"
-                >Jump to latest<span v-if="agentDebugTimeline.unseenCount.value > 0"> · {{ agentDebugTimeline.unseenCount.value }} new</span></button>
-              </div>
-              <CodeBlock v-else :code="formattedAgentDebugContent" language="json" copyable wrap max-height="70vh" />
+              <DebugAgentDetail
+                v-if="effectiveAgentSessionId"
+                :key="`${effectiveAgentSessionId}:${selectedAgentDebugKind}`"
+                :session-id="effectiveAgentSessionId"
+                :kind="selectedAgentDebugKind"
+              />
             </div>
           </div>
         </section>
@@ -372,45 +353,56 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
 import { useLiveSyncStore } from '../stores/liveSync';
 import { useCardStore } from '../stores/cards';
+import { useRuntimeStore } from '../stores/runtime';
+import { useAgentStore } from '../stores/agents';
 import { useDebugReadModel } from '../composables/useDebugReadModel';
 import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
 import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
-import ConversationTimeline from '../components/conversation/ConversationTimeline.vue';
+import DebugAgentDetail from '../components/agents/DebugAgentDetail.vue';
 import ViewState from '../components/ui/ViewState.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 import StatusBadge from '../components/ui/StatusBadge.vue';
 import { statusForRuntimeStatus } from '../utils/status';
-import { useAgentTimeline } from '../composables/useAgentTimeline';
-import type { ActivityStatus, AgentConversationEntry, DebugTimelineEvent, PendingCall, ProcessView } from '../types/view-models';
+import { selectOperatorDataFreshnessLabel } from '../stores/debug-read-model';
+import type { DebugTimelineEvent, ProcessView } from '../types/view-models';
 
 const debugStore = useDebugStore();
 const liveSyncStore = useLiveSyncStore();
 const cardsStore = useCardStore();
+const runtimeStore = useRuntimeStore();
+const agentStore = useAgentStore();
 const mcpStore = useMcpStore();
 const route = useRoute();
 const router = useRouter();
 const {
-  debugRuntime, debugCards, debugTotalCards,
   errors, errorsTotal,
   loading, error,
   processes, processesLoading, processesError,
   doctorStatus, doctorChecks, doctorIssues, doctorLoading, doctorError,
   supervisionReviews, supervisionStats,
   supervisionLoading, supervisionError,
-  operatorLastFetchedAt, operatorDataFreshnessLabel,
-  agentDebugSessions, selectedAgentDebugSessionId, selectedAgentDebugKind,
-  selectedAgentDebugSession, selectedAgentDebugPath, selectedAgentDebugConversation, formattedAgentDebugContent,
-  agentDebugLoading, agentDebugError, agentDebugContentLoading, agentDebugContentError, agentDebugContentRefreshError,
 } = storeToRefs(debugStore);
+const {
+  runtime, loading: runtimeLoading, refreshing: runtimeRefreshing,
+  error: runtimeError, refreshError: runtimeRefreshError, lastFetchedAt: runtimeLastFetchedAt,
+} = storeToRefs(runtimeStore);
+const {
+  cards, total: cardsTotal, loading: cardsLoading, refreshing: cardsRefreshing,
+  error: cardsError, refreshError: cardsRefreshError,
+} = storeToRefs(cardsStore);
+const {
+  sessions, sessionsLoaded, sessionsLoading, sessionsRefreshing,
+  sessionsError, sessionsRefreshError, sessionsUnauthorized,
+} = storeToRefs(agentStore);
 
 const {
   tabs,
@@ -427,49 +419,29 @@ const {
   maxStatusCount,
   errorSourceEntries,
   childrenForCard,
-} = useDebugReadModel(debugStore, cardsStore);
+} = useDebugReadModel(debugStore, runtimeStore, cardsStore);
 
-async function refreshOperatorControl(): Promise<void> { await debugStore.fetchOperatorControl().catch(() => {}); }
+const operatorDataFreshnessLabel = computed(() => selectOperatorDataFreshnessLabel(runtimeLastFetchedAt.value));
+async function refreshOperatorControl(): Promise<void> { await runtimeStore.fetchState().catch(() => {}); }
+
+type AgentDebugKind = 'conversation' | 'llmExchange';
+const agentDebugKinds: Array<{ id: AgentDebugKind; label: string }> = [
+  { id: 'conversation', label: 'Conversation' },
+  { id: 'llmExchange', label: 'Raw LLM Exchange' },
+];
+const explicitAgentSessionId = ref<string | null>(null);
+const selectedAgentDebugKind = ref<AgentDebugKind>('conversation');
+const validExplicitAgentSessionId = computed(() =>
+  explicitAgentSessionId.value && sessions.value.some((session) => session.id === explicitAgentSessionId.value)
+    ? explicitAgentSessionId.value
+    : null,
+);
+const effectiveAgentSessionId = computed(() => validExplicitAgentSessionId.value ?? sessions.value[0]?.id ?? null);
 
 const selectedProcessId = computed(() => {
   if (route.name === 'process-detail' && typeof route.params.id === 'string') return route.params.id;
   return typeof route.query.process === 'string' ? route.query.process : null;
 });
-
-const agentDebugEntries = computed<AgentConversationEntry[]>(() => (selectedAgentDebugConversation.value?.entries ?? []).map((entry) => ({
-  ...entry,
-  links: entry.links ? [...entry.links] : undefined,
-})));
-const agentDebugActivityStatus = computed<ActivityStatus | null>(() => {
-  const status = selectedAgentDebugConversation.value?.activity_status;
-  if (!status) return null;
-  return {
-    ...status,
-    pending_calls: status.pending_calls.map((call): PendingCall => ({ ...call })),
-  };
-});
-const agentDebugModel = computed(() => selectedAgentDebugConversation.value?.session.model ?? null);
-const agentDebugTimeline = useAgentTimeline(agentDebugEntries, agentDebugActivityStatus, agentDebugModel);
-
-watch(() => [selectedAgentDebugSessionId.value, selectedAgentDebugKind.value] as const, () => {
-  agentDebugTimeline.resetScrollState();
-});
-
-let unregisterAgentDebugConversation: (() => void) | null = null;
-
-watch(
-  () => [localActiveTab.value, selectedAgentDebugSessionId.value, selectedAgentDebugKind.value] as const,
-  ([tab, sessionId, kind]) => {
-    unregisterAgentDebugConversation?.();
-    unregisterAgentDebugConversation = null;
-    if (tab !== 'agents' || kind !== 'conversation' || !sessionId) return;
-    unregisterAgentDebugConversation = liveSyncStore.openConversation(
-      sessionId,
-      () => debugStore.refetchSelectedAgentDebugConversation(),
-    );
-  },
-  { immediate: true },
-);
 
 watch(() => [route.name, route.query.tab, route.params.id] as const, () => {
   const tabFromRoute = route.name === 'process-detail' ? 'processes' : typeof route.query.tab === 'string' ? route.query.tab : 'state';
@@ -478,11 +450,8 @@ watch(() => [route.name, route.query.tab, route.params.id] as const, () => {
 
 function setTabLocal(tab: typeof localActiveTab.value): void {
   localActiveTab.value = tab;
-  if (tab === 'state') debugStore.fetchState().catch(() => {});
-  else if (tab === 'operator') debugStore.fetchOperatorControl().catch(() => {});
-  else if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
+  if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
   else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
-  else if (tab === 'agents') debugStore.refreshAgentDebug().catch(() => {});
   else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
   else if (tab === 'supervision') { debugStore.fetchDoctor().catch(() => {}); debugStore.fetchSupervision().catch(() => {}); }
   else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
@@ -511,7 +480,6 @@ onMounted(async () => {
   mcpStore.startPolling(15000);
 });
 onUnmounted(() => {
-  unregisterAgentDebugConversation?.();
   unregisterTimeline?.();
   unregisterProcesses?.();
   mcpStore.stopPolling();
@@ -605,14 +573,8 @@ onUnmounted(() => {
 .agent-debug-session:hover, .agent-debug-session.selected { border-color:var(--accent-2); background:var(--entry-user-bg); }
 .agent-debug-session-id { color:var(--accent-2); }
 .agent-debug-session-meta { font-size:11px; color:var(--text-muted); }
-.agent-debug-detail { min-width:0; }
 .agent-debug-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
 .agent-debug-toolbar .debug-tab-button:disabled { opacity:.45; cursor:not-allowed; }
-.auto-scroll-pause-toggle { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--text-muted); cursor:pointer; }
-.auto-scroll-pause-toggle input { margin:0; }
-.agent-debug-path { margin-bottom:10px; color:var(--text-muted); word-break:break-all; }
-.agent-debug-conversation { max-height:70vh; overflow:auto; padding-right:4px; }
-.agent-debug-jump-latest { position:sticky; bottom:10px; left:50%; transform:translateX(-50%); border:1px solid var(--border); border-radius:999px; background:var(--surface-3); color:var(--accent-2); cursor:pointer; font:inherit; font-size:12px; padding:6px 12px; }
 .mcp-server-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; margin-left:8px; }
 .mcp-server-badge.mcp-status-running { background:var(--entry-accent-bg); color:var(--accent); }
 .mcp-server-badge.mcp-status-stopped { background:var(--surface-3); color:var(--text-muted); }

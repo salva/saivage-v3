@@ -15,7 +15,6 @@ import { useDebugStore } from '../stores/debug';
 vi.mock('../api/client', () => ({
   getDoctor: vi.fn(),
   getDebugSupervision: vi.fn(),
-  getDebugState: vi.fn(),
   getDebugErrors: vi.fn(),
   getDebugTimeline: vi.fn(),
   listProcesses: vi.fn(),

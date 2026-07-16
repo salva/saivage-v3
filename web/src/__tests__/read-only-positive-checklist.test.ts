@@ -9,6 +9,7 @@ import timelineViewSource from '../views/TimelineView.vue?raw';
 import cardDetailSource from '../components/cards/CardDetailView.vue?raw';
 import cardsTreeSource from '../components/cards/CardsTreeView.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
+import debugAgentDetailSource from '../components/agents/DebugAgentDetail.vue?raw';
 import analystChatPanelSource from '../components/chat/AnalystChatPanel.vue?raw';
 import agentTimelineSource from '../composables/useAgentTimeline.ts?raw';
 import CodeBlock from '../components/content/CodeBlock.vue';
@@ -83,13 +84,13 @@ describe('read-only positive checklist', () => {
     expect(agentTimelineSource).toContain('toggleAutoScrollPause');
     expect(agentConversationSource).toContain('Jump to latest');
     expect(analystChatPanelSource).toContain('Jump to latest');
-    expect(debugViewSource).toContain('agentDebugTimeline.jumpToLatest');
+    expect(debugAgentDetailSource).toContain('timelineControls.jumpToLatest');
     expect(agentConversationSource).toContain('Pause auto-scroll');
     expect(analystChatPanelSource).toContain('Pause auto-scroll');
-    expect(debugViewSource).toContain('Pause auto-scroll');
+    expect(debugAgentDetailSource).toContain('Pause auto-scroll');
     expect(agentTimelineSource).toContain('modelLabel');
     expect(agentConversationSource).toContain('useAgentTimeline(entries, activityStatus, sessionModel)');
-    expect(debugViewSource).toContain('agentDebugModel');
+    expect(debugAgentDetailSource).toContain('useAgentTimeline(entries, activityStatus, sessionModel)');
     expect(analystChatPanelSource).not.toMatch(/state-panel|message-bubble|message-badges|pending-tool|chat-composer|composer-input|primary-btn/);
 
     // DebugView: passive tab switching, refresh/fetch, filtering, and file-browse navigation remain.
