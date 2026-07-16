@@ -10,9 +10,9 @@ Last updated: 2026-07-13.
 
 ## 1. Purpose
 
-The operator UI shows Saivage state and hosts the Analyst. It does not compete with the Analyst as a control surface.
+The operator UI shows Saivage state and hosts the Analyst. It is projection-oriented and Analyst-mediated by default, with the Dashboard's direct **Stop project** and bearer-only, capability-gated, exactly confirmed **Restart server** actions as the two runtime-control exceptions.
 
-The UI must help the user understand what the autonomous runtime is doing, inspect cards, record-backed card documents, files, and processes, and stay oriented during Analyst conversations. Mutations still go through the Analyst.
+The UI must help the user understand what the autonomous runtime is doing, inspect cards, record-backed card documents, files, and processes, and stay oriented during Analyst conversations. Ordinary mutations still go through the Analyst.
 
 ## 2. Layout
 
@@ -47,7 +47,7 @@ The web client has one owner for each separate core resource family: the runtime
 
 The runtime dashboard is current-state-only. It shows process-local runtime status and active card without a runtime-state file, command/run ledger, control audit, actor snapshot, or offline mutation. It exposes one **Stop project** action while starting/running/pausing/paused; closing and stopped disable it. The current Dashboard has no Pause/Resume action or disabled-reason affordance, while genuine paused status remains displayed as runtime state. Stop is containment, not domain cancellation: it does not itself change card status or root result, and open cards remain durably `running`. While the request remains closing, a cancellation that already won may complete its durable `cancelled` publication and caller settlement; the UI must not show Stop success before that settlement. The result distinguishes contained Stop from already stopped; containment failure must not claim stopped and leaves the UI in closing/conflict state. A successful later Run reuses the cards that remain in the running chain, installs all ancestor owners, and activates only the deepest card.
 
-The Dashboard sends Stop as a bodyless request without JSON `Content-Type`; bearer `Authorization` and ordinary request headers remain independent and are preserved. The distinct **Restart server** action is rendered only when the required runtime-status field `restart_server_available` is true. It shows the exact `RESTART SERVER` confirmation and sends the strict JSON object `{confirmation:'RESTART SERVER'}` with JSON `Content-Type` to the auth-gated `restart_server` operation. When false, the UI does not offer the action; a stale direct request still receives typed `restart_unavailable`. Stop project never calls or aliases Restart server.
+The Dashboard sends Stop as a bodyless request without JSON `Content-Type`; bearer `Authorization` and ordinary request headers remain independent and are preserved. The distinct **Restart server** action is rendered only when the required runtime-status field `restart_server_available` is true. `DashboardView` owns the direct browser prompt, accepts only exact `RESTART SERVER`, and initiates the strict JSON request `{confirmation:'RESTART SERVER'}` with JSON `Content-Type` to the auth-gated `restart_server` operation. The Dashboard owns only that prompt and direct request initiation; the application-owned `RestartPort` owns terminal coordination shared with the separate Analyst restart path. When false, the UI does not offer the action; a stale direct request still receives typed `restart_unavailable`. Stop project never calls or aliases Restart server.
 
 `restart_scheduled` acknowledges accepted asynchronous intent, not replacement readiness. Terminal closer/leaf warnings do not retroactively alter acknowledgement or normal restart behavior. The internal immutable shutdown report is for direct App callers and process adapters; it is not a card outcome, containment result, or operator-editable state.
 
@@ -89,9 +89,9 @@ Cards default project expansion is derived from the current canonical card list 
 
 ## 4. Analyst Panel
 
-The Analyst panel is the user's mutation path. The user asks for changes in natural language; the Analyst invokes canonical services.
+The Analyst panel is the user's ordinary mutation path. The user asks for changes in natural language; the Analyst invokes canonical services.
 
-The workspace remains read-only. Runtime lifecycle requests use the retained Analyst Run and Pause/Resume controls, and server restart remains an Analyst request. Internal server/application disposal cleanup is not an Analyst, UI, or HTTP control.
+Apart from the two direct Dashboard runtime controls in Section 3, the workspace remains projection-oriented. Other runtime lifecycle requests use the retained Analyst Run and Pause/Resume controls, and Analyst server restart remains a separate request with actor-owned confirmation. Internal server/application disposal cleanup is not an Analyst, UI, or HTTP control.
 
 The shared Analyst session is the singular authenticated operator authority at `analyst:global`, not a private per-browser chat. HTTP bearer and WebSocket ticket validation admit normal web access to that same authority without creating an individual identity. Closing any browser socket removes only that socket's local queue; it never cancels shared Analyst work. Token changes intentionally replace the WebSocket generation; stale ticket, message, and close callbacks cannot take the current connection offline, while a current `1008` remains terminal unauthorized. Server restart is exposed only when API-token authentication is enabled; disabled-auth deployments retain ordinary chat but do not expose restart.
 
@@ -147,7 +147,7 @@ Analyst Back owns logical workspace history rather than browser transport histor
 
 ## 7. Forbidden UI Mutations
 
-The UI must not expose buttons, menus, context menus, drag/drop gestures, or keyboard shortcuts that perform Analyst-only mutations directly.
+Except for the Section 3 Dashboard **Stop project** and confirmed **Restart server** controls, the UI must not expose buttons, menus, context menus, drag/drop gestures, or keyboard shortcuts that perform Analyst-only mutations directly.
 
 Forbidden direct UI mutations include:
 
@@ -159,7 +159,7 @@ Forbidden direct UI mutations include:
 - queueing notifications;
 - starting/running/resuming the runtime;
 - pausing the runtime;
-- shutting down the runtime;
+- shutting down the runtime through any other direct UI control;
 - cancelling cards/subtrees;
 - marking goals as needing corrections;
 - terminating processes;
@@ -168,11 +168,11 @@ Forbidden direct UI mutations include:
 - editing MCP server entries, including `stdio` and `streamable-http` transports;
 - changing runtime/server settings.
 
-The UI can offer read-only controls that help the user inspect those things. If the user wants to change them, the path is the Analyst.
+The UI can offer read-only controls that help the user inspect those things. Apart from the two named Dashboard exceptions, if the user wants to change them, the path is the Analyst.
 
 ## 8. Bootstrap Exception
 
-The only user-visible controls permitted outside the Analyst are the minimum controls needed to reach the Analyst:
+The user-visible controls permitted outside the Analyst are the two Section 3 Dashboard runtime controls and the following minimum controls needed to reach the Analyst:
 
 - sign in / sign out;
 - initial provider-secret entry required to make an Analyst-capable model available when none exists.

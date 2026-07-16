@@ -1,6 +1,6 @@
 # Saivage v3
 
-Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator workspace projects cards, agents, files, timeline events, and runtime state while the Analyst chat is the mutating user control surface.
+Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator workspace projects cards, agents, files, timeline events, and runtime state while the Analyst chat is the ordinary mutating user surface, with direct Dashboard **Stop project** and confirmed bearer-only **Restart server** as bounded exceptions.
 
 Runtime execution state is process-local. `saivage status|pause|resume|stop` delegates only through a verified live lifecycle-lock owner's published non-null origin/auth mode; it never reads a runtime-state file or rediscovers an endpoint from config. CLI `stop` maps to resumable non-domain project containment `stop_project`, which never cancels or mutates cards. Auth-enabled confirmed `restart_server` is the separate terminal operation.
 
@@ -85,7 +85,7 @@ curl http://localhost:8080/health
 | Link | Authority status | Reader guidance |
 |---|---|---|
 | [Functional specification](docs/spec/system-specification.md) | current functional authority | What Saivage must do from the user and runtime point of view. |
-| [Operator UI specification](docs/spec/operator-ui.md) | current UI functional authority | Analyst panel, read-only workspace, UI mutation boundaries, and contextual navigation. |
+| [Operator UI specification](docs/spec/operator-ui.md) | current UI functional authority | Analyst panel, projection-oriented workspace with explicit Dashboard Stop/Restart exceptions, UI mutation boundaries, and contextual navigation. |
 | [Architecture](docs/architecture/system-architecture.md) | current architecture summary | How the functional model is organized into runtime, agents, storage, API, and UI subsystems. |
 | [README](README.md) | current validation and documentation authority map | Quick start, validation profiles, and this canonical documentation map. |
 
