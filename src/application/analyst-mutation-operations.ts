@@ -4,8 +4,6 @@ import type { CreateAnalystCardInput } from './analyst-mutation-services.js';
 import type { AnalystMutationContext, MutationAdmission } from '../agents/analyst-tool-runner.js';
 import type { PreparedFetchedBrief } from './analyst-prepare/webfetch.js';
 
-export function allowAnalystMutation(): MutationAdmission { return { allowed: true }; }
-
 export function recheckCreateCard(_prepared: undefined, input: CreateAnalystCardInput, ctx: AnalystMutationContext): MutationAdmission { return ctx.services.cards.validateCreate(input); }
 export function recheckDeleteCards(_prepared: undefined, input: { ids: string[] }, ctx: AnalystMutationContext): MutationAdmission { return ctx.services.cards.validateDelete(input.ids); }
 export function recheckCancelCard(_prepared: undefined, input: { cardId: string }, ctx: AnalystMutationContext): MutationAdmission { return ctx.services.cards.validateCancel(input.cardId); }
