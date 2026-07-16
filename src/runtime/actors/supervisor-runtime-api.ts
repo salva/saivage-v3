@@ -207,7 +207,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       for (const actor of suffix) actor.claimCancellation(cancelReason);
       const cancelledIds: string[] = [];
       for (const actor of [...suffix].reverse()) {
-        const result = await actor.settleClaimedCancellation(cancelReason);
+        const result = await actor.settleClaimedCancellation();
         cancelledIds.push(...result.cancelled_card_ids.filter((id) => !cancelledIds.includes(id)));
       }
       return { card_id: cardId, status: 'cancelled', cancelled_card_ids: cancelledIds };

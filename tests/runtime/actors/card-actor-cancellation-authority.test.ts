@@ -165,21 +165,14 @@ describe('CardActor authoritative cancellation', () => {
     expect(liveLookup.get('project')).toBe(owned.actor);
   });
 
-  it.each([
-    { winner: 'result' as const, cleanup: 'success' as const },
-    { winner: 'result' as const, cleanup: 'failure' as const },
-    { winner: 'cancel' as const, cleanup: 'success' as const },
-    { winner: 'cancel' as const, cleanup: 'failure' as const },
-  ])('preserves a $winner winner across Stop cleanup $cleanup', async ({ winner, cleanup }) => {
+  it.each(['success' as const, 'failure' as const])('preserves a result winner across Stop cleanup %s', async (cleanup) => {
     cards.setStatus('project', 'running');
     const owned = actor('project');
     const activation = owned.actor.restartRunning({ kind: 'root' });
     await Promise.resolve();
     const cleanupSettlement = deferred<readonly InvocationJoinOutcome[]>();
     owned.processor.joinResult = cleanupSettlement.promise;
-    let cancellation: Promise<unknown> | null = null;
-    if (winner === 'result') owned.processor.input!.claimResult();
-    else cancellation = owned.actor.cancel({ reason: 'accepted cancellation' });
+    owned.processor.input!.claimResult();
 
     runtimeClosing = true;
     const interruption = new RuntimeStoppedInterruption();
@@ -188,20 +181,93 @@ describe('CardActor authoritative cancellation', () => {
     if (cleanup === 'success') cleanupSettlement.resolve([]);
     else cleanupSettlement.reject(new Error('cleanup failed'));
 
-    if (winner === 'result') {
-      owned.processor.outcome.resolve({ status: 'done', summary: 'accepted', result: { kind: 'done', summary: 'accepted' } });
-      await expect(activation).resolves.toMatchObject({ status: 'done' });
-    } else if (cleanup === 'success') {
-      await expect(cancellation!).resolves.toMatchObject({ status: 'cancelled' });
-      await expect(activation).resolves.toMatchObject({ status: 'cancelled' });
-      expect(cards.read('project')?.status).toBe('cancelled');
-    } else {
-      await expect(cancellation!).rejects.toThrow('cleanup failed');
-    }
+    owned.processor.outcome.resolve({ status: 'done', summary: 'accepted', result: { kind: 'done', summary: 'accepted' } });
+    await expect(activation).resolves.toMatchObject({ status: 'done' });
     await stopped;
-    expect(owned.actor.claim).toBe(winner === 'result' ? 'claimed_result' : 'claimed_cancel');
-    expect(owned.processor.continuationSuppressed).toBe(winner === 'result');
+    expect(owned.actor.claim).toBe('claimed_result');
+    expect(owned.processor.continuationSuppressed).toBe(true);
     expect(failures).toEqual(cleanup === 'failure' ? ['card:project'] : []);
+    expect(liveLookup.get('project')).toBe(owned.actor);
+  });
+
+  it('keeps Stop pending until caller-first cancellation publishes and settles its activation caller', async () => {
+    cards.setStatus('project', 'running');
+    const owned = actor('project');
+    const activation = owned.actor.restartRunning({ kind: 'root' });
+    await Promise.resolve();
+    const cleanupSettlement = deferred<readonly InvocationJoinOutcome[]>();
+    owned.processor.joinResult = cleanupSettlement.promise;
+    const order: string[] = [];
+    void activation.then(() => order.push('activation'));
+    const cancellation = owned.actor.cancel({ reason: 'accepted cancellation' });
+
+    runtimeClosing = true;
+    const failures: string[] = [];
+    const stopped = owned.actor.stop({ interruption: new RuntimeStoppedInterruption(), reportContainmentFailure: (component) => failures.push(component) });
+    void stopped.then(() => order.push('stop'));
+    await Promise.resolve();
+
+    expect(order).toEqual([]);
+    expect(cards.read('project')?.status).toBe('running');
+    expect(liveLookup.get('project')).toBe(owned.actor);
+
+    cleanupSettlement.resolve([]);
+    await expect(cancellation).resolves.toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['project'] });
+    await expect(activation).resolves.toEqual({ status: 'cancelled', summary: 'accepted cancellation' });
+    await stopped;
+
+    expect(order).toEqual(['activation', 'stop']);
+    expect(cards.read('project')?.status).toBe('cancelled');
+    expect(failures).toEqual([]);
+    expect(liveLookup.get('project')).toBe(owned.actor);
+  });
+
+  it('lets Stop start the exact claim-owned cancellation settlement before the normal caller reaches it', async () => {
+    cards.setStatus('project', 'running');
+    const owned = actor('project');
+    const activation = owned.actor.restartRunning({ kind: 'root' });
+    await Promise.resolve();
+    const cleanupSettlement = deferred<readonly InvocationJoinOutcome[]>();
+    owned.processor.joinResult = cleanupSettlement.promise;
+    owned.actor.claimCancellation({ reason: 'winning reason' });
+
+    runtimeClosing = true;
+    let stopSettled = false;
+    const stopped = owned.actor.stop({ interruption: new RuntimeStoppedInterruption(), reportContainmentFailure: jest.fn() });
+    void stopped.then(() => { stopSettled = true; });
+    const normalSettlement = owned.actor.settleClaimedCancellation();
+    expect(owned.actor.settleClaimedCancellation()).toBe(normalSettlement);
+    await Promise.resolve();
+
+    expect(stopSettled).toBe(false);
+    expect(cards.read('project')?.status).toBe('running');
+    expect(liveLookup.get('project')).toBe(owned.actor);
+
+    cleanupSettlement.resolve([]);
+    await expect(normalSettlement).resolves.toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['project'] });
+    await expect(activation).resolves.toEqual({ status: 'cancelled', summary: 'winning reason' });
+    await stopped;
+    expect(cards.read('project')?.status).toBe('cancelled');
+  });
+
+  it('reports caller-first cancellation settlement failure through Stop containment without replacing the cancellation error', async () => {
+    cards.setStatus('project', 'running');
+    const owned = actor('project');
+    void owned.actor.restartRunning({ kind: 'root' });
+    await Promise.resolve();
+    const cleanupSettlement = deferred<readonly InvocationJoinOutcome[]>();
+    owned.processor.joinResult = cleanupSettlement.promise;
+    const cancellation = owned.actor.cancel({ reason: 'accepted cancellation' });
+    runtimeClosing = true;
+    const failures: Array<{ component: string; error: unknown }> = [];
+    const stopped = owned.actor.stop({ interruption: new RuntimeStoppedInterruption(), reportContainmentFailure: (component, error) => failures.push({ component, error }) });
+    const cleanupError = new Error('cleanup failed');
+
+    cleanupSettlement.reject(cleanupError);
+    await expect(cancellation).rejects.toBe(cleanupError);
+    await expect(stopped).resolves.toBeUndefined();
+    expect(failures).toEqual([{ component: 'card:project', error: cleanupError }]);
+    expect(cards.read('project')?.status).toBe('running');
     expect(liveLookup.get('project')).toBe(owned.actor);
   });
 

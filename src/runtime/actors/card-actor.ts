@@ -260,8 +260,10 @@ export class CardActor extends BaseActor {
     } else if (this.#terminalClaim === 'claimed_result') {
       this.processor?.suppressContinuationAndPrepareJoin();
     }
-    const processorJoin = this.processor?.joinActivation() ?? Promise.resolve([]);
-    return processorJoin.then(
+    const settlement = this.#terminalClaim === 'claimed_cancel'
+      ? this.settleClaimedCancellation()
+      : (this.processor?.joinActivation() ?? Promise.resolve([]));
+    return settlement.then(
       () => {
         if (this.#terminalClaim === 'claimed_stop' && this.#result) {
           this.#result.reject(operation.interruption);
@@ -325,9 +327,7 @@ export class CardActor extends BaseActor {
     if (!this.hasLiveActivation()) return Promise.reject(new Error(`Card '${this.cardId}' has no live activation owner.`));
     if (this.#terminalClaim === 'claimed_result') return this.#result!.promise.then(() => { throw new Error(`Card '${this.cardId}' result already claimed the activation.`); });
     this.claimCancellation(reason);
-    const settlement = this.settleClaimedCancellation(reason);
-    this.#cancelSettlement = settlement;
-    return settlement;
+    return this.settleClaimedCancellation();
   }
 
   canClaimCancellation(): boolean { return this.hasLiveActivation() && this.#terminalClaim === 'open'; }
@@ -342,10 +342,11 @@ export class CardActor extends BaseActor {
     this.processor?.disposeActivation(cancellationError);
   }
 
-  settleClaimedCancellation(reason: CardCancelReason): Promise<CardCancellationResult> {
+  settleClaimedCancellation(): Promise<CardCancellationResult> {
     if (this.#cancelSettlement) return this.#cancelSettlement;
     if (this.#terminalClaim !== 'claimed_cancel') return Promise.reject(new Error(`Card '${this.cardId}' cancellation was not claimed.`));
-    const settlement = this.finishCancellation(reason);
+    if (!this.cancelReason) throw new Error(`Card '${this.cardId}' claimed cancellation without a reason.`);
+    const settlement = this.finishCancellation(this.cancelReason);
     this.#cancelSettlement = settlement;
     return settlement;
   }
