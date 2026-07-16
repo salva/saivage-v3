@@ -32,6 +32,15 @@ export function saivageWorkRoot(projectRoot: string): string {
   return join(projectRoot, SAIVAGE_WORK_RELATIVE_DIR);
 }
 
+export function resetOwnedGeneratedRoots(projectRoot: string): readonly string[] {
+  return [
+    saivageCardsRoot(projectRoot),
+    join(saivageRoot(projectRoot), 'agents'),
+    saivageLogsRoot(projectRoot),
+    saivageWorkRoot(projectRoot),
+  ];
+}
+
 export function cardWorkRoot(projectRoot: string, cardId: string): string {
   return join(saivageWorkRoot(projectRoot), 'cards', cardId);
 }

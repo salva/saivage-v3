@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -8,7 +8,7 @@ import { startApp } from './boot/index.js';
 import { newProjectRootInput } from './boot/app.js';
 import { isInitialized, findProjectRoot } from './persistence/index.js';
 import { readRuntimeLockStatus } from './runtime/lock.js';
-import { runtimeProcessLockFile } from './persistence/layout.js';
+import { resetOwnedGeneratedRoots, saivageCardsRoot } from './persistence/layout.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
 import { publishInitialProjectCard, readCard } from './persistence/card-files.js';
 import { readProjectIdentity } from './persistence/project-identity.js';
@@ -26,21 +26,14 @@ Usage:
   saivage stop
   saivage restart_server
   saivage reset
-      Atomically acquires .saivage/locks/runtime.lock, refuses while a valid
-      live runtime owns it regardless of lock age, and fails closed without
-      deletion if an existing lock cannot be read. It removes generated roots
-      .saivage/cards, .saivage/agents, .saivage/state, .saivage/logs,
-      .saivage/locks contents except the held runtime.lock, .saivage/work,
-      optional .saivage/stages, and obsolete old roots .saivage/runtime,
-      .saivage/tmp, .saivage/archive, .saivage/supervision, .saivage/notes,
-      .saivage/outputs, .saivage/views, and the external .saivage-work/ root.
-       Every existing lock blocks reset. After verifying no Saivage process owns
-       the project, remove an abandoned lock path manually and retry. Reset then recreates the empty current layout,
-       lock namespace and root project card before releasing the lock.
-      Preserves durable credentials/config/operator inputs such as
-      .saivage/auth-profiles.json, .saivage/saivage.yaml,
-      .saivage/project.json, .saivage/config/prompts/,
-      .saivage/skills/index.json, .saivage/instructions/, and target source/docs.
+      Acquires .saivage/locks/runtime.lock before deletion and fails closed if
+      that exact lock already exists. It removes exactly .saivage/cards,
+      .saivage/agents, .saivage/logs, and .saivage/work as whole trees, then
+      publishes a new root project card while retaining the lock. The lock
+      namespace is a safety boundary, not reset-owned state; sibling entries
+      are untouched. Every path outside the four exact roots is preserved.
+      After verifying no Saivage process owns the project, remove an abandoned
+      canonical runtime.lock manually and retry.
   saivage help
 `;
 function parseCommand(rawArgs: string[]): { command: string; options: CliOptions } { const args = rawArgs.slice(2); if (args.length === 0) return { command: 'help', options: {} }; const command = args[0]!; const rest = args.slice(1); let options: CliOptions = {}; if (rest.length > 0) { const parsed = parseArgs({ args: rest, options: { force: { type: 'boolean' }, port: { type: 'string' }, host: { type: 'string' }, config: { type: 'string' }, 'project-root': { type: 'string' }, 'create-runtime': { type: 'boolean' } }, allowPositionals: false, strict: true }); options = parsed.values as CliOptions; } return { command, options }; }
@@ -89,34 +82,19 @@ async function handleRuntimeControl(command: 'status' | 'pause' | 'resume' | 'st
   } finally { prompt.close(); }
   console.log(JSON.stringify(await client.restartServer(endpoint)));
 }
-function removeIfPresent(path: string): void { if (existsSync(path)) rmSync(path, { recursive: true, force: true }); }
-function removeLockEntriesExceptHeldRuntime(projectRoot: string): void {
-  const locksRoot = join(projectRoot, '.saivage', 'locks');
-  if (!existsSync(locksRoot)) return;
-  const held = runtimeProcessLockFile(projectRoot);
-  for (const entry of readdirSync(locksRoot)) {
-    const path = join(locksRoot, entry);
-    if (path === held) continue;
-    removeIfPresent(path);
-  }
-}
 async function handleReset(): Promise<void> {
   const projectRoot = process.cwd();
   withDirectMutationComposition(projectRoot, 'bound', (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
-    const generatedRoots = ['cards', 'agents', 'state', 'logs', 'work', 'stages'].map((name) => join(canonicalProjectRoot, '.saivage', name));
-    const obsoleteRoots = ['runtime', 'tmp', 'archive', 'supervision', 'notes', 'outputs', 'views'].map((name) => join(canonicalProjectRoot, '.saivage', name));
-    const externalGeneratedRoots = [join(canonicalProjectRoot, '.saivage-work')];
-    console.log('Reset will remove generated runtime roots, external generated roots, and obsolete old roots, then reinitialize the current empty layout:');
-    for (const target of [...generatedRoots, join(canonicalProjectRoot, '.saivage', 'locks', '* except runtime.lock while held'), ...obsoleteRoots, ...externalGeneratedRoots]) console.log(`- ${target}`);
-    for (const target of generatedRoots) removeIfPresent(target);
-    removeLockEntriesExceptHeldRuntime(canonicalProjectRoot);
-    for (const target of obsoleteRoots) removeIfPresent(target);
-    for (const target of externalGeneratedRoots) removeIfPresent(target);
-    mkdirSync(join(canonicalProjectRoot, '.saivage', 'cards'), { recursive: true });
+    const generatedRoots = resetOwnedGeneratedRoots(canonicalProjectRoot);
+    console.log('Reset will remove these exact generated roots as whole trees:');
+    for (const target of generatedRoots) console.log(`- ${target}`);
+    console.log('The lifecycle-lock namespace and every path outside these roots are preserved.');
+    for (const target of generatedRoots) rmSync(target, { recursive: true, force: true });
+    mkdirSync(saivageCardsRoot(canonicalProjectRoot), { recursive: true });
     const root = newProjectRootInput(canonicalProjectRoot);
     publishInitialProjectCard(canonicalProjectRoot, root.card, root.brief, 'analyst');
-    console.log('Project reset and reinitialized with an empty current layout and root project card. Durable credentials, config, prompt overrides, skills, instructions, and source/docs were preserved.');
+    console.log('Project reset with a new root project card. Every path outside the four reset-owned generated roots was preserved.');
   });
 }
 function handleHelp(): void { console.log(USAGE); }

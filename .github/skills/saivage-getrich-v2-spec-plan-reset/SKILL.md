@@ -77,8 +77,8 @@ printf '%s\n' "${backup}" > /home/salva/g/ml/tmp/getrich-v2-latest-spec-plan-con
 
 4. Prune the target source tree according to this GetRich-v2-specific reset
 scope, then restore only the preserved source docs and Saivage durable inputs.
-Do not recreate a manual `.saivage` skeleton; the current reset/init helper does
-that under lock.
+Do not recreate generated state manually; the current reset command publishes the
+root card under lock.
 
 ```bash
 rm -rf "${root}"/* "${root}"/.[!.]* "${root}"/..?*
@@ -89,10 +89,12 @@ cp -a "${preserve}/.saivage/." "${root}/.saivage/" 2>/dev/null || true
 ```
 
 5. Invoke the current built CLI. This is the only reset entry point. Its bound
-direct-command composition owns the strict lifecycle lock, generated-state deletion, and named stateless synchronous file
-reinitialization until exact matching-owner release. It preserves
+direct-command composition acquires the strict lifecycle lock, removes exactly
+`.saivage/cards/`, `.saivage/agents/`, `.saivage/logs/`, and `.saivage/work/`
+wholesale, publishes the root card, and then releases only its exact matching
+`runtime.lock`. It preserves every path outside those four roots, including
 prompt overrides, skills, instructions, project identity, config, credentials,
-and docs.
+and docs. It does not discover or clean arbitrary lock siblings.
 
 ```bash
 cd "${root}"
@@ -101,24 +103,19 @@ cd "${root}"
 
 6. Verify the resulting layout.
 
-Current generated `.saivage` roots should include:
+After the target-specific prune/restore and CLI reset, the result should include:
 
 ```text
 .saivage/cards/project/
-.saivage/agents/
-.saivage/logs/        # app.jsonl is absent until its first atomic envelope publication
 .saivage/locks/        # exists, with no runtime.lock after reset returns
-.saivage/work/cards/
-.saivage/work/processes/
-.saivage/work/tmp/stash/
 docs/SPEC.md
 docs/PLAN.md
 ```
 
-Obsolete roots such as `.saivage/runtime/`, `.saivage/tmp/`,
-`.saivage/archive/`, `.saivage/supervision/`, `.saivage/notes/`, and removed
-work subdirs such as `.saivage/work/tmp/runtime/` must be absent unless they are
-inside the external backup.
+`.saivage/agents/`, `.saivage/logs/`, and `.saivage/work/` remain absent until a
+current owner creates them. Any other absence caused by the separate
+GetRich-v2-specific source-pruning step above is attributable to that step, not
+to the CLI reset contract. Arbitrary lock siblings, if present, are untouched.
 
 Do not copy old app-log, provider-availability, conversation-version,
 summary-cache, or conversation-index files back after reset. Growing durable
@@ -135,5 +132,5 @@ curl -fsS http://10.0.3.170:8080/health/ready
 ## Notes
 
 - The target project is not a Git repository, so the backup under `tmp/` is the recovery point.
-- The reset intentionally deletes generated cards, runtime state, app logs, locks, process output, stages, tests, outputs, Python packages, and all docs except `SPEC.md` and `PLAN.md`.
-- The clean runtime layout is created by Saivage reset/init, not by a hand-written skeleton. Persisted model routing, credentials, project identity, prompt overrides, skills, and instructions must come from the preserved inputs when present.
+- The target-specific prune step deletes tests, outputs, Python packages, and all docs except the restored `SPEC.md` and `PLAN.md`. The CLI reset itself deletes only its four exact generated roots wholesale and preserves everything outside them.
+- The root card is created by Saivage reset, not by a hand-written skeleton. Persisted model routing, credentials, project identity, prompt overrides, skills, and instructions must come from the preserved inputs when present.

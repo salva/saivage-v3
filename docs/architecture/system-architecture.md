@@ -127,7 +127,9 @@ The UI exposes one **Stop project** action and a distinct confirmed **Restart se
 
 ## 11. Reset And Failure Model
 
-Durable-format changes require stopping the service and resetting generated persistence while preserving configuration, credentials, operator inputs, source, and canonical documents. Mixed-version operation and rollback against current-format state are unsupported.
+Durable-format changes require stopping the service and resetting generated persistence. `resetOwnedGeneratedRoots()` in `src/persistence/layout.ts` is the singular reset ownership contract: `.saivage/cards`, `.saivage/agents`, `.saivage/logs`, and `.saivage/work`. These generated roots are removed as whole trees without descendant inspection. Durable configuration and operator inputs under `.saivage`, including identity, credentials, prompt overrides, skills, and instructions, remain outside that ownership boundary, as do source and canonical documents.
+
+The `.saivage/locks` namespace is the exceptional lifecycle-exclusion boundary, not reset-owned generated persistence. Reset acquires the exact canonical `runtime.lock`, removes the four complete roots, publishes the new `project` root card while still holding the lock, and then uses exact-owner release. A pre-existing exact lock blocks deletion. Lock siblings and every other outside-boundary path are neither discovered nor cleaned. Mixed-version operation and rollback against current-format state are unsupported.
 
 Saivage file persistence does not guarantee no data loss. Interrupted external effects may repeat; notification context may duplicate; concurrent auth refresh may overwrite another change; incomplete card namespaces and publication temps may remain forever. Exact canonical corruption fails clearly for operator repair or reset rather than automatic recovery.
 

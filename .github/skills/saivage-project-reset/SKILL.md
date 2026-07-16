@@ -16,7 +16,7 @@ runtime/build used to recreate target-project state; it is not the reset target.
 - Do not manually wipe the whole `.saivage/` tree or compose reset from internal helpers. The built `saivage reset` command is the only reset entry point.
 - Preserve durable project/security/operator inputs when present: `.saivage/saivage.yaml`, `.saivage/auth-profiles.json`, `.saivage/project.json`, `.saivage/config/prompts/`, `.saivage/skills/index.json`, `.saivage/instructions/`, and target source/spec docs such as `docs/SPEC.md` and `docs/PLAN.md`.
 - Inspect or edit secrets when authorized or needed, but do not print token/provider/auth values.
-- Do not preserve generated cards, runtime state, stages, process output, app logs, locks, or old planner outputs as authoritative reset input.
+- Do not restore content from the four reset-owned generated roots after reset.
 - Do not store Saivage state in `~/.saivage`.
 - Keep backup artifacts under `/home/salva/g/ml/tmp/`.
 - Do not put new reset notes or operator reminders into the target project's `.saivage/instructions/`; existing `.saivage/instructions/` is durable operator state and must be preserved when applicable.
@@ -25,12 +25,13 @@ runtime/build used to recreate target-project state; it is not the reset target.
 ## Current Reset Contract
 
 Current `saivage reset` is an explicit generated-state reset. Its command-level direct
-composition acquires one bound `.saivage/locks/runtime.lock`, deletes generated roots, and
-reinitializes through named stateless synchronous file functions while retaining that exact lock.
+composition acquires one bound `.saivage/locks/runtime.lock`, deletes the four exact
+reset-owned generated roots wholesale, and publishes a new root card through named
+stateless synchronous file functions while retaining that exact lock.
 Matching-owner release removes it only after the command finishes. Every
-pre-existing lock path blocks reset, whether it describes a live owner, appears
-dead or stale, or is malformed or unreadable; Saivage never removes or takes it
-over automatically. After stopping the exact service, verify through service,
+pre-existing exact canonical `runtime.lock` blocks reset, whether it describes a
+live owner, appears dead or stale, or is malformed or unreadable; Saivage never
+removes or takes it over automatically. After stopping the exact service, verify through service,
 process, and target-path inspection that no Saivage process owns the canonical
 project. Only then remove the exact displayed lock path explicitly with
 `rm -- '<absolute-runtime-lock-path>'` and rerun reset.
@@ -39,26 +40,22 @@ Generated roots removed by reset:
 
 - `.saivage/cards/`
 - `.saivage/agents/`
-- `.saivage/state/`
 - `.saivage/logs/`
-- `.saivage/locks/` contents other than the held `runtime.lock` during reset
 - `.saivage/work/`
-- `.saivage/stages/` when present
-- `.saivage-work/`
 
-Obsolete old roots may be cleaned when present, but are not current state:
-`.saivage/runtime/`, `.saivage/tmp/`, `.saivage/archive/`,
-`.saivage/supervision/`, `.saivage/notes/`, `.saivage/outputs/`, and
-`.saivage/views/`.
+Each root is passed directly to recursive forced whole-tree removal without probing or
+enumerating descendants. Every path outside those four exact roots is preserved. The
+`.saivage/locks/` namespace is only the lifecycle safety boundary: reset never discovers,
+classifies, or cleans arbitrary lock siblings and exact-owner release removes only the
+command's `runtime.lock`.
 
 Successful reset postcondition:
 
 - Preserved durable inputs still exist, including prompt overrides, skills, instructions, project identity, config, credentials, and source/spec docs.
 - `.saivage/cards/project/` exists as the canonical root project card.
-- No runtime-state, actor-snapshot, provider-availability, conversation-version, or summary-cache file exists.
-- `.saivage/logs/` may remain absent until the first strict non-empty app-log envelope is published.
-- `.saivage/locks/` exists and `.saivage/locks/runtime.lock` is absent after release.
-- `.saivage/work/cards/`, `.saivage/work/processes/`, and `.saivage/work/tmp/stash/` exist; removed work subdirs such as `tmp/runtime`, `tmp/uploads`, `tmp/previews`, `downloads`, and `quarantine` do not.
+- `.saivage/agents/`, `.saivage/logs/`, and `.saivage/work/` remain absent until a current owner creates them.
+- `.saivage/locks/runtime.lock` is absent after release; any arbitrary lock siblings are untouched.
+- Every path outside the four reset-owned roots retains its prior contents.
 
 ## Known Saivage v3 Targets
 
