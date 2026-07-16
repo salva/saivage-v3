@@ -152,7 +152,6 @@ export {
   RestartServerRequestSchema,
   RestartServerResponseSchema,
   RestartUnavailableErrorSchema,
-  RuntimeSummarySchema,
   runtimeCardsOperatorApiContracts,
 } from './operator-api-runtime-cards.js';
 export type {

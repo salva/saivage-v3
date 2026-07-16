@@ -55,7 +55,6 @@ export {
   RuntimeCardRunsResponseSchema,
   RuntimeGetStateResponseSchema,
   RuntimeStatusResponseSchema,
-  RuntimeSummarySchema,
   ServerAvailabilitySchema,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,

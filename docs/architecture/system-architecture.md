@@ -166,20 +166,20 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:82` |
 | `GET /api/processes` | Process list. | `src/contracts/operator-api-processes.ts:71` |
 | `GET /api/processes/:id` | Process detail. | `src/contracts/operator-api-processes.ts:81` |
-| `GET /health` | Liveness. | `src/contracts/operator-api-runtime-cards.ts:138` |
-| `GET /health/ready` | Readiness. | `src/contracts/operator-api-runtime-cards.ts:149` |
-| `GET /api/state` | Operator runtime state. | `src/contracts/operator-api-runtime-cards.ts:160` |
-| `GET /api/cards` | Card list. | `src/contracts/operator-api-runtime-cards.ts:170` |
-| `GET /api/cards/:id` | Card detail. | `src/contracts/operator-api-runtime-cards.ts:180` |
-| `GET /api/cards/:id/history` | Card history. | `src/contracts/operator-api-runtime-cards.ts:192` |
-| `GET /api/cards/:id/history/:seq` | Card history entry. | `src/contracts/operator-api-runtime-cards.ts:203` |
-| `GET /api/cards/:id/diff` | Card diff. | `src/contracts/operator-api-runtime-cards.ts:214` |
-| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:226` |
-| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:236` |
-| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:246` |
-| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:256` |
-| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:266` |
-| `GET /api/runtime/card-runs` | Current card-run projection. | `src/contracts/operator-api-runtime-cards.ts:277` |
+| `GET /health` | Liveness. | `src/contracts/operator-api-runtime-cards.ts:137` |
+| `GET /health/ready` | Readiness. | `src/contracts/operator-api-runtime-cards.ts:148` |
+| `GET /api/state` | Operator runtime state. | `src/contracts/operator-api-runtime-cards.ts:159` |
+| `GET /api/cards` | Card list. | `src/contracts/operator-api-runtime-cards.ts:169` |
+| `GET /api/cards/:id` | Card detail. | `src/contracts/operator-api-runtime-cards.ts:179` |
+| `GET /api/cards/:id/history` | Card history. | `src/contracts/operator-api-runtime-cards.ts:191` |
+| `GET /api/cards/:id/history/:seq` | Card history entry. | `src/contracts/operator-api-runtime-cards.ts:202` |
+| `GET /api/cards/:id/diff` | Card diff. | `src/contracts/operator-api-runtime-cards.ts:213` |
+| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:225` |
+| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:235` |
+| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:245` |
+| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:255` |
+| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:265` |
+| `GET /api/runtime/card-runs` | Current card-run projection. | `src/contracts/operator-api-runtime-cards.ts:276` |
 <!-- saivage:operator-routes:end -->
 
 ### Internal debug routes

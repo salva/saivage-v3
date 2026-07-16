@@ -25,7 +25,6 @@ export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
   cardId: cardIdSchema.optional(),
 });
 
-export const RuntimeSummarySchema = z.object({}).strict();
 export const CardPermissionFieldsSchema = z.object({ allowedActions: z.array(cardActionSchema).optional() });
 
 export const CardIdParamsSchema = z.object({ id: cardIdSchema });

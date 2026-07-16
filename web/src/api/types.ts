@@ -124,7 +124,6 @@ export interface ActionableErrorEnvelope {
   childCardId?: string | null;
 }
 
-export interface RuntimeSummary {}
 
 
 

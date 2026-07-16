@@ -1,4 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
+import * as contractsModule from '../../src/contracts/index.js';
+import * as operatorApiModule from '../../src/contracts/operator-api.js';
 import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, parseOperatorResponse, type OperatorApiBody } from '../../src/contracts/operator-api.js';
 
 const runtimeState = {
@@ -44,6 +46,21 @@ describe('operator API runtime contract without runtime ledgers', () => {
   it('rejects removed runtime ledger fields and public schema exports are absent', () => {
     expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] }, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
     expect(operatorApiContracts['runtime.status'].success.keyof().options).not.toEqual(expect.arrayContaining(['lastCommand', 'activeRun', 'latestRun']));
+  });
+
+  it('retains concrete runtime response schemas without a runtime summary contract', () => {
+    expect(operatorApiModule).not.toHaveProperty('RuntimeSummarySchema');
+    expect(contractsModule).not.toHaveProperty('RuntimeSummarySchema');
+
+    const stateSchema = operatorApiContracts['runtime.getState'].success;
+    expect(stateSchema.keyof().options).toEqual(['projectRoot', 'projectId', 'runtime', 'cardIndex', 'serverAvailability']);
+    expect(stateSchema.shape).not.toHaveProperty('summary');
+    expect(stateSchema.shape).not.toHaveProperty('runtimeSummary');
+
+    const statusSchema = operatorApiContracts['runtime.status'].success;
+    expect(statusSchema.keyof().options).toEqual(['runtime', 'currentCardId', 'goalCount', 'lastTickAt', 'restart_server_available', 'pid', 'actorRuntime', 'serverAvailability']);
+    expect(statusSchema.shape).not.toHaveProperty('summary');
+    expect(statusSchema.shape).not.toHaveProperty('runtimeSummary');
   });
 
   it('accepts only current availability component sources', () => {
