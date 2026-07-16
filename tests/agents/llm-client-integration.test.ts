@@ -16,7 +16,9 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
+import type { EffectiveProviderCapabilities } from '../../src/agents/provider-capabilities.js';
 import { asMessage, makeCodexJwt, toolsOpts } from '../helpers/llm-test-helpers.js';
 
 // ── Dynamic imports ────────────────────────────────────────────
@@ -313,7 +315,6 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const body = JSON.parse(cap.body);
       expect(body.model).toBe('gpt-5.4');
       expect(body.stream).toBe(true);
-      expect(body.max_output_tokens).toBe(500);
       expect(body.instructions).toBe(sp());
       expect(body.temperature).toBeUndefined();
     } finally {
@@ -321,7 +322,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     }
   });
 
-  it('should make a single openai-codex attempt with max_output_tokens when max_tokens is configured', async () => {
+  it('should send the once-built openai-codex body without max_output_tokens exactly once', async () => {
     const { server, port, captures } = await createMultiCaptureMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.end([
@@ -333,14 +334,37 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
+      const candidate = cand('openai-codex', 'gpt-5.4');
+      const options = toolsOpts({ temperature: 0.5, max_tokens: 500 });
+      const capabilities: EffectiveProviderCapabilities = {
+        transportProtocol: 'openai-codex-backend',
+        toolsMode: 'native',
+        exclusiveToolChoiceSupport: 'parallel_off',
+        streaming: true,
+        contextWindowTokens: 100_000,
+        maxOutputTokens: 10_000,
+        quirks: ['openai-codex-backend'],
+      };
+      const builtCandidateRequest = buildCandidateRequest({
+        candidate,
+        capabilities,
+        systemPrompt: sp(),
+        messages: msgs(),
+        replay: { sessionId: 'sess-codex-built', messages: [] },
+        options,
+      });
+      expect(Object.prototype.hasOwnProperty.call(JSON.parse(builtCandidateRequest.serializedBody), 'max_output_tokens')).toBe(false);
+      expect(builtCandidateRequest.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(builtCandidateRequest.serializedBody, 'utf8') / 4));
+      expect(builtCandidateRequest.requestHash).toBe(createHash('sha256').update(builtCandidateRequest.serializedBody, 'utf8').digest('hex'));
+
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
       const result = await client.complete(
-        cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-retry',
-        toolsOpts({ temperature: 0.5, max_tokens: 500 }));
+        candidate, sp(), msgs(), 'sess-codex-built',
+        { ...options, builtCandidateRequest });
 
       expect(asMessage(result).content).toBe('Single succeeded');
       expect(captures).toHaveLength(1);
-      expect(JSON.parse(captures[0].body).max_output_tokens).toBe(500);
+      expect(captures[0].body).toBe(builtCandidateRequest.serializedBody);
       expect(captures[0].url).toBe('/backend-api/codex/responses');
     } finally {
       await closeServer(server);

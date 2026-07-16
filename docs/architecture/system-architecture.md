@@ -101,7 +101,7 @@ When enabled, `compaction.input_budget_tokens` is required and route-independent
 
 Normal and escalated partitions measure newest-relative completed-round tail and middle windows backward from the newest completed round. The current round stays verbatim in normal operation. Raw IDs and hashes remain authority; cutoff coverage advances monotonically. Hard fallback runs only for residual oversize after whole-round partitioning and never splits tool pairs, Responses bundles, static units, or an open call.
 
-For each candidate, the actual request builder runs once. The body is canonicalized once and estimated as `ceil(UTF8 bytes / 4)`. This deterministic best-effort heuristic may skip obvious oversize but is not a fit proof. The admitted transport sends that same serialized body. Provider context rejection remains authoritative. One derived `requestedCompletionTokens` controls hard ceiling, capability admission, model params, and Chat/Codex/Responses wire output limits.
+For each candidate, the actual request builder runs once. The body is canonicalized once and estimated as `ceil(UTF8 bytes / 4)`. This deterministic best-effort heuristic may skip obvious oversize but is not a fit proof. The admitted transport sends that same serialized body. Provider context rejection remains authoritative. One derived `requestedCompletionTokens` controls hard ceiling, capability admission, model authority, and the Chat and public Responses wire output limits. The Codex backend intentionally omits an output-limit field while retaining that quantity for compaction and capability admission.
 
 ## 9. Availability And Credentials
 

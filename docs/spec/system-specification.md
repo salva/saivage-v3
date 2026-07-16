@@ -103,7 +103,7 @@ Compaction treats only non-compaction raw rows as source. It applies newest-rela
 
 Each compaction is one strict system message containing canonical JSON. Projection selects the physically latest valid row, inserts only its rendered system context, and emits uncovered raw suffix. Older metadata never enters provider, summary, source IDs, hashes, or coverage.
 
-Each protocol candidate builds and canonical-serializes its actual request body once. `ceil(UTF8 bytes / 4)` is a deterministic best-effort estimate, not a fit proof. An admitted attempt sends those same bytes. Provider rejection remains authoritative and does not trigger candidate-specific recompaction. One derived `requestedCompletionTokens` controls hard ceiling, capability checks, model params, and Chat/Codex/Responses output fields.
+Each protocol candidate builds and canonical-serializes its actual request body once. `ceil(UTF8 bytes / 4)` is a deterministic best-effort estimate, not a fit proof. An admitted attempt sends those same bytes. Provider rejection remains authoritative and does not trigger candidate-specific recompaction. One derived `requestedCompletionTokens` controls hard ceiling, capability checks, model authority, and the Chat and public Responses wire output limits. The Codex backend transport intentionally does not serialize an output-limit field; the requested quantity remains authoritative for compaction and capability admission.
 
 ## 11. API And Operator Projection
 

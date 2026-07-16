@@ -143,7 +143,6 @@ export function buildOpenAICodexRequest(
     stream: true,
     instructions: [systemPrompt, ...systemContext].join('\n\n--- system context ---\n'),
     input,
-    max_output_tokens: opts.max_tokens ?? 4096,
   };
   if (tools.length > 0) {
     body.tools = serializeToolsForCodex(tools);
