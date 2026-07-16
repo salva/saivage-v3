@@ -9,7 +9,7 @@ This implementation note is subordinate to [System Architecture](./system-archit
 - The runtime installs one process-local instance and owns the exact live-card map.
 - One `CardActor` owns each live activation and its synchronous result/cancel claim.
 - Project/goal restart begins planner; terminal-card restart begins executor; reviewer is nested live work only.
-- Pause is one request flag and one parked frontier. Stop closes the instance and cancels through exact actors.
+- Pause is one request flag and one parked frontier. Stop interrupts open work for restartable containment; only when domain cancellation already owns the claim does Stop join that exact actor's cancellation settlement.
 - Stable planner/executor/reviewer sessions recover only their latest local conversation round.
 - Runtime state, actor snapshots, active reconstruction, recovery diagnostics, and replay coordinators do not exist.
 
