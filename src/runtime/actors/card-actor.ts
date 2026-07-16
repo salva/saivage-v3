@@ -93,6 +93,7 @@ export interface CardActorDeps {
   notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
   lookup: Map<string, CardActor>;
   liveLookup: Map<string, CardActor>;
+  runtimeProjectionChanged(): void;
   releaseSettledActor(actor: CardActor): void;
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
   conversationPublisher?: ConversationChangePublisher;
@@ -141,6 +142,7 @@ export class CardActor extends BaseActor {
       this.#processorStarted = true;
     }
     this.deps.lookup.set(this.cardId, this);
+    this.deps.runtimeProjectionChanged();
   }
 
   get projectRoot(): string {
@@ -551,6 +553,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       summarizerProvider: owner.deps.summarizerProvider,
       promptTemplates: owner.deps.promptTemplates,
       conversationPublisher: owner.deps.conversationPublisher,
+      runtimeProjectionChanged: owner.deps.runtimeProjectionChanged,
     });
   }
   return new TerminalCardProcessorActor({
@@ -568,6 +571,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
     summarizerProvider: owner.deps.summarizerProvider,
     promptTemplates: owner.deps.promptTemplates,
     conversationPublisher: owner.deps.conversationPublisher,
+    runtimeProjectionChanged: owner.deps.runtimeProjectionChanged,
   });
 }
 

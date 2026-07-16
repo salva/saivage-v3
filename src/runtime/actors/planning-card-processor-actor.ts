@@ -58,7 +58,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly promptTemplates: PromptTemplateRegistry;
   private readonly appLogs: AppLogContext;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardService; children: PlannerChildActorPort; cancelCard: (cardId: string, reason: string) => Promise<CardCancellationResult>; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardService; children: PlannerChildActorPort; cancelCard: (cardId: string, reason: string) => Promise<CardCancellationResult>; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged: () => void; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
@@ -79,10 +79,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): PlannerProcessorOutcome | null {
     return projectPlannerTerminalOutcome(outcome);
-  }
-
-  protected override recoverableLlmAgentIds(): readonly string[] {
-    return [plannerActorId(this.cardId), reviewerActorId(this.cardId)];
   }
 
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<PlannerProcessorOutcome> {

@@ -52,7 +52,7 @@ describe('reviewer pending-notification deferral and semantic currentness', () =
         }
         return new Promise<ProviderTurnCompletion>((resolve) => { releaseReview = () => resolve(complete(tool('review-result', 'emit_result', { status: reviewStatus, summary: `candidate ${reviewStatus}` }))); });
       }) };
-      const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry() });
+      const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged: () => undefined });
       const controller = new AbortController();
       const activation = (actor as unknown as { runActivation(input: unknown, signal: AbortSignal): Promise<unknown> }).runActivation({ activationId: 'activation', card: store.read('project')!, caller: { kind: 'root' }, notificationDelivery: { selectNotifications: () => [...store.read('project')!.pending_notifications], removeNotifications: (ids: readonly string[]) => store.removeNotifications('project', [...ids]) }, claimResult: jest.fn() }, controller.signal);
       await waitUntil(() => typeof releaseReview === 'function');
@@ -79,7 +79,7 @@ describe('reviewer pending-notification deferral and semantic currentness', () =
     initProjectTree(projectRoot);
     const store = new CardService(projectRoot, undefined, undefined, () => CHILD);
     const child = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn: jest.fn() as never }, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry() });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn: jest.fn() as never }, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged: () => undefined });
     const internal = actor as unknown as { captureReviewerCurrentness(input: { card: ReturnType<CardService['read']> }): unknown; reviewerCurrentnessStaleReason(input: { card: ReturnType<CardService['read']> }, snapshot: unknown): string | null };
     const input = { card: store.read('project') };
     const snapshot = internal.captureReviewerCurrentness(input);

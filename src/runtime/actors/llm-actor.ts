@@ -498,13 +498,19 @@ export class LLMActor extends ConversationLLMActor {
   readonly compactor?: CompactorPort;
   readonly compactionConfig?: CompactionConfig;
   readonly summarizerProvider?: LLMProviderPort;
+  readonly runtimeProjectionChanged: () => void;
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     if (parseLlmActorId(args.agentId).role === 'analyst') throw new Error(`LLMActor '${args.agentId}' only supports autonomous card roles.`);
     this.compactor = args.compactor;
     this.compactionConfig = args.compactionConfig;
     this.summarizerProvider = args.summarizerProvider;
+    this.runtimeProjectionChanged = args.runtimeProjectionChanged;
+  }
+
+  protected override _on_state_changed(oldState: string | undefined, _newState: string): void {
+    if (oldState !== undefined) this.runtimeProjectionChanged();
   }
 
   protected override async onBeforeProviderCall(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmInvocationInput | void> {

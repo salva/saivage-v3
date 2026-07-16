@@ -41,10 +41,9 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   private readonly runtimeGate: RuntimeGate;
   private readonly cardActors = new Map<string, CardActor>();
   private readonly liveCardActors = new Map<string, CardActor>();
-  private readonly currentness = new ActiveCardLeaf();
+  private readonly currentness: ActiveCardLeaf;
   private started = false;
   private status: RuntimeStatus = 'stopped';
-  private currentCardId: string | null = null;
   private preparedLeaf: CardRecord | null = null;
   private runIdentity: object | null = null;
   private stopSettlement: Promise<StopProjectResult> | null = null;
@@ -54,6 +53,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     this.eventBus = options.eventBus ?? new EventBus();
     this.now = options.now ?? (() => new Date().toISOString());
     this.runtimeGate = options.runtimeGate ?? new RuntimeGate();
+    this.currentness = new ActiveCardLeaf(() => this.runtimeProjectionChanged());
   }
 
   async start(): Promise<void> {
@@ -94,6 +94,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     this.options.interventionBinding.markNotReady();
     const interruption = new RuntimeStoppedInterruption();
     this.closingInterruption = interruption;
+    this.runtimeProjectionChanged();
     const failures: Array<{ component: string }> = [];
     const operation: RuntimeStopOperation = {
       interruption,
@@ -120,10 +121,9 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       this.runIdentity = null;
       this.liveCardActors.clear();
       this.cardActors.clear();
-      this.currentness.clear();
-      this.currentCardId = null;
       this.status = 'stopped';
       this.options.interventionBinding.markStoppedReady();
+      this.currentness.clear();
       return { status: 'stopped', contained: true };
     })();
     const tracked = settlement.finally(() => { if (this.stopSettlement === tracked) this.stopSettlement = null; });
@@ -147,13 +147,13 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (!leaf) throw new Error('Runtime launch has no prepared restart leaf.');
     this.preparedLeaf = null;
     const chain = selectRunningCardChain(this.options.actorStore.list());
-    this.currentness.startChain(chain.map((card) => card.id));
-    this.currentCardId = leaf.id;
+    if (chain.at(-1)?.id !== leaf.id) throw new Error('Prepared runtime leaf changed before launch.');
     this.status = 'running';
     this.runtimeGate.open();
     this.options.interventionBinding.markNotReady();
     const identity = {};
     this.runIdentity = identity;
+    this.runtimeProjectionChanged();
     this.installRunningChain(identity, chain);
   }
 
@@ -164,7 +164,9 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       if (this.status !== 'pausing') return;
       this.status = 'paused';
       this.options.interventionBinding.markPausedReady();
+      this.runtimeProjectionChanged();
     });
+    if (this.status === 'pausing') this.runtimeProjectionChanged();
     return { patch: { status: this.runtimeGate.isParked ? 'paused' : 'pausing', updated_at: this.now() }, settled: this.runtimeGate.isParked };
   }
 
@@ -173,7 +175,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     this.status = 'running';
     return { ...current, status: 'running', updated_at: this.now() };
   }
-  finishResume(): void { this.runtimeGate.open(); this.options.interventionBinding.markNotReady(); }
+  finishResume(): void { this.runtimeGate.open(); this.options.interventionBinding.markNotReady(); this.runtimeProjectionChanged(); }
 
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult {
     const card = this.options.actorStore.read(cardId);
@@ -224,7 +226,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   }
 
   subscribe(options: SubscriptionOptions): Subscription { return this.eventBus.subscribe(options); }
-  getStatus() { return { status: this.status, currentCardId: this.currentCardId, goalCount: this.currentCardId ? 1 : 0, lastTickAt: null }; }
+  getStatus() { const currentCardId = this.currentness.activeCardId(); return { status: this.status, currentCardId, goalCount: currentCardId ? 1 : 0, lastTickAt: null }; }
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
     const cards = [...this.cardActors.values()].flatMap((actor) => { const card = this.options.actorStore.read(actor.cardId); return card ? [{ cardId: actor.cardId, actorState: toPublicCardActorState(card.status) }] : []; });
@@ -232,9 +234,8 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', activeWork: 'none', cards, agents, diagnostics: [] };
   }
 
-  private runtimeState(): RuntimeState | null { return this.runIdentity && this.currentCardId ? runtimeState(this.now(), this.options.actorStore.read(this.currentCardId)!, this.status) : null; }
-  private launchLeaf(identity: object, leaf: CardRecord): void {
-    const actor = this.cardActor(leaf.id);
+  private runtimeState(): RuntimeState | null { const currentCardId = this.currentness.activeCardId(); return this.runIdentity && currentCardId ? runtimeState(this.now(), this.options.actorStore.read(currentCardId)!, this.status) : null; }
+  private launchLeaf(identity: object, leaf: CardRecord, actor: CardActor): void {
     const caller = leaf.parent === null ? { kind: 'root' as const } : { kind: 'parent' as const, cardId: leaf.parent };
     void actor.restartRunning(caller).then(() => this.continueRunningChain(identity), (error) => { if (isRuntimeStoppedInterruption(error)) return; this.finishRun(identity); });
   }
@@ -256,6 +257,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       rootSettlement = actor.installStructuralWait(actors[index + 1]!, caller);
     }
     if (this.liveCardActors.size !== chain.length || chain.some((card) => !this.liveCardActors.has(card.id))) throw new Error('Runtime running-chain ownership installation is incomplete.');
+    this.currentness.setChain(chain.map((card) => card.id));
     void rootSettlement.then(() => this.continueRunningChain(identity), (error) => { if (isRuntimeStoppedInterruption(error)) return; this.finishRun(identity); });
     leaf.startPreparedProcessor();
   }
@@ -264,19 +266,21 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     const chain = selectRunningCardChain(this.options.actorStore.list());
     const leaf = chain.at(-1);
     if (!leaf) { this.finishRun(identity); return; }
-    this.currentness.clear();
-    this.currentness.startChain(chain.map((card) => card.id));
-    this.currentCardId = leaf.id;
-    this.launchLeaf(identity, leaf);
+    const actor = this.cardActor(leaf.id);
+    this.currentness.setChain(chain.map((card) => card.id));
+    this.launchLeaf(identity, leaf, actor);
   }
-  private finishRun(identity: object): void { if (this.runIdentity !== identity || this.status === 'closing') return; this.runIdentity = null; this.currentCardId = null; this.currentness.clear(); this.status = 'stopped'; this.options.interventionBinding.markStoppedReady(); }
+  private finishRun(identity: object): void { if (this.runIdentity !== identity || this.status === 'closing') return; this.runIdentity = null; this.status = 'stopped'; this.options.interventionBinding.markStoppedReady(); this.currentness.clear(); }
   private cardActor(cardId: string): CardActor { const existing = this.cardActors.get(cardId); if (existing) return existing; const card = this.options.actorStore.read(cardId); if (!card) throw new Error(`Card '${cardId}' not found.`); return CardActor.fromCard({ card, deps: this.cardActorDeps() }); }
   private releaseSettledActor(actor: CardActor): void {
     if (this.liveCardActors.get(actor.cardId) !== actor || this.cardActors.get(actor.cardId) !== actor) throw new Error(`Card '${actor.cardId}' settled actor ownership changed unexpectedly.`);
     this.liveCardActors.delete(actor.cardId);
     this.cardActors.delete(actor.cardId);
+    this.runtimeProjectionChanged();
   }
-  private cardActorDeps(): CardActorDeps { return { projectRoot: this.options.projectRoot, storeForCard: () => this.options.actorStore.cards(), currentness: this.currentness, provider: this.options.provider, compactor: this.options.compactor, compactionConfig: this.options.compactionConfig, summarizerProvider: this.options.summarizerProvider, gate: this.runtimeGate, processRunner: this.options.processRunner, promptTemplates: this.options.promptTemplates, mcpManagerProvider: this.options.mcpManagerProvider, notifyCard: (cardId, notification) => this.notifyCard(cardId, notification), cancelCard: (cardId, reason) => this.cancelCard(cardId, reason), lookup: this.cardActors, liveLookup: this.liveCardActors, releaseSettledActor: (actor) => this.releaseSettledActor(actor), conversationPublisher: createConversationChangePublisher(this.eventBus), conversations: this.options.conversations, appLogs: this.options.appLogs, isRuntimeClosing: () => this.status === 'closing' }; }
+  private cardActorDeps(): CardActorDeps { return { projectRoot: this.options.projectRoot, storeForCard: () => this.options.actorStore.cards(), currentness: this.currentness, provider: this.options.provider, compactor: this.options.compactor, compactionConfig: this.options.compactionConfig, summarizerProvider: this.options.summarizerProvider, gate: this.runtimeGate, processRunner: this.options.processRunner, promptTemplates: this.options.promptTemplates, mcpManagerProvider: this.options.mcpManagerProvider, notifyCard: (cardId, notification) => this.notifyCard(cardId, notification), cancelCard: (cardId, reason) => this.cancelCard(cardId, reason), lookup: this.cardActors, liveLookup: this.liveCardActors, runtimeProjectionChanged: () => this.runtimeProjectionChanged(), releaseSettledActor: (actor) => this.releaseSettledActor(actor), conversationPublisher: createConversationChangePublisher(this.eventBus), conversations: this.options.conversations, appLogs: this.options.appLogs, isRuntimeClosing: () => this.status === 'closing' }; }
+
+  private runtimeProjectionChanged(): void { this.options.readModelChanges.runtimeChanged(); }
 
   private async cancelNonrunningSubtree(cardId: string, cancelled: string[]): Promise<void> {
     const card = this.options.actorStore.read(cardId);

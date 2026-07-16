@@ -4,9 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../../src/cards/card-service.js';
 import { RuntimeInterventionBinding } from '../../../src/application/intervention-readiness.js';
+import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
+import { CardsReadModelService } from '../../../src/application/read-models/cards-read-model.js';
 import { ManagedProcessGroupRegistry } from '../../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import type { CardActor } from '../../../src/runtime/actors/card-actor.js';
+import type { ActiveCardLeaf } from '../../../src/runtime/active-card-leaf.js';
 import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { RuntimeContainmentError, RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
 import type { InvocationJoinOutcome } from '../../../src/runtime/actors/invocation-lifecycle.js';
@@ -27,10 +30,32 @@ async function waitUntil(predicate: () => boolean): Promise<void> { for (let att
 
 type SupervisorInternals = {
   runIdentity: object | null;
-  currentCardId: string | null;
+  currentness: ActiveCardLeaf;
   liveCardActors: Map<string, CardActor>;
   cardActors: Map<string, CardActor>;
 };
+
+type ProjectionSnapshot = {
+  status: ReturnType<SupervisorRuntimeApi['getStatus']>;
+  runtimeCardId: string | null;
+  cards: string[];
+  agents: Array<{ agentId: string; phase: string }>;
+  index: { total: number; byStatus: Record<string, number>; byType: Record<string, number> };
+  readiness: string;
+};
+
+function projectionSnapshot(projectRoot: string, cards: CardService, supervisor: SupervisorRuntimeApi, intervention: RuntimeInterventionBinding): ProjectionSnapshot {
+  const actorRuntime = supervisor.getActorRuntimeReadModel();
+  const index = new CardsReadModelService(projectRoot, cards, supervisor).getRuntimeState().body.cardIndex;
+  return {
+    status: supervisor.getStatus(),
+    runtimeCardId: supervisor.getRuntimeState()?.active_card_run?.card_id ?? null,
+    cards: actorRuntime.cards.map(({ cardId }) => cardId),
+    agents: actorRuntime.agents.map(({ agentId, phase }) => ({ agentId, phase })),
+    index,
+    readiness: intervention.interventionReadiness(),
+  };
+}
 
 async function startRunningRoot(projectRoot: string) {
   initProjectTree(projectRoot);
@@ -42,10 +67,11 @@ async function startRunningRoot(projectRoot: string) {
   };
   const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
   jest.spyOn(processRunner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
+  const changes = new ReadModelChangeBroadcaster();
   const supervisor = new SupervisorRuntimeApi({
     projectRoot, actorStore: cards, interventionBinding: intervention, provider,
     conversations: { projectRoot }, appLogs: { projectRoot },
-    readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
+    readModelChanges: changes,
     processRunner, promptTemplates: { render: () => 'test prompt' },
   });
   const prepared = await supervisor.beginStartProject();
@@ -57,17 +83,172 @@ async function startRunningRoot(projectRoot: string) {
   const owner = internals.liveCardActors.get('project');
   const processor = owner?.processor;
   if (!identity || !owner || !processor) throw new Error('running root ownership was not installed');
-  return { cards, intervention, supervisor, internals, identity, owner, processor };
+  return { cards, intervention, supervisor, internals, identity, owner, processor, changes };
 }
 
 describe('Supervisor running-chain and non-domain Stop', () => {
   let projectRoot: string;
   afterEach(() => { if (projectRoot) rmSync(projectRoot, { recursive: true, force: true }); });
 
+  it('publishes launch ownership boundaries in exact synchronous projection order and Stop only after complete clearing', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-projection-order-'));
+    initProjectTree(projectRoot);
+    const changes = new ReadModelChangeBroadcaster();
+    const cards = new CardService(projectRoot, undefined, changes);
+    cards.setStatus('project', 'running');
+    const intervention = new RuntimeInterventionBinding();
+    const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
+    jest.spyOn(processRunner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
+    let supervisor!: SupervisorRuntimeApi;
+    const snapshots: ProjectionSnapshot[] = [];
+    changes.subscribe({
+      runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)),
+      cardStateChanged: () => undefined,
+      agentsChanged: () => undefined,
+      conversationChanged: () => undefined,
+    });
+    supervisor = new SupervisorRuntimeApi({
+      projectRoot, actorStore: cards, interventionBinding: intervention,
+      provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
+      conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
+      processRunner, promptTemplates: { render: () => 'test prompt' },
+    });
+    const prepared = await supervisor.beginStartProject();
+    if (!prepared.accepted) throw new Error('runtime start was not accepted');
+    snapshots.length = 0;
+
+    supervisor.launchStartedProject(prepared.state);
+    expect(snapshots.slice(0, 3)).toMatchObject([
+      { status: { status: 'running', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'not_ready' },
+      { status: { status: 'running', currentCardId: null }, runtimeCardId: null, cards: ['project'], agents: [], readiness: 'not_ready' },
+      { status: { status: 'running', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'], agents: [], readiness: 'not_ready' },
+    ]);
+
+    await waitUntil(() => snapshots.some(({ agents }) => agents.length === 1));
+    const insertion = snapshots.find(({ agents }) => agents.length === 1)!;
+    expect(insertion.agents[0]?.phase).toBe('idle');
+    await waitUntil(() => snapshots.some(({ agents }) => agents[0]?.phase === 'calling_provider'));
+
+    snapshots.length = 0;
+    await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(snapshots[0]).toMatchObject({ status: { status: 'closing', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'] });
+    expect(snapshots.some(({ status, cards, agents }) => status.status === 'closing' && cards.includes('project') && agents.length === 0)).toBe(true);
+    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'stopped' });
+  });
+
+  it('publishes root admission through CardService before a later launch failure', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-root-admission-order-'));
+    initProjectTree(projectRoot);
+    const changes = new ReadModelChangeBroadcaster();
+    const cards = new CardService(projectRoot, undefined, changes);
+    const intervention = new RuntimeInterventionBinding();
+    let supervisor!: SupervisorRuntimeApi;
+    const snapshots: ProjectionSnapshot[] = [];
+    changes.subscribe({
+      runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)),
+      cardStateChanged: () => undefined,
+      agentsChanged: () => undefined,
+      conversationChanged: () => undefined,
+    });
+    supervisor = new SupervisorRuntimeApi({
+      projectRoot, actorStore: cards, interventionBinding: intervention,
+      provider: { completeTurn: async () => { throw new Error('not reached'); } }, conversations: { projectRoot }, appLogs: { projectRoot },
+      readModelChanges: changes, processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
+    });
+
+    const prepared = await supervisor.beginStartProject();
+    if (!prepared.accepted) throw new Error('runtime start was not accepted');
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({
+      status: { status: 'stopped', currentCardId: null },
+      runtimeCardId: null,
+      index: { total: 1, byStatus: { running: 1 }, byType: { project: 1 } },
+    });
+    const internals = supervisor as unknown as SupervisorInternals;
+    internals.liveCardActors.set('unprojected-extra', { cardId: 'unprojected-extra' } as CardActor);
+
+    expect(() => supervisor.launchStartedProject(prepared.state)).toThrow('ownership installation is incomplete');
+    expect(snapshots.slice(1)).toMatchObject([
+      { status: { status: 'running', currentCardId: null }, runtimeCardId: null, cards: [] },
+      { status: { status: 'running', currentCardId: null }, runtimeCardId: null, cards: ['project'] },
+    ]);
+    expect(supervisor.getStatus()).toMatchObject({ status: 'running', currentCardId: null });
+    expect(supervisor.getRuntimeState()).toBeNull();
+    expect(supervisor.getActorRuntimeReadModel().cards.map(({ cardId }) => cardId)).toEqual(['project']);
+  });
+
+  it('publishes closing before synchronous Stop owner validation failure and never publishes stopped', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-stop-setup-failure-'));
+    const { supervisor, internals, owner, changes } = await startRunningRoot(projectRoot);
+    const snapshots: Array<ReturnType<SupervisorRuntimeApi['getStatus']>> = [];
+    changes.subscribe({
+      runtimeChanged: () => snapshots.push(supervisor.getStatus()), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined,
+    });
+    internals.liveCardActors.set('duplicate-owner', owner);
+
+    expect(() => supervisor.stopProject()).toThrow('duplicate card ownership');
+    expect(snapshots).toEqual([expect.objectContaining({ status: 'closing', currentCardId: 'project' })]);
+    expect(snapshots.some(({ status }) => status === 'stopped')).toBe(false);
+  });
+
+  it('replaces the continuation leaf without publishing an intermediate null', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-continuation-currentness-'));
+    initProjectTree(projectRoot);
+    const changes = new ReadModelChangeBroadcaster();
+    const cards = new CardService(projectRoot, undefined, changes, () => '11111111-1111-4111-8111-111111111111');
+    const child = cards.create({ type: 'code', parent: 'project', depth: 1, title: 'next leaf', brief: 'continue', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    cards.setStatus('project', 'running');
+    const intervention = new RuntimeInterventionBinding();
+    let supervisor!: SupervisorRuntimeApi;
+    const snapshots: ProjectionSnapshot[] = [];
+    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+    supervisor = new SupervisorRuntimeApi({
+      projectRoot, actorStore: cards, interventionBinding: intervention,
+      provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
+      conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
+      processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
+    });
+    const prepared = await supervisor.beginStartProject();
+    if (!prepared.accepted) throw new Error('runtime start was not accepted');
+    supervisor.launchStartedProject(prepared.state);
+    const internals = supervisor as unknown as SupervisorInternals;
+    const rootOwner = internals.cardActors.get('project')!;
+    (supervisor as unknown as { releaseSettledActor(actor: CardActor): void }).releaseSettledActor(rootOwner);
+    cards.setStatus(child.id, 'running');
+    snapshots.length = 0;
+
+    (supervisor as unknown as { continueRunningChain(identity: object): void }).continueRunningChain(internals.runIdentity!);
+    expect(snapshots.slice(0, 2)).toMatchObject([
+      { status: { currentCardId: 'project' }, runtimeCardId: 'project', cards: [child.id] },
+      { status: { currentCardId: child.id }, runtimeCardId: child.id, cards: [child.id] },
+    ]);
+    expect(snapshots.some(({ status }) => status.currentCardId === null)).toBe(false);
+  });
+
+  it('publishes pausing, paused, and completed resume boundaries after each owned mutation', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-pause-resume-order-'));
+    const { supervisor, changes } = await startRunningRoot(projectRoot);
+    const statuses: string[] = [];
+    changes.subscribe({ runtimeChanged: () => statuses.push(supervisor.getStatus().status), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+
+    expect(supervisor.beginPause()).toMatchObject({ settled: false, patch: { status: 'pausing' } });
+    const gate = (supervisor as unknown as { runtimeGate: import('../../../src/runtime/runtime-gate.js').RuntimeGate }).runtimeGate;
+    const parked = gate.waitUntilOpen(new AbortController().signal);
+    expect(statuses).toEqual(['pausing', 'paused']);
+    const current = supervisor.getRuntimeState();
+    if (!current) throw new Error('paused runtime state is missing');
+    supervisor.beginResume(current);
+    supervisor.finishResume();
+    await parked;
+    expect(statuses).toEqual(['pausing', 'paused', 'running']);
+    await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+  });
+
   it('releases a naturally completed actor from both ownership maps and the actor read model', async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-natural-settlement-'));
     initProjectTree(projectRoot);
-    const cards = new CardService(projectRoot);
+    const changes = new ReadModelChangeBroadcaster();
+    const cards = new CardService(projectRoot, undefined, changes);
     const intervention = new RuntimeInterventionBinding();
     let call = 0;
     let releaseTerminal!: () => void;
@@ -76,10 +257,13 @@ describe('Supervisor running-chain and non-domain Stop', () => {
       if (call === 1) return complete(tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'Ready.' }));
       return new Promise<ProviderTurnCompletion>((resolve) => { releaseTerminal = () => resolve(complete(tool('emit-done', 'emit_result', { status: 'done', summary: 'Complete.' }))); });
     }) };
-    const supervisor = new SupervisorRuntimeApi({
+    let supervisor!: SupervisorRuntimeApi;
+    const snapshots: ProjectionSnapshot[] = [];
+    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+    supervisor = new SupervisorRuntimeApi({
       projectRoot, actorStore: cards, interventionBinding: intervention, provider,
       conversations: { projectRoot }, appLogs: { projectRoot },
-      readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
+      readModelChanges: changes,
       processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
     });
     const prepared = await supervisor.beginStartProject();
@@ -101,6 +285,37 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [], agents: [] });
     expect(supervisor.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(intervention.interventionReadiness()).toBe('stopped');
+    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'stopped' });
+  });
+
+  it('publishes natural failed completion only after failed status and empty ownership are visible', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-natural-failure-'));
+    initProjectTree(projectRoot);
+    const changes = new ReadModelChangeBroadcaster();
+    const cards = new CardService(projectRoot, undefined, changes);
+    const intervention = new RuntimeInterventionBinding();
+    let call = 0;
+    const provider = { completeTurn: jest.fn(async () => {
+      call += 1;
+      return call === 1
+        ? complete(tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'Failed.' }))
+        : complete(tool('emit-failed', 'emit_result', { status: 'failed', summary: 'Failed.' }));
+    }) };
+    let supervisor!: SupervisorRuntimeApi;
+    const snapshots: ProjectionSnapshot[] = [];
+    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+    supervisor = new SupervisorRuntimeApi({
+      projectRoot, actorStore: cards, interventionBinding: intervention, provider,
+      conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
+      processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
+    });
+    const prepared = await supervisor.beginStartProject();
+    if (!prepared.accepted) throw new Error('runtime start was not accepted');
+    supervisor.launchStartedProject(prepared.state);
+    await waitUntil(() => supervisor.getStatus().status === 'stopped');
+
+    expect(cards.read('project')?.status).toBe('failed');
+    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'stopped', index: { byStatus: { failed: 1 } } });
   });
 
   it('rejects stale settled-actor release without changing current ownership', async () => {
@@ -272,13 +487,13 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const internals = supervisor as unknown as {
       runIdentity: object | null;
       status: string;
-      currentCardId: string | null;
+      currentness: ActiveCardLeaf;
       liveCardActors: Map<string, unknown>;
       cardActors: Map<string, unknown>;
     };
     internals.runIdentity = identity;
     internals.status = 'running';
-    internals.currentCardId = 'project';
+    internals.currentness.setChain(['project']);
     internals.liveCardActors.set('project', owner);
     internals.cardActors.set('project', owner);
 
@@ -334,7 +549,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(order).toEqual(['activation:cancelled:true:true', 'cancellation', 'stop']);
     expect(cards.read('project')?.status).toBe('cancelled');
     expect(internals.runIdentity).toBeNull();
-    expect(internals.currentCardId).toBeNull();
+    expect(internals.currentness.activeCardId()).toBeNull();
     expect(internals.liveCardActors.size).toBe(0);
     expect(internals.cardActors.size).toBe(0);
     expect(intervention.interventionReadiness()).toBe('stopped');
@@ -364,7 +579,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(supervisor.getStatus()).toMatchObject({ status: 'closing', currentCardId: 'project' });
     expect(intervention.interventionReadiness()).toBe('not_ready');
     expect(internals.runIdentity).toBe(identity);
-    expect(internals.currentCardId).toBe('project');
+    expect(internals.currentness.activeCardId()).toBe('project');
     expect(internals.liveCardActors.get('project')).toBe(owner);
     expect(internals.cardActors.get('project')).toBe(owner);
   });

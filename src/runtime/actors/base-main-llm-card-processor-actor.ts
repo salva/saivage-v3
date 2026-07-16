@@ -18,11 +18,12 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   readonly summarizerProvider?: LLMProviderPort;
   readonly conversationPublisher?: ConversationChangePublisher;
   readonly conversations: ConversationFileContext;
+  readonly runtimeProjectionChanged: () => void;
   readonly activeLlmActors = new Map<string, LLMActor>();
   #joiningLlmActors: readonly LLMActor[] | null = null;
   #llmInvocationsDisposed = false;
 
-  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.provider = args.provider;
     this.conversations = args.conversations;
@@ -31,19 +32,17 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     this.compactionConfig = args.compactionConfig;
     this.summarizerProvider = args.summarizerProvider;
     this.conversationPublisher = args.conversationPublisher;
+    this.runtimeProjectionChanged = args.runtimeProjectionChanged;
   }
 
   protected createMainLlm(agentId: string): LLMActor {
     const existing = this.activeLlmActors.get(agentId);
     if (existing) return existing;
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, conversations: this.conversations, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, conversationPublisher: this.conversationPublisher });
+    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, conversations: this.conversations, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, conversationPublisher: this.conversationPublisher, runtimeProjectionChanged: this.runtimeProjectionChanged });
     llm.start();
     this.activeLlmActors.set(agentId, llm);
+    this.runtimeProjectionChanged();
     return llm;
-  }
-
-  adoptRecoveredLlmActor(llm: LLMActor): void {
-    this.activeLlmActors.set(llm.agentId, llm);
   }
 
   listLlmActors(): readonly LLMActor[] {
@@ -69,7 +68,9 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     if (!actors) throw new Error(`Processor '${this.cardId}' must dispose activation admission before join.`);
     const outcomes = await Promise.all(actors.map((llm) => llm.joinInvocationSettlement()));
     const processorOutcomes = await super.joinActivation();
+    const hadActors = this.activeLlmActors.size > 0;
     this.activeLlmActors.clear();
+    if (hadActors) this.runtimeProjectionChanged();
     return [...outcomes, ...processorOutcomes];
   }
 
@@ -93,12 +94,12 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     }
   }
 
-  protected abstract recoverableLlmAgentIds(): readonly string[];
-
   protected override onActivationSettled(_outcome: CardProcessorOutcome): void {
     if (this.#joiningLlmActors) return;
     for (const llm of this.activeLlmActors.values()) llm.abandonParkedTurn();
+    const hadActors = this.activeLlmActors.size > 0;
     this.activeLlmActors.clear();
+    if (hadActors) this.runtimeProjectionChanged();
   }
 
   protected freshSourceInputId(): string { return randomUUID(); }
