@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { liveSyncEventKinds, mapLiveSyncEvent, SyncHub } from '../../src/server/sync-hub.js';
 import { EventBus } from '../../src/events/index.js';
 import type { DomainEvent } from '../../src/events/index.js';
-import type { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
+import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
+import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
+import { CardService } from '../../src/cards/card-service.js';
+import { ActiveCardLeaf } from '../../src/runtime/active-card-leaf.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
 
 function event(kind: string, payload: Record<string, unknown>): DomainEvent<any> {
   return {
@@ -65,5 +72,34 @@ describe('SyncHub semantic hints', () => {
       { resource: 'agents' },
       { resource: 'conversation', id: 'analyst:global' },
     ]);
+  });
+
+  it.each(['card-index', 'actor-owner'] as const)('delivers a real %s runtime hint through the broadcaster after debounce', (source) => {
+    jest.useFakeTimers();
+    const live = new LiveSyncSocket();
+    const invalidate = jest.spyOn(live, 'invalidate');
+    const hub = new SyncHub(live, 25);
+    const changes = new ReadModelChangeBroadcaster();
+    changes.subscribe(hub);
+    let root: string | undefined;
+    try {
+      if (source === 'card-index') {
+        root = mkdtempSync(join(tmpdir(), 'saivage-sync-card-index-'));
+        initProjectTree(root);
+        const cards = new CardService(root, undefined, changes, () => '11111111-1111-4111-8111-111111111111');
+        cards.create({ type: 'code', parent: 'project', depth: 1, title: 'sync index', brief: 'sync', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      } else {
+        const currentness = new ActiveCardLeaf(() => changes.runtimeChanged());
+        currentness.setChain(['project']);
+      }
+      expect(invalidate).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(25);
+
+      expect(invalidate.mock.calls.filter(([target]) => target.resource === 'runtime')).toEqual([[{ resource: 'runtime' }]]);
+    } finally {
+      if (root) rmSync(root, { recursive: true, force: true });
+      hub.dispose();
+    }
   });
 });
