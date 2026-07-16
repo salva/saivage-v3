@@ -123,7 +123,7 @@ export interface ToolDisplayModel {
 export function buildToolDisplay(pair: ToolPair): ToolDisplayModel {
   const callPres = presentToolCall(pair.call.content);
   const result = pair.result;
-  const resultPres = result ? presentToolResult(result.content, { tool: result.tool, kind: result.kind }) : null;
+  const resultPres = result ? presentToolResult(result.content, { tool: result.tool }) : null;
   const resultContent = result?.content ?? null;
   const status = pair.status;
 

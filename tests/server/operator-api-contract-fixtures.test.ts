@@ -5,6 +5,8 @@ import { join } from 'node:path';
 
 import { createServer as createNetServer } from 'node:net';
 import { startApp, type App } from '../../src/boot/app.js';
+import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import type { AgentMessage } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 let projectRoot: string;
@@ -63,5 +65,30 @@ describe('operator API response contracts', () => {
   it('does not register the removed debug runtime start route', async () => {
     const response = await app.server.fastify.inject({ method: 'POST', url: '/api/debug/runtime/start' });
     expect(response.statusCode).toBe(404);
+  });
+
+  it('returns a failed tool result unchanged from the agent conversation route', async () => {
+    const sessionId = 'planner:project';
+    const sourceInputId = '11111111-1111-4111-8111-111111111111';
+    const failedContent = '{"success":false,"error":"tool execution failed","data":{"exit_code":2}}';
+    const result: AgentMessage = {
+      id: `${sourceInputId}:tool-result:call-1`,
+      session_id: sessionId,
+      role: 'tool',
+      kind: 'tool_result',
+      content: failedContent,
+      round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      message_index: 2,
+      block_index: 0,
+      tool: 'run_command',
+      tool_call_id: 'call-1',
+      timestamp: '2026-07-16T00:00:00.000Z',
+    };
+    appendConversationBatch(projectRoot, [result]);
+
+    const response = await app.server.fastify.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}/conversation` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().entries).toEqual([result]);
   });
 });

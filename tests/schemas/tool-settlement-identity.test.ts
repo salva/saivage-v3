@@ -14,4 +14,8 @@ describe('tool settlement identity', () => {
     expect(() => agentMessageSchema.parse({ id: `${source}:tool:1:tool-result:call-1`, session_id: 'planner:project', role: 'tool', kind: 'tool_result', content: '{}', tool: 'emit_result', tool_call_id: 'call-1', round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', message_index: 2, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' })).toThrow();
     expect(() => agentMessageSchema.parse({ id: 'planner:project:1:tool-result:call-1', session_id: 'planner:project', role: 'tool', kind: 'tool_result', content: '{}', tool: 'emit_result', tool_call_id: 'call-1', round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', message_index: 2, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' })).toThrow();
   });
+
+  it('strictly rejects the removed tool error row kind', () => {
+    expect(() => agentMessageSchema.parse({ id: `${source}:tool-result:call-1`, session_id: 'planner:project', role: 'tool', kind: 'tool_error', content: '{"success":false,"error":"failed"}', tool: 'emit_result', tool_call_id: 'call-1', round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', message_index: 2, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' })).toThrow();
+  });
 });

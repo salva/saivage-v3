@@ -161,7 +161,7 @@ describe('entriesToTimeline tool pairing', () => {
     expect(pairs[0].status).toBe('ok');
   });
 
-  it('marks tool_error results as error and leaves un-paired calls pending', () => {
+  it('marks failed tool_result payloads as error and leaves unpaired calls pending', () => {
     const call = entry({
       id: 'msg-a',
       kind: 'tool_call',
@@ -175,11 +175,11 @@ describe('entriesToTimeline tool pairing', () => {
     });
     const errResult = entry({
       id: 'msg-b',
-      kind: 'tool_error',
+      kind: 'tool_result',
       role: 'tool',
       tool_call_id: 'call-x',
       message_index: 2,
-      content: 'boom',
+      content: JSON.stringify({ success: false, error: 'boom' }),
     });
     const lonely = entry({
       id: 'msg-c',

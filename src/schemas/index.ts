@@ -110,7 +110,6 @@ export type {
   MessageKind,
   EntityLink,
   AgentMessage,
-  ToolErrorAgentMessage,
   ActivationCompletionOutcome,
   ActivationCompletionEnvelopeV1,
   RuntimeStatus,

@@ -2,7 +2,6 @@ import type { AgentMessage, MessageKind } from '../../schemas/index.js';
 import {
   loggedToolCallIdentity,
   loggedToolCallKey,
-  loggedToolErrorIdentity,
   loggedToolResultIdentity,
 } from '../../schemas/message-identity.js';
 import { isModelVisibleConversationMessage } from './conversation-session.js';
@@ -23,7 +22,6 @@ const messageKindsHandled: ReadonlySet<MessageKind> = new Set([
   'activity',
   'tool_call',
   'tool_result',
-  'tool_error',
   'model_issue',
   'model_repair',
   'context_compaction',
@@ -124,8 +122,8 @@ function validateCallSettlementPairs(messages: readonly AgentMessage[], latestAc
       if (calls.has(key)) throw new Error(`Duplicate tool call identity '${key}'.`);
       calls.set(key, { message, index });
     }
-    if (message.kind === 'tool_result' || message.kind === 'tool_error') {
-      const identity = message.kind === 'tool_result' ? toolResultIdentity(message) : toolErrorIdentity(message);
+    if (message.kind === 'tool_result') {
+      const identity = toolResultIdentity(message);
       const key = loggedToolCallKey(identity);
       if (!calls.has(key)) throw new Error(`Tool settlement '${message.id}' has no prior matching call.`);
       if (settled.has(key)) throw new Error(`Tool call identity '${key}' has duplicate settlements.`);
@@ -152,7 +150,6 @@ function recoverySettlementKeys(messages: readonly AgentMessage[]): Set<string> 
   const keys = new Set<string>();
   for (const message of messages) {
     if (message.kind === 'tool_result') keys.add(loggedToolCallKey(toolResultIdentity(message)));
-    if (message.kind === 'tool_error') keys.add(loggedToolCallKey(toolErrorIdentity(message)));
   }
   return keys;
 }
@@ -181,11 +178,5 @@ function toolCallIdentity(message: AgentMessage) {
 function toolResultIdentity(message: AgentMessage) {
   const identity = loggedToolResultIdentity(message);
   if (!identity) throw new Error(`Validated tool_result message '${message.id}' is missing tool_call_id.`);
-  return identity;
-}
-
-function toolErrorIdentity(message: AgentMessage) {
-  const identity = loggedToolErrorIdentity(message);
-  if (!identity) throw new Error(`Validated tool_error message '${message.id}' is missing tool or tool_call_id.`);
   return identity;
 }

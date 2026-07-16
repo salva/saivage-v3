@@ -32,7 +32,7 @@ function toolCall(sourceInputId: string, toolCallId: string, sessionId = 'planne
   });
 }
 
-function toolResult(sourceInputId: string, toolCallId: string, sessionId = 'planner:G-1', tool = 'emit_result'): AgentMessage {
+function toolResult(sourceInputId: string, toolCallId: string, sessionId = 'planner:G-1', tool = 'emit_result', result: unknown = { success: true }): AgentMessage {
   return message({
     id: `${sourceInputId}:tool-result:${toolCallId}`,
     session_id: sessionId,
@@ -40,19 +40,7 @@ function toolResult(sourceInputId: string, toolCallId: string, sessionId = 'plan
     kind: 'tool_result',
     tool,
     tool_call_id: toolCallId,
-    content: JSON.stringify({ success: true }),
-  });
-}
-
-function toolError(sourceInputId: string, toolCallId: string, sessionId = 'planner:G-1', tool = 'emit_result'): AgentMessage {
-  return message({
-    id: `${sourceInputId}:tool-error:${toolCallId}`,
-    session_id: sessionId,
-    role: 'tool',
-    kind: 'tool_error',
-    tool,
-    tool_call_id: toolCallId,
-    content: 'tool failed',
+    content: JSON.stringify(result),
   });
 }
 
@@ -75,44 +63,41 @@ describe('classifyConversation', () => {
     expect(classifyConversation([message({ kind: 'text', role: 'user' })], terminalTools)).toBe('pending_provider');
     expect(classifyConversation([toolCall('planner:G-1:1', 'call-1')], terminalTools)).toBe('awaiting_tool_result');
     expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), toolResult('planner:G-1:1', 'call-1')], terminalTools)).toBe('settled_terminal');
-    expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), toolError('planner:G-1:1', 'call-1')], terminalTools)).toBe('pending_provider');
     expect(classifyConversation([message({ kind: 'system_prompt' }), message({ kind: 'activity' })], terminalTools)).toBe('system_prompt_only');
   });
 
   it('matches tool settlements by full session, source input, and tool call id', () => {
     expect(classifyConversation([
       toolCall('planner:G-1:1', 'call-dup'),
-      toolCall('planner:G-1:2', 'call-dup'),
-      toolError('planner:G-1:2', 'call-dup'),
+      toolCall('planner:G-1:2', 'call-dup', 'planner:G-1', 'read_file'),
+      toolResult('planner:G-1:2', 'call-dup', 'planner:G-1', 'read_file'),
     ], terminalTools)).toBe('pending_provider');
 
     expect(classifyConversation([
       toolCall('planner:G-1:1', 'call-dup'),
-      toolError('planner:G-1:2', 'call-dup'),
+      toolResult('planner:G-1:2', 'call-dup'),
     ], terminalTools)).toBe('awaiting_tool_result');
 
     expect(classifyConversation([
       toolCall('planner:G-1:1', 'call-1', 'planner:G-1'),
-      toolError('planner:G-1:1', 'call-1', 'reviewer:G-1'),
+      toolResult('planner:G-1:1', 'call-1', 'reviewer:G-1'),
     ], terminalTools)).toBe('awaiting_tool_result');
   });
 
-  it('does not classify tool_error-only terminal settlement as model-visible settled_terminal', () => {
-    expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), toolError('planner:G-1:1', 'call-1')], terminalTools)).toBe('pending_provider');
+  it('treats a failed tool_result as a settlement without changing its payload', () => {
+    const result = toolResult('planner:G-1:1', 'call-1', 'planner:G-1', 'emit_result', { success: false, error: 'tool failed' });
+    expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), result], terminalTools)).toBe('settled_terminal');
+    expect(result.content).toBe('{"success":false,"error":"tool failed"}');
   });
 
-  it('fails fast on malformed tool_error rows and does not match valid rows for other triples', () => {
+  it('fails fast on malformed tool_result rows and does not match valid rows for other triples', () => {
     expect(() => classifyConversation([
       toolCall('planner:G-1:1', 'call-1'),
-      { ...toolError('planner:G-1:1', 'call-1'), id: 'planner:G-1:1:error:call-1' },
-    ], terminalTools)).toThrow(/Malformed tool_error/);
-    expect(() => classifyConversation([
-      toolCall('planner:G-1:1', 'call-1'),
-      { ...toolError('planner:G-1:1', 'call-1'), tool: undefined },
-    ], terminalTools)).toThrow(/missing tool/);
+      { ...toolResult('planner:G-1:1', 'call-1'), id: 'planner:G-1:1:result:call-1' },
+    ], terminalTools)).toThrow(/Malformed tool_result/);
     expect(classifyConversation([
       toolCall('planner:G-1:1', 'call-1'),
-      toolError('planner:G-1:1', 'call-2'),
+      toolResult('planner:G-1:1', 'call-2'),
     ], terminalTools)).toBe('awaiting_tool_result');
   });
 

@@ -11,7 +11,7 @@ function entry(id: string, kind: AgentConversationEntry['kind'], content: string
   return {
     id,
     session_id: 's',
-    role: kind === 'tool_result' || kind === 'tool_error' ? 'tool' : 'assistant',
+    role: kind === 'tool_result' ? 'tool' : 'assistant',
     kind,
     content,
     round_id: 'r',
@@ -25,7 +25,7 @@ function entry(id: string, kind: AgentConversationEntry['kind'], content: string
 
 function pair(id: string, tool: string, status: ToolPair['status'], args: Record<string, unknown> = {}, resultBody: unknown = {}): ToolPair {
   const call = entry(id, 'tool_call', callContent(tool, args), tool);
-  const result = status === 'pending' ? null : entry(`${id}-r`, status === 'error' ? 'tool_error' : 'tool_result', JSON.stringify(resultBody), tool);
+  const result = status === 'pending' ? null : entry(`${id}-r`, 'tool_result', JSON.stringify(resultBody), tool);
   return { call, result, status };
 }
 

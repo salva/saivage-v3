@@ -15,7 +15,7 @@ import {
 import { buildLoggedEventSchema } from './event-catalog.js';
 import { roundIdGrammar } from './round-id.js';
 import { cardLifecycleStateSchema } from './lifecycle.js';
-import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolErrorMessageId, sourceInputIdFromToolResultMessageId } from './message-identity.js';
+import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from './message-identity.js';
 import { cardIdSchema } from './card-id.js';
 import { parseCanonicalContextCompaction } from './context-compaction.js';
 export { canonicalUuidSchema, nonRootCardIdSchema } from './card-id.js';
@@ -61,7 +61,7 @@ export const agentRoleSchema = z.enum(agentRoleValues);
 export const sessionStatusSchema = z.enum(['active', 'waiting', 'inactive', 'done', 'blocked', 'failed']);
 export const agentSessionSchema = z.object({ id: z.string().min(1), role: agentRoleSchema, goal_card_id: cardIdSchema.nullable().optional(), card_id: cardIdSchema.nullable().optional(), status: sessionStatusSchema, started_at: z.string().datetime(), completed_at: z.string().datetime().nullable().optional(), model: z.string().optional() });
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
-export const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_result', 'tool_error', 'model_issue', 'model_repair', 'context_compaction', 'model_recovered', 'system_prompt', 'provider_private']);
+export const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_result', 'model_issue', 'model_repair', 'context_compaction', 'model_recovered', 'system_prompt', 'provider_private']);
 export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment']), entity_id: z.string().min(1), label: z.string().optional() }).strict();
 const providerProjectionSchema = z.object({ kind: z.literal('openai_responses'), source_input_id: z.string().uuid(), private_message_id: z.string().min(1), projection_kind: z.enum(['assistant_message', 'assistant_tool_call']) }).strict();
 export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: z.string().min(1), role: messageRoleSchema, kind: messageKindSchema, content: z.string(), round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional(), provider_projection: providerProjectionSchema.optional() }).strict().superRefine((message, ctx) => {
@@ -78,8 +78,8 @@ export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: 
     if (message.role !== 'system') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'provider_private rows must use system role', path: ['role'] });
     if (message.provider_projection) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'provider_private rows must not carry provider_projection', path: ['provider_projection'] });
   }
-  if ((message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'tool_error') && message.tool_call_id !== undefined && typeof message.tool_call_id !== 'string') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_call_id must be a scalar string when present on tool entries', path: ['tool_call_id'] });
-  if (message.kind !== 'tool_call' && message.kind !== 'tool_result' && message.kind !== 'tool_error') return;
+  if ((message.kind === 'tool_call' || message.kind === 'tool_result') && message.tool_call_id !== undefined && typeof message.tool_call_id !== 'string') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_call_id must be a scalar string when present on tool entries', path: ['tool_call_id'] });
+  if (message.kind !== 'tool_call' && message.kind !== 'tool_result') return;
   if (!message.tool) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${message.kind} rows require tool`, path: ['tool'] });
   if (!message.tool_call_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${message.kind} rows require tool_call_id`, path: ['tool_call_id'] });
@@ -88,9 +88,7 @@ export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: 
   try {
     const sourceInputId = message.kind === 'tool_call'
       ? sourceInputIdFromToolCallMessageId(message.id, message.tool_call_id)
-      : message.kind === 'tool_result'
-        ? sourceInputIdFromToolResultMessageId(message.id, message.tool_call_id)
-        : sourceInputIdFromToolErrorMessageId(message.id, message.tool_call_id);
+      : sourceInputIdFromToolResultMessageId(message.id, message.tool_call_id);
     z.string().uuid().parse(sourceInputId);
   } catch (error) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: error instanceof Error ? error.message : String(error), path: ['id'] });

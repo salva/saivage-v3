@@ -14,7 +14,6 @@ import {
 export {
   loggedToolCallKey,
   sourceInputIdFromToolCallMessageId,
-  sourceInputIdFromToolErrorMessageId,
   sourceInputIdFromToolResultMessageId,
 } from '../../schemas/message-identity.js';
 

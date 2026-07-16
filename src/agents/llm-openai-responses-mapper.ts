@@ -43,7 +43,7 @@ export function responsesInputFromReplay(replay: ResponsesReplayProjection): Res
       }
       continue;
     }
-    if (message.kind === 'tool_result' || message.kind === 'tool_error') {
+    if (message.kind === 'tool_result') {
       const sourceInputId = sourceInputIdFromToolResultMessageId(message.id, message.tool_call_id ?? '');
       const callId = message.tool_call_id;
       if (!callId) throw new Error(`Responses tool settlement '${message.id}' is missing tool_call_id.`);

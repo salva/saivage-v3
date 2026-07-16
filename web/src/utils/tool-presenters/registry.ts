@@ -32,11 +32,11 @@ export function presentToolCall(rawContent: string): ToolCallPresentation {
   };
 }
 
-export function presentToolResult(rawContent: string, opts: { tool?: string; kind?: string } = {}): ToolResultPresentation {
+export function presentToolResult(rawContent: string, opts: { tool?: string } = {}): ToolResultPresentation {
   const name = resultName(rawContent, opts.tool);
   const parsed = safeJsonParse(rawContent);
   const record = asRecord(parsed);
-  const isError = opts.kind === 'tool_error' || record?.ok === false || typeof record?.error === 'string';
+  const isError = record?.success === false || record?.ok === false || typeof record?.error === 'string';
   const status = isError ? 'error' : 'ok';
   if (status === 'error') {
     const message = record?.error ?? record?.message ?? parsed ?? rawContent;

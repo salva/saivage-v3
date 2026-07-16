@@ -3,6 +3,7 @@ import { parseToolCallMessage } from '../persistedToolCall';
 import { parseRoundId } from './round-id';
 import type { AgentTimeline, TimelineRound, ToolPair } from './types';
 import { groupToolPairs } from '../tool-friendly';
+import { presentToolResult } from '../tool-presenters';
 
 type TimelineEntry = AgentConversationEntry;
 
@@ -22,11 +23,11 @@ function callIdOf(entry: AgentConversationEntry): string | undefined {
 
 function buildToolPairs(entries: TimelineEntry[]): ToolPair[] {
   const calls = entries.filter((entry) => entry.kind === 'tool_call');
-  const results = entries.filter((entry) => entry.kind === 'tool_result' || entry.kind === 'tool_error');
+  const results = entries.filter((entry) => entry.kind === 'tool_result');
   return calls.map((call): ToolPair => {
     const id = callIdOf(call);
     const result = id ? results.find((entry) => callIdOf(entry) === id) ?? null : null;
-    return { call, result, status: result?.kind === 'tool_error' ? 'error' : result ? 'ok' : 'pending' };
+    return { call, result, status: result ? presentToolResult(result.content, { tool: result.tool }).status : 'pending' };
   });
 }
 
@@ -72,7 +73,7 @@ function projectToolResultsIntoCallRounds(entries: IndexedTimelineEntry[]): Inde
 
   return entries.map((indexed) => {
     const { entry } = indexed;
-    if (entry.kind !== 'tool_result' && entry.kind !== 'tool_error') return indexed;
+    if (entry.kind !== 'tool_result') return indexed;
     const id = callIdOf(entry);
     const round_id = id ? callRoundById.get(id) : undefined;
     return round_id && round_id !== entry.round_id ? { ...indexed, entry: { ...entry, round_id } } : indexed;
