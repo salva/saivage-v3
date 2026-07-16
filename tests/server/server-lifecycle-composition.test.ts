@@ -6,6 +6,7 @@ import { createFastifyApp } from '../../src/server/composition/fastify-app.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
 import { createAppTerminalCoordinator } from '../../src/boot/app.js';
 import { loadEnvironment } from '../../src/config/environment.js';
+import { McpManager } from '../../src/mcp/manager-api.js';
 import { createServerServices } from '../../src/server/composition/server-services.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
@@ -61,6 +62,16 @@ describe('server lifecycle composition', () => {
         order.push('runtime');
         await cleanupRuntime();
       });
+      const cleanupAnalyst = services.runtimeApplication.cleanupAnalystForApplicationStop.bind(services.runtimeApplication);
+      const analystCleanup = jest.spyOn(services.runtimeApplication, 'cleanupAnalystForApplicationStop').mockImplementation(async () => {
+        order.push('analyst');
+        await cleanupAnalyst();
+      });
+      const cleanupMcp = services.mcpManager.cleanupForApplicationStop.bind(services.mcpManager);
+      const mcpCleanup = jest.spyOn(services.mcpManager, 'cleanupForApplicationStop').mockImplementation(async () => {
+        order.push('mcp');
+        await cleanupMcp();
+      });
       const liveDispose = jest.spyOn(services.liveSyncSocket, 'dispose').mockImplementation(() => { order.push('live-sync'); });
       const fastifyClose = jest.spyOn(services.fastify, 'close').mockImplementation((closeListener?: () => void) => { order.push('fastify'); closeListener?.(); return undefined; });
 
@@ -68,11 +79,53 @@ describe('server lifecycle composition', () => {
       expect(order.indexOf('runtime-admission')).toBeLessThan(order.indexOf('runtime'));
       expect(order.indexOf('runtime-admission')).toBeLessThan(order.indexOf('fastify'));
       expect(order.indexOf('live-sync')).toBeLessThan(order.indexOf('fastify'));
+      expect(order.indexOf('mcp')).toBeLessThan(order.indexOf('analyst'));
+      expect(order.indexOf('mcp')).toBeLessThan(order.indexOf('runtime'));
       expect(runtimeAdmissionClose).toHaveBeenCalledTimes(1);
       expect(runtimeCleanup).toHaveBeenCalledTimes(1);
+      expect(analystCleanup).toHaveBeenCalledTimes(1);
+      expect(mcpCleanup).toHaveBeenCalledTimes(1);
       expect(liveDispose).toHaveBeenCalledTimes(1);
       expect(fastifyClose).toHaveBeenCalledTimes(1);
     } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { outcome: 'rejected reconciliation', rejection: new Error('MCP startup allocation failed') },
+    { outcome: 'non-converged reconciliation', rejection: new Error('MCP startup did not converge to persisted configuration.') },
+  ])('cleans up MCP through the App terminal path after $outcome', async ({ outcome, rejection }) => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-server-mcp-startup-failure-'));
+    const terminal = createAppTerminalCoordinator();
+    const markers: string[] = [];
+    const reconciliation = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig').mockImplementation(async () => {
+      markers.push('allocation-started');
+      if (outcome === 'rejected reconciliation') throw rejection;
+      return {
+        converged: false,
+        desired: [],
+        active: [],
+        pending: [{ name: 'test-server', operation: 'start', diagnostic: 'Test startup remained pending.' }],
+      };
+    });
+    const mcpCleanup = jest.spyOn(McpManager.prototype, 'cleanupForApplicationStop');
+    let stopped = false;
+    try {
+      initProjectTree(projectRoot);
+      writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), 'models:\n  default: [test-model]\nproviders: {}\nruntime:\n  continuous_improvement: false\n');
+      const environment = await loadEnvironment(['node', 'test', '--project-root', projectRoot], { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined });
+
+      await expect(createServerServices({ environment, terminal })).rejects.toThrow(rejection.message);
+      expect(markers).toEqual(['allocation-started']);
+
+      expect((await terminal.stop()).warnings).toEqual([]);
+      stopped = true;
+      expect(mcpCleanup).toHaveBeenCalledTimes(1);
+    } finally {
+      if (!stopped) await terminal.stop();
+      reconciliation.mockRestore();
+      mcpCleanup.mockRestore();
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });

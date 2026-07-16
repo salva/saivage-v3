@@ -75,12 +75,12 @@ export async function createServerServices(input: {
   terminal.registerCleanupLeaf('analyst', () => runtimeApplication.cleanupAnalystForApplicationStop());
 
   const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner: runtimeApplication.processRunner });
+  terminal.registerAdmissionCloser('mcp', () => mcpManager.closeAdmission());
+  terminal.registerCleanupLeaf('mcp', () => mcpManager.cleanupForApplicationStop());
   const mcpReconciliation = await mcpManager.reconcilePersistedConfig();
   if (!mcpReconciliation.converged) throw new Error('MCP startup did not converge to persisted configuration.');
   fastify.log.info('MCP manager started');
   runtimeApplication.setMcpManager(mcpManager);
-  terminal.registerAdmissionCloser('mcp', () => mcpManager.closeAdmission());
-  terminal.registerCleanupLeaf('mcp', () => mcpManager.cleanupForApplicationStop());
 
   const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig: config, fastify, runtimeApplication });
   if (telegramBot) {
