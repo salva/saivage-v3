@@ -29,7 +29,7 @@ export interface LLMProviderPort {
 
 export interface CompactorPort {
   shouldCompact(input: LlmInvocationInput, config: CompactionConfig): { shouldCompact: boolean };
-  compact(args: { projectRoot: string; conversations: ConversationFileContext; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; signal: AbortSignal }): Promise<{ rows: unknown[] }>;
+  compact(args: { conversations: ConversationFileContext; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; signal: AbortSignal }): Promise<{ rows: unknown[] }>;
 }
 
 type PersistedProviderCompletion =
@@ -521,7 +521,7 @@ export class LLMActor extends ConversationLLMActor {
     if (!decision.shouldCompact) return;
     try {
       this.#compacting = true;
-      const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, conversations: this.conversations, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, signal });
+      const compacted = await this.compactor.compact({ conversations: this.conversations, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, signal });
       signal.throwIfAborted();
       const compactedRows = compacted.rows as AgentMessage[];
       const compactedInput = { ...input, genericContextMessages: compactedRows, contextMessages: compactedRows, activeConversationReplay: buildResponsesReplayProjection(input.sessionId, compactedRows) } as LlmInvocationInput;
