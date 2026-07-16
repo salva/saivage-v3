@@ -16,6 +16,8 @@ import type { ConversationFileContext } from '../persistence/conversation-file.j
 import type { AppLogContext } from '../persistence/app-log.js';
 import type { ReadModelChanges } from './read-model-changes.js';
 import type { RuntimeInterventionBinding } from './intervention-readiness.js';
+import type { InvocationRequest } from '../agents/invocation-service.js';
+import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
@@ -67,39 +69,26 @@ function buildCompactionWiring(invocationService: InvocationService, config: Sai
     compactor: { shouldCompact, compact },
     compactionConfig,
     summarizerProvider: {
-      completeTurn: (input: Parameters<LLMProviderPort['completeTurn']>[0], signal: AbortSignal) => invocationService.invokeWithRecovery({
-        inputId: input.inputId,
-        role: input.role,
-        sessionId: input.sessionId,
-        systemPrompt: input.systemPrompt,
-        genericContextMessages: genericContextMessagesForInvocation(input),
-        activeConversationReplay: activeConversationReplayForInvocation(input),
-        tools: input.tools,
-        terminalToolNames: input.terminalToolNames,
-        modelParams: input.modelParams,
-        capabilityRequest: input.capabilityRequest,
-        abortSignal: signal,
-        candidateChain: [candidate],
-      }),
+      completeTurn: (input: Parameters<LLMProviderPort['completeTurn']>[0], signal: AbortSignal) => invocationService.invokeWithRecovery(invocationRequest(input, signal, [candidate])),
     },
   };
 }
 
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
-    completeTurn: (input, signal) => invocationService.invokeWithRecovery({
-      inputId: input.inputId,
-      role: input.role,
-      sessionId: input.sessionId,
-      systemPrompt: input.systemPrompt,
-      genericContextMessages: genericContextMessagesForInvocation(input),
-      activeConversationReplay: activeConversationReplayForInvocation(input),
-      tools: input.tools,
-      terminalToolNames: input.terminalToolNames,
-      modelParams: input.modelParams,
-      capabilityRequest: input.capabilityRequest,
-      abortSignal: signal,
-    }),
+    completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal)),
     projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
   };
+}
+
+function invocationRequest(input: LlmInvocationInput, signal: AbortSignal, candidateChain?: NonNullable<InvocationRequest['candidateChain']>): InvocationRequest {
+  const common = {
+    inputId: input.inputId, role: input.role, sessionId: input.sessionId, systemPrompt: input.systemPrompt,
+    genericContextMessages: genericContextMessagesForInvocation(input), activeConversationReplay: activeConversationReplayForInvocation(input),
+    tools: input.tools, terminalToolNames: input.terminalToolNames, capabilityRequest: input.capabilityRequest, abortSignal: signal,
+    ...(candidateChain ? { candidateChain } : {}),
+  };
+  return input.preparedCompaction
+    ? { ...common, modelParams: input.modelParams, preparedCompaction: input.preparedCompaction }
+    : { ...common, modelParams: input.modelParams };
 }

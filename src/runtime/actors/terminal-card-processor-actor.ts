@@ -19,7 +19,7 @@ import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendRecoveryNotice, appendUserContextMessage, conversationMessagesForModel } from './conversation-session.js';
 import { stabilizeRoleSession } from './conversation-recovery.js';
 import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
-import { validateCompactionStaticCapacity, type CompactionConfig } from './compaction/compactor.js';
+import { prepareCompaction, type CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
@@ -135,7 +135,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), cardType: input.card.type,
     });
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
-    const budget = this.compactionConfig?.enabled ? validateCompactionStaticCapacity(this.compactionConfig, systemPrompt, tools) : null;
+    const preparedCompaction = this.compactionConfig?.enabled ? prepareCompaction(this.compactionConfig, systemPrompt, tools) : null;
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
     const loadedRows = stabilized.messages;
     const loaded = conversationMessagesForModel(validateConversationRows(loadedRows));
@@ -161,8 +161,9 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, ...(recovery ? [recovery] : []), ...notifications]),
       tools,
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
-      modelParams: budget ? { maxTokens: budget.requestedCompletionTokens } : {},
-      capabilityRequest: { requiresTools: true, ...(budget ? { requestedCompletionTokens: budget.requestedCompletionTokens } : {}) },
+      modelParams: {},
+      ...(preparedCompaction ? { preparedCompaction } : {}),
+      capabilityRequest: { requiresTools: true },
       episodeContext: { cardId: input.card.id, caller: input.caller },
     };
   }

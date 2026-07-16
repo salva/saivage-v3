@@ -13,6 +13,7 @@ import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { providerExchangeAppLogEntry } from '../persistence/provider-exchange-log.js';
 import { appendAppLogEntry, type AppLogContext } from '../persistence/app-log.js';
 import { buildCandidateRequest } from './candidate-request.js';
+import type { PreparedCompaction } from '../runtime/actors/llm-invocation.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
@@ -29,7 +30,7 @@ interface CandidateRecoveryRecord {
   lastFailure?: unknown;
 }
 
-export interface InvocationRequest {
+interface InvocationRequestBase {
   inputId: string;
   role: OperationalAgentRole;
   sessionId: string;
@@ -39,11 +40,15 @@ export interface InvocationRequest {
   contextMessages?: AgentMessage[];
   tools: ToolDefinition[];
   terminalToolNames: string[];
-  modelParams: { temperature?: number; maxTokens?: number };
   capabilityRequest: CapabilityRequest;
   abortSignal?: AbortSignal;
   candidateChain?: Candidate[];
 }
+
+export type InvocationRequest = InvocationRequestBase & (
+  | { preparedCompaction: PreparedCompaction; modelParams: { temperature?: number; maxTokens?: never } }
+  | { preparedCompaction?: never; modelParams: { temperature?: number; maxTokens?: number } }
+);
 
 export interface InvocationServiceConfig {
   projectRoot: string;
@@ -90,14 +95,14 @@ export class InvocationService {
 
   async invokeCall(request: InvocationRequest, candidate: Candidate, builtRequests?: Map<string, BuiltCandidateRequest>): Promise<ProviderTurnCompletion> {
     const call = this.llmCallFn ?? this.llmGateway.createLlmCallFn();
+    const outputTokens = request.preparedCompaction?.requestedCompletionTokens ?? request.modelParams.maxTokens;
     const options = buildLlmOptions(
       request.role, request.tools, request.terminalToolNames,
-      { temperature: request.modelParams.temperature, max_tokens: request.modelParams.maxTokens },
+      { temperature: request.modelParams.temperature, max_tokens: outputTokens },
       request.abortSignal, request.inputId, undefined,
     );
-    const requestedCompletionTokens = request.capabilityRequest.requestedCompletionTokens;
-    if (requestedCompletionTokens !== undefined) {
-      if (request.modelParams.maxTokens !== requestedCompletionTokens || options.max_tokens !== requestedCompletionTokens) throw new Error('Compacted autonomous invocation has divergent requested completion token authorities.');
+    if (request.preparedCompaction) {
+      const requestedCompletionTokens = request.preparedCompaction.requestedCompletionTokens;
       const capabilities = this.registry.getEffectiveCapabilities(candidate);
       const key = candidateKey(candidate);
       const built = builtRequests?.get(key) ?? buildCandidateRequest({ candidate, capabilities, systemPrompt: request.systemPrompt, messages: genericContextMessagesForRequest(request), replay: activeConversationReplayForRequest(request), options });

@@ -21,7 +21,6 @@ export interface CapabilityRequest {
   requiresTools?: boolean;
   requiresExclusiveToolChoice?: boolean;
   streaming?: boolean;
-  requestedCompletionTokens?: number;
 }
 
 export type CapabilitySkipReason =

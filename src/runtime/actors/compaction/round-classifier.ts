@@ -4,50 +4,40 @@ import { isConversationBudgetVisible } from '../conversation-session.js';
 
 export type SubRoundKind = 'repair';
 
-export type PositionedMessage = {
+export type ClassifiedMessage = {
   message: AgentMessage;
   estimated_tokens: number;
-  start_token: number;
-  end_token: number;
 };
 
 export type ClassifiedSubRound = {
   id: string;
   kind: SubRoundKind;
   anchor_message_id: string;
-  rows: PositionedMessage[];
-  start_token: number;
-  end_token: number;
+  rows: ClassifiedMessage[];
 };
 
 export type ClassifiedRound = {
   round_id: string;
-  activation_marker: PositionedMessage;
-  rows: PositionedMessage[];
+  activation_marker: ClassifiedMessage;
+  rows: ClassifiedMessage[];
   sub_rounds: ClassifiedSubRound[];
-  start_token: number;
-  end_token: number;
+  estimated_tokens: number;
 };
 
 export type ClassifiedConversation = {
-  preamble: PositionedMessage[];
+  preamble: ClassifiedMessage[];
   rounds: ClassifiedRound[];
-  total_estimated_tokens: number;
 };
 
 export function classifyConversationRounds(messages: AgentMessage[]): ClassifiedConversation {
   const sourceRows = messages.filter((message) => message.kind !== 'context_compaction');
-  const positioned = positionMessages(sourceRows);
-  const byId = new Map(positioned.map((row) => [row.message.id, row]));
+  const classifiedRows = sourceRows.map((message) => ({ message, estimated_tokens: estimateMessageTokens(message) }));
+  const byId = new Map(classifiedRows.map((row) => [row.message.id, row]));
   const source = classifyConversationSourceRows(sourceRows);
   const preamble = source.preamble.map((row) => byId.get(row.id)!);
   const rounds = source.rounds.map((round) => buildRound(byId.get(round.activationMarker.id)!, round.rows.map((row) => byId.get(row.id)!)));
 
-  return {
-    preamble,
-    rounds,
-    total_estimated_tokens: positioned.length === 0 ? 0 : positioned[positioned.length - 1].end_token,
-  };
+  return { preamble, rounds };
 }
 
 export function estimateMessageTokens(message: AgentMessage): number {
@@ -56,17 +46,7 @@ export function estimateMessageTokens(message: AgentMessage): number {
   return Math.max(1, Math.ceil((message.content.length + structural.length) / 4));
 }
 
-export function positionMessages(messages: AgentMessage[]): PositionedMessage[] {
-  let cursor = 0;
-  return messages.map((message) => {
-    const estimated = estimateMessageTokens(message);
-    const positioned = { message, estimated_tokens: estimated, start_token: cursor, end_token: cursor + estimated };
-    cursor += estimated;
-    return positioned;
-  });
-}
-
-function buildRound(marker: PositionedMessage, rows: PositionedMessage[]): ClassifiedRound {
+function buildRound(marker: ClassifiedMessage, rows: ClassifiedMessage[]): ClassifiedRound {
   if (rows.length === 0) throw new Error('Cannot classify an empty activation round.');
   const roundId = marker.message.id;
   return {
@@ -74,12 +54,11 @@ function buildRound(marker: PositionedMessage, rows: PositionedMessage[]): Class
     activation_marker: marker,
     rows,
     sub_rounds: buildSubRounds(roundId, rows),
-    start_token: rows[0].start_token,
-    end_token: rows[rows.length - 1].end_token,
+    estimated_tokens: rows.reduce((sum, row) => sum + row.estimated_tokens, 0),
   };
 }
 
-function buildSubRounds(roundId: string, rows: PositionedMessage[]): ClassifiedSubRound[] {
+function buildSubRounds(roundId: string, rows: ClassifiedMessage[]): ClassifiedSubRound[] {
   const byId = new Map(rows.map((row) => [row.message.id, row]));
   return classifySourceSegments(rows.map((row) => row.message)).filter((segment) => segment.kind === 'repair').map((segment) => {
     const subRows = segment.rows.map((row) => byId.get(row.id)!);
@@ -89,8 +68,6 @@ function buildSubRounds(roundId: string, rows: PositionedMessage[]): ClassifiedS
       kind: 'repair',
       anchor_message_id: anchor.message.id,
       rows: subRows,
-      start_token: subRows[0].start_token,
-      end_token: subRows[subRows.length - 1].end_token,
     };
   });
 }

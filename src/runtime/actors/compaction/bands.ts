@@ -16,7 +16,7 @@ export function computeSlidingCompactionBands(rounds: readonly ClassifiedRound[]
   let used = 0;
   while (cursor >= 0) {
     const round = completed[cursor]!;
-    const size = roundTokens(round);
+    const size = round.estimated_tokens;
     if (used + size <= config.tail_budget_tokens) { tailNewestFirst.push(round); used += size; cursor--; continue; }
     if (config.snap === 'keep_straddler_verbatim') { tailNewestFirst.push(round); cursor--; }
     break;
@@ -26,7 +26,7 @@ export function computeSlidingCompactionBands(rounds: readonly ClassifiedRound[]
   used = 0;
   while (cursor >= 0) {
     const round = completed[cursor]!;
-    const size = roundTokens(round);
+    const size = round.estimated_tokens;
     if (used + size <= config.middle_budget_tokens) { middleNewestFirst.push(round); used += size; cursor--; continue; }
     if (config.snap === 'keep_straddler_verbatim') { middleNewestFirst.push(round); cursor--; }
     break;
@@ -44,5 +44,3 @@ function assertSuffix(normal: readonly ClassifiedRound[], escalated: readonly Cl
   const actual = escalated.map((round) => round.round_id);
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Impossible compaction partition: escalated ${label} is not a suffix subset of normal ${label}.`);
 }
-
-function roundTokens(round: ClassifiedRound): number { return round.rows.reduce((sum, row) => sum + row.estimated_tokens, 0); }

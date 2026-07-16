@@ -38,7 +38,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   protected createMainLlm(agentId: string): LLMActor {
     const existing = this.activeLlmActors.get(agentId);
     if (existing) return existing;
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, conversations: this.conversations, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, conversationPublisher: this.conversationPublisher, runtimeProjectionChanged: this.runtimeProjectionChanged });
+    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, conversations: this.conversations, gate: this.gate, compactor: this.compactor, summarizerProvider: this.summarizerProvider, conversationPublisher: this.conversationPublisher, runtimeProjectionChanged: this.runtimeProjectionChanged });
     llm.start();
     this.activeLlmActors.set(agentId, llm);
     this.runtimeProjectionChanged();

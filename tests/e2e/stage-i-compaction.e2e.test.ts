@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
-import { deriveStage1CompactionBudget, shouldCompact, validateCompactionStaticCapacity, type CompactionConfig } from '../../src/runtime/actors/compaction/compactor.js';
+import { prepareCompaction, shouldCompact, type CompactionConfig } from '../../src/runtime/actors/compaction/compactor.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands } from '../../src/runtime/actors/compaction/bands.js';
 import { estimateMessageTokens, type ClassifiedRound } from '../../src/runtime/actors/compaction/round-classifier.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage } from '../../src/schemas/index.js';
@@ -18,7 +18,7 @@ const config: CompactionConfig = { enabled: true, input_budget_tokens: 1000, tri
 describe('Stage-I compaction contracts', () => {
   it('requires route-independent budget and derives one completion authority', () => {
     expect(saivageConfigSchema.safeParse({ compaction: { ...config, input_budget_tokens: undefined } }).success).toBe(false);
-    const budget = deriveStage1CompactionBudget(config);
+    const budget = prepareCompaction(config, 'system', []);
     expect(budget).toMatchObject({ inputBudgetTokens: 1000, requestedCompletionTokens: 200, normalTailBudget: 300, normalMiddleBudget: 200, escalatedTailBudget: 250, escalatedMiddleBudget: 150 });
   });
 
@@ -32,16 +32,17 @@ describe('Stage-I compaction contracts', () => {
   });
 
   it('validates exact static capacity independently of any route', () => {
-    const budget = validateCompactionStaticCapacity(config, 'system', []);
+    const budget = prepareCompaction(config, 'system', []);
     expect(budget.requestedCompletionTokens).toBe(200);
     expect(budget.triggerMessageThreshold).toBeGreaterThan(0);
-    expect(() => validateCompactionStaticCapacity({ ...config, input_budget_tokens: 10 }, 'x'.repeat(100), [])).toThrow(/does not fit the compaction budget/);
+    expect(() => prepareCompaction({ ...config, input_budget_tokens: 10 }, 'x'.repeat(100), [])).toThrow(/does not fit the compaction budget/);
   });
 
   it('estimates the already-projected invocation sequence without changing estimator input', () => {
     const contextMessages = [agentMessageSchema.parse({ id: 'visible', session_id: 'planner:project', role: 'user', kind: 'text', content: 'projected context', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' })];
-    const invocation = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner' as const, sessionId: 'planner:project', systemPrompt: 'system', genericContextMessages: contextMessages, contextMessages, activeConversationReplay: { sessionId: 'planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 80 }, capabilityRequest: {}, episodeContext: {} };
-    expect(shouldCompact(invocation, config).estimatedMessageTokens).toBe(contextMessages.reduce((sum, row) => sum + estimateMessageTokens(row), 0));
+    const preparedCompaction = prepareCompaction(config, 'system', []);
+    const invocation: LlmInvocationInput = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner' as const, sessionId: 'planner:project', systemPrompt: 'system', genericContextMessages: contextMessages, contextMessages, activeConversationReplay: { sessionId: 'planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
+    expect(shouldCompact(invocation)).toBe(contextMessages.reduce((sum, row) => sum + estimateMessageTokens(row), 0) >= preparedCompaction.triggerMessageThreshold);
     expect(invocation.contextMessages).toBe(contextMessages);
   });
 
@@ -71,12 +72,12 @@ describe('Stage-I compaction contracts', () => {
       for (let ordinal = 1; ordinal <= 4; ordinal++) appendRawRound(root, ordinal);
       const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }) };
       const integrationConfig: CompactionConfig = { ...config, input_budget_tokens: 400, snap };
-      const invocation = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner' as const, sessionId: 'planner:project', systemPrompt: 'system', genericContextMessages: [], contextMessages: [], activeConversationReplay: { sessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 80 }, capabilityRequest: { requestedCompletionTokens: 80 }, episodeContext: {} };
-      await compact({ conversations: { projectRoot: root }, input: invocation, config: integrationConfig, summarizerProvider: provider, signal: new AbortController().signal });
+      const invocation = invocationFor('planner:project', [], integrationConfig);
+      await compact({ conversations: { projectRoot: root }, input: invocation, summarizerProvider: provider, signal: new AbortController().signal });
       const first = readConversation(root, 'planner:project');
       const firstCutoff = first.latestCompaction!.cutoffMessageId;
       for (let ordinal = 5; ordinal <= 7; ordinal++) appendRawRound(root, ordinal);
-      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000002', genericContextMessages: conversationMessagesForModel(first), contextMessages: conversationMessagesForModel(first) }, config: integrationConfig, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000002', genericContextMessages: conversationMessagesForModel(first), contextMessages: conversationMessagesForModel(first) }, summarizerProvider: provider, signal: new AbortController().signal });
       const second = readConversation(root, 'planner:project');
       const metadata = second.physicalRows.filter((row) => row.kind === 'context_compaction');
       expect(metadata).toHaveLength(2);
@@ -89,7 +90,7 @@ describe('Stage-I compaction contracts', () => {
       expect(projected.find((row) => row.id.endsWith(':rendered'))!.content).toBe(second.latestCompaction!.renderedContext);
       expect(projected.some((row) => row.kind === 'context_compaction')).toBe(false);
       for (let ordinal = 8; ordinal <= 10; ordinal++) appendRawRound(root, ordinal);
-      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000003', genericContextMessages: conversationMessagesForModel(second), contextMessages: conversationMessagesForModel(second) }, config: integrationConfig, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000003', genericContextMessages: conversationMessagesForModel(second), contextMessages: conversationMessagesForModel(second) }, summarizerProvider: provider, signal: new AbortController().signal });
       const third = readConversation(root, 'planner:project');
       const allMetadata = third.physicalRows.filter((row) => row.kind === 'context_compaction');
       expect(allMetadata).toHaveLength(3);
@@ -115,9 +116,9 @@ describe('Stage-I compaction contracts', () => {
       appendConversationBatch(root, rows);
       const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'small prefix summary' }, provider_exchanges: [] }) };
       const hardConfig: CompactionConfig = { ...config, input_budget_tokens: 400 };
-      const invocation = { inputId: source_input_id, agentId: session_id, role: 'planner' as const, sessionId: session_id, systemPrompt: 'system', genericContextMessages: rows, contextMessages: rows, activeConversationReplay: { sessionId: session_id, messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 80 }, capabilityRequest: { requestedCompletionTokens: 80 }, episodeContext: {} };
+      const invocation = invocationFor(session_id, rows, hardConfig);
 
-      const result = await compact({ conversations: { projectRoot: root }, input: invocation, config: hardConfig, summarizerProvider: provider, signal: new AbortController().signal });
+      const result = await compact({ conversations: { projectRoot: root }, input: invocation, summarizerProvider: provider, signal: new AbortController().signal });
       const payload = contextCompactionContentSchema.parse(JSON.parse(result.compactionMessage.content));
       expect(payload.applied_policy.mode).toBe('hard_limit_fallback');
       expect(payload.summaries.at(-1)?.rounds[0]?.complete).toBe(false);
@@ -129,7 +130,7 @@ describe('Stage-I compaction contracts', () => {
       expect(first.latestCompaction!.cutoffMessageId).not.toBe('hard-message-9');
       appendConversationBatch(root, [{ id: 'hard-message-10', session_id, role: 'user', kind: 'text', content: `10:${'x'.repeat(320)}`, round_id: 'r-user-99999999999999999999999999999999', message_index: 11, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' }]);
       const current = readConversation(root, session_id);
-      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000100', genericContextMessages: conversationMessagesForModel(current), contextMessages: conversationMessagesForModel(current) }, config: hardConfig, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000100', genericContextMessages: conversationMessagesForModel(current), contextMessages: conversationMessagesForModel(current) }, summarizerProvider: provider, signal: new AbortController().signal });
       const second = readConversation(root, session_id).latestCompaction!;
       expect(second.cutoffSourceIndex).toBeGreaterThan(firstCutoff);
       expect(second.groups.filter((group) => !group.rounds[0]!.complete)).toHaveLength(second.groups.at(-1)!.rounds[0]!.complete ? 0 : 1);
@@ -143,8 +144,8 @@ describe('Stage-I compaction contracts', () => {
       for (let ordinal = 1; ordinal <= 4; ordinal++) appendRawRound(ownerRoot, ordinal, sessionId);
       appendRawRound(decoyRoot, 1, sessionId);
       const changes = { conversationChanged: jest.fn(), agentsChanged: jest.fn(), runtimeChanged: jest.fn(), cardStateChanged: jest.fn(), subscribe: jest.fn(() => ({ unsubscribe() {} })) };
-      const invocation = invocationFor(sessionId, []);
-      await compact({ conversations: { projectRoot: ownerRoot, changes }, input: invocation, config: { ...config, input_budget_tokens: 400 }, summarizerProvider: summaryProvider(), signal: new AbortController().signal });
+      const invocation = invocationFor(sessionId, [], { ...config, input_budget_tokens: 400 });
+      await compact({ conversations: { projectRoot: ownerRoot, changes }, input: invocation, summarizerProvider: summaryProvider(), signal: new AbortController().signal });
       const owner = readConversation(ownerRoot, sessionId);
       expect(owner.compactions).toHaveLength(1);
       expect(owner.latestCompaction!.metadataRow.session_id).toBe(sessionId);
@@ -165,14 +166,14 @@ describe('Stage-I compaction contracts', () => {
       let ordinal = 0;
       const provider = { completeTurn: async (input: LlmInvocationInput) => { inputs.push(input); return { result: { kind: 'message' as const, content: `summary-${++ordinal}` }, provider_exchanges: [] }; } };
       const integrationConfig = { ...config, input_budget_tokens: 400 };
-      await compact({ conversations: { projectRoot: root }, input: invocationFor('planner:project', []), config: integrationConfig, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ conversations: { projectRoot: root }, input: invocationFor('planner:project', [], integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
       const first = readConversation(root, 'planner:project');
       const priorMerged = first.latestCompaction!.groups.find((group) => group.payload.kind === 'merged');
       expect(priorMerged).toBeDefined();
       inputs.length = 0;
       for (let round = 8; round <= 10; round++) appendRawRound(root, round);
       const current = readConversation(root, 'planner:project');
-      await compact({ conversations: { projectRoot: root }, input: invocationFor('planner:project', conversationMessagesForModel(current)), config: integrationConfig, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ conversations: { projectRoot: root }, input: invocationFor('planner:project', conversationMessagesForModel(current), integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
       const mergeInputs = inputs.filter((input) => input.sessionId === 'summary:merge').flatMap((input) => input.contextMessages as AgentMessage[]);
       expect(mergeInputs.some((row) => row.content.includes(priorMerged!.payload.summary_text))).toBe(true);
       expect(priorMerged!.payload.content_hash).toBe(hashConversationRows(priorMerged!.sourceRows));
@@ -195,7 +196,7 @@ describe('Stage-I compaction contracts', () => {
         { id: 'protected-tail', session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: 'z'.repeat(600), round_id: 'r-user-99999999999999999999999999999999', message_index: 6, block_index: 0, timestamp },
       ];
       appendConversationBatch(root, rows);
-      const result = await compact({ conversations: { projectRoot: root }, input: invocationFor(sessionId, rows), config: { ...config, input_budget_tokens: 500 }, summarizerProvider: summaryProvider(), signal: new AbortController().signal });
+      const result = await compact({ conversations: { projectRoot: root }, input: invocationFor(sessionId, rows, { ...config, input_budget_tokens: 500 }), summarizerProvider: summaryProvider(), signal: new AbortController().signal });
       const validated = readConversation(root, sessionId).latestCompaction!;
       const cutoff = validated.cutoffMessageId;
       expect(cutoff).not.toBe(`${inputId}:tool-call:call-1`);
@@ -207,8 +208,8 @@ describe('Stage-I compaction contracts', () => {
 
 function round(id: string, tokens: number): ClassifiedRound {
   const message = { id: `${id}-m`, session_id: 'planner:project', role: 'user' as const, kind: 'text' as const, content: 'x', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
-  const positioned = { message, estimated_tokens: tokens, start_token: 0, end_token: tokens };
-  return { round_id: id, activation_marker: positioned, rows: [positioned], sub_rounds: [], start_token: 0, end_token: tokens };
+  const positioned = { message, estimated_tokens: tokens };
+  return { round_id: id, activation_marker: positioned, rows: [positioned], sub_rounds: [], estimated_tokens: tokens };
 }
 
 function appendRawRound(root: string, ordinal: number, session_id = 'planner:project'): void {
@@ -216,9 +217,9 @@ function appendRawRound(root: string, ordinal: number, session_id = 'planner:pro
   appendConversationBatch(root, [{ id: `activation-${ordinal}`, session_id, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}` }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id, role: 'user', kind: 'text', content: `${ordinal}:${'x'.repeat(400)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]);
 }
 
-function invocationFor(sessionId: string, contextMessages: AgentMessage[]) {
+function invocationFor(sessionId: string, contextMessages: AgentMessage[], compactionConfig: CompactionConfig): LlmInvocationInput & { preparedCompaction: NonNullable<LlmInvocationInput['preparedCompaction']> } {
   const role = sessionId.split(':')[0] as 'planner' | 'executor' | 'reviewer';
-  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, role, sessionId, systemPrompt: 'system', genericContextMessages: contextMessages, contextMessages, activeConversationReplay: { sessionId, messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 80 }, capabilityRequest: { requestedCompletionTokens: 80 }, episodeContext: {} };
+  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, role, sessionId, systemPrompt: 'system', genericContextMessages: contextMessages, contextMessages, activeConversationReplay: { sessionId, messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {}, episodeContext: {} };
 }
 
 function summaryProvider() {

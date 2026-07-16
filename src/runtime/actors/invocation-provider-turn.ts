@@ -15,7 +15,7 @@ export class InvocationProviderTurnPort implements ProviderTurnPort {
   constructor(private readonly invocationService: InvocationTurnService) {}
 
   async completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
-    return this.invocationService.invokeWithRecovery({
+    const common = {
       inputId: input.inputId,
       role: input.role,
       sessionId: input.sessionId,
@@ -24,10 +24,12 @@ export class InvocationProviderTurnPort implements ProviderTurnPort {
       activeConversationReplay: activeConversationReplayForInvocation(input),
       tools: input.tools,
       terminalToolNames: input.terminalToolNames,
-      modelParams: input.modelParams,
       capabilityRequest: input.capabilityRequest,
       abortSignal: signal,
-    });
+    };
+    return this.invocationService.invokeWithRecovery(input.preparedCompaction
+      ? { ...common, modelParams: input.modelParams, preparedCompaction: input.preparedCompaction }
+      : { ...common, modelParams: input.modelParams });
   }
 }
 

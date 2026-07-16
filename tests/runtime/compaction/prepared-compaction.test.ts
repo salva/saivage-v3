@@ -1,0 +1,72 @@
+import { describe, expect, it } from '@jest/globals';
+
+import { prepareCompaction, shouldCompact, type CompactionConfig } from '../../../src/runtime/actors/compaction/compactor.js';
+import { classifyConversationRounds, estimateMessageTokens } from '../../../src/runtime/actors/compaction/round-classifier.js';
+import { computeSlidingCompactionBands } from '../../../src/runtime/actors/compaction/bands.js';
+import { agentMessageSchema, type AgentMessage } from '../../../src/schemas/index.js';
+import type { LlmInvocationInput, PreparedCompaction } from '../../../src/runtime/actors/llm-invocation.js';
+import { summarizeMerge, summarizeRound } from '../../../src/runtime/actors/compaction/summarizer.js';
+
+const config: CompactionConfig = { enabled: true, input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler', summarizer_model: 'test/_/summary' };
+
+describe('prepared compaction estimates', () => {
+  it('derives every activation policy quantity once from the exact prompt and tools', () => {
+    const prepared = prepareCompaction(config, 'system', []);
+    expect(prepared).toMatchObject({ inputBudgetTokens: 1000, requestedCompletionTokens: 200, triggerLineTokens: 800, normalTailBudget: 300, normalMiddleBudget: 200, escalatedTailBudget: 250, escalatedMiddleBudget: 150, summarizerModel: 'test/_/summary' });
+    expect(prepared.triggerMessageThreshold).toBe(prepared.triggerLineTokens - prepared.estimatedStaticTokens);
+    expect(prepared.canonicalMessageHardCeiling).toBe(prepared.inputBudgetTokens - prepared.estimatedStaticTokens - prepared.requestedCompletionTokens);
+  });
+
+  it('triggers exactly at the prepared boundary while hidden rows remain zero and Unicode keeps UTF-16 sizing', () => {
+    const hidden = message('hidden', 'system', 'activity', 'x'.repeat(1000));
+    const unicode = message('unicode', 'user', 'text', '😀😀');
+    expect(estimateMessageTokens(hidden)).toBe(0);
+    expect(estimateMessageTokens(unicode)).toBe(Math.max(1, Math.ceil((unicode.content.length + ['user', 'text', unicode.round_id].join(' ').length) / 4)));
+    const visibleTokens = estimateMessageTokens(unicode);
+    const base = prepareCompaction(config, 'system', []);
+    expect(shouldCompact(invocation([hidden, unicode], { ...base, triggerMessageThreshold: visibleTokens }))).toBe(true);
+    expect(shouldCompact(invocation([hidden, unicode], { ...base, triggerMessageThreshold: visibleTokens + 1 }))).toBe(false);
+  });
+
+  it('classifies each source row with one estimate and stores only the consumed round aggregate', () => {
+    const marker = message('marker', 'system', 'activity', JSON.stringify({ event: 'activation_open' }));
+    const first = message('first', 'user', 'text', 'first');
+    const second = message('second', 'assistant', 'text', 'second');
+    const classified = classifyConversationRounds([marker, first, second]);
+    expect(classified).not.toHaveProperty('total_estimated_tokens');
+    expect(classified.rounds[0]).not.toHaveProperty('start_token');
+    expect(classified.rounds[0]).not.toHaveProperty('end_token');
+    expect(classified.rounds[0]!.rows.every((row) => !('start_token' in row) && !('end_token' in row))).toBe(true);
+    expect(classified.rounds[0]!.estimated_tokens).toBe(classified.rounds[0]!.rows.reduce((sum, row) => sum + row.estimated_tokens, 0));
+  });
+
+  it('partitions from the retained round aggregate without changing boundaries', () => {
+    const rounds = [10, 10, 10, 10, 10].map((estimated_tokens, index) => ({ round_id: `r${index}`, activation_marker: { message: message(`m${index}`, 'system', 'activity', ''), estimated_tokens: 0 }, rows: [], sub_rounds: [], estimated_tokens }));
+    const bands = computeSlidingCompactionBands(rounds, { tail_budget_tokens: 20, middle_budget_tokens: 10, snap: 'compact_straddler' });
+    expect(bands.merge_rounds.map((round) => round.round_id)).toEqual(['r0']);
+    expect(bands.summary_rounds.map((round) => round.round_id)).toEqual(['r1']);
+    expect(bands.tail_rounds.map((round) => round.round_id)).toEqual(['r2', 'r3']);
+    expect(bands.open_round?.round_id).toBe('r4');
+  });
+
+  it('keeps round and merge summarizers on the ordinary 2000-token contract', async () => {
+    const inputs: LlmInvocationInput[] = [];
+    const summarizerProvider = { completeTurn: async (input: LlmInvocationInput) => { inputs.push(input); return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }; } };
+    const signal = new AbortController().signal;
+    await summarizeRound({ round_id: 'round', rows: [message('source', 'user', 'text', 'source')], summarizerProvider, modelSpec: 'test/_/summary', signal });
+    await summarizeMerge({ entries: [{ round_id: 'round', summary_text: 'summary' }], summarizerProvider, modelSpec: 'test/_/summary', signal });
+    expect(inputs).toHaveLength(2);
+    for (const input of inputs) {
+      expect(input.preparedCompaction).toBeUndefined();
+      expect(input.modelParams.maxTokens).toBe(2000);
+    }
+  });
+});
+
+function invocation(contextMessages: AgentMessage[], preparedCompaction: PreparedCompaction): LlmInvocationInput {
+  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', contextMessages, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
+}
+
+function message(id: string, role: AgentMessage['role'], kind: AgentMessage['kind'], content: string): AgentMessage {
+  return agentMessageSchema.parse({ id, session_id: 'planner:project', role, kind, content, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' });
+}

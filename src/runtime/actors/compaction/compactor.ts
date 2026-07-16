@@ -5,10 +5,10 @@ import { hashConversationRows, validateConversationRows, type ValidatedContextCo
 import { classifySourceSegments } from '../../../contracts/conversation-source-classification.js';
 import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { ToolDefinition } from '../../../agents/llm-contracts.js';
-import type { LlmInvocationInput } from '../llm-invocation.js';
+import type { LlmInvocationInput, PreparedCompaction } from '../llm-invocation.js';
 import { conversationMessagesForModel } from '../conversation-session.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type SlidingBandPartitions, type SnapPolicy } from './bands.js';
-import { classifyConversationRounds, estimateMessageTokens, type ClassifiedRound } from './round-classifier.js';
+import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConversation, type ClassifiedRound } from './round-classifier.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors } from './result-dropping.js';
 import { summarizeMerge, summarizeRound, type MergeSummaryInput, type SummarizerProviderPort } from './summarizer.js';
 
@@ -18,13 +18,7 @@ export type CompactionConfig = {
   snap: SnapPolicy; summarizer_model?: string;
 };
 
-export type CompactionBudget = {
-  inputBudgetTokens: number; requestedCompletionTokens: number; triggerLineTokens: number; estimatedStaticTokens: number;
-  triggerMessageThreshold: number; canonicalMessageHardCeiling: number;
-  normalTailBudget: number; normalMiddleBudget: number; escalatedTailBudget: number; escalatedMiddleBudget: number;
-};
-
-export function deriveStage1CompactionBudget(config: CompactionConfig): Omit<CompactionBudget, 'estimatedStaticTokens' | 'triggerMessageThreshold' | 'canonicalMessageHardCeiling'> {
+export function prepareCompaction(config: CompactionConfig, systemPrompt: string, tools: readonly ToolDefinition[]): PreparedCompaction {
   if (!config.enabled) throw new Error('Compaction budget requested while compaction is disabled.');
   const B = config.input_budget_tokens;
   if (!Number.isInteger(B) || (B ?? 0) <= 0) throw new Error('compaction.input_budget_tokens must be a positive integer when compaction is enabled.');
@@ -44,48 +38,50 @@ export function deriveStage1CompactionBudget(config: CompactionConfig): Omit<Com
   const normalMiddleBudget = Math.floor(B! * normalMiddleWidth);
   const escalatedTailBudget = Math.floor(B! * escalatedTailWidth);
   const escalatedMiddleBudget = Math.floor(B! * escalatedMiddleWidth);
-  if (escalatedTailBudget > normalTailBudget || escalatedMiddleBudget > normalMiddleBudget) throw new Error('Escalated compaction token budgets must not exceed normal token budgets.');
-  return { inputBudgetTokens: B!, requestedCompletionTokens, triggerLineTokens: Math.floor(B! * config.trigger_fraction), normalTailBudget, normalMiddleBudget, escalatedTailBudget, escalatedMiddleBudget };
+  const triggerLineTokens = Math.floor(B! * config.trigger_fraction);
+  const estimatedStaticTokens = estimateCanonicalStaticTokens(systemPrompt, tools);
+  const triggerMessageThreshold = triggerLineTokens - estimatedStaticTokens;
+  const canonicalMessageHardCeiling = B! - estimatedStaticTokens - requestedCompletionTokens;
+  if (!Number.isFinite(estimatedStaticTokens) || estimatedStaticTokens < 0 || triggerMessageThreshold <= 0 || canonicalMessageHardCeiling <= 0 || triggerMessageThreshold > canonicalMessageHardCeiling) {
+    throw new Error(`Autonomous prompt/tool surface does not fit the compaction budget (input_budget_tokens=${B}, estimated_static_tokens=${estimatedStaticTokens}, requested_completion_tokens=${requestedCompletionTokens}, trigger_message_threshold=${triggerMessageThreshold}, canonical_message_hard_ceiling=${canonicalMessageHardCeiling}). Raise compaction.input_budget_tokens, reduce the prompt/tool surface, or lower completion_reserve_fraction.`);
+  }
+  if (!config.summarizer_model?.trim()) throw new Error('Compaction is enabled but compaction.summarizer_model is unset.');
+  return {
+    inputBudgetTokens: B!, requestedCompletionTokens, triggerLineTokens, estimatedStaticTokens, triggerMessageThreshold, canonicalMessageHardCeiling,
+    normalTailBudget, normalMiddleBudget, escalatedTailBudget, escalatedMiddleBudget,
+    triggerFraction: config.trigger_fraction, completionReserveFraction: config.completion_reserve_fraction,
+    normalMergeLineFraction: config.merge_line_fraction, normalSummaryLineFraction: config.summary_line_fraction,
+    escalatedMergeLineFraction: config.escalate_merge_line_fraction, escalatedSummaryLineFraction: config.escalate_summary_line_fraction,
+    snap: config.snap, summarizerModel: config.summarizer_model,
+  };
 }
 
 export function estimateCanonicalStaticTokens(systemPrompt: string, tools: readonly ToolDefinition[]): number {
   return estimateTextTokens(systemPrompt) + estimateTextTokens(canonicalJson(tools));
 }
 
-export function validateCompactionStaticCapacity(config: CompactionConfig, systemPrompt: string, tools: readonly ToolDefinition[]): CompactionBudget {
-  const stage1 = deriveStage1CompactionBudget(config);
-  const S = estimateCanonicalStaticTokens(systemPrompt, tools);
-  const triggerMessageThreshold = stage1.triggerLineTokens - S;
-  const canonicalMessageHardCeiling = stage1.inputBudgetTokens - S - stage1.requestedCompletionTokens;
-  if (!Number.isFinite(S) || S < 0 || triggerMessageThreshold <= 0 || canonicalMessageHardCeiling <= 0 || triggerMessageThreshold > canonicalMessageHardCeiling) {
-    throw new Error(`Autonomous prompt/tool surface does not fit the compaction budget (input_budget_tokens=${stage1.inputBudgetTokens}, estimated_static_tokens=${S}, requested_completion_tokens=${stage1.requestedCompletionTokens}, trigger_message_threshold=${triggerMessageThreshold}, canonical_message_hard_ceiling=${canonicalMessageHardCeiling}). Raise compaction.input_budget_tokens, reduce the prompt/tool surface, or lower completion_reserve_fraction.`);
-  }
-  return { ...stage1, estimatedStaticTokens: S, triggerMessageThreshold, canonicalMessageHardCeiling };
-}
-
-export type ShouldCompactResult = { shouldCompact: boolean; estimatedMessageTokens: number; triggerMessageThreshold: number };
-export function shouldCompact(input: LlmInvocationInput, config: CompactionConfig): ShouldCompactResult {
-  if (!config.enabled) return { shouldCompact: false, estimatedMessageTokens: 0, triggerMessageThreshold: Number.POSITIVE_INFINITY };
-  const budget = validateCompactionStaticCapacity(config, input.systemPrompt, input.tools);
+export function shouldCompact(input: LlmInvocationInput): boolean {
+  const budget = input.preparedCompaction;
+  if (!budget) return false;
   const estimatedMessageTokens = (input.contextMessages as AgentMessage[]).reduce((sum, row) => sum + estimateMessageTokens(row), 0);
-  return { shouldCompact: estimatedMessageTokens >= budget.triggerMessageThreshold, estimatedMessageTokens, triggerMessageThreshold: budget.triggerMessageThreshold };
+  return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
-type CompactArgs = { conversations: ConversationFileContext; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: SummarizerProviderPort; signal: AbortSignal };
+type CompactArgs = { conversations: ConversationFileContext; input: LlmInvocationInput & { preparedCompaction: PreparedCompaction }; summarizerProvider: SummarizerProviderPort; signal: AbortSignal };
 type Candidate = { payload: ContextCompactionContent; conversation: ValidatedConversation; compaction: ValidatedContextCompaction; message: AgentMessage };
 type CandidateFactory = (payload: ContextCompactionContent) => Candidate;
+type CandidateFit = { candidate: Candidate; fits: boolean };
 
 export async function compact(args: CompactArgs): Promise<{ rows: AgentMessage[]; compactionMessage: AgentMessage }> {
-  if (!args.config.summarizer_model?.trim()) throw new Error('Compaction is enabled but compaction.summarizer_model is unset.');
   const projectRoot = args.conversations.projectRoot;
   const sessionId = args.input.sessionId;
-  const budget = validateCompactionStaticCapacity(args.config, args.input.systemPrompt, args.input.tools);
+  const budget = args.input.preparedCompaction;
   const conversation = readConversation(projectRoot, sessionId);
   const sourceRows = conversation.sourceRows;
   const latest = conversation.latestCompaction;
   const classified = classifyConversationRounds(sourceRows);
-  const normal = computeSlidingCompactionBands(classified.rounds, { tail_budget_tokens: budget.normalTailBudget, middle_budget_tokens: budget.normalMiddleBudget, snap: args.config.snap });
-  const escalated = computeSlidingCompactionBands(classified.rounds, { tail_budget_tokens: budget.escalatedTailBudget, middle_budget_tokens: budget.escalatedMiddleBudget, snap: args.config.snap });
+  const normal = computeSlidingCompactionBands(classified.rounds, { tail_budget_tokens: budget.normalTailBudget, middle_budget_tokens: budget.normalMiddleBudget, snap: budget.snap });
+  const escalated = computeSlidingCompactionBands(classified.rounds, { tail_budget_tokens: budget.escalatedTailBudget, middle_budget_tokens: budget.escalatedMiddleBudget, snap: budget.snap });
   assertEscalatedSuffixSubsets(normal, escalated);
 
   const metadataIdentity = { id: `${sessionId}:compaction:${randomUUID()}`, session_id: sessionId, round_id: generateRoundId('compacted'), timestamp: new Date().toISOString() };
@@ -97,18 +93,38 @@ export async function compact(args: CompactArgs): Promise<{ rows: AgentMessage[]
     if (!compaction || compaction.metadataRow.id !== message.id) throw new Error('Prospective compaction validation did not derive the candidate metadata row.');
     return { payload: parsed, conversation: prospective, compaction, message };
   };
+  const measuredCandidates = new Map<string, CandidateFit>();
+  const fitCandidate = (candidate: Candidate): CandidateFit => {
+    const key = canonicalJson(candidate.payload);
+    const measured = measuredCandidates.get(key);
+    if (measured) return measured;
+    const fit = { candidate, fits: effectiveCompactionTokens(candidate.compaction, classified) <= budget.triggerMessageThreshold };
+    measuredCandidates.set(key, fit);
+    return fit;
+  };
 
-  let candidate = await buildCandidate(args, sourceRows, classified.preamble.map((row) => row.message), normal, budget, 'normal', latest, candidateFor);
-  if (effectiveCompactionTokens(candidate.compaction, sourceRows) > budget.triggerMessageThreshold) candidate = await buildCandidate(args, sourceRows, classified.preamble.map((row) => row.message), escalated, budget, 'escalated', latest, candidateFor);
-  if (effectiveCompactionTokens(candidate.compaction, sourceRows) > budget.triggerMessageThreshold) candidate = await applyHardFallback(args, sourceRows, candidate, budget, latest, candidateFor);
-  if (effectiveCompactionTokens(candidate.compaction, sourceRows) > budget.triggerMessageThreshold) throw new Error('Compaction could not fit the residual context below the trigger threshold without splitting an indivisible provider bundle. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
+  const normalFit = await buildCandidate(args, sourceRows, classified, normal, budget, 'normal', latest, candidateFor, fitCandidate);
+  let candidate: Candidate;
+  if (normalFit.fits) {
+    candidate = normalFit.candidate;
+  } else {
+    const escalatedFit = await buildCandidate(args, sourceRows, classified, escalated, budget, 'escalated', latest, candidateFor, fitCandidate);
+    if (escalatedFit.fits) {
+      candidate = escalatedFit.candidate;
+    } else {
+      const fallback = await applyHardFallback(args, sourceRows, classified, escalatedFit.candidate, budget, latest, candidateFor, fitCandidate);
+      if (!fallback) throw new Error('Compaction could not fit the residual context below the trigger threshold without splitting an indivisible provider bundle. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
+      candidate = fallback;
+    }
+  }
   args.signal.throwIfAborted();
   assertMonotonicCutoff(latest, candidate.compaction);
   appendConversationBatch(projectRoot, [candidate.message], args.conversations.changes);
   return { rows: conversationMessagesForModel(candidate.conversation), compactionMessage: candidate.message };
 }
 
-async function buildCandidate(args: CompactArgs, sourceRows: AgentMessage[], preamble: AgentMessage[], partition: SlidingBandPartitions, budget: CompactionBudget, band: 'normal' | 'escalated', latest: ValidatedContextCompaction | null, candidateFor: CandidateFactory): Promise<Candidate> {
+async function buildCandidate(args: CompactArgs, sourceRows: AgentMessage[], classified: ClassifiedConversation, partition: SlidingBandPartitions, budget: PreparedCompaction, band: 'normal' | 'escalated', latest: ValidatedContextCompaction | null, candidateFor: CandidateFactory, fitCandidate: (candidate: Candidate) => CandidateFit): Promise<CandidateFit> {
+  const preamble = classified.preamble.map((row) => row.message);
   const mergedRounds = partition.merge_rounds;
   const individual = await Promise.all(partition.summary_rounds.map((round) => summarizeRawRound(args, round)));
   let mergedHistory: ContextCompactionContent['summaries'][number] | null = null;
@@ -130,10 +146,10 @@ async function buildCandidate(args: CompactArgs, sourceRows: AgentMessage[], pre
   }
   const coveredRounds = [...mergedRounds, ...partition.summary_rounds];
   if (coveredRounds.length === 0) {
-    if (latest) return candidateFor(latest.payload);
-    return fallbackFromScratch(args, sourceRows, preamble, budget, band, candidateFor);
+    if (latest) return fitCandidate(candidateFor(latest.payload));
+    return fallbackFromScratch(args, sourceRows, classified, preamble, budget, band, candidateFor, fitCandidate);
   }
-  return candidateFor(payloadFor(args, preamble, mergedHistory, individual, budget, band === 'normal' ? 'normal' : 'escalated', band));
+  return fitCandidate(candidateFor(payloadFor(preamble, mergedHistory, individual, budget, band === 'normal' ? 'normal' : 'escalated', band)));
 }
 
 async function mergeSummaryGroups(args: CompactArgs, inputs: MergeSummaryInput[]): Promise<string> {
@@ -143,39 +159,39 @@ async function mergeSummaryGroups(args: CompactArgs, inputs: MergeSummaryInput[]
     const next: MergeSummaryInput[] = [];
     for (let index = 0; index < current.length; index += groupSize) {
       const group = current.slice(index, index + groupSize);
-      next.push({ round_id: group.map((entry) => entry.round_id).join(','), summary_text: await summarizeMerge({ entries: group, summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model!, signal: args.signal }) });
+      next.push({ round_id: group.map((entry) => entry.round_id).join(','), summary_text: await summarizeMerge({ entries: group, summarizerProvider: args.summarizerProvider, modelSpec: args.input.preparedCompaction.summarizerModel, signal: args.signal }) });
       args.signal.throwIfAborted();
     }
     current = next;
   }
-  return summarizeMerge({ entries: current, summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model!, signal: args.signal });
+  return summarizeMerge({ entries: current, summarizerProvider: args.summarizerProvider, modelSpec: args.input.preparedCompaction.summarizerModel, signal: args.signal });
 }
 
-async function fallbackFromScratch(args: CompactArgs, sourceRows: AgentMessage[], preamble: AgentMessage[], budget: CompactionBudget, band: 'normal' | 'escalated', candidateFor: CandidateFactory): Promise<Candidate> {
-  const boundaryRound = classifyConversationRounds(sourceRows).rounds[0];
+async function fallbackFromScratch(args: CompactArgs, sourceRows: AgentMessage[], classified: ClassifiedConversation, preamble: AgentMessage[], budget: PreparedCompaction, band: 'normal' | 'escalated', candidateFor: CandidateFactory, fitCandidate: (candidate: Candidate) => CandidateFit): Promise<CandidateFit> {
+  const boundaryRound = classified.rounds[0];
   if (!boundaryRound) throw new Error('Compaction has no safe non-static source round to compact.');
   const boundaryRows = rawRoundRows(boundaryRound);
   for (let length = 1; length < boundaryRows.length; length++) {
     const prefix = boundaryRows.slice(0, length);
     if (!safeFallbackBoundary(prefix, boundaryRows[length])) continue;
     const last = prefix[prefix.length - 1]!;
-    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, false)], content_hash: hashConversationRows(prefix), summary_text: await summarizeRound({ round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model!, signal: args.signal }), evidence: recoverableEvidenceDescriptors(prefix) };
+    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, false)], content_hash: hashConversationRows(prefix), summary_text: await summarizeRound({ round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: budget.summarizerModel, signal: args.signal }), evidence: recoverableEvidenceDescriptors(prefix) };
     args.signal.throwIfAborted();
     const retainedStatic = preamble.filter((row) => row.role === 'system' && row.kind !== 'activity').map((row) => row.id);
     const modeBand = band;
-    const payload = contextCompactionContentSchema.parse({ boundary: fallbackBoundary(last), retained_static_message_ids: retainedStatic, summaries: [partial], applied_policy: appliedPolicy(args, budget, 'hard_limit_fallback', modeBand) });
+    const payload = contextCompactionContentSchema.parse({ boundary: fallbackBoundary(last), retained_static_message_ids: retainedStatic, summaries: [partial], applied_policy: appliedPolicy(budget, 'hard_limit_fallback', modeBand) });
     const candidate = candidateFor(payload);
-    if (effectiveCompactionTokens(candidate.compaction, sourceRows) <= budget.triggerMessageThreshold) return candidate;
+    const fit = fitCandidate(candidate);
+    if (fit.fits) return fit;
   }
   throw new Error('Compaction could not find a safe residual prefix below the trigger threshold. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
 }
 
-async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], base: Candidate, budget: CompactionBudget, latest: ValidatedContextCompaction | null, candidateFor: CandidateFactory): Promise<Candidate> {
+async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], classified: ClassifiedConversation, base: Candidate, budget: PreparedCompaction, latest: ValidatedContextCompaction | null, candidateFor: CandidateFactory, fitCandidate: (candidate: Candidate) => CandidateFit): Promise<Candidate | null> {
   const start = base.compaction.cutoffSourceIndex + 1;
   if (start <= 0) throw new Error('Hard fallback base cutoff is not an immutable source row.');
-  const rounds = classifyConversationRounds(sourceRows).rounds;
-  const boundaryRound = rounds.find((round) => rawRoundRows(round).some((row) => row.id === sourceRows[start]?.id)) ?? null;
-  if (!boundaryRound) return base;
+  const boundaryRound = classified.rounds.find((round) => rawRoundRows(round).some((row) => row.id === sourceRows[start]?.id)) ?? null;
+  if (!boundaryRound) return null;
   const boundaryRows = rawRoundRows(boundaryRound);
   const roundStart = sourceRows.findIndex((row) => row.id === boundaryRows[0]!.id);
   const replacesPartial = !base.compaction.groups.at(-1)!.rounds.at(-1)!.complete;
@@ -187,28 +203,28 @@ async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], 
     if (latest && cutoffSourceIndex <= latest.cutoffSourceIndex) continue;
     const last = prefix[prefix.length - 1]!;
     const complete = length === boundaryRows.length;
-    const summaryText = await summarizeRound({ round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model!, signal: args.signal });
+    const summaryText = await summarizeRound({ round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: budget.summarizerModel, signal: args.signal });
     args.signal.throwIfAborted();
     const group: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, complete)], content_hash: hashConversationRows(prefix), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(prefix) };
     const summaries = replacesPartial ? [...base.payload.summaries.slice(0, -1), group] : [...base.payload.summaries, group];
     const payload = contextCompactionContentSchema.parse({ ...base.payload, boundary: complete ? 'round' : fallbackBoundary(last), summaries, applied_policy: { ...base.payload.applied_policy, mode: 'hard_limit_fallback' as const } });
     const candidate = candidateFor(payload);
-    if (effectiveCompactionTokens(candidate.compaction, sourceRows) <= budget.triggerMessageThreshold) return candidate;
+    if (fitCandidate(candidate).fits) return candidate;
   }
-  return base;
+  return null;
 }
 
-function payloadFor(args: CompactArgs, preamble: AgentMessage[], merged: ContextCompactionContent['summaries'][number] | null, individual: ContextCompactionContent['summaries'], budget: CompactionBudget, mode: 'normal' | 'escalated', band: 'normal' | 'escalated'): ContextCompactionContent {
+function payloadFor(preamble: AgentMessage[], merged: ContextCompactionContent['summaries'][number] | null, individual: ContextCompactionContent['summaries'], budget: PreparedCompaction, mode: 'normal' | 'escalated', band: 'normal' | 'escalated'): ContextCompactionContent {
   const retainedStatic = preamble.filter((row) => row.role === 'system' && row.kind !== 'activity').map((row) => row.id);
   return contextCompactionContentSchema.parse({
     boundary: 'round', retained_static_message_ids: retainedStatic, summaries: [...(merged ? [merged] : []), ...individual],
-    applied_policy: appliedPolicy(args, budget, mode, band),
+    applied_policy: appliedPolicy(budget, mode, band),
   });
 }
 
 async function summarizeRawRound(args: CompactArgs, round: ClassifiedRound): Promise<ContextCompactionContent['summaries'][number]> {
   const rows = rawRoundRows(round);
-  const summaryText = await summarizeRound({ round_id: round.round_id, rows: dropRecoverableResultBodies(rows), summarizerProvider: args.summarizerProvider, modelSpec: args.config.summarizer_model!, signal: args.signal });
+  const summaryText = await summarizeRound({ round_id: round.round_id, rows: dropRecoverableResultBodies(rows), summarizerProvider: args.summarizerProvider, modelSpec: args.input.preparedCompaction.summarizerModel, signal: args.signal });
   args.signal.throwIfAborted();
   return { kind: 'individual', rounds: [buildCoveredRound(rows, true)], content_hash: hashConversationRows(rows), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(rows) };
 }
@@ -217,13 +233,14 @@ function buildCoveredRound(rows: AgentMessage[], complete: boolean): ContextComp
   return { complete, segments: classifySourceSegments(rows).map((segment) => ({ kind: segment.kind, source_message_ids: segment.rows.map((row) => row.id) })) };
 }
 
-function appliedPolicy(args: CompactArgs, budget: CompactionBudget, mode: ContextCompactionContent['applied_policy']['mode'], band: 'normal' | 'escalated'): ContextCompactionContent['applied_policy'] {
-  return { mode, band, input_budget_tokens: budget.inputBudgetTokens, canonical_estimated_static_tokens: budget.estimatedStaticTokens, requested_completion_tokens: budget.requestedCompletionTokens, canonical_message_hard_ceiling: budget.canonicalMessageHardCeiling, trigger_line_tokens: budget.triggerLineTokens, trigger_message_threshold: budget.triggerMessageThreshold, trigger_fraction: args.config.trigger_fraction, completion_reserve_fraction: args.config.completion_reserve_fraction, merge_line_fraction: band === 'normal' ? args.config.merge_line_fraction : args.config.escalate_merge_line_fraction, summary_line_fraction: band === 'normal' ? args.config.summary_line_fraction : args.config.escalate_summary_line_fraction, tail_budget_tokens: band === 'normal' ? budget.normalTailBudget : budget.escalatedTailBudget, middle_budget_tokens: band === 'normal' ? budget.normalMiddleBudget : budget.escalatedMiddleBudget, snap: args.config.snap };
+function appliedPolicy(budget: PreparedCompaction, mode: ContextCompactionContent['applied_policy']['mode'], band: 'normal' | 'escalated'): ContextCompactionContent['applied_policy'] {
+  return { mode, band, input_budget_tokens: budget.inputBudgetTokens, canonical_estimated_static_tokens: budget.estimatedStaticTokens, requested_completion_tokens: budget.requestedCompletionTokens, canonical_message_hard_ceiling: budget.canonicalMessageHardCeiling, trigger_line_tokens: budget.triggerLineTokens, trigger_message_threshold: budget.triggerMessageThreshold, trigger_fraction: budget.triggerFraction, completion_reserve_fraction: budget.completionReserveFraction, merge_line_fraction: band === 'normal' ? budget.normalMergeLineFraction : budget.escalatedMergeLineFraction, summary_line_fraction: band === 'normal' ? budget.normalSummaryLineFraction : budget.escalatedSummaryLineFraction, tail_budget_tokens: band === 'normal' ? budget.normalTailBudget : budget.escalatedTailBudget, middle_budget_tokens: band === 'normal' ? budget.normalMiddleBudget : budget.escalatedMiddleBudget, snap: budget.snap };
 }
 
-function effectiveCompactionTokens(compaction: ValidatedContextCompaction, sourceRows: AgentMessage[]): number {
+function effectiveCompactionTokens(compaction: ValidatedContextCompaction, classified: ClassifiedConversation): number {
   const retained = new Set(compaction.payload.retained_static_message_ids);
-  return estimateTextTokens(compaction.renderedContext) + sourceRows.reduce((sum, row, index) => sum + ((retained.has(row.id) || index > compaction.cutoffSourceIndex) ? estimateMessageTokens(row) : 0), 0);
+  const rows = [...classified.preamble, ...classified.rounds.flatMap((round) => round.rows)];
+  return estimateTextTokens(compaction.renderedContext) + rows.reduce((sum, row, index) => sum + ((retained.has(row.message.id) || index > compaction.cutoffSourceIndex) ? row.estimated_tokens : 0), 0);
 }
 function assertMonotonicCutoff(previous: ValidatedContextCompaction | null, next: ValidatedContextCompaction): void {
   if (!previous) return;
