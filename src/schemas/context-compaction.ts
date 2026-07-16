@@ -34,10 +34,7 @@ export const contextCompactionContentSchema = z.object({
   applied_policy: z.object({
     mode: z.enum(['normal', 'escalated', 'hard_limit_fallback']), band: z.enum(['normal', 'escalated']),
     input_budget_tokens: z.number().int().positive(), canonical_estimated_static_tokens: z.number().int().nonnegative(),
-    requested_completion_tokens: z.number().int().positive(), canonical_message_hard_ceiling: z.number().int().positive(),
-    trigger_line_tokens: z.number().int().nonnegative(), trigger_message_threshold: z.number().int().positive(),
     trigger_fraction: z.number(), completion_reserve_fraction: z.number(), merge_line_fraction: z.number(), summary_line_fraction: z.number(),
-    tail_budget_tokens: z.number().int().nonnegative(), middle_budget_tokens: z.number().int().nonnegative(),
     snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']),
   }).strict(),
 }).strict().superRefine((payload, ctx) => {

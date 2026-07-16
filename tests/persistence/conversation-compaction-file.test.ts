@@ -28,6 +28,18 @@ describe('conversation compaction file persistence', () => {
     expect(() => readConversation(root, 'planner:project')).toThrow(/malformed|invalid/i);
   }));
 
+  it('rejects a complete pre-cutover policy row containing a removed derived field', () => withRoot((root) => {
+    const path = conversationFile(root, 'planner:project');
+    mkdirSync(dirname(path), { recursive: true });
+    const source = activation();
+    const current = metadata('old-policy', hashConversationRows([source]));
+    const payload = JSON.parse(current.content) as Record<string, unknown> & { applied_policy: Record<string, unknown> };
+    payload.applied_policy.requested_completion_tokens = 200;
+    const oldPolicy = { ...current, content: canonicalJson(payload) };
+    writeFileSync(path, `${JSON.stringify({ version: 1, type: 'rows', rows: [source, oldPolicy] })}\n`);
+    expect(() => readConversation(root, 'planner:project')).toThrow(/unrecognized key|malformed|invalid/i);
+  }));
+
   it('keeps the existing identifiable unterminated-final-suffix handling', () => withRoot((root) => {
     appendConversationBatch(root, [activation()]);
     const path = conversationFile(root, 'planner:project');
@@ -47,7 +59,7 @@ function metadata(id: string, hash: string): AgentMessage {
 }
 
 function policy() {
-  return { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, requested_completion_tokens: 200, canonical_message_hard_ceiling: 790, trigger_line_tokens: 800, trigger_message_threshold: 790, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, tail_budget_tokens: 300, middle_budget_tokens: 200, snap: 'compact_straddler' } as const;
+  return { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, snap: 'compact_straddler' } as const;
 }
 
 function withRoot(run: (root: string) => void): void {

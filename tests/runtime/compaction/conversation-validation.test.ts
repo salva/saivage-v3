@@ -59,6 +59,12 @@ describe('conversation compaction validation', () => {
     expect(contextCompactionContentSchema.safeParse({ cutoff: { round_id: 'r', through_message_id: 'm', boundary: 'round' }, retained_static_message_ids: [], merged_history: null, individual_rounds: [], round_coverage: [], rendered_context: 'old', applied_policy: policy() }).success).toBe(false);
   });
 
+  it.each(['requested_completion_tokens', 'canonical_message_hard_ceiling', 'trigger_line_tokens', 'trigger_message_threshold', 'tail_budget_tokens', 'middle_budget_tokens'])('rejects removed derived policy field %s while accepting the minimal current policy', (field) => {
+    const current = payload([{ rows: sourceRound('one'), complete: true }], 'round');
+    expect(contextCompactionContentSchema.safeParse(current).success).toBe(true);
+    expect(contextCompactionContentSchema.safeParse({ ...current, applied_policy: { ...current.applied_policy, [field]: 1 } }).success).toBe(false);
+  });
+
   it('enforces summary-group ordering, cardinality, partial placement, and global source uniqueness', () => {
     const rows = sourceRound('one');
     const base = payload([{ rows, complete: true }], 'round');
@@ -105,5 +111,5 @@ function compaction(id: string, content: ContextCompactionContent): AgentMessage
 }
 
 function policy(): ContextCompactionContent['applied_policy'] {
-  return { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, requested_completion_tokens: 200, canonical_message_hard_ceiling: 790, trigger_line_tokens: 800, trigger_message_threshold: 790, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, tail_budget_tokens: 300, middle_budget_tokens: 200, snap: 'compact_straddler' };
+  return { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, snap: 'compact_straddler' };
 }

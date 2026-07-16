@@ -173,13 +173,6 @@ const compactionSectionSchema = z.object({
   if (escalatedTailWidth > normalTailWidth) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_summary_line_fraction'], message: `Escalated compaction tail width must be <= normal tail width (trigger - summary): escalated=${JSON.stringify(escalatedTailWidth)}, normal=${JSON.stringify(normalTailWidth)}.` });
   if (escalatedMiddleWidth > normalMiddleWidth) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_merge_line_fraction'], message: `Escalated compaction middle width must be <= normal middle width (summary - merge): escalated=${JSON.stringify(escalatedMiddleWidth)}, normal=${JSON.stringify(normalMiddleWidth)}.` });
   if (value.enabled && value.input_budget_tokens !== undefined && Math.floor(value.input_budget_tokens * value.completion_reserve_fraction) < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'compaction requestedCompletionTokens must be positive' });
-  if (value.enabled && value.input_budget_tokens !== undefined) {
-    const normalTailBudget = Math.floor(value.input_budget_tokens * normalTailWidth);
-    const normalMiddleBudget = Math.floor(value.input_budget_tokens * normalMiddleWidth);
-    const escalatedTailBudget = Math.floor(value.input_budget_tokens * escalatedTailWidth);
-    const escalatedMiddleBudget = Math.floor(value.input_budget_tokens * escalatedMiddleWidth);
-    if (escalatedTailBudget > normalTailBudget || escalatedMiddleBudget > normalMiddleBudget) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['input_budget_tokens'], message: 'Escalated compaction token budgets must not exceed normal token budgets.' });
-  }
 });
 
 // MCP Server entry
