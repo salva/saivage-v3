@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { CardService } from '../../src/cards/card-service.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';
+import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 const FIRST = '11111111-1111-4111-8111-111111111111';
@@ -15,6 +16,26 @@ function input(parent = 'project'): NewCardInput {
     type: 'code', parent, depth: 1, title: 'Implement final contract', brief: 'Use direct card I/O.',
     status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
   };
+}
+
+type PublicationSnapshot = {
+  kind: 'card' | 'runtime';
+  card: ReturnType<CardService['read']>;
+  listedIds: string[];
+};
+
+function observableCardService(root: string): { cards: CardService; publications: PublicationSnapshot[] } {
+  const changes = new ReadModelChangeBroadcaster();
+  const publications: PublicationSnapshot[] = [];
+  let cards!: CardService;
+  changes.subscribe({
+    cardStateChanged: () => publications.push({ kind: 'card', card: cards.read(FIRST), listedIds: cards.list().map(({ id }) => id) }),
+    runtimeChanged: () => publications.push({ kind: 'runtime', card: cards.read(FIRST), listedIds: cards.list().map(({ id }) => id) }),
+    agentsChanged: () => undefined,
+    conversationChanged: () => undefined,
+  });
+  cards = new CardService(root, undefined, changes, () => FIRST);
+  return { cards, publications };
 }
 
 describe('CardService final reset-only contracts', () => {
@@ -67,5 +88,74 @@ describe('CardService final reset-only contracts', () => {
     cards.enqueueNotification(FIRST, { id: 'n2', content: 'two', created_at: '2026-07-15T00:00:01.000Z' });
     cards.removeNotifications(FIRST, ['n1']);
     expect(cards.read(FIRST)?.pending_notifications.map(({ id }) => id)).toEqual(['n2']);
+  });
+
+  it('publishes card then runtime synchronously after create and delete are readable', () => {
+    const { cards, publications } = observableCardService(root);
+
+    cards.create(input());
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
+    expect(publications.every(({ card, listedIds }) => card?.id === FIRST && listedIds.includes(FIRST))).toBe(true);
+
+    publications.length = 0;
+    cards.delete(FIRST);
+    expect(publications).toEqual([
+      { kind: 'card', card: null, listedIds: ['project'] },
+      { kind: 'runtime', card: null, listedIds: ['project'] },
+    ]);
+  });
+
+  it('publishes runtime exactly once for each actual pruned status or type patch', () => {
+    const { cards, publications } = observableCardService(root);
+    cards.create(input());
+
+    publications.length = 0;
+    cards.setStatus(FIRST, 'running');
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
+    expect(publications.every(({ card }) => card?.status === 'running')).toBe(true);
+
+    cards.setStatus(FIRST, 'backlog');
+    publications.length = 0;
+    cards.update(FIRST, { type: 'test' });
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
+    expect(publications.every(({ card }) => card?.type === 'test')).toBe(true);
+
+    publications.length = 0;
+    cards.commitTerminalLifecyclePatch(FIRST, {
+      status: 'done',
+      type: 'doc',
+      lifecycle: { status: 'done', result: { kind: 'done', summary: 'complete' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' },
+    });
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
+    expect(publications.every(({ card }) => card?.status === 'done' && card.type === 'doc')).toBe(true);
+  });
+
+  it('keeps no-op patches silent and real non-index updates card-only', () => {
+    const { cards, publications } = observableCardService(root);
+    cards.create(input());
+
+    publications.length = 0;
+    cards.setStatus(FIRST, 'backlog');
+    cards.update(FIRST, {});
+    expect(publications).toEqual([]);
+
+    cards.update(FIRST, { status: 'backlog', title: 'Updated title' });
+    expect(publications.map(({ kind }) => kind)).toEqual(['card']);
+    expect(publications[0]?.card?.title).toBe('Updated title');
+  });
+
+  it('publishes no post-success hints when create, update, or delete fails', () => {
+    const { cards, publications } = observableCardService(root);
+    cards.create(input());
+
+    publications.length = 0;
+    expect(() => cards.create(input())).toThrow();
+    expect(publications).toEqual([]);
+
+    expect(() => cards.update(FIRST, { type: 'project' })).toThrow(/Cannot change card/);
+    expect(publications).toEqual([]);
+
+    expect(() => cards.delete('project')).toThrow(/Cannot tombstone the project card/);
+    expect(publications).toEqual([]);
   });
 });

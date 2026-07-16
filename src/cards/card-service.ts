@@ -129,6 +129,7 @@ export class CardService {
     };
     const card = publishInitialCard(this.projectRoot, cardInput, briefContentForNewCard(input), input.created_by === 'planner' ? 'planner' : 'analyst', this.cardIdentity);
     this.readModelChanges.cardStateChanged();
+    this.readModelChanges.runtimeChanged();
     return clone(card);
   }
 
@@ -150,6 +151,7 @@ export class CardService {
     publishCardVersion(this.projectRoot, candidate, history);
     this.eventBus.emit('card_history_appended', { entry_id: history.entry_id, entry_kind: history.kind, card_id: history.card_id, version_seq: history.version_seq, changed_fields: history.changed_fields, changed_at: history.changed_at });
     this.readModelChanges.cardStateChanged();
+    if (Object.hasOwn(real, 'status') || Object.hasOwn(real, 'type')) this.readModelChanges.runtimeChanged();
     return clone(candidate);
   }
 
@@ -158,7 +160,13 @@ export class CardService {
     const actual = this.listChildren(parentId); if (actual.length !== orderedChildIds.length || actual.some((id) => !orderedChildIds.includes(id))) return { ok: false, reason: 'ordered child ids do not match current children', missing: actual.filter((id) => !orderedChildIds.includes(id)), extra: orderedChildIds.filter((id) => !actual.includes(id)) };
     let changed = 0; orderedChildIds.forEach((id, position) => { const card = this.read(id)!; if (card.position !== position) { this.applyPatch(id, { position }, 'mutate', ctx); changed += 1; } }); return { ok: true, changed };
   }
-  delete(id: string): void { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const entry = historyEntry(card, 'delete', { actor: 'runtime', surface: 'runtime', reason: 'delete' }, ['__deleted__'], 'card deleted'); publishCardTombstone(this.projectRoot, id, card, entry); }
+  delete(id: string): void {
+    const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`);
+    const entry = historyEntry(card, 'delete', { actor: 'runtime', surface: 'runtime', reason: 'delete' }, ['__deleted__'], 'card deleted');
+    publishCardTombstone(this.projectRoot, id, card, entry);
+    this.readModelChanges.cardStateChanged();
+    this.readModelChanges.runtimeChanged();
+  }
   archiveAndDeleteSubtree(ids: string[]): void { for (const id of [...ids].reverse()) this.delete(id); }
 }
 
