@@ -69,8 +69,8 @@ export function shouldCompact(input: LlmInvocationInput): boolean {
 
 type CompactArgs = { conversations: ConversationFileContext; input: LlmInvocationInput & { preparedCompaction: PreparedCompaction }; summarizerProvider: SummarizerProviderPort; signal: AbortSignal };
 type Candidate = { payload: ContextCompactionContent; conversation: ValidatedConversation; compaction: ValidatedContextCompaction; message: AgentMessage };
-type CandidateFactory = (payload: ContextCompactionContent) => Candidate;
 type CandidateFit = { candidate: Candidate; fits: boolean };
+type CandidateFitFactory = (payload: ContextCompactionContent) => CandidateFit;
 
 export async function compact(args: CompactArgs): Promise<{ rows: AgentMessage[]; compactionMessage: AgentMessage }> {
   const projectRoot = args.conversations.projectRoot;
@@ -85,36 +85,32 @@ export async function compact(args: CompactArgs): Promise<{ rows: AgentMessage[]
   assertEscalatedSuffixSubsets(normal, escalated);
 
   const metadataIdentity = { id: `${sessionId}:compaction:${randomUUID()}`, session_id: sessionId, round_id: generateRoundId('compacted'), timestamp: new Date().toISOString() };
-  const candidateFor: CandidateFactory = (payload) => {
+  const candidateFitFor: CandidateFitFactory = (payload) => {
     const parsed = contextCompactionContentSchema.parse(payload);
     const message = agentMessageSchema.parse({ ...metadataIdentity, role: 'system', kind: 'context_compaction', content: canonicalJson(parsed), message_index: 0, block_index: 0 });
     const prospective = validateConversationRows([...conversation.physicalRows, message]);
     const compaction = prospective.latestCompaction;
     if (!compaction || compaction.metadataRow.id !== message.id) throw new Error('Prospective compaction validation did not derive the candidate metadata row.');
-    return { payload: parsed, conversation: prospective, compaction, message };
-  };
-  const measuredCandidates = new Map<string, CandidateFit>();
-  const fitCandidate = (candidate: Candidate): CandidateFit => {
-    const key = canonicalJson(candidate.payload);
-    const measured = measuredCandidates.get(key);
-    if (measured) return measured;
-    const fit = { candidate, fits: effectiveCompactionTokens(candidate.compaction, classified) <= budget.triggerMessageThreshold };
-    measuredCandidates.set(key, fit);
-    return fit;
+    const candidate = { payload: parsed, conversation: prospective, compaction, message };
+    return { candidate, fits: effectiveCompactionTokens(compaction, classified) <= budget.triggerMessageThreshold };
   };
 
-  const normalFit = await buildCandidate(args, sourceRows, classified, normal, budget, 'normal', latest, candidateFor, fitCandidate);
+  const normalFit = await buildCandidate(args, classified, normal, budget, 'normal', latest, candidateFitFor);
   let candidate: Candidate;
   if (normalFit.fits) {
     candidate = normalFit.candidate;
   } else {
-    const escalatedFit = await buildCandidate(args, sourceRows, classified, escalated, budget, 'escalated', latest, candidateFor, fitCandidate);
+    const normalCoveredNoRounds = normal.merge_rounds.length === 0 && normal.summary_rounds.length === 0;
+    const escalatedCoveredNoRounds = escalated.merge_rounds.length === 0 && escalated.summary_rounds.length === 0;
+    const escalatedFit = latest && normalCoveredNoRounds && escalatedCoveredNoRounds
+      ? normalFit
+      : await buildCandidate(args, classified, escalated, budget, 'escalated', latest, candidateFitFor);
     if (escalatedFit.fits) {
       candidate = escalatedFit.candidate;
     } else {
-      const fallback = await applyHardFallback(args, sourceRows, classified, escalatedFit.candidate, budget, latest, candidateFor, fitCandidate);
+      const fallback = await applyHardFallback(args, sourceRows, classified, escalatedFit, budget, latest, candidateFitFor);
       if (!fallback) throw new Error('Compaction could not fit the residual context below the trigger threshold without splitting an indivisible provider bundle. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
-      candidate = fallback;
+      candidate = fallback.candidate;
     }
   }
   args.signal.throwIfAborted();
@@ -123,7 +119,7 @@ export async function compact(args: CompactArgs): Promise<{ rows: AgentMessage[]
   return { rows: conversationMessagesForModel(candidate.conversation), compactionMessage: candidate.message };
 }
 
-async function buildCandidate(args: CompactArgs, sourceRows: AgentMessage[], classified: ClassifiedConversation, partition: SlidingBandPartitions, budget: PreparedCompaction, band: 'normal' | 'escalated', latest: ValidatedContextCompaction | null, candidateFor: CandidateFactory, fitCandidate: (candidate: Candidate) => CandidateFit): Promise<CandidateFit> {
+async function buildCandidate(args: CompactArgs, classified: ClassifiedConversation, partition: SlidingBandPartitions, budget: PreparedCompaction, band: 'normal' | 'escalated', latest: ValidatedContextCompaction | null, candidateFitFor: CandidateFitFactory): Promise<CandidateFit> {
   const preamble = classified.preamble.map((row) => row.message);
   const mergedRounds = partition.merge_rounds;
   const individual = await Promise.all(partition.summary_rounds.map((round) => summarizeRawRound(args, round)));
@@ -146,10 +142,10 @@ async function buildCandidate(args: CompactArgs, sourceRows: AgentMessage[], cla
   }
   const coveredRounds = [...mergedRounds, ...partition.summary_rounds];
   if (coveredRounds.length === 0) {
-    if (latest) return fitCandidate(candidateFor(latest.payload));
-    return fallbackFromScratch(args, sourceRows, classified, preamble, budget, band, candidateFor, fitCandidate);
+    if (latest) return candidateFitFor(latest.payload);
+    return fallbackFromScratch(args, classified, preamble, budget, band, candidateFitFor);
   }
-  return fitCandidate(candidateFor(payloadFor(preamble, mergedHistory, individual, budget, band === 'normal' ? 'normal' : 'escalated', band)));
+  return candidateFitFor(payloadFor(preamble, mergedHistory, individual, budget, band === 'normal' ? 'normal' : 'escalated', band));
 }
 
 async function mergeSummaryGroups(args: CompactArgs, inputs: MergeSummaryInput[]): Promise<string> {
@@ -167,7 +163,7 @@ async function mergeSummaryGroups(args: CompactArgs, inputs: MergeSummaryInput[]
   return summarizeMerge({ entries: current, summarizerProvider: args.summarizerProvider, modelSpec: args.input.preparedCompaction.summarizerModel, signal: args.signal });
 }
 
-async function fallbackFromScratch(args: CompactArgs, sourceRows: AgentMessage[], classified: ClassifiedConversation, preamble: AgentMessage[], budget: PreparedCompaction, band: 'normal' | 'escalated', candidateFor: CandidateFactory, fitCandidate: (candidate: Candidate) => CandidateFit): Promise<CandidateFit> {
+async function fallbackFromScratch(args: CompactArgs, classified: ClassifiedConversation, preamble: AgentMessage[], budget: PreparedCompaction, band: 'normal' | 'escalated', candidateFitFor: CandidateFitFactory): Promise<CandidateFit> {
   const boundaryRound = classified.rounds[0];
   if (!boundaryRound) throw new Error('Compaction has no safe non-static source round to compact.');
   const boundaryRows = rawRoundRows(boundaryRound);
@@ -180,14 +176,14 @@ async function fallbackFromScratch(args: CompactArgs, sourceRows: AgentMessage[]
     const retainedStatic = preamble.filter((row) => row.role === 'system' && row.kind !== 'activity').map((row) => row.id);
     const modeBand = band;
     const payload = contextCompactionContentSchema.parse({ boundary: fallbackBoundary(last), retained_static_message_ids: retainedStatic, summaries: [partial], applied_policy: appliedPolicy(budget, 'hard_limit_fallback', modeBand) });
-    const candidate = candidateFor(payload);
-    const fit = fitCandidate(candidate);
+    const fit = candidateFitFor(payload);
     if (fit.fits) return fit;
   }
   throw new Error('Compaction could not find a safe residual prefix below the trigger threshold. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
 }
 
-async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], classified: ClassifiedConversation, base: Candidate, budget: PreparedCompaction, latest: ValidatedContextCompaction | null, candidateFor: CandidateFactory, fitCandidate: (candidate: Candidate) => CandidateFit): Promise<Candidate | null> {
+async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], classified: ClassifiedConversation, baseFit: CandidateFit, budget: PreparedCompaction, latest: ValidatedContextCompaction | null, candidateFitFor: CandidateFitFactory): Promise<CandidateFit | null> {
+  const base = baseFit.candidate;
   const start = base.compaction.cutoffSourceIndex + 1;
   if (start <= 0) throw new Error('Hard fallback base cutoff is not an immutable source row.');
   const boundaryRound = classified.rounds.find((round) => rawRoundRows(round).some((row) => row.id === sourceRows[start]?.id)) ?? null;
@@ -208,8 +204,8 @@ async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], 
     const group: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, complete)], content_hash: hashConversationRows(prefix), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(prefix) };
     const summaries = replacesPartial ? [...base.payload.summaries.slice(0, -1), group] : [...base.payload.summaries, group];
     const payload = contextCompactionContentSchema.parse({ ...base.payload, boundary: complete ? 'round' : fallbackBoundary(last), summaries, applied_policy: { ...base.payload.applied_policy, mode: 'hard_limit_fallback' as const } });
-    const candidate = candidateFor(payload);
-    if (fitCandidate(candidate).fits) return candidate;
+    const fit = candidateFitFor(payload);
+    if (fit.fits) return fit;
   }
   return null;
 }
