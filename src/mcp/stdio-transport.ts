@@ -117,12 +117,6 @@ export async function invokeStdioTool(input: { serverName: string; toolName: str
   }
 }
 
-export function healthStdioProcess(handle?: McpServerHandle): boolean {
-  const proc = handle?.process;
-  if (!proc || proc.killed || proc.exitCode !== null) return false;
-  try { process.kill(proc.pid!, 0); return true; } catch { return false; }
-}
-
 function processToolsCallResponse(response: Record<string, unknown>, serverName: string, toolName: string): unknown {
   if (response.error) {
     const err = response.error as { code: number; message: string; data?: unknown };
