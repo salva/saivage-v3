@@ -36,15 +36,14 @@ describe('DebugView S06 diagnostic-only integration contract', () => {
     expect(childSection).not.toMatch(/@click|@submit|@drag|createCard|updateCard|deleteCard/);
   });
 
-  it('derives core rows from domain owners and performs no Debug aggregate or agent-list read', () => {
+  it('derives core rows from domain owners and performs no copied agent-list read', () => {
     expect(source).toContain('useRuntimeStore');
     expect(source).toContain('useCardStore');
     expect(source).toContain('useAgentStore');
     expect(source).toContain('validExplicitAgentSessionId');
     expect(source).toContain('effectiveAgentSessionId');
     expect(source).toContain(':key="`${effectiveAgentSessionId}:${selectedAgentDebugKind}`"');
-    expect(source).not.toContain('getDebugState');
-    expect(debugStoreSource).not.toMatch(/getDebugState|listAgentSessions|getAgentConversation|getAgentLlmExchange/);
+    expect(debugStoreSource).not.toMatch(/listAgentSessions|getAgentConversation|getAgentLlmExchange/);
     expect(debugStoreSource).toContain('fetchErrors(),');
     expect(debugStoreSource).toContain('fetchTimeline(),');
   });

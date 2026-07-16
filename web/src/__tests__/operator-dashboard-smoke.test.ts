@@ -47,8 +47,6 @@ function installOperatorApiFetch(): void {
           path: url.searchParams.get('path') ?? '.saivage',
           files: [],
         });
-      case '/api/debug/state':
-        return jsonResponse({ runtime: null, cards: [], totalCards: 0 });
       case '/api/debug/errors':
         return jsonResponse({ errors: [], total: 0 });
       case '/api/debug/timeline':

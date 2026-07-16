@@ -67,6 +67,27 @@ describe('operator API response contracts', () => {
     expect(response.statusCode).toBe(404);
   });
 
+  it('omits the removed debug state aggregate while preserving distinct diagnostics', async () => {
+    const removed = await app.server.fastify.inject({ method: 'GET', url: '/api/debug/state' });
+    expect(removed.statusCode).toBe(404);
+
+    const errors = await app.server.fastify.inject({ method: 'GET', url: '/api/debug/errors' });
+    expect(errors.statusCode).toBe(200);
+    expect(errors.json()).toEqual({ errors: expect.any(Array), total: expect.any(Number) });
+
+    const timeline = await app.server.fastify.inject({ method: 'GET', url: '/api/debug/timeline' });
+    expect(timeline.statusCode).toBe(200);
+    expect(timeline.json()).toEqual({ events: expect.any(Array), total: expect.any(Number) });
+
+    const doctor = await app.server.fastify.inject({ method: 'GET', url: '/api/debug/doctor' });
+    expect(doctor.statusCode).toBe(200);
+    expect(doctor.json()).toEqual({ status: expect.any(String), checks: expect.any(Array), issues: expect.any(Array) });
+
+    const supervision = await app.server.fastify.inject({ method: 'GET', url: '/api/debug/supervision' });
+    expect(supervision.statusCode).toBe(200);
+    expect(supervision.json()).toEqual({ reviews: expect.any(Array), stats: expect.any(Object) });
+  });
+
   it('returns a failed tool result unchanged from the agent conversation route', async () => {
     const sessionId = 'planner:project';
     const sourceInputId = '11111111-1111-4111-8111-111111111111';

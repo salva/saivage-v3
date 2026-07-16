@@ -123,7 +123,7 @@ Actor-only owners synchronously report post-mutation lifecycle/run-identity boun
 
 The singular `ReadModelChanges` broadcaster feeds `SyncHub`; `SyncHub` alone debounces and coalesces successful owner hints before `LiveSyncSocket` sends canonical invalidation frames. Clients treat those frames as lossy prompts and refetch authoritative REST state. There is no owner-side suppression, polling, queue, generation, acknowledgement, replay, or alternate publication path.
 
-In the web dependency direction, the runtime, card, and agent Pinia stores are the separate canonical owners of runtime/status, card, and agent-list/conversation/exchange resources. Application bootstrap performs their unfiltered initial REST reads and registers exactly one live-sync refetch target per core family; routes and Debug consume those owners instead of refetching or copying their rows. DebugStore owns only diagnostic errors, timeline, processes, doctor, and supervision. `/api/debug/state` and `/api/runtime/status` remain available with unchanged contracts; the absence of a current Debug UI consumer does not alter either backend projection.
+In the web dependency direction, the runtime, card, and agent Pinia stores are the separate canonical owners of runtime/status, card, and agent-list/conversation/exchange resources. Application bootstrap performs their unfiltered initial REST reads and registers exactly one live-sync refetch target per core family; routes and Debug consume those owners instead of refetching or copying their rows. Debug's State presentation composes the runtime, card, and agent stores backed by `/api/state`, `/api/runtime/status`, `/api/cards`, and `/api/agents`. DebugStore owns only diagnostic errors, timeline, processes, doctor, and supervision; there is no duplicate runtime/card aggregate boundary.
 
 DebugAgentDetail and the primary Agents conversation/raw-exchange components are keyed presentation lifetimes over AgentStore, not data owners or a consumer registry. A mounted conversation claims one fresh opaque current-consumer token, disposes its live subscription before token-guarded clear, and invalidates its request when the key or route departs; subscribe precedes fetch so initial loading cannot miss an invalidation. Exchange selection uses an independent token and abort boundary. Token identity and request epochs reject stale callbacks, completion, `finally`, and delayed cleanup, including replacement by the same session ID.
 
@@ -160,8 +160,8 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/providers` | Provider routing projection. | `src/contracts/operator-api-config.ts:83` |
 | `GET /api/control-actions` | Control-action projection. | `src/contracts/operator-api-config.ts:93` |
 | `GET /api/events` | Event timeline. | `src/contracts/operator-api-events.ts:35` |
-| `GET /api/files` | Workspace listing. | `src/contracts/operator-api-files-debug.ts:54` |
-| `GET /api/files/content` | Workspace content. | `src/contracts/operator-api-files-debug.ts:65` |
+| `GET /api/files` | Workspace listing. | `src/contracts/operator-api-files-debug.ts:46` |
+| `GET /api/files/content` | Workspace content. | `src/contracts/operator-api-files-debug.ts:57` |
 | `GET /api/mcp/status` | MCP status. | `src/contracts/operator-api-mcp.ts:72` |
 | `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:82` |
 | `GET /api/processes` | Process list. | `src/contracts/operator-api-processes.ts:71` |
@@ -188,10 +188,9 @@ This appendix is maintained as source-derived reference data for documentation d
 | Route | Purpose | Source |
 |---|---|---|
 | `GET /api/debug/doctor` | Internal card diagnostic. | `src/server/routes/chats-files-debug.ts:16` |
-| `GET /api/debug/errors` | Internal error projection. | `src/contracts/operator-api-files-debug.ts:86` |
-| `GET /api/debug/state` | Internal state projection. | `src/contracts/operator-api-files-debug.ts:76` |
+| `GET /api/debug/errors` | Internal error projection. | `src/contracts/operator-api-files-debug.ts:68` |
 | `GET /api/debug/supervision` | Internal supervision projection. | `src/server/routes/chats-files-debug.ts:37` |
-| `GET /api/debug/timeline` | Internal timeline projection. | `src/contracts/operator-api-files-debug.ts:96` |
+| `GET /api/debug/timeline` | Internal timeline projection. | `src/contracts/operator-api-files-debug.ts:78` |
 <!-- saivage:internal-debug-routes:end -->
 
 ### Agent tools

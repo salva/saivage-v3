@@ -76,14 +76,6 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     expect(typeof body.total).toBe('number');
   });
 
-  test('GET /api/debug/state mirrors the runtime envelope', async ({ request }) => {
-    const res = await request.get('/api/debug/state');
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(body).toHaveProperty('runtime');
-    if (body.runtime !== null) expect(typeof body.runtime.status).toBe('string');
-  });
-
   test('GET /api/debug/doctor returns a doctor report', async ({ request }) => {
     const res = await request.get('/api/debug/doctor');
     expect(res.status()).toBe(200);

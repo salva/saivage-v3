@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import * as contractsModule from '../../src/contracts/index.js';
 import * as operatorApiModule from '../../src/contracts/operator-api.js';
-import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, parseOperatorResponse, type OperatorApiBody } from '../../src/contracts/operator-api.js';
+import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, type OperatorApiBody } from '../../src/contracts/operator-api.js';
 
 const runtimeState = {
   status: 'stopped',
@@ -61,6 +61,16 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(statusSchema.keyof().options).toEqual(['runtime', 'currentCardId', 'goalCount', 'lastTickAt', 'restart_server_available', 'pid', 'actorRuntime', 'serverAvailability']);
     expect(statusSchema.shape).not.toHaveProperty('summary');
     expect(statusSchema.shape).not.toHaveProperty('runtimeSummary');
+  });
+
+  it('does not expose the removed debug state operation or response schemas', () => {
+    expect(operatorApiContracts).not.toHaveProperty('debug.state');
+    expect(operatorRouteInventory()).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ method: 'GET', path: '/api/debug/state' }),
+    ]));
+    expect(operatorApiModule).not.toHaveProperty('DebugRuntimeStateSchema');
+    expect(operatorApiModule).not.toHaveProperty('DebugStateResponseSchema');
+    expect(contractsModule).not.toHaveProperty('DebugStateResponseSchema');
   });
 
   it('accepts only current availability component sources', () => {

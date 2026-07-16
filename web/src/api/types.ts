@@ -6,8 +6,6 @@ import type {
   CardHistoryEntry,
   CardHistoryHeader,
   CardView as ContractCardView,
-  CardStatus,
-  CardType,
   ChatSession,
   ChatWorkspaceContext,
   ControlActionSurface,
@@ -140,20 +138,6 @@ export interface FileEntry {
 
 export type FileContent = OperatorApiSuccess<'files.content'>;
 
-export interface DebugState {
-  runtime: RuntimeState | null;
-  cards: Array<{
-    id: string;
-    type: CardType;
-    parent: string | null;
-    status: CardStatus;
-    title: string;
-    priority: number;
-    depends_on: string[];
-  }>;
-  totalCards: number;
-}
-
 export interface DebugError {
   source: string;
   type: string;
@@ -217,6 +201,5 @@ export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'> & { entries: AgentConversationEntry[]; };
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
-export type DebugStateResponse = OperatorApiSuccess<'debug.state'> & { runtime: RuntimeState | null; cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[] }>; };
 export type DebugErrorsResponse = Omit<OperatorApiSuccess<'debug.errors'>, 'errors'> & { errors: DebugError[]; };
 export type DebugTimelineResponse = Omit<OperatorApiSuccess<'debug.timeline'>, 'events'> & { events: DebugTimelineEvent[]; };

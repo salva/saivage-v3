@@ -18,7 +18,6 @@ import type {
   ChatWorkspaceContext,
   FilesListResponse,
   FileContent,
-  DebugStateResponse,
   DebugErrorsResponse,
   DebugTimelineResponse,
   DoctorResponse,
@@ -254,10 +253,6 @@ export function getFileContent(path: string): Promise<FileContent> {
 
 export function listProcesses(): Promise<ProcessListResponse> {
   return operatorRequest('processes.list');
-}
-
-export function getDebugState(): Promise<DebugStateResponse> {
-  return operatorRequest('debug.state') as Promise<DebugStateResponse>;
 }
 
 export function getDebugErrors(): Promise<DebugErrorsResponse> {

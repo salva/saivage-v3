@@ -39,7 +39,6 @@ export type {
   RestartChatAcknowledgement,
   ChatWorkspaceContext,
   DebugErrorsResponse,
-  DebugStateResponse,
   DebugTimelineResponse,
   HealthLivenessResponse,
   HealthReadinessResponse,

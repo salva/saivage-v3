@@ -262,7 +262,6 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         sensitivity: 'normal',
       });
     }
-    if (request.method() === 'GET' && url.pathname === '/api/debug/state') return json(route, { runtime: runtimeRunning, cards: [], totalCards: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/debug/errors') {
       return json(route, { errors: [{ source: 'planner-smoke', type: 'runtime_diagnostic', severity: 'error', message: 'Synthetic provider failure redacted', timestamp: now }], total: 1 });
     }

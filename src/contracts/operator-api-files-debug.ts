@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { runtimeStateSchema } from '../schemas/index.js';
 import {
   ApiErrorSchema,
   ForbiddenErrorSchema,
@@ -32,18 +31,11 @@ export const WorkspaceFileContentResponseSchema = z.object({
   modifiedAt: z.string().nullable().optional(),
 });
 
-export const DebugRuntimeStateSchema = runtimeStateSchema.extend({ pid: z.number().int().positive() });
-export const DebugStateResponseSchema = z.object({
-  runtime: DebugRuntimeStateSchema.nullable(),
-  cards: z.array(z.record(z.string(), z.unknown())),
-  totalCards: z.number().int().nonnegative(),
-});
 export const DebugErrorsResponseSchema = z.object({ errors: z.array(z.unknown()), total: z.number().int().nonnegative() });
 export const DebugTimelineResponseSchema = z.object({ events: z.array(z.unknown()), total: z.number().int().nonnegative() });
 
 export type WorkspaceFilesListResponse = z.infer<typeof WorkspaceFilesListResponseSchema>;
 export type WorkspaceFileContentResponse = z.infer<typeof WorkspaceFileContentResponseSchema>;
-export type DebugStateResponse = z.infer<typeof DebugStateResponseSchema>;
 export type DebugErrorsResponse = z.infer<typeof DebugErrorsResponseSchema>;
 export type DebugTimelineResponse = z.infer<typeof DebugTimelineResponseSchema>;
 
@@ -69,16 +61,6 @@ export const filesDebugOperatorApiContracts = {
     response: { 200: WorkspaceFileContentResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ApiErrorSchema, 404: ApiErrorSchema, 413: ApiErrorSchema, 415: ApiErrorSchema, 500: ApiErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'WorkspaceFileContentResponse',
-  },
-  'debug.state': {
-    operationId: 'debug.state',
-    method: 'GET',
-    path: '/api/debug/state',
-    success: DebugStateResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: DebugStateResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'DebugStateResponse',
   },
   'debug.errors': {
     operationId: 'debug.errors',
