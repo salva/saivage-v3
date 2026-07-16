@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ResolvedConfigAuthority } from '../config/index.js';
-import { EventLogger } from '../observability/index.js';
+import type { EventLog } from '../observability/index.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import { ServerNotRunningError } from './errors.js';
 import { McpInvocationStatsRecorder } from './invocation-stats.js';
@@ -51,7 +51,7 @@ export class McpManager implements McpReconciliationPort {
   constructor(private readonly options: McpManagerOptions) {}
 
   next(): number { return this.nextMsgId++; }
-  setEventLogger(logger: EventLogger): void { this.invocationStats.setEventLogger(logger); }
+  setEventLog(logger: EventLog): void { this.invocationStats.setEventLog(logger); }
   getInvocationStats(): Record<string, { total: number; success: number; error: number; lastInvokedAt?: string }> { return this.invocationStats.snapshot(); }
 
   reconcilePersistedConfig(): Promise<McpReconciliationReport> {
@@ -65,16 +65,17 @@ export class McpManager implements McpReconciliationPort {
 
   closeAdmission(): void { this.admissionOpen = false; }
 
-  async dispose(): Promise<void> {
+  async cleanupForApplicationStop(): Promise<void> {
     this.closeAdmission();
     for (const runtime of this.runtimes.values()) runtime.closeAdmission();
-    await this.currentReconciliation?.catch(() => undefined);
-    const failures: string[] = [];
-    for (const runtime of this.runtimes.values()) {
-      try { await runtime.dispose(); }
-      catch { failures.push(runtime.name); }
-    }
-    if (failures.length > 0) throw new Error(`Failed to contain ${failures.length} MCP runtime(s).`);
+    let termination: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
+    try { termination = this.options.processRunner.terminateOwnedRoot('mcp', this.options.processRunner.mcpRootScope, 'application stopping'); }
+    catch (error) { termination = Promise.reject(error); }
+    const reconciliation = this.currentReconciliation ?? Promise.resolve();
+    const settlements = await Promise.allSettled([termination, reconciliation]);
+    const terminationSettlement = settlements[0]!;
+    if (terminationSettlement.status === 'rejected') throw terminationSettlement.reason;
+    if (settlements.some((settlement) => settlement.status === 'rejected') || terminationSettlement.value.failed.length !== 0) throw new Error('MCP application cleanup failed.');
     this.runtimes.clear();
   }
 
@@ -187,7 +188,7 @@ export class McpManager implements McpReconciliationPort {
       config: target.config,
       revision: target.revision,
       processRunner: this.options.processRunner,
-      processScope: this.options.processRunner.createDirectScope(this.options.processRunner.serviceRootScope, `mcp-server:${target.name}:${target.revision}`, 'service_infrastructure'),
+      processScope: this.options.processRunner.createDirectScope(this.options.processRunner.mcpRootScope, `mcp-server:${target.name}:${target.revision}`, 'service_infrastructure'),
       ids: this,
       invocationStats: this.invocationStats,
     });

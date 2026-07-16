@@ -14,11 +14,11 @@ describe('analyst runtime tools', () => {
     try {
       const processRunner = createTestProcessRunner(projectRoot);
       const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-agent', 'runtime_card');
-      const process = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: 'card-1', ownerId: 'agent-1', ownerKind: 'agent' });
+      const process = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: '11111111-1111-4111-8111-111111111111', ownerId: 'agent-1', ownerKind: 'agent' });
       const result = await list_processes_tool({ projectRoot, processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});
 
       expect(result.success).toBe(true);
-      if (result.success) expect(result.data).toEqual([expect.objectContaining({ card_id: 'card-1', owner_kind: 'agent', owner_id: 'agent-1', logs: { stdout: `work:///cards/card-1/processes/${process.id}/stdout.log`, stderr: `work:///cards/card-1/processes/${process.id}/stderr.log` } })]);
+      if (result.success) expect(result.data).toEqual([expect.objectContaining({ card_id: '11111111-1111-4111-8111-111111111111', owner_kind: 'agent', owner_id: 'agent-1', logs: { stdout: `work:///cards/11111111-1111-4111-8111-111111111111/processes/${process.id}/stdout.log`, stderr: `work:///cards/11111111-1111-4111-8111-111111111111/processes/${process.id}/stderr.log` } })]);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }

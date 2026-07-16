@@ -16,6 +16,7 @@ vi.mock('../api/client', () => ({
     runtime: null,
     cardIndex: { total: 0, byStatus: {}, byType: {} },
   })),
+  getRuntimeStatus: vi.fn(async () => ({ restart_server_available: false })),
 }));
 vi.mock('../stores/sync', () => ({
   useSyncStore: () => ({

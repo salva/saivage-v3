@@ -1,7 +1,6 @@
 You are operating inside Saivage as the Reviewer for the canonical project card {{cardId}}:
 {{cardTitle}}.
 
-Assessment id: {{assessmentId}}
 
 Card brief:
 {{cardBrief}}

@@ -1,12 +1,12 @@
-import type { EventLogger } from '../observability/index.js';
+import type { EventLog } from '../observability/index.js';
 
 export interface McpInvocationStat { total: number; success: number; error: number; lastInvokedAt?: string }
 
 export class McpInvocationStatsRecorder {
-  private eventLogger?: EventLogger;
+  private eventLogger?: EventLog;
   private readonly stats = new Map<string, McpInvocationStat>();
 
-  setEventLogger(logger: EventLogger): void { this.eventLogger = logger; }
+  setEventLog(logger: EventLog): void { this.eventLogger = logger; }
 
   record(serverName: string, toolName: string, success: boolean): void {
     const key = `${serverName}:${toolName}`;

@@ -2,7 +2,9 @@ import { relative, resolve } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
 import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot } from '../runtime/records/record-slots.js';
-import type { ProjectCardRecordReader, RecordProjection } from '../persistence/project-store-repository.js';
+import type { RecordProjection } from '../persistence/authored-record-files.js';
+import { cardIdSchema } from '../schemas/index.js';
+type AuthoredRecordReader = { record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection };
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
@@ -16,7 +18,7 @@ export interface ResolveScopedPathContext {
   projectRoot: string;
   agent?: ScopedAgentContext;
   fail: ScopedPathErrorFactory;
-  records?: ProjectCardRecordReader;
+  records?: AuthoredRecordReader;
 }
 
 export function validRecordSegment(value: string, label: string, raw: string, fail: ScopedPathErrorFactory): string {
@@ -75,7 +77,7 @@ export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: str
   } catch (error) {
     throw ctx.fail(toolFacingErrorMessage(error));
   }
-  const cardId = validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail);
+  const cardId = cardIdSchema.parse(validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail));
   const version = parsed.query?.get('v') ?? 'next';
   return { agent, filename, cardId, version, recordUrl: `${buildScopedPathUrl('record', [filename])}?card=${encodeURIComponent(cardId)}&v=${encodeURIComponent(version)}` };
 }
@@ -98,7 +100,7 @@ export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: stri
   } catch (error) {
     throw ctx.fail(toolFacingErrorMessage(error));
   }
-  const cardId = validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail);
+  const cardId = cardIdSchema.parse(validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail));
   const version = parsed.query?.get('v') ?? 'latest';
   if (version === 'next') {
     const open = ctx.records.record(cardId, filename, 'open');

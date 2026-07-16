@@ -313,7 +313,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const body = JSON.parse(cap.body);
       expect(body.model).toBe('gpt-5.4');
       expect(body.stream).toBe(true);
-      expect(body).not.toHaveProperty('max_output_tokens');
+      expect(body.max_output_tokens).toBe(500);
       expect(body.instructions).toBe(sp());
       expect(body.temperature).toBeUndefined();
     } finally {
@@ -321,7 +321,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     }
   });
 
-  it('should make a single openai-codex attempt without max_output_tokens when max_tokens is configured', async () => {
+  it('should make a single openai-codex attempt with max_output_tokens when max_tokens is configured', async () => {
     const { server, port, captures } = await createMultiCaptureMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.end([
@@ -340,7 +340,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
       expect(asMessage(result).content).toBe('Single succeeded');
       expect(captures).toHaveLength(1);
-      expect(JSON.parse(captures[0].body)).not.toHaveProperty('max_output_tokens');
+      expect(JSON.parse(captures[0].body).max_output_tokens).toBe(500);
       expect(captures[0].url).toBe('/backend-api/codex/responses');
     } finally {
       await closeServer(server);

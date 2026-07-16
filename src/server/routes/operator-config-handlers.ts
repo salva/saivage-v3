@@ -14,6 +14,7 @@ function configProviderProjection(config: unknown): ProviderRoutingReadModel | n
   const providers = (config as { providers?: Record<string, unknown> } | null)?.providers;
   if (!providers) return null;
   return {
+    availabilityScope: 'process_local_reset_on_restart',
     providers: Object.fromEntries(Object.entries(providers).map(([name, raw]) => {
       const provider = raw as { priority?: unknown; models?: unknown; baseUrl?: unknown; accounts?: unknown };
       const models = Array.isArray(provider.models) ? provider.models.filter((model): model is string => typeof model === 'string') : [];

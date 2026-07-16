@@ -27,10 +27,10 @@ describe('analyst workspace-context prompt contract', () => {
   });
 
   it('renders a populated workspace-context fixture deterministically', () => {
-    expect(buildWorkspaceContextNote({ view: 'cards', entityId: 'card-3', refinement: { tab: 'plan', filter: 'open' } })).toBe([
+    expect(buildWorkspaceContextNote({ view: 'cards', entityId: '33333333-3333-4333-8333-333333333333', refinement: { tab: 'plan', filter: 'open' } })).toBe([
       '[workspace-context]',
       'view: cards',
-      'entity: card-3',
+      'entity: 33333333-3333-4333-8333-333333333333',
       'refinement: tab=plan;filter=open',
     ].join('\n'));
   });

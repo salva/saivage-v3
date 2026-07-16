@@ -2,7 +2,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
   constants,
-  existsSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -11,11 +10,11 @@ import {
   unlinkSync,
   writeSync,
 } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { runtimeProcessLockFile } from '../persistence/layout.js';
-import { durablyReplaceFile } from '../persistence/durable-file-replacement.js';
-import { projectIdentityDigest, readProjectIdentity } from '../persistence/project-identity-store.js';
+import { replaceFile } from '../persistence/replace-file.js';
+import { parseProjectIdentity, projectIdentityDigest, readProjectIdentity } from '../persistence/project-identity.js';
 
 export interface RuntimeControlEndpoint {
   readonly origin: string;
@@ -38,8 +37,9 @@ export type RuntimeLockOwnerRecord = RuntimeLockOwnerBase & (
 
 export type RuntimeLockBlocker =
   | { readonly kind: 'live'; readonly record: RuntimeLockOwnerRecord }
-  | { readonly kind: 'dead_stale'; readonly record: RuntimeLockOwnerRecord; readonly repairInstruction: string }
-  | { readonly kind: 'malformed_unreadable'; readonly repairInstruction: string; readonly detail: string };
+  | { readonly kind: 'dead'; readonly record: RuntimeLockOwnerRecord; readonly repairInstruction: string }
+  | { readonly kind: 'indeterminate'; readonly repairInstruction: string; readonly detail: string }
+  | { readonly kind: 'malformed'; readonly repairInstruction: string; readonly detail: string };
 
 export type RuntimeLockStatus = { readonly kind: 'missing' } | RuntimeLockBlocker;
 
@@ -139,21 +139,40 @@ function repairInstruction(canonicalProjectRoot: string, path: string): string {
 export function readRuntimeLockStatus(projectRoot: string, config?: RuntimeLockConfig): RuntimeLockStatus {
   const canonicalProjectRoot = realpathSync(projectRoot);
   const path = lockPath(canonicalProjectRoot, config);
-  if (!existsSync(path)) return { kind: 'missing' };
+  let bytes: string;
+  try {
+    bytes = readFileSync(path, 'utf8');
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) return { kind: 'missing' };
+    return { kind: 'indeterminate', detail: `cannot read lifecycle lock: ${(error as Error).message}`, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
+  }
   let record: RuntimeLockOwnerRecord;
   try {
-    record = readRecord(path);
+    record = parseRuntimeLockOwnerRecord(JSON.parse(bytes) as unknown);
   } catch (error) {
-    return { kind: 'malformed_unreadable', detail: (error as Error).message, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
+    return { kind: 'malformed', detail: (error as Error).message, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
+  }
+  if (record.canonical_root_hash !== canonicalRootHash(canonicalProjectRoot)) return { kind: 'malformed', detail: 'lifecycle lock belongs to a different project root', repairInstruction: repairInstruction(canonicalProjectRoot, path) };
+  if (record.lock_state === 'bound') {
+    const identityPath = join(canonicalProjectRoot, '.saivage', 'project.json');
+    let identityBytes: string;
+    try { identityBytes = readFileSync(identityPath, 'utf8'); }
+    catch (error) {
+      if (isErrno(error, 'ENOENT')) return { kind: 'malformed', detail: 'bound lifecycle lock has no canonical project identity', repairInstruction: repairInstruction(canonicalProjectRoot, path) };
+      return { kind: 'indeterminate', detail: `cannot verify project identity: ${(error as Error).message}`, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
+    }
+    let project;
+    try { project = parseProjectIdentity(JSON.parse(identityBytes) as unknown, identityPath); }
+    catch (error) { return { kind: 'malformed', detail: (error as Error).message, repairInstruction: repairInstruction(canonicalProjectRoot, path) }; }
+    if (projectIdentityDigest(project) !== record.project_identity) return { kind: 'malformed', detail: 'lifecycle lock project identity does not match the canonical project identity', repairInstruction: repairInstruction(canonicalProjectRoot, path) };
   }
   const probe = (config?.probeProcess ?? defaultProbeProcess)(record.pid);
-  if (probe !== 'dead') {
-    if (probe === 'indeterminate') return { kind: 'live', record };
-    let actualStart: string;
-    try { actualStart = (config?.readProcessStartIdentity ?? readProcStartIdentity)(record.pid); } catch { return { kind: 'live', record }; }
-    if (actualStart === record.process_start_identity) return { kind: 'live', record };
-  }
-  return { kind: 'dead_stale', record, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
+  if (probe === 'dead') return { kind: 'dead', record, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
+  if (probe === 'indeterminate') return { kind: 'indeterminate', detail: `cannot prove ownership of PID ${record.pid}`, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
+  let actualStart: string;
+  try { actualStart = (config?.readProcessStartIdentity ?? readProcStartIdentity)(record.pid); } catch (error) { return { kind: 'indeterminate', detail: `cannot verify process start identity for PID ${record.pid}: ${(error as Error).message}`, repairInstruction: repairInstruction(canonicalProjectRoot, path) }; }
+  if (actualStart === record.process_start_identity) return { kind: 'live', record };
+  return { kind: 'dead', record, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
 }
 
 export function isLocked(projectRoot: string, config?: RuntimeLockConfig): boolean {
@@ -170,8 +189,9 @@ export function readLiveLockHolder(projectRoot: string, config?: RuntimeLockConf
 
 function blockerError(status: RuntimeLockBlocker): Error {
   if (status.kind === 'live') return new Error(`Runtime lock is held by live PID ${status.record.pid}; stop and verify the current owner before retrying.`);
-  if (status.kind === 'dead_stale') return new Error(`Runtime lock is dead or stale. ${status.repairInstruction}`);
-  return new Error(`Runtime lock is malformed or unreadable (${status.detail}). ${status.repairInstruction}`);
+  if (status.kind === 'dead') return new Error(`Runtime lock owner is positively dead. ${status.repairInstruction}`);
+  if (status.kind === 'indeterminate') return new Error(`Runtime lock ownership is indeterminate (${status.detail}). ${status.repairInstruction}`);
+  return new Error(`Runtime lock is malformed (${status.detail}). ${status.repairInstruction}`);
 }
 
 function syncDirectory(path: string): void {
@@ -205,7 +225,7 @@ export function acquireRuntimeLifecycleLock(input: {
     : { ...base, lock_state: 'bound', project_identity: projectIdentityDigest(project), control_endpoint: null };
   let fd: number;
   try {
-    fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
   } catch (error) {
     if (isErrno(error, 'EEXIST')) {
       const status = readRuntimeLockStatus(canonicalProjectRoot, input.config);
@@ -248,7 +268,7 @@ function assertRecordOwned(ownership: RuntimeLifecycleLockOwnership): void {
 function replaceOwnedRecord(ownership: RuntimeLifecycleLockOwnership, next: RuntimeLockOwnerRecord): void {
   assertRecordOwned(ownership);
   const validated = parseRuntimeLockOwnerRecord(next);
-  durablyReplaceFile(ownership.lockFilePath, Buffer.from(`${JSON.stringify(validated, null, 2)}\n`));
+  replaceFile(ownership.lockFilePath, Buffer.from(`${JSON.stringify(validated, null, 2)}\n`));
   ownership.record = validated;
 }
 

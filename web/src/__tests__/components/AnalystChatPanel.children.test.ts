@@ -34,7 +34,7 @@ function card(id: string, parent: string | null, position: number, title: string
     version_seq: 1,
     depends_on: [],
     related: [],
-    retries: 0,
+    pending_notifications: [],
   } as any;
 }
 

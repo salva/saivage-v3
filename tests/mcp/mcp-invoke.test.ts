@@ -58,7 +58,7 @@ rl.on('line', (line) => {
 }
 
 afterEach(async () => {
-  for (const value of managers.splice(0)) await value.dispose().catch(() => undefined);
+  for (const value of managers.splice(0)) await value.cleanupForApplicationStop().catch(() => undefined);
   jest.restoreAllMocks();
   for (const value of roots.splice(0)) rmSync(value, { recursive: true, force: true });
 });

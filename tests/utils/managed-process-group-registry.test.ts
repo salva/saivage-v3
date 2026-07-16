@@ -92,4 +92,49 @@ describe('ManagedProcessGroupRegistry capabilities and process-group truth', () 
     expect(() => launch(registry, scope)).toThrow('admission is closed');
     expect(spawnCount()).toBe(0);
   });
+
+  it('tolerates overlapping project-Stop/App runtime-root signals and removals without sibling-root impact', async () => {
+    const operations: string[] = [];
+    let nextPid = 5000;
+    const absent = new Set<number>();
+    const platform: ManagedProcessPlatform = {
+      spawn: () => Object.assign(new EventEmitter(), { pid: nextPid++, kill: jest.fn() }) as unknown as ChildProcess,
+      probe: (pgid) => {
+        operations.push(`probe:${pgid}:${absent.has(pgid) ? 'ESRCH' : 'live'}`);
+        if (absent.has(pgid)) throw errno('ESRCH');
+      },
+      signal: (pgid, signal) => {
+        operations.push(`signal:${pgid}:${signal}`);
+        if (absent.has(pgid)) throw errno('ESRCH');
+        if (signal === 'SIGKILL') absent.add(pgid);
+      },
+    };
+    const registry = new ManagedProcessGroupRegistry(platform);
+    const runtimeRoot = registry.createContainerScope(registry.rootScope, 'runtime');
+    const analystRoot = registry.createContainerScope(registry.rootScope, 'analyst');
+    const mcpRoot = registry.createContainerScope(registry.rootScope, 'mcp');
+    const runtimeScope = registry.createDirectScope(runtimeRoot, 'runtime-card', 'runtime_card');
+    const analystScope = registry.createDirectScope(analystRoot, 'analyst-session', 'operator_session');
+    const mcpScope = registry.createDirectScope(mcpRoot, 'mcp-server', 'service_infrastructure');
+    const launchGroup = (groupId: string, scope: ManagedProcessScope, category: ProcessCategory) => registry.launch({ groupId, directScope: scope, category, file: 'ignored', args: [], options: {}, onAbsent: () => operations.push(`removed:${groupId}`) });
+    launchGroup('runtime-group', runtimeScope, 'runtime_card');
+    launchGroup('analyst-group', analystScope, 'operator_session');
+    launchGroup('mcp-group', mcpScope, 'service_infrastructure');
+
+    const projectStop = registry.terminateScopeTree({ rootScope: runtimeRoot, categories: ['runtime_card'], reason: 'project stop', graceMs: 0 });
+    const appStop = registry.terminateScopeTree({ rootScope: runtimeRoot, categories: ['runtime_card'], reason: 'application stop', graceMs: 0 });
+    const [projectReport, appReport] = await Promise.all([projectStop, appStop]);
+
+    expect(projectReport.selected).toEqual(['runtime-group']);
+    expect(appReport.selected).toEqual(['runtime-group']);
+    expect(projectReport.failed).toEqual([]);
+    expect(appReport.failed).toEqual([]);
+    expect(operations.filter((entry) => entry.includes('5000:SIGTERM'))).toHaveLength(2);
+    expect(operations.filter((entry) => entry.includes('5000:SIGKILL'))).toHaveLength(2);
+    expect(operations.filter((entry) => entry === 'removed:runtime-group')).toHaveLength(1);
+    expect(registry.isLive('runtime-group')).toBe(false);
+    expect(registry.isLive('analyst-group')).toBe(true);
+    expect(registry.isLive('mcp-group')).toBe(true);
+    expect(operations.some((entry) => entry.startsWith('signal:5001:') || entry.startsWith('signal:5002:'))).toBe(false);
+  });
 });

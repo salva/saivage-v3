@@ -15,9 +15,10 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } }).runtime).toEqual(runtimeState);
     const status = parseOperatorResponse('runtime.status', {
       runtime: 'running',
-      currentCardId: 'card-1',
+      currentCardId: '11111111-1111-4111-8111-111111111111',
       goalCount: 1,
       lastTickAt: null,
+      restart_server_available: false,
       pid: 123,
       actorRuntime: { pauseMode: 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [], recovery: null },
     });
@@ -34,6 +35,12 @@ describe('operator API runtime contract without runtime ledgers', () => {
   it('accepts only current availability component sources', () => {
     expect(AvailabilityComponentSourceSchema.safeParse('runtime-application').success).toBe(true);
     expect(AvailabilityComponentSourceSchema.safeParse('runtime-state').success).toBe(false);
+  });
+
+  it('labels provider availability as process-local and resettable', () => {
+    expect(parseOperatorResponse('providers.list', { availabilityScope: 'process_local_reset_on_restart', providers: {} }))
+      .toEqual({ availabilityScope: 'process_local_reset_on_restart', providers: {} });
+    expect(() => parseOperatorResponse('providers.list', { providers: {} })).toThrow();
   });
 
   it('requires present event pagination parameters to be non-negative integer strings', () => {

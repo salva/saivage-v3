@@ -1,22 +1,24 @@
 import { DebugReadModelService, WorkspaceFileReadModelService } from '../../application/read-models/index.js';
-import type { CardStoreRepository } from '../../cards/store-api.js';
+import type { CardService } from '../../cards/card-api.js';
 import type { OperatorContractHandlerMap, OperatorProjectContext } from './operator-handler-context.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
-import { projectPersistenceHealthSnapshot } from '../availability.js';
 
-export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardStoreProvider: () => CardStoreRepository | undefined; runtimeApplication?: RuntimeApplication }): OperatorContractHandlerMap {
-  const requireCardStore = (): CardStoreRepository => {
-    const store = options.cardStoreProvider();
-    if (!store) throw new Error('CardStore is unavailable. Start runtime or provide a server-owned CardStore.');
-    return store;
+export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardServiceProvider: () => CardService | undefined; runtimeApplication?: RuntimeApplication }): OperatorContractHandlerMap {
+  const requireCardService = (): CardService => {
+    const service = options.cardServiceProvider();
+    if (!service) throw new Error('Card service is unavailable. Start runtime or provide a server-owned card service.');
+    return service;
   };
-  const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot, () => requireCardStore().recordReader);
+  const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot, () => {
+    const cards = requireCardService();
+    return { record: cards.recordReader.record, isActiveCardId: (cardId: string) => cards.read(cardId) !== null };
+  });
 
   return {
     'files.list': ({ query }) => fileReadModel.listFiles((query as { path?: string } | undefined)?.path || '.'),
     'files.content': ({ query }) => fileReadModel.readFileContent((query as { path?: string } | undefined)?.path),
-    'debug.state': () => ({ body: new DebugReadModelService(options.projectRoot, requireCardStore(), () => options.runtimeApplication ? projectPersistenceHealthSnapshot(options.runtimeApplication.persistenceHealth.snapshot(), options.projectRoot) : ({ state: 'healthy' })).getState() }),
-    'debug.errors': () => ({ body: new DebugReadModelService(options.projectRoot, requireCardStore()).getErrors() }),
-    'debug.timeline': () => ({ body: new DebugReadModelService(options.projectRoot, requireCardStore()).getTimeline() }),
+    'debug.state': () => { if (!options.runtimeApplication) throw new Error('Runtime application is required for debug state.'); return { body: new DebugReadModelService(options.projectRoot, requireCardService(), options.runtimeApplication.runtimeApi).getState() }; },
+    'debug.errors': () => ({ body: new DebugReadModelService(options.projectRoot, requireCardService(), options.runtimeApplication!.runtimeApi).getErrors() }),
+    'debug.timeline': () => ({ body: new DebugReadModelService(options.projectRoot, requireCardService(), options.runtimeApplication!.runtimeApi).getTimeline() }),
   };
 }

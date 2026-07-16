@@ -3,7 +3,7 @@ import { redactTextForOutbound } from '../redaction/index.js';
 import { controlActionAuditEntrySchema } from '../schemas/index.js';
 import type { ControlActionAuditEntry } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
-import { readAppLogEntries, type AppLogStore } from './app-log.js';
+import { appendAppLogEntry, readAppLogEntries, type AppLogContext } from './app-log.js';
 
 const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 
@@ -32,7 +32,7 @@ export function listControlActions(projectRoot: string, filters?: { card_id?: st
     .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
 }
 
-export function recordControlAction(appLogs: AppLogStore, entry: Omit<ControlActionAuditEntry, 'id' | 'created_at'> & { id?: string; created_at?: string }, eventBus = new EventBus()): ControlActionAuditEntry {
+export function recordControlAction(appLogs: AppLogContext, entry: Omit<ControlActionAuditEntry, 'id' | 'created_at'> & { id?: string; created_at?: string }, eventBus = new EventBus()): ControlActionAuditEntry {
   const parsed = controlActionAuditEntrySchema.parse({
     ...entry,
     id: entry.id ?? randomUUID(),
@@ -41,7 +41,7 @@ export function recordControlAction(appLogs: AppLogStore, entry: Omit<ControlAct
     outcome_summary: sanitizeAuditText(entry.outcome_summary),
     error: entry.error ? sanitizeAuditText(entry.error) : undefined,
   });
-  appLogs.append({ id: parsed.id, timestamp: parsed.created_at, type: 'control_action', data: parsed });
+  appendAppLogEntry(appLogs.projectRoot, { id: parsed.id, timestamp: parsed.created_at, type: 'control_action', data: parsed }, appLogs.changes);
   eventBus.emit('control_action_record_appended', { record: parsed as unknown as Record<string, unknown> });
   eventBus.emit('control_action_recorded', {
     id: parsed.id,

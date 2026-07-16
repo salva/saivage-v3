@@ -1,9 +1,8 @@
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from '../../agents/session-ids.js';
 import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
-import { listConversationSessionIds, readActiveConversationMessages } from '../../runtime/actors/conversation-store.js';
-import { readActiveActorSnapshots, type ActorSnapshotRecord } from '../../runtime/actors/snapshots.js';
+import { listConversationSessionIds, readConversation } from '../../persistence/conversation-file.js';
+import { parseConversationSessionId } from '../../runtime/actors/conversation-inventory.js';
 import type { AgentMessage, AgentRole, SessionStatus } from '../../schemas/index.js';
-import type { ProjectNamespaceReader } from '../../persistence/project-store-repository.js';
 
 export const GLOBAL_OPERATOR_AGENT_SESSION_ID = GLOBAL_ANALYST_SESSION_ID;
 export const SAFE_AGENT_ID_RE = SAFE_AGENT_SESSION_ID_RE;
@@ -23,12 +22,11 @@ export interface AgentOperatorConversationResponse {
 }
 
 export class AgentOperatorReadModelService {
-  constructor(private readonly projectRoot: string, private readonly cards: { readonly namespace: ProjectNamespaceReader; read(cardId: string): { status: string } | null }) {}
+  constructor(private readonly projectRoot: string, private readonly cards: { read(cardId: string): { status: string } | null }) {}
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
-    const snapshots = readActiveActorSnapshots(this.projectRoot, this.cards.namespace);
-    const sessions = listConversationSessionIds(this.projectRoot, this.cards.namespace)
-      .map((sessionId) => this.buildSessionSummary(sessionId, readActiveConversationMessages(this.projectRoot, sessionId, this.cards.namespace), snapshots))
+    const sessions = listConversationSessionIds(this.projectRoot)
+      .map((sessionId) => this.buildSessionSummary(sessionId, readConversation(this.projectRoot, sessionId)))
       .filter((session): session is AgentOperatorSessionSummary => Boolean(session));
     sessions.sort((a, b) => String(b.started_at ?? '').localeCompare(String(a.started_at ?? '')) || String(a.id).localeCompare(String(b.id)));
     return { sessions };
@@ -37,9 +35,9 @@ export class AgentOperatorReadModelService {
   getSession(sessionId: string): { statusCode?: number; body: { session?: Record<string, unknown>; error?: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
     if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const messages = readActiveConversationMessages(this.projectRoot, sessionId, this.cards.namespace);
+    const messages = readConversation(this.projectRoot, sessionId);
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const base = this.buildSessionSummary(sessionId, messages, readActiveActorSnapshots(this.projectRoot, this.cards.namespace));
+    const base = this.buildSessionSummary(sessionId, messages);
     if (!base) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const lastActivity = this.lastMessageTimestamp(messages) ?? base.started_at;
     return { body: { session: { ...base, message_count: messages.length, last_activity_at: lastActivity } } };
@@ -48,26 +46,21 @@ export class AgentOperatorReadModelService {
   getConversation(sessionId: string): { statusCode?: number; body: AgentOperatorConversationResponse | { error: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
     if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const messages = readActiveConversationMessages(this.projectRoot, sessionId, this.cards.namespace);
+    const messages = readConversation(this.projectRoot, sessionId);
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const snapshots = readActiveActorSnapshots(this.projectRoot, this.cards.namespace);
-    const session = this.buildSessionSummary(sessionId, messages, snapshots);
+    const session = this.buildSessionSummary(sessionId, messages);
     if (!session) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const activity_status = this.deriveActivityStatus(sessionId, snapshots);
+    const activity_status = this.deriveActivityStatus(messages);
     return { body: { session, entries: messages.filter((message) => message.kind !== 'provider_private').map(stripPrivateProjectionMarker), activity_status } };
   }
 
-  private parseSessionId(sessionId: string): { role: Extract<AgentRole, 'analyst' | 'planner' | 'executor' | 'reviewer'>; card_id: string | null; assessment_id: string | null } | null {
-    if (sessionId.startsWith('analyst:')) return { role: 'analyst', card_id: null, assessment_id: null };
-    if (sessionId.startsWith('planner:')) return { role: 'planner', card_id: sessionId.slice('planner:'.length), assessment_id: null };
-    if (sessionId.startsWith('executor:')) return { role: 'executor', card_id: sessionId.slice('executor:'.length), assessment_id: null };
-    if (sessionId.startsWith('reviewer:')) {
-      const rest = sessionId.slice('reviewer:'.length);
-      const separator = rest.indexOf(':');
-      if (separator === -1) return null;
-      return { role: 'reviewer', card_id: rest.slice(0, separator), assessment_id: rest.slice(separator + 1) };
+  private parseSessionId(sessionId: string): { role: Extract<AgentRole, 'analyst' | 'planner' | 'executor' | 'reviewer'>; card_id: string | null } | null {
+    try {
+      const parsed = parseConversationSessionId(sessionId);
+      return { role: parsed.role, card_id: parsed.cardId };
+    } catch {
+      return null;
     }
-    return null;
   }
 
   private firstMessageTimestamp(messages: AgentMessage[]): string {
@@ -82,22 +75,11 @@ export class AgentOperatorReadModelService {
     return null;
   }
 
-  private matchingSnapshot(sessionId: string, snapshots: ActorSnapshotRecord[]): ActorSnapshotRecord | null {
-    return snapshots.find((snapshot) => snapshot.actor_id === sessionId && snapshot.actor_kind === 'llm') ?? null;
+  private deriveActivityStatus(messages: AgentMessage[]): AgentOperatorConversationResponse['activity_status'] {
+    return { status: 'idle', pending_calls: [], updated_at: this.lastMessageTimestamp(messages) ?? new Date(0).toISOString() };
   }
 
-  private deriveActivityStatus(sessionId: string, snapshots: ActorSnapshotRecord[]): AgentOperatorConversationResponse['activity_status'] {
-    const snapshot = this.matchingSnapshot(sessionId, snapshots);
-    if (snapshot?.context && typeof snapshot.context === 'object' && (snapshot.context as Record<string, unknown>).compacting === true) return { status: 'compacting', pending_calls: [], updated_at: snapshot.updated_at };
-    if (snapshot?.state_value === 'calling_provider') return { status: 'thinking', pending_calls: [], updated_at: snapshot.updated_at };
-    if (snapshot?.state_value === 'waiting_tool') return { status: 'tool_calling', pending_calls: [], updated_at: snapshot.updated_at };
-    return { status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() };
-  }
-
-  private deriveStatus(sessionId: string, cardId: string | null, snapshots: ActorSnapshotRecord[]): ListedAgentStatus {
-    const snapshot = this.matchingSnapshot(sessionId, snapshots);
-    if (snapshot?.state_value === 'waiting_tool') return 'waiting';
-    if (snapshot) return 'active';
+  private deriveStatus(cardId: string | null): ListedAgentStatus {
     if (!cardId) return 'inactive';
     const status = this.cards.read(cardId)?.status;
     if (status === 'done' || status === 'blocked' || status === 'failed') return status;
@@ -108,7 +90,7 @@ export class AgentOperatorReadModelService {
     return readLatestProviderExchangePayload(this.projectRoot, sessionId)?.model ?? null;
   }
 
-  private buildSessionSummary(sessionId: string, messages: AgentMessage[], snapshots: ActorSnapshotRecord[]): AgentOperatorSessionSummary | null {
+  private buildSessionSummary(sessionId: string, messages: AgentMessage[]): AgentOperatorSessionSummary | null {
     if (!isSafeAgentSessionId(sessionId)) return null;
     const parsed = this.parseSessionId(sessionId);
     if (!parsed) return null;
@@ -117,8 +99,7 @@ export class AgentOperatorReadModelService {
       id: sessionId,
       role: parsed.role,
       card_id: parsed.card_id,
-      assessment_id: parsed.assessment_id,
-      status: this.deriveStatus(sessionId, parsed.card_id, snapshots) satisfies SessionStatus,
+      status: this.deriveStatus(parsed.card_id) satisfies SessionStatus,
       started_at: this.firstMessageTimestamp(messages),
       ...(model ? { model } : {}),
     };

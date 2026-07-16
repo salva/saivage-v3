@@ -189,7 +189,7 @@ export type McpStatusResponse = OperatorApiSuccess<'mcp.status'>;
 export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';
 export type { WsEventType, WsEnvelope } from './contracts';
 export type DataAuthority = 'rest' | 'ws' | 'mixed' | 'unknown';
-export type RuntimeStatus = 'stopped' | 'running' | 'paused' | 'error';
+export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
 export type RuntimeState = Omit<ContractRuntimeState, 'status'> & { status: RuntimeStatus };
 
 export interface FreshnessState {

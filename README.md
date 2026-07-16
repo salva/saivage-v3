@@ -2,6 +2,12 @@
 
 Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator workspace projects cards, agents, files, timeline events, and runtime state while the Analyst chat is the mutating user control surface.
 
+Runtime execution state is process-local. `saivage status|pause|resume|stop` delegates only through a verified live lifecycle-lock owner's published non-null origin/auth mode; it never reads a runtime-state file or rediscovers an endpoint from config. CLI `stop` maps to resumable non-domain project containment `stop_project`, which never cancels or mutates cards. Auth-enabled confirmed `restart_server` is the separate terminal operation.
+
+`App.stop(): Promise<ShutdownReport>` is the sole production aggregate teardown API. Its App terminal coordinator synchronously attempts every admission closer, then independently attempts flat runtime, Analyst, MCP, transport, subscription, and lifecycle-lock leaves under one referenced ten-second per-leaf bound. It never enters project Stop. Reports expose only fixed component/code warnings and must be inspected by direct callers; even an empty report does not prove process exit or full OS containment. Signal/restart/startup adapters log safe warnings and preserve normal process behavior.
+
+Provider candidate availability is live process-local routing advice and resets on process restart. Auth profiles use direct strict canonical-file reads and complete `replaceFile` publication. OAuth refresh carries the original invocation abort signal through response/body completion and the final no-await reread/replace; concurrent refresh is deliberately optimistic last-completed-write-wins with no repository, revision/CAS, mode enforcement, or persistence-health machinery.
+
 ## Quick start
 
 Use Node.js 24 (the repository engines require `node >=24 <25` and `npm >=10 <12`, matching the GitHub Actions validation profile). Build Saivage from a source checkout, then operate it from the target project directory so the project-local `.saivage/` runtime tree is created beside the work Saivage will manage:
@@ -56,7 +62,7 @@ providers:
 
 Agent prompts are customizable with file-level Markdown overrides in `.saivage/config/prompts/<cardType>/<role>.md`. Shipped defaults live in `src/prompts/` and are copied to `dist/prompts/`; omitted override files keep the built-in defaults. Prompt overrides are durable operator configuration: `saivage init`, `saivage reset`, and `start --create-runtime` preserve them while recreating generated state.
 
-Generated card state uses self-contained canonical JSON versions under `.saivage/cards/<cardId>/{card,brief,status,review}/versions/`; neighboring indexes are rebuildable projections and authored records have no separate Markdown body authority. Card and authored-record writes are owned by one lifecycle-lock-gated project persistence authority. Plain start requires a valid canonical root; init and `start --create-runtime` bootstrap only a verified fresh/reset-empty layout, while reset explicitly bootstraps after locked generated-root deletion. `.saivage/locks/runtime.lock` is the only cross-process card/record writer lock.
+Generated card state uses self-contained canonical JSON versions under `.saivage/cards/<cardId>/{card,brief,status,review}/versions/`. The root ID is `project`; non-root IDs are opaque UUIDs created once per attempt with an exclusive namespace claim. Cards, records, conversations, logs, config, auth, and identity use named direct synchronous file functions; disposable indexes never authorize writes. Every replacement/first publication uses a fresh exclusive same-directory UUID temp under ordinary umask, and crash-left noncanonical entries are ignored forever. Plain start requires a valid root; init and `start --create-runtime` may bootstrap missing current canonical state, while reset bootstraps after lifecycle-lock-held generated-root deletion. The lifecycle lock excludes processes but does not coordinate same-file writes.
 
 MCP server entries in `.saivage/saivage.yaml` use `transport: stdio` or `transport: streamable-http`.
 
@@ -85,7 +91,7 @@ curl http://localhost:8080/health
 
 Startup recovery currently includes a nested actor consistency pass: card status remains the outer durable truth, active-version conversations are classified per planner/reviewer/executor session, unrelinked dangling tool calls receive explicit failed `tool_result` rows, and runtime state remains a minimal current-status/cursor record rather than command/run/activation ledgers.
 
-Conversation and app-log mutation use composition-owned synchronous stores with named domain methods. Conversation compaction validates the current source version and digest; OpenAI Responses private and visible rows commit together. Provider success metadata is projected independently only after the conversation completion is durable. App-log writers share one strict append store with incomplete-tail startup repair and no app-log PID lock or event-bus persistence projection. One process-local `ApplicationPersistenceHealth` closes later durable mutations after an uncertain write outcome while preserving reads.
+Conversation and app-log mutation use direct synchronous domain-owner functions. Stable role conversations are append-only: compaction never replaces a version or writes a cache. Enabled actor compaction requires route-independent `compaction.input_budget_tokens`, validates fractions/completion at config load, validates the exact prompt/tool static surface before invocation I/O, and appends one latest system/canonical-JSON projection over immutable raw rows. Candidate admission uses a documented best-effort canonical-body byte/4 heuristic and sends the exact once-built bytes; providers remain authoritative for context acceptance.
 
 ## Key concepts
 

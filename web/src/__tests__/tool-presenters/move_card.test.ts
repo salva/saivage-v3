@@ -4,7 +4,7 @@ import { callEnvelope, inlineText } from './_helpers';
 
 describe('move_card presenter', () => {
   it('renders a structured call presentation for move_card', () => {
-    const view = presentToolCall(callEnvelope('move_card', { path: '.saivage/plan.json', command: 'npm test', cardId: 'card-1', id: 'card-1', goalId: 'goal-1', sessionId: 'session-1', content: 'hello' }));
+    const view = presentToolCall(callEnvelope('move_card', { path: '.saivage/plan.json', command: 'npm test', cardId: '11111111-1111-4111-8111-111111111111', id: '11111111-1111-4111-8111-111111111111', goalId: '11111111-1111-4111-8111-111111111111', sessionId: 'session-1', content: 'hello' }));
     expect(view.name).toBe('move_card');
     expect(view.icon.length).toBeGreaterThan(0);
     expect(Array.isArray(view.headline)).toBe(true);

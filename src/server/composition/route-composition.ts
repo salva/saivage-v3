@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../agents/config-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
-import type { CardStoreRepository } from '../../cards/store-api.js';
+import type { CardService } from '../../cards/card-api.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import type { LiveSyncSocket } from '../live-sync-socket.js';
 import type { RestartPort } from '../../boot/restart-port.js';
@@ -15,7 +15,7 @@ import type { ResolvedConfigAuthority } from '../../config/index.js';
 export function registerServerRoutes(options: {
   fastify: FastifyInstance;
   projectRoot: string;
-  cardStore: CardStoreRepository;
+  cardStore: CardService;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
   saivageConfig: SaivageConfig;

@@ -39,6 +39,7 @@ const FRIENDLY_ACTIONS: Record<string, string> = {
   read_control_actions: 'Audit',
   pause_runtime: 'Pause',
   resume_runtime: 'Resume',
+  stop_project: 'Stop project',
   skill: 'Skill',
   mcp_tool_call: 'MCP',
 };

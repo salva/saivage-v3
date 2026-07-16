@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, smokeCardId } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const syntheticToken = 'synthetic-playwright-token';
@@ -33,7 +33,7 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await page.getByText('Cards').first().click();
   await expect(page).toHaveURL(/\/cards$/);
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
-  await page.goto('/cards/card-smoke');
+  await page.goto(`/cards/${smokeCardId}`);
   await expect(page.getByText('Card Detail').first()).toBeVisible();
   await expect(page.getByText('Priority').first()).toBeVisible();
   await expect(page.getByText('synthetic result').first()).toBeVisible();

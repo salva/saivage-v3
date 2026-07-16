@@ -1,9 +1,7 @@
-import { constants, closeSync, existsSync, fsyncSync, openSync, writeSync } from 'node:fs';
+import { constants, closeSync, fsyncSync, ftruncateSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { z } from 'zod';
 
-import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
-import { durablyReplaceFile } from './durable-file-replacement.js';
-import { IndeterminatePublicationError } from './errors.js';
+import { replaceFile, type PublicationTemporaryIdFactory } from './replace-file.js';
 
 const envelopeSchema = z.object({
   version: z.literal(1),
@@ -37,29 +35,43 @@ export function parseGrowingFile<Row>(path: string, content: string, rowSchema: 
   return rows;
 }
 
+export function readCanonicalGrowingFile<Row>(path: string, rowSchema: z.ZodType<Row>): Row[] {
+  let bytes = readFileSync(path);
+  if (bytes.byteLength > 0 && bytes[bytes.byteLength - 1] !== 0x0a) {
+    const finalNewline = bytes.lastIndexOf(0x0a);
+    const canonicalLength = finalNewline < 0 ? 0 : finalNewline + 1;
+    const descriptor = openSync(path, constants.O_WRONLY);
+    try {
+      ftruncateSync(descriptor, canonicalLength);
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+    bytes = bytes.subarray(0, canonicalLength);
+  }
+  return parseGrowingFile(path, bytes.toString('utf8'), rowSchema);
+}
+
 export function publishFirstEnvelope(
   target: string,
   bytes: Buffer,
-  health: ApplicationPersistenceHealth,
-  operation: string,
+  publicationTemporaryId?: PublicationTemporaryIdFactory,
 ): void {
-  health.assertMutationHealthy();
-  if (existsSync(target)) throw new Error(`Growing file '${target}' is already published.`);
-  try {
-    durablyReplaceFile(target, bytes);
-  } catch (error) {
-    if (error instanceof IndeterminatePublicationError) health.reportUncertainFailure({ target, operation, error });
+  try { closeSync(openSync(target, constants.O_RDONLY)); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      replaceFile(target, bytes, publicationTemporaryId);
+      return;
+    }
     throw error;
   }
+  throw new Error(`Growing file '${target}' is already published.`);
 }
 
 export function appendEnvelope(
   target: string,
   bytes: Buffer,
-  health: ApplicationPersistenceHealth,
-  operation: string,
 ): void {
-  health.assertMutationHealthy();
   let fd: number;
   try {
     fd = openSync(target, constants.O_WRONLY | constants.O_APPEND);
@@ -67,12 +79,10 @@ export function appendEnvelope(
     throw error;
   }
 
-  let uncertain = false;
   let failure: unknown;
   try {
     let offset = 0;
     while (offset < bytes.byteLength) {
-      uncertain = true;
       const written = writeSync(fd, bytes, offset, bytes.byteLength - offset);
       if (written === 0) throw new Error(`Growing-file append made no progress at '${target}'.`);
       offset += written;
@@ -87,7 +97,6 @@ export function appendEnvelope(
     failure ??= error;
   }
   if (failure !== undefined) {
-    if (uncertain) health.reportUncertainFailure({ target, operation, error: failure });
     throw failure;
   }
 }

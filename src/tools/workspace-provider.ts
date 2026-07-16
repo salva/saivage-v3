@@ -3,10 +3,9 @@ import { z } from 'zod';
 import { applyProjectPatch, editProject, globProject, grepProject, readProject, WorkspaceToolInputError, writeProject } from './project-file-tools.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import type { AgentRole } from '../schemas/index.js';
-import type { CardStore } from '../cards/store-api.js';
-import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { CardService } from '../cards/card-api.js';
+import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
-import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { ToolContext as AnalystToolContext } from './analyst-tool-types.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { commitEditBrief, commitWriteBrief, recheckEditBrief, recheckWriteBrief } from '../application/analyst-mutation-operations.js';
@@ -15,9 +14,8 @@ export interface WorkspaceProviderContext {
   readonly projectRoot: string;
   readonly cardId?: string;
   readonly agentRole: AgentRole;
-  readonly store?: Pick<CardStore, 'read' | 'getAncestors' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord'>;
+  readonly store?: Pick<CardService, 'read' | 'getAncestors' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord'>;
   readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
-  readonly persistenceHealth?: ApplicationPersistenceHealth;
 }
 
 function failureFromError(err: unknown): ToolResult {
@@ -76,8 +74,8 @@ export function createWorkspaceProvider(ctx: WorkspaceProviderContext): ToolProv
     providerName: 'workspace',
     tools: [
       defineTool({ name: 'read', description: 'Read a project:///, record:///, tmp:///, system:///, or read-only work:/// file or directory through scoped URLs. Use work:/// to page through runtime process output and stash files. Text reads return at most 2000 lines, 2000 characters per line, and about 256KB total inline content; files larger than about 10MB are not read inline. Set metadata_only to inspect file size/mtime or visible directory entry counts without reading content.', inputSchema: readSchema, executor: (args) => runWorkspaceTool(() => readProject(ctx, args)) }),
-      defineTool({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to role policy.', inputSchema: writeSchema, executor: (args) => runWorkspaceTool(() => { ctx.persistenceHealth?.assertMutationHealthy(); return writeProject(ctx, args); }) }),
-      defineTool({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to role policy.', inputSchema: editSchema, executor: (args) => runWorkspaceTool(() => { ctx.persistenceHealth?.assertMutationHealthy(); return editProject(ctx, args); }) }),
+      defineTool({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to role policy.', inputSchema: writeSchema, executor: (args) => runWorkspaceTool(() => writeProject(ctx, args)) }),
+      defineTool({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to role policy.', inputSchema: editSchema, executor: (args) => runWorkspaceTool(() => editProject(ctx, args)) }),
       defineTool({ name: 'glob', description: 'Search files by glob pattern under a scoped directory, including read-only work:/// process-output and stash directories.', inputSchema: globSchema, executor: (args) => runWorkspaceTool(() => globProject(ctx, args)) }),
       defineTool({ name: 'grep', description: 'Stream-search text files, including files too large for inline read, with a JavaScript regular expression under project:///, record:///, tmp:///, read-only work:///, or system:/// paths. Search retains at most 2000 characters per line and reports content truncation when an overlong suffix was not searched. grep record:///<cardId> searches the latest closed versions of exposed record slots and returns record URLs as path. work:/// content is redacted before return.', inputSchema: grepSchema, executor: (args) => runWorkspaceTool(() => grepProject(ctx, args)) }),
     ],
@@ -88,23 +86,23 @@ export function createPatchProvider(ctx: WorkspaceProviderContext): ToolProvider
   return {
     providerName: 'patch',
     tools: [
-      defineTool({ name: 'apply_patch', description: 'Apply a text-only unified diff. Patch paths are project-relative only; scoped URL paths such as work:/// are rejected in diff headers.', inputSchema: applyPatchSchema, executor: (args) => runWorkspaceTool(() => { ctx.persistenceHealth?.assertMutationHealthy(); return applyProjectPatch(ctx, args); }) }),
+      defineTool({ name: 'apply_patch', description: 'Apply a text-only unified diff. Patch paths are project-relative only; scoped URL paths such as work:/// are rejected in diff headers.', inputSchema: applyPatchSchema, executor: (args) => runWorkspaceTool(() => applyProjectPatch(ctx, args)) }),
     ],
   };
 }
 
 export function createAnalystWorkspaceProvider(ctx: AnalystToolContext): ToolProvider {
-  const workspace: WorkspaceProviderContext = { projectRoot: ctx.projectRoot, agentRole: 'analyst', store: ctx.store, notifyCard: ctx.runtime?.notifyCard, persistenceHealth: ctx.persistenceHealth };
+  const workspace: WorkspaceProviderContext = { projectRoot: ctx.projectRoot, agentRole: 'analyst', store: ctx.store, notifyCard: ctx.runtime?.notifyCard };
   return {
     providerName: 'workspace',
     tools: [
       defineTool({ name: 'read', description: 'Read a project:///, record:///, tmp:///, system:///, or read-only work:/// file or directory through scoped URLs. Use work:/// to page through runtime process output and stash files. Text reads return at most 2000 lines, 2000 characters per line, and about 256KB total inline content; files larger than about 10MB are not read inline. Set metadata_only to inspect file size/mtime or visible directory entry counts without reading content.', inputSchema: readSchema, executor: (args) => runWorkspaceTool(() => readProject(workspace, args)) }),
-      defineTool({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to role policy.', inputSchema: writeSchema, executor: (args) => args.path.startsWith('record:///')
-        ? runAuditedAnalystTool(ctx, args, { action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: 'intervention_ready', recheck: recheckWriteBrief, commit: commitWriteBrief })
-        : runWorkspaceTool(() => { ctx.persistenceHealth.assertMutationHealthy(); return writeProject(workspace, args); }) }),
-      defineTool({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to role policy.', inputSchema: editSchema, executor: (args) => args.path.startsWith('record:///')
-        ? runAuditedAnalystTool(ctx, args, { action: 'record.edit', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: 'intervention_ready', recheck: recheckEditBrief, commit: commitEditBrief })
-        : runWorkspaceTool(() => { ctx.persistenceHealth.assertMutationHealthy(); return editProject(workspace, args); }) }),
+      defineTool({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to role policy.', inputSchema: writeSchema, executor: (args, signal) => args.path.startsWith('record:///')
+        ? runAuditedAnalystTool(ctx, args, { action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: 'intervention_ready', recheck: recheckWriteBrief, commit: commitWriteBrief }, signal)
+        : runWorkspaceTool(() => writeProject(workspace, args)) }),
+      defineTool({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to role policy.', inputSchema: editSchema, executor: (args, signal) => args.path.startsWith('record:///')
+        ? runAuditedAnalystTool(ctx, args, { action: 'record.edit', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: 'intervention_ready', recheck: recheckEditBrief, commit: commitEditBrief }, signal)
+        : runWorkspaceTool(() => editProject(workspace, args)) }),
       defineTool({ name: 'glob', description: 'Search files by glob pattern under a scoped directory, including read-only work:/// process-output and stash directories.', inputSchema: globSchema, executor: (args) => runWorkspaceTool(() => globProject(workspace, args)) }),
       defineTool({ name: 'grep', description: 'Stream-search text files, including files too large for inline read, with a JavaScript regular expression under project:///, record:///, tmp:///, read-only work:///, or system:/// paths. Search retains at most 2000 characters per line and reports content truncation when an overlong suffix was not searched. grep record:///<cardId> searches the latest closed versions of exposed record slots and returns record URLs as path. work:/// content is redacted before return.', inputSchema: grepSchema, executor: (args) => runWorkspaceTool(() => grepProject(workspace, args)) }),
     ],
@@ -112,5 +110,5 @@ export function createAnalystWorkspaceProvider(ctx: AnalystToolContext): ToolPro
 }
 
 export function createAnalystPatchProvider(ctx: AnalystToolContext): ToolProvider {
-  return { providerName: 'patch', tools: [defineTool({ name: 'apply_patch', description: 'Apply a text-only unified diff.', inputSchema: applyPatchSchema, executor: (args) => runWorkspaceTool(() => { ctx.persistenceHealth.assertMutationHealthy(); return applyProjectPatch({ projectRoot: ctx.projectRoot, agentRole: 'analyst' }, args); }) })] };
+  return { providerName: 'patch', tools: [defineTool({ name: 'apply_patch', description: 'Apply a text-only unified diff.', inputSchema: applyPatchSchema, executor: (args) => runWorkspaceTool(() => applyProjectPatch({ projectRoot: ctx.projectRoot, agentRole: 'analyst' }, args)) })] };
 }

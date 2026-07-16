@@ -6,6 +6,7 @@ import {
   cardHistoryEntrySchema,
   cardHistoryHeaderSchema,
   runtimeStateSchema,
+  cardIdSchema,
 } from '../schemas/index.js';
 import {
   ApiErrorSchema,
@@ -21,13 +22,13 @@ import { actorPauseModeSchema, llmActorRoleSchema, publicAgentPhaseSchema, publi
 import { runtimeStatusSchema } from '../schemas/index.js';
 
 export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
-  cardId: z.string().optional(),
+  cardId: cardIdSchema.optional(),
 });
 
 export const RuntimeSummarySchema = z.object({}).strict();
 export const CardPermissionFieldsSchema = z.object({ allowedActions: z.array(cardActionSchema).optional() });
 
-export const CardIdParamsSchema = z.object({ id: z.string().min(1) });
+export const CardIdParamsSchema = z.object({ id: cardIdSchema });
 
 export const CardIndexSummarySchema = z.object({
   total: z.number().int().nonnegative(),
@@ -61,8 +62,8 @@ export const CardDetailResponseSchema = z.object({
   children: z.array(cardViewSchema),
 });
 
-export const CardHistoryParamsSchema = z.object({ id: z.string().min(1) });
-export const CardHistoryEntryParamsSchema = z.object({ id: z.string().min(1), seq: z.string().min(1) });
+export const CardHistoryParamsSchema = z.object({ id: cardIdSchema });
+export const CardHistoryEntryParamsSchema = z.object({ id: cardIdSchema, seq: z.string().min(1) });
 const diffPivotSchema = z.union([
   z.literal('last'),
   z.literal('current'),
@@ -71,54 +72,48 @@ const diffPivotSchema = z.union([
 export const CardDiffQuerySchema = z.object({ from: diffPivotSchema.optional(), to: diffPivotSchema.optional() });
 export const CardHistoryListResponseSchema = z.object({ history: z.array(cardHistoryHeaderSchema), total: z.number().int().nonnegative() });
 export const CardHistoryEntryResponseSchema = z.object({ entry: cardHistoryEntrySchema });
-export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: z.number().int().positive(), to: z.number().int().positive(), card_id: z.string() });
+export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: z.number().int().positive(), to: z.number().int().positive(), card_id: cardIdSchema });
 
 
 export const RuntimeStatusResponseSchema = z.object({
   runtime: runtimeStatusSchema,
-  currentCardId: z.string().nullable(),
+  currentCardId: cardIdSchema.nullable(),
   goalCount: z.number().int().nonnegative(),
   lastTickAt: z.string().nullable(),
+  restart_server_available: z.boolean(),
   pid: z.number().int().positive(),
   actorRuntime: z.object({
     pauseMode: actorPauseModeSchema,
     activeWork: z.enum(['none', 'model_invocation', 'shutdown', 'unknown']),
-    cards: z.array(z.object({ cardId: z.string(), actorState: publicCardActorStateSchema })),
-    agents: z.array(z.object({ agentId: z.string(), role: llmActorRoleSchema, cardId: z.string(), phase: publicAgentPhaseSchema })),
+    cards: z.array(z.object({ cardId: cardIdSchema, actorState: publicCardActorStateSchema })),
+    agents: z.array(z.object({ agentId: z.string(), role: llmActorRoleSchema, cardId: cardIdSchema, phase: publicAgentPhaseSchema })),
     diagnostics: z.array(z.string()),
-    recovery: z.object({
-      generated_at: z.string().datetime(),
-      diagnostics: z.array(z.object({
-        actorId: z.string(),
-        severity: z.enum(['info', 'warning', 'error']),
-        message: z.string(),
-      })),
-      actions: z.array(z.object({
-        actorId: z.string(),
-        kind: z.enum(['active_card', 'active_llm', 'llm_recovery_action', 'active_processor']),
-        action: z.string(),
-        cardId: z.string().optional(),
-      })),
-    }).nullable(),
   }),
   serverAvailability: ServerAvailabilitySchema.optional(),
 });
 
+export const StopProjectResponseSchema = z.object({ status: z.literal('stopped'), contained: z.boolean() }).strict();
+export const RuntimeControlConflictSchema = z.object({ code: z.literal('runtime_control_conflict'), message: z.string().min(1) }).strict();
+export const RestartServerRequestSchema = z.object({ confirmation: z.literal('RESTART SERVER') }).strict();
+export const RestartServerResponseSchema = z.object({ status: z.literal('restart_scheduled') }).strict();
+export const RestartUnavailableErrorSchema = z.object({ code: z.literal('restart_unavailable'), message: z.literal('restart unavailable: operator authentication disabled') }).strict();
+const EmptyRuntimeControlBodySchema = z.object({}).strict();
+
 export const RuntimeCardRunsResponseSchema = z.object({
   active_card_run: z.unknown().nullable(),
   active_breadcrumb: z.array(z.object({
-    card_id: z.string(),
+    card_id: cardIdSchema,
     card_type: z.string(),
     title: z.string(),
     status_text: z.string().optional(),
   })),
   dormant_planners: z.array(z.object({
-    goal_card_id: z.string(),
+    goal_card_id: cardIdSchema,
     planner_session_id: z.string(),
     latest_self_report: z.record(z.string(), z.unknown()).nullable(),
   })),
   cards_with_pending_corrections: z.array(z.object({
-    card_id: z.string(),
+    card_id: cardIdSchema,
     status: cardStatusSchema,
     note_count: z.number().int().nonnegative(),
     last_note_at: z.string().nullable(),
@@ -240,6 +235,7 @@ export const runtimeCardsOperatorApiContracts = {
     operationId: 'runtime.pause',
     method: 'POST',
     path: '/api/runtime/pause',
+    body: EmptyRuntimeControlBodySchema,
     success: RuntimeStatusResponseSchema,
     error: ApiErrorSchema,
     response: { 200: RuntimeStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
@@ -250,11 +246,34 @@ export const runtimeCardsOperatorApiContracts = {
     operationId: 'runtime.resume',
     method: 'POST',
     path: '/api/runtime/resume',
+    body: EmptyRuntimeControlBodySchema,
     success: RuntimeStatusResponseSchema,
     error: ApiErrorSchema,
     response: { 200: RuntimeStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'RuntimeStatusResponse',
+  },
+  stop_project: {
+    operationId: 'stop_project',
+    method: 'POST',
+    path: '/api/runtime/stop-project',
+    body: EmptyRuntimeControlBodySchema,
+    success: StopProjectResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: StopProjectResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 409: RuntimeControlConflictSchema, 500: ApiErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'StopProjectResponse',
+  },
+  restart_server: {
+    operationId: 'restart_server',
+    method: 'POST',
+    path: '/api/runtime/restart-server',
+    body: RestartServerRequestSchema,
+    success: RestartServerResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: RestartServerResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: RestartUnavailableErrorSchema, 500: ApiErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'RestartServerResponse',
   },
   'runtime.cardRuns': {
     operationId: 'runtime.cardRuns',

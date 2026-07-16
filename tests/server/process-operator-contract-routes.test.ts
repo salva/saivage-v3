@@ -18,7 +18,7 @@ describe('contract-backed process routes', () => {
     try {
       const processRunner = createTestProcessRunner(projectRoot);
       const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'route-test', 'runtime_card');
-      const record = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: 'card-1', ownerId: 'runtime-owner', ownerKind: 'runtime' });
+      const record = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: '11111111-1111-4111-8111-111111111111', ownerId: 'runtime-owner', ownerKind: 'runtime' });
       await processRunner.waitForSettlement(record.id);
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
 
@@ -27,15 +27,15 @@ describe('contract-backed process routes', () => {
       expect(list.json()).toEqual({
         processes: [expect.objectContaining({
           id: record.id,
-          card_id: 'card-1',
+          card_id: '11111111-1111-4111-8111-111111111111',
           owner_id: 'runtime-owner',
           owner_kind: 'runtime',
           status: 'exited',
           ended_at: expect.any(String),
           exit_code: 0,
           logs: {
-            stdout: `work:///cards/card-1/processes/${record.id}/stdout.log`,
-            stderr: `work:///cards/card-1/processes/${record.id}/stderr.log`,
+            stdout: `work:///cards/11111111-1111-4111-8111-111111111111/processes/${record.id}/stdout.log`,
+            stderr: `work:///cards/11111111-1111-4111-8111-111111111111/processes/${record.id}/stderr.log`,
           },
         })],
       });

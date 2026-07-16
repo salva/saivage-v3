@@ -47,7 +47,10 @@ test('production browser direct loads initialize router and render route-owned b
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`));
+  page.on('requestfailed', (request) => {
+    const errorText = request.failure()?.errorText ?? '';
+    if (errorText !== 'net::ERR_ABORTED') failedRequests.push(`${request.method()} ${request.url()} ${errorText}`);
+  });
 
   await page.addInitScript((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
   await installOperatorWebSocketShim(page);

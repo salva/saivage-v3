@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, smokeCardId } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const syntheticToken = 'synthetic-playwright-token';
@@ -68,11 +68,11 @@ test('card detail view forwards workspace context to analyst chat on send', asyn
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
 
-  await page.goto('/cards/card-smoke');
+  await page.goto(`/cards/${smokeCardId}`);
   await page.evaluate((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
   await page.reload();
 
-  await expect(page).toHaveURL(/\/cards\/card-smoke$/);
+  await expect(page).toHaveURL(new RegExp(`/cards/${smokeCardId}$`));
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
   await expect(page.getByRole('region', { name: 'Analyst chat' })).toBeVisible();
 
@@ -89,7 +89,7 @@ test('card detail view forwards workspace context to analyst chat on send', asyn
   expect(rest.chatPosts).toHaveLength(1);
   const post = rest.chatPosts[0];
   expect(post?.sessionId).toBe('analyst:global');
-  expect(post?.body.workspaceContext).toEqual({ view: 'cards', entityId: 'card-smoke', refinement: null });
+  expect(post?.body.workspaceContext).toEqual({ view: 'cards', entityId: smokeCardId, refinement: null });
   expect(post?.body.content).toBe(visiblePrompt);
   expect(post?.body.content).not.toContain(syntheticToken);
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { redactForOutbound } from '../redaction/index.js';
 import { EventBus } from '../events/index.js';
-import { errorRecordSchema, readAppLogEntries, type AppLogStore, type ErrorInput, type ErrorRecord } from '../persistence/app-log.js';
+import { appendAppLogEntry, errorRecordSchema, readAppLogEntries, type AppLogContext, type ErrorInput, type ErrorRecord } from '../persistence/app-log.js';
 import { appLogFile } from '../persistence/layout.js';
 
 // ── Constants ─────────────────────────────────────────────────
@@ -31,18 +31,16 @@ export interface ErrorFilter {
   limit?: number;
 }
 
-// ── ErrorLogger ───────────────────────────────────────────────
+// ── Error log producer ────────────────────────────────────────
 
-export class ErrorLogger {
-  private projectRoot: string;
-  private logPath: string;
-  private readonly eventBus: EventBus;
+export interface ErrorLog {
+  appendError(error: ErrorInput): ErrorRecord;
+  getErrors(filter?: ErrorFilter): ErrorRecord[];
+  getErrorsPath(): string;
+}
 
-  constructor(projectRoot: string, private readonly appLogs: AppLogStore, eventBus = new EventBus()) {
-    this.projectRoot = projectRoot;
-    this.logPath = appLogFile(projectRoot);
-    this.eventBus = eventBus;
-  }
+export function createErrorLog(projectRoot: string, appLogs: AppLogContext, eventBus = new EventBus()): ErrorLog {
+  return {
 
   /**
    * Append an error to the log. The error gets an auto-generated id
@@ -60,17 +58,17 @@ export class ErrorLogger {
       phase: error.phase,
     }, 'error.log', { source: 'error-logger' }));
 
-    this.appLogs.append({ id: record.id, timestamp: record.timestamp, type: 'error', data: record });
-    this.eventBus.emit('error_log_record_appended', { record: record as unknown as Record<string, unknown> });
+    appendAppLogEntry(appLogs.projectRoot, { id: record.id, timestamp: record.timestamp, type: 'error', data: record }, appLogs.changes);
+    eventBus.emit('error_log_record_appended', { record: record as unknown as Record<string, unknown> });
     return record;
-  }
+  },
 
   /**
    * Get errors, with optional filtering.
    * Reads from the persisted file, so it reflects all written errors.
    */
   getErrors(filter?: ErrorFilter): ErrorRecord[] {
-    let errors = readAppLogEntries(this.projectRoot, 'error').map((entry) => entry.data);
+    let errors = readAppLogEntries(projectRoot, 'error').map((entry) => entry.data);
 
     // Apply filters
     if (filter) {
@@ -92,12 +90,11 @@ export class ErrorLogger {
     }
 
     return errors;
-  }
+  },
 
   /**
    * Get the path to the errors file.
    */
-  getErrorsPath(): string {
-    return this.logPath;
-  }
+  getErrorsPath(): string { return appLogFile(projectRoot); },
+  };
 }

@@ -7,6 +7,12 @@ export class ActiveCardLeaf {
     this.#currentCardId = cardId;
   }
 
+  startChain(cardIds: readonly string[]): void {
+    if (this.#currentCardId !== null) throw new Error('Autonomous scheduler already has an active leaf.');
+    if (cardIds.length === 0 || cardIds[0] !== 'project') throw new Error('Active running chain must begin at project.');
+    this.#currentCardId = cardIds.at(-1)!;
+  }
+
   enterChild(parentCardId: string, childCardId: string): void {
     this.assertActive(parentCardId);
     this.#currentCardId = childCardId;

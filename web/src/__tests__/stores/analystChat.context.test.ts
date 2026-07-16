@@ -37,13 +37,13 @@ describe('analyst chat workspace context', () => {
   it('sends a third API arg mirroring the workspace route snapshot', async () => {
     const workspaceRoute = useWorkspaceRouteStore();
     workspaceRoute.view = 'cards';
-    workspaceRoute.entityId = 'card-9';
+    workspaceRoute.entityId = '11111111-1111-4111-8111-111111111111';
     workspaceRoute.refinement = { tab: 'history' };
     const chat = useAnalystChat();
     chat.activeSessionId = 'analyst:global';
     chat.setDraft('what is this?');
     await chat.sendMessage();
-    expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('analyst:global', 'what is this?', { view: 'cards', entityId: 'card-9', refinement: { tab: 'history' } });
+    expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('analyst:global', 'what is this?', { view: 'cards', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' } });
   });
 
   it('sends the deterministic null workspace context at the default route state', async () => {
@@ -55,7 +55,7 @@ describe('analyst chat workspace context', () => {
   });
 
   it('dispatches a successful navigate_workspace invocation with the full data payload', async () => {
-    const target = { kind: 'card' as const, id: 'card-5' };
+    const target = { kind: 'card' as const, id: '22222222-2222-4222-8222-222222222222' };
     const payload = { intent: 'navigate_workspace' as const, target };
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       sessionId: 'analyst:global',

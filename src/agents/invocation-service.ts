@@ -1,19 +1,18 @@
 import type { AgentMessage, OperationalAgentRole } from '../schemas/index.js';
-import type { EventLogger } from '../observability/index.js';
+import type { EventLog } from '../observability/index.js';
 import { buildLlmOptions } from './llm-options-factory.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
+import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import type { ModelRouter } from './model-router.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
-import { ProviderTurnFailure, type LlmCallFn, type ProviderTurnCompletion, type ResponsesReplayProjection, type ToolDefinition } from './llm-contracts.js';
+import { ProviderTurnFailure, type BuiltCandidateRequest, type LlmCallFn, type ProviderTurnCompletion, type ResponsesReplayProjection, type ToolDefinition } from './llm-contracts.js';
 import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { providerExchangeAppLogEntry } from '../persistence/provider-exchange-log.js';
-import type { AppLogStore } from '../persistence/app-log.js';
-import type { AuthProfileRepository } from '../auth/auth-profile-store.js';
-import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
+import { appendAppLogEntry, type AppLogContext } from '../persistence/app-log.js';
+import { buildCandidateRequest } from './candidate-request.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
@@ -51,12 +50,10 @@ export interface InvocationServiceConfig {
   saivageDir: string;
   registry: ProviderRegistry;
   router: ModelRouter;
-  eventLogger?: EventLogger;
+  eventLogger?: EventLog;
   candidateAvailability: CandidateAvailability;
   llmCallFn?: LlmCallFn;
-  appLogs: AppLogStore;
-  authProfiles: AuthProfileRepository;
-  persistenceHealth?: ApplicationPersistenceHealth;
+  appLogs: AppLogContext;
 }
 
 export class InvocationService {
@@ -67,11 +64,12 @@ export class InvocationService {
   private readonly maxRecoveryRetries: number;
   private readonly llmGateway: AgentLlmInvocationGateway;
   private readonly llmCallFn?: LlmCallFn;
-  private readonly appLogs: AppLogStore;
-  private readonly persistenceHealth?: ApplicationPersistenceHealth;
+  private readonly appLogs: AppLogContext;
+  private readonly registry: ProviderRegistry;
 
   constructor(config: InvocationServiceConfig) {
     this.projectRoot = config.projectRoot;
+    this.registry = config.registry;
     this.router = config.router;
     this.candidateAvailability = config.candidateAvailability;
     this.recoveryDelayMs = INVOCATION_RECOVERY_DELAY_MS;
@@ -81,37 +79,41 @@ export class InvocationService {
       saivageDir: config.saivageDir,
       registry: config.registry,
       eventLogger: config.eventLogger,
-      authProfiles: config.authProfiles,
     });
     this.llmCallFn = config.llmCallFn;
     this.appLogs = config.appLogs;
-    this.persistenceHealth = config.persistenceHealth;
   }
 
   async resolveCandidates(role: OperationalAgentRole, capabilityRequest: CapabilityRequest): Promise<Candidate[]> {
     return this.router.resolve(role, capabilityRequest);
   }
 
-  async invokeCall(request: InvocationRequest, candidate: Candidate): Promise<ProviderTurnCompletion> {
-    this.persistenceHealth?.assertMutationHealthy();
+  async invokeCall(request: InvocationRequest, candidate: Candidate, builtRequests?: Map<string, BuiltCandidateRequest>): Promise<ProviderTurnCompletion> {
     const call = this.llmCallFn ?? this.llmGateway.createLlmCallFn();
+    const options = buildLlmOptions(
+      request.role, request.tools, request.terminalToolNames,
+      { temperature: request.modelParams.temperature, max_tokens: request.modelParams.maxTokens },
+      request.abortSignal, request.inputId, undefined,
+    );
+    const requestedCompletionTokens = request.capabilityRequest.requestedCompletionTokens;
+    if (requestedCompletionTokens !== undefined) {
+      if (request.modelParams.maxTokens !== requestedCompletionTokens || options.max_tokens !== requestedCompletionTokens) throw new Error('Compacted autonomous invocation has divergent requested completion token authorities.');
+      const capabilities = this.registry.getEffectiveCapabilities(candidate);
+      const key = candidateKey(candidate);
+      const built = builtRequests?.get(key) ?? buildCandidateRequest({ candidate, capabilities, systemPrompt: request.systemPrompt, messages: genericContextMessagesForRequest(request), replay: activeConversationReplayForRequest(request), options });
+      const reason = candidateAdmissionFailure(capabilities, built.estimatedWireInputTokens, requestedCompletionTokens);
+      if (reason) throw new CandidateAdmissionError(candidate, capabilities.transportProtocol, built.estimatedWireInputTokens, requestedCompletionTokens, capabilities.contextWindowTokens, capabilities.maxOutputTokens, reason);
+      builtRequests?.set(key, built);
+      options.builtCandidateRequest = built;
+    }
     const completion = await call(
       candidate,
       request.systemPrompt,
       genericContextMessagesForRequest(request),
       activeConversationReplayForRequest(request),
       request.sessionId,
-      buildLlmOptions(
-        request.role,
-        request.tools,
-        request.terminalToolNames,
-        { temperature: request.modelParams.temperature, max_tokens: request.modelParams.maxTokens },
-        request.abortSignal,
-        request.inputId,
-        undefined,
-      ),
+      options,
     );
-    this.persistenceHealth?.assertMutationHealthy();
     return completion;
   }
 
@@ -122,10 +124,10 @@ export class InvocationService {
     const chain = request.candidateChain ?? await this.resolveCandidates(request.role, request.capabilityRequest);
     if (chain.length === 0) this.throwNoCandidates(request, settled);
     const states: CandidateRecoveryRecord[] = chain.map((candidate) => ({ candidate, attempts: 0, state: 'UNTRIED' }));
+    const builtRequests = new Map<string, BuiltCandidateRequest>();
 
     while (true) {
       throwIfAborted(request.abortSignal);
-      this.persistenceHealth?.assertMutationHealthy();
       updateReadyStates(states);
       const next = this.nextCandidateState(states, deadlineMs);
       if (next.kind === 'timeout') {
@@ -148,11 +150,17 @@ export class InvocationService {
         continue;
       }
         try {
-          const result = await this.invokeCall(request, candidate);
+          const result = await this.invokeCall(request, candidate, builtRequests);
           settled.push(...indexProviderExchangeAttempts(request.inputId, settled.length, result.provider_exchanges));
+          throwIfAborted(request.abortSignal);
           this.candidateAvailability.markSucceeded(candidate);
           return { result: result.result, provider_exchanges: settled, provider_private_context: result.provider_private_context };
         } catch (err) {
+          if (err instanceof CandidateAdmissionError) {
+            record.state = 'EXHAUSTED';
+            lastFailure = err;
+            continue;
+          }
           if (isAbortFromSignal(err, request.abortSignal)) throw err;
           const originalFailure = err instanceof ProviderTurnFailure ? err.originalFailure : err;
           if (isAbortFromSignal(originalFailure, request.abortSignal)) throw originalFailure;
@@ -172,7 +180,10 @@ export class InvocationService {
             if (err.provider_exchanges.length === 0) throw new Error(`Provider attempt for input '${request.inputId}' settled without a provider_exchange envelope.`);
             settled.push(...indexProviderExchangeAttempts(request.inputId, settled.length, err.provider_exchanges));
           }
-          if (decision.markFailed && decision.availability) this.candidateAvailability.markFailed(candidate, decision.availability);
+          if (decision.markFailed && decision.availability) {
+            throwIfAborted(request.abortSignal);
+            this.candidateAvailability.markFailed(candidate, decision.availability);
+          }
           if (decision.action === 'abort_without_retry' || decision.action === 'fail_invocation') {
             throw new ProviderTurnFailure({
               failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
@@ -201,11 +212,10 @@ export class InvocationService {
   }
 
   projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void {
-    this.persistenceHealth?.assertMutationHealthy();
     for (const attempt of attempts) {
       if (attempt.attempt_index === undefined) throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
       const payload = providerExchangePayloadSchema.parse(attempt.status === 'ok' ? { ...attempt, assistant_output_ids: assistantOutputIds } : attempt);
-      this.appLogs.append(providerExchangeAppLogEntry({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload }));
+      appendAppLogEntry(this.appLogs.projectRoot, providerExchangeAppLogEntry({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload }), this.appLogs.changes);
     }
   }
 
@@ -244,6 +254,23 @@ export class InvocationService {
       if (entry.reason && WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason)) return waitUntil(entry.untilMs, now, deadlineMs);
     }
     return { kind: 'none' };
+  }
+}
+
+type AdmissionReason = 'missing_context_window' | 'missing_max_output' | 'context_window_too_small' | 'max_output_too_small';
+function candidateAdmissionFailure(capabilities: ReturnType<ProviderRegistry['getEffectiveCapabilities']>, estimated: number, requested: number): AdmissionReason | null {
+  if (capabilities.contextWindowTokens === undefined) return 'missing_context_window';
+  if (capabilities.maxOutputTokens === undefined) return 'missing_max_output';
+  if (requested > capabilities.maxOutputTokens) return 'max_output_too_small';
+  if (estimated + requested > capabilities.contextWindowTokens) return 'context_window_too_small';
+  return null;
+}
+
+class CandidateAdmissionError extends Error {
+  constructor(candidate: Candidate, protocol: string, estimated: number, requested: number, context: number | undefined, output: number | undefined, reason: AdmissionReason) {
+    const deficit = context === undefined ? null : Math.max(0, estimated + requested - context);
+    super(`Compacted candidate skipped: protocol=${protocol}, candidate=${candidate.provider}/${candidate.account ?? '_implicit'}/${candidate.model}, estimated_wire_input_tokens=${estimated}, requested_completion_tokens=${requested}, context_window_tokens=${context ?? 'undeclared'}, max_output_tokens=${output ?? 'undeclared'}, heuristic_deficit=${deficit ?? 'unknown'}, reason=${reason}. Lower compaction.input_budget_tokens or adjust routes/capabilities.`);
+    this.name = 'CandidateAdmissionError';
   }
 }
 

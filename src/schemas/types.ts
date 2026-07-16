@@ -48,8 +48,15 @@ export type CreatedBy = 'user' | 'analyst' | 'planner';
 export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
 export type ControlActionSurface = 'web-chat' | 'telegram' | 'rest' | 'cli' | 'runtime' | 'web-ui';
 
-export interface CardMetadata { max_review_retries?: number; [key: string]: unknown; }
+export interface CardMetadata { [key: string]: unknown; }
 import type { CardLifecycleState } from './lifecycle.js';
+
+export interface CardNotification {
+  id: string;
+  content: string;
+  created_at: string;
+  source?: string;
+}
 
 export interface CardRecord {
   id: string; type: CardType; parent: string | null; depth: number; position: number; title: string; status: CardStatus;
@@ -58,7 +65,8 @@ export interface CardRecord {
   lifecycle: CardLifecycleState; metrics?: Record<string, number | string | boolean | null> | null;
   estimate?: string | null; started_at?: string | null;
   duration_ms?: number | null; status_text?: string | null; status_text_updated_at?: string | null;
-  status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; allowedActions?: CardAction[]; retries: number;
+  status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; allowedActions?: CardAction[];
+  pending_notifications: CardNotification[];
 }
 export interface CardOperatorSummary {
   lifecycleStatus: CardStatus;
@@ -88,7 +96,7 @@ export type AgentRole = typeof agentRoleValues[number];
 export type AgentInvocationRole = typeof agentInvocationRoleValues[number];
 export type OperationalAgentRole = typeof operationalAgentRoleValues[number];
 export type SessionStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
-export interface AgentSession { id: string; role: AgentRole; goal_card_id?: string | null; card_id?: string | null; assessment_id?: string | null; status: SessionStatus; started_at: string; completed_at?: string | null; model?: string; }
+export interface AgentSession { id: string; role: AgentRole; goal_card_id?: string | null; card_id?: string | null; status: SessionStatus; started_at: string; completed_at?: string | null; model?: string; }
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'tool_error' | 'model_issue' | 'model_repair' | 'context_compaction' | 'model_recovered' | 'system_prompt' | 'provider_private';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
@@ -97,11 +105,11 @@ export interface AgentMessage { id: string; session_id: string; role: MessageRol
 export interface ToolErrorAgentMessage extends AgentMessage { kind: 'tool_error'; role: 'tool' | 'system'; tool: string; tool_call_id: string; }
 export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
 export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
-export type RuntimeStatus = 'stopped' | 'running' | 'paused' | 'error';
+export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
 export type RuntimeRunStatus = RuntimeStatus | 'stopped' | 'cancelled';
-export type ActiveCardRunRuntimeStatus = 'running';
+export type ActiveCardRunRuntimeStatus = 'starting' | 'running' | 'pausing' | 'paused' | 'closing';
 export type ActiveCardRunPhase = 'planner' | 'executor' | 'reviewer';
-export interface ActiveCardRun { card_id: string; card_type: CardType; ownership: RuntimeDispatchOwnership; runtime_status: ActiveCardRunRuntimeStatus; phase: ActiveCardRunPhase; caller_session_id: string | null; caller_tool_call_id: string | null; planner_session_id?: string | null; executor_session_id?: string | null; reviewer_session_id?: string | null; correction_attempts: number; started_at: string; last_turn_at: string; }
+export interface ActiveCardRun { card_id: string; card_type: CardType; ownership: RuntimeDispatchOwnership; runtime_status: ActiveCardRunRuntimeStatus; phase: ActiveCardRunPhase; caller_session_id: string | null; caller_tool_call_id: string | null; planner_session_id?: string | null; executor_session_id?: string | null; reviewer_session_id?: string | null; started_at: string; last_turn_at: string; }
 export interface ProjectRunCompletedPayload { project_card_id: string; result: 'done' | 'failed' | 'blocked'; summary: string; failure_kind?: string; blocked_reason?: string; }
 export interface HandoffSummary { session_id: string; role: AgentRole; last_action: string; next_action: string; context_summary: string; }
 export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; active_card_run: ActiveCardRun | null; updated_at: string; last_tick_at?: string | null; }

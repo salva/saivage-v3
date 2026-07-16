@@ -1,23 +1,21 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { cardIdSchema } from '../schemas/card-id.js';
 
-import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { providerExchangeLogDataSchema, providerExchangeLogId } from '../contracts/provider-exchange-log.js';
 import { contentReviewSchema, controlActionAuditEntrySchema, loggedEventSchema } from '../schemas/index.js';
-import { cleanupDurableReplacementTemporaries } from './durable-file-replacement.js';
-import { appendEnvelope, parseGrowingFile, publishFirstEnvelope, serializeGrowingEnvelope } from './growing-file.js';
+import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope } from './growing-file.js';
 import { appLogFile } from './layout.js';
-import { discardIncompleteJsonlTail } from './store-restabilization.js';
+import type { PublicationTemporaryIdFactory } from './replace-file.js';
 
 export const errorRecordSchema = z.object({
   id: z.string().min(1),
   timestamp: z.string().datetime(),
   kind: z.literal('error'),
   message: z.string(),
-  cardId: z.string().optional(),
-  goalId: z.string().optional(),
+  cardId: cardIdSchema.optional(),
+  goalId: cardIdSchema.optional(),
   phase: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
@@ -47,68 +45,38 @@ export const appLogEntrySchema = z.discriminatedUnion('type', [
 export type AppLogEntry = z.infer<typeof appLogEntrySchema>;
 export type AppLogEntryType = AppLogEntry['type'];
 export type AppLogEntryOfType<T extends AppLogEntryType> = Extract<AppLogEntry, { type: T }>;
-
-export class AppLogStore {
-  readonly #entries: AppLogEntry[] = [];
-  readonly #ids = new Set<string>();
-  #loaded = false;
-  #published = false;
-
-  constructor(readonly projectRoot: string, private readonly health: ApplicationPersistenceHealth, private readonly changes?: ReadModelChanges) {}
-
-  restabilize(): void {
-    const path = appLogFile(this.projectRoot);
-    const directory = dirname(path);
-    mkdirSync(directory, { recursive: true });
-    cleanupDurableReplacementTemporaries(directory, [basename(path)]);
-    if (existsSync(path)) discardIncompleteJsonlTail(path);
-    const entries = readAppLogEntries(this.projectRoot);
-    const ids = new Set<string>();
-    for (const entry of entries) {
-      if (ids.has(entry.id)) throw new Error(`App log '${path}' contains duplicate id '${entry.id}'.`);
-      ids.add(entry.id);
-    }
-    this.#entries.splice(0, this.#entries.length, ...entries);
-    this.#ids.clear();
-    for (const id of ids) this.#ids.add(id);
-    this.#published = existsSync(path);
-    this.#loaded = true;
-  }
-
-  entries(): readonly AppLogEntry[];
-  entries<T extends AppLogEntryType>(type: T): readonly AppLogEntryOfType<T>[];
-  entries(type?: AppLogEntryType): readonly AppLogEntry[] {
-    if (!this.#loaded) throw new Error('App log has not been loaded.');
-    return type === undefined ? [...this.#entries] : this.#entries.filter((entry) => entry.type === type);
-  }
-
-  append(entry: AppLogEntry): AppLogEntry {
-    this.health.assertMutationHealthy();
-    if (!this.#loaded) throw new Error('App log has not been loaded.');
-    const parsed = appLogEntrySchema.parse(entry);
-    if (this.#ids.has(parsed.id)) throw new Error(`App log entry '${parsed.id}' already exists.`);
-    const path = appLogFile(this.projectRoot);
-    const bytes = serializeGrowingEnvelope([parsed], appLogEntrySchema);
-    if (this.#published) appendEnvelope(path, bytes, this.health, 'append app log entry');
-    else publishFirstEnvelope(path, bytes, this.health, 'publish first app log envelope');
-    this.#entries.push(parsed);
-    this.#ids.add(parsed.id);
-    this.#published = true;
-    this.changes?.agentsChanged();
-    return parsed;
-  }
-}
+export interface AppLogContext { readonly projectRoot: string; readonly changes?: ReadModelChanges }
 
 export function readAppLogEntries(projectRoot: string): AppLogEntry[];
 export function readAppLogEntries<T extends AppLogEntryType>(projectRoot: string, type: T): AppLogEntryOfType<T>[];
 export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): AppLogEntry[] {
   const path = appLogFile(projectRoot);
-  if (!existsSync(path)) return [];
-  const entries = parseGrowingFile(path, readFileSync(path, 'utf8'), appLogEntrySchema);
+  let entries: AppLogEntry[];
+  try { entries = readCanonicalGrowingFile(path, appLogEntrySchema); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
   const ids = new Set<string>();
   for (const entry of entries) {
     if (ids.has(entry.id)) throw new Error(`App log '${path}' contains duplicate id '${entry.id}'.`);
     ids.add(entry.id);
   }
   return type === undefined ? entries : entries.filter((entry) => entry.type === type);
+}
+
+export function appendAppLogEntry(projectRoot: string, entry: AppLogEntry, changes?: ReadModelChanges, publicationTemporaryId?: PublicationTemporaryIdFactory): AppLogEntry {
+  const parsed = appLogEntrySchema.parse(entry);
+  const entries = readAppLogEntries(projectRoot);
+  if (entries.some((candidate) => candidate.id === parsed.id)) throw new Error(`App log entry '${parsed.id}' already exists.`);
+  const path = appLogFile(projectRoot);
+  const bytes = serializeGrowingEnvelope([parsed], appLogEntrySchema);
+  if (entries.length === 0) {
+    try {
+      readFileSync(path);
+      appendEnvelope(path, bytes);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      publishFirstEnvelope(path, bytes, publicationTemporaryId);
+    }
+  } else appendEnvelope(path, bytes);
+  changes?.agentsChanged();
+  return parsed;
 }

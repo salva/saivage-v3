@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
+import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
 import { computeCardDisplayPath } from '../application/read-models/card-view.js';
 import type { CardRecord, CardType } from '../schemas/index.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-definition.js';
@@ -11,11 +11,11 @@ export function saivageDir(projectRoot: string): string {
   return join(projectRoot, '.saivage');
 }
 
-export function getStore(ctx: ToolContext): CardStore {
+export function getStore(ctx: ToolContext): CardService {
   return ctx.store;
 }
 
-export function cardSummary(card: CardRecord, store?: CardStore) {
+export function cardSummary(card: CardRecord, store?: CardService) {
   return { id: card.id, display_path: store ? computeCardDisplayPath(store, card) : null, title: card.title, type: card.type, status: card.status };
 }
 
@@ -28,7 +28,7 @@ export function normalizeParentValue(value: unknown): string | null | undefined 
   return trimmed;
 }
 
-export function defaultParentForCreate(store: CardStore, type: CardType): string | null | undefined {
+export function defaultParentForCreate(store: CardService, type: CardType): string | null | undefined {
   if (type === 'project') return null;
   if (type === 'goal') return PROJECT_CARD_ID;
   const activeGoals = store

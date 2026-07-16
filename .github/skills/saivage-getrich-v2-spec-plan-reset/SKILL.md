@@ -89,8 +89,7 @@ cp -a "${preserve}/.saivage/." "${root}/.saivage/" 2>/dev/null || true
 ```
 
 5. Invoke the current built CLI. This is the only reset entry point. Its bound
-direct-command composition owns the strict lifecycle lock, command-scoped
-persistence-health owner, generated-state deletion, and named synchronous store-backed
+direct-command composition owns the strict lifecycle lock, generated-state deletion, and named stateless synchronous file
 reinitialization until exact matching-owner release. It preserves
 prompt overrides, skills, instructions, project identity, config, credentials,
 and docs.
@@ -107,7 +106,6 @@ Current generated `.saivage` roots should include:
 ```text
 .saivage/cards/project/
 .saivage/agents/
-.saivage/state/runtime.json
 .saivage/logs/        # app.jsonl is absent until its first atomic envelope publication
 .saivage/locks/        # exists, with no runtime.lock after reset returns
 .saivage/work/cards/

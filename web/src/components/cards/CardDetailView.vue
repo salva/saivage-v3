@@ -78,7 +78,6 @@
           <div v-if="currentCard.assigned_to" class="meta-item"><span class="meta-key">Assigned to</span><span class="meta-value">{{ currentCard.assigned_to }}</span></div>
           <div v-if="currentCard.started_at || lifecycle?.startedAt" class="meta-item"><span class="meta-key">Started</span><span class="meta-value" :title="timestampTitle(currentCard.started_at || lifecycle?.startedAt || '')">{{ fmtDate(currentCard.started_at || lifecycle?.startedAt || '') }}</span></div>
           <div v-if="currentCard.lifecycle?.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value" :title="timestampTitle(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '')">{{ fmtDate(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '') }}</span></div>
-          <div class="meta-item"><span class="meta-key">Retries</span><span class="meta-value">{{ lifecycle?.retries ?? currentCard.retries }}</span></div>
         </div>
         <div v-if="currentCard.allowedActions?.length" class="allowed-actions" data-testid="allowed-actions">
           <span class="allowed-actions-label">Allowed actions:</span>

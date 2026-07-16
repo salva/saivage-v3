@@ -1,19 +1,11 @@
-import { AppLogStore } from '../../src/persistence/app-log.js';
-import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
+import type { AppLogContext } from '../../src/persistence/app-log.js';
 
-const stores = new Map<string, { store: AppLogStore; health: ApplicationPersistenceHealth }>();
+const contexts = new Map<string, AppLogContext>();
 
-export function testAppLogs(projectRoot: string): AppLogStore {
-  const existing = stores.get(projectRoot);
-  if (existing) return existing.store;
-  const health = new ApplicationPersistenceHealth();
-  const store = new AppLogStore(projectRoot, health);
-  store.restabilize();
-  stores.set(projectRoot, { store, health });
-  return store;
-}
-
-export function testAppLogHealth(projectRoot: string) {
-  testAppLogs(projectRoot);
-  return stores.get(projectRoot)!.health;
+export function testAppLogs(projectRoot: string): AppLogContext {
+  const existing = contexts.get(projectRoot);
+  if (existing) return existing;
+  const context: AppLogContext = { projectRoot };
+  contexts.set(projectRoot, context);
+  return context;
 }

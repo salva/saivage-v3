@@ -1,7 +1,7 @@
-export class CardStoreInvariantError extends Error {
+export class CardServiceInvariantError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'CardStoreInvariantError';
+    this.name = 'CardServiceInvariantError';
   }
 }
 

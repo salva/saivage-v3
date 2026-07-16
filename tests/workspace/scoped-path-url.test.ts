@@ -16,9 +16,9 @@ describe('scoped path URL helper', () => {
   });
 
   it('separates query and fragment without using URL path normalization', () => {
-    const parsed = parseScopedPathUrl('record:///brief.md?card=card-1&v=next#frag', 'record');
+    const parsed = parseScopedPathUrl('record:///brief.md?card=11111111-1111-4111-8111-111111111111&v=next#frag', 'record');
     expect(parsed.segments).toEqual(['brief.md']);
-    expect(parsed.query?.get('card')).toBe('card-1');
+    expect(parsed.query?.get('card')).toBe('11111111-1111-4111-8111-111111111111');
     expect(parsed.hadFragment).toBe(true);
   });
 

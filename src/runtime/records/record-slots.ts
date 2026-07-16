@@ -2,7 +2,8 @@ import { basename, extname } from 'node:path';
 
 import type { AgentRole } from '../../schemas/index.js';
 import { buildScopedPathUrl } from '../../contracts/scoped-path-url.js';
-import type { ProjectCardRecordReader, RecordProjection } from '../../persistence/project-store-repository.js';
+import type { RecordProjection } from '../../persistence/authored-record-files.js';
+type AuthoredRecordReader = { record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection };
 import type { AuthoredRecordSlot, RecordVersionArtifact } from '../../persistence/canonical-record-artifacts.js';
 
 export type RecordSlotVersionStatus = RecordVersionArtifact['state'];
@@ -44,6 +45,6 @@ export function recordSlotDefinitions(): readonly RecordSlotDefinition[] { retur
 export function normalizeRecordUrl(input: { filename: string; cardId: string; version: number }): string {
   return `${buildScopedPathUrl('record', [basename(input.filename)])}?card=${encodeURIComponent(input.cardId)}&v=${encodeURIComponent(String(input.version))}`;
 }
-export function latestClosedRecordSlot(reader: ProjectCardRecordReader, input: { cardId: string; filename: string }): RecordProjection { return reader.record(input.cardId, input.filename, 'latest'); }
-export function concreteRecordSlot(reader: ProjectCardRecordReader, input: { cardId: string; filename: string; version: number }): RecordProjection { return reader.record(input.cardId, input.filename, input.version); }
+export function latestClosedRecordSlot(reader: AuthoredRecordReader, input: { cardId: string; filename: string }): RecordProjection { return reader.record(input.cardId, input.filename, 'latest'); }
+export function concreteRecordSlot(reader: AuthoredRecordReader, input: { cardId: string; filename: string; version: number }): RecordProjection { return reader.record(input.cardId, input.filename, input.version); }
 export function recordContentIsNonEmpty(record: RecordProjection): boolean { return record.artifact.content.trim().length > 0; }

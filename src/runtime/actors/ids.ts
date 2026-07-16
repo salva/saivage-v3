@@ -47,14 +47,7 @@ export function parseLlmActorId(actorId: string): { role: LlmActorRole; cardId: 
 }
 
 export function cardIdFromSessionId(sessionId: string): string | undefined {
-  const reviewerPrefix = 'reviewer:';
-  if (sessionId.startsWith(reviewerPrefix)) {
-    const rest = sessionId.slice(reviewerPrefix.length);
-    const assessmentDelimiter = rest.lastIndexOf(':');
-    if (assessmentDelimiter === -1) return rest;
-    return rest.slice(0, assessmentDelimiter);
-  }
-  if (!sessionId.startsWith('planner:') && !sessionId.startsWith('executor:') && !sessionId.startsWith('analyst:')) return undefined;
+  if (!sessionId.startsWith('planner:') && !sessionId.startsWith('reviewer:') && !sessionId.startsWith('executor:') && !sessionId.startsWith('analyst:')) return undefined;
   const parsed = parseLlmActorId(sessionId);
   return parsed.cardId ?? undefined;
 }

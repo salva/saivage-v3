@@ -1,10 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../agents/config-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
-import { setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../../notifications/index.js';
 import {
   TelegramBot,
-  TelegramNotificationDeliveryAdapter,
   buildTelegramStartupDiagnosticSummary,
   evaluateTelegramRecipientReadiness,
   normalizeTelegramNotificationChatIds,
@@ -40,9 +38,6 @@ export async function startTelegramNotifications(options: {
     recipients: recipientRegistry.recipients,
     invalidRecipientCount: recipientRegistry.invalidValues.length,
   });
-
-  if (telegramReadiness.state === 'ready' && telegramBot) setProjectNotificationDeliveryAdapters(projectRoot, [new TelegramNotificationDeliveryAdapter(telegramBot, recipientRegistry.recipients)]);
-  else clearProjectNotificationDeliveryAdapters(projectRoot);
 
   const diagnosticSummary = buildTelegramStartupDiagnosticSummary(telegramReadiness);
   if (diagnosticSummary) fastify.log.warn(diagnosticSummary);

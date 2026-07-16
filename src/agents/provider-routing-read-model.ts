@@ -14,6 +14,7 @@ export interface ProviderRoutingSummary {
 }
 
 export interface ProviderRoutingReadModel {
+  availabilityScope: 'process_local_reset_on_restart';
   providers: Record<string, ProviderRoutingSummary>;
 }
 
@@ -44,5 +45,5 @@ export function buildProviderRoutingReadModel(input: {
       availability,
     };
   }
-  return { providers };
+  return { availabilityScope: 'process_local_reset_on_restart', providers };
 }

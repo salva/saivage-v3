@@ -20,7 +20,7 @@ export function commitDeleteCards(_prepared: undefined, input: { ids: string[] }
   return ctx.services.cards.delete(input.ids);
 }
 
-export function commitCancelCard(_prepared: undefined, input: { cardId: string; reason?: string }, ctx: AnalystMutationContext): ToolResult {
+export function commitCancelCard(_prepared: undefined, input: { cardId: string; reason?: string }, ctx: AnalystMutationContext): ToolResult | Promise<ToolResult> {
   return ctx.services.cards.cancel(input.cardId, input.reason);
 }
 
@@ -28,8 +28,8 @@ export function commitReorderChildren(_prepared: undefined, input: { parentId: s
   return ctx.services.cards.reorder(input.parentId, input.orderedChildIds);
 }
 
-export function commitQueueNotification(_prepared: undefined, input: { recipient: string; kind: string; body: string }, ctx: AnalystMutationContext): ToolResult {
-  return ctx.services.notifications.queue(input.recipient, input.kind, input.body);
+export function commitQueueNotification(_prepared: undefined, input: { card_id: string; kind: string; body: string }, ctx: AnalystMutationContext): ToolResult {
+  return ctx.services.notifications.queue(input.card_id, input.kind, input.body);
 }
 
 export function commitConfigChange(prepared: ConfigMutation, _input: Record<string, unknown>, ctx: AnalystMutationContext): ToolResult {

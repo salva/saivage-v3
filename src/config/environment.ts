@@ -4,7 +4,6 @@ import { parseArgs } from 'node:util';
 import type { EnvironmentSource } from './env-interpolation.js';
 import type { SaivageConfig } from '../agents/config-api.js';
 import { createResolvedConfigAuthority, type ConfigSelectionSource, type ResolvedConfigAuthority } from './resolved-config-authority.js';
-import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import { realpathSync } from 'node:fs';
 
 export type NodeEnvironment = 'development' | 'production' | 'test';
@@ -157,7 +156,7 @@ function parseLogLevel(raw: string | undefined): LogLevel | undefined {
   return parsed.data;
 }
 
-export async function loadEnvironment(argv: readonly string[], env: EnvironmentSource, health: ApplicationPersistenceHealth): Promise<Environment> {
+export async function loadEnvironment(argv: readonly string[], env: EnvironmentSource): Promise<Environment> {
   const cli = parseCli(argv);
   const projectRoot = realpathSync(resolve(cli.projectRoot ?? env['SAIVAGE_PROJECT_ROOT'] ?? process.cwd()));
   const source: ConfigSelectionSource = cli.config !== undefined
@@ -166,8 +165,7 @@ export async function loadEnvironment(argv: readonly string[], env: EnvironmentS
       ? { kind: 'environment', variable: 'SAIVAGE_CONFIG' }
       : { kind: 'default' };
   const configPath = resolve(cli.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`);
-  const configAuthority = createResolvedConfigAuthority({ path: configPath, source, interpolationEnvironment: env, health });
-  configAuthority.restabilize();
+  const configAuthority = createResolvedConfigAuthority({ path: configPath, source, interpolationEnvironment: env });
   if (cli.createRuntime) configAuthority.initializeCanonicalDefaultIfMissing();
   let config: SaivageConfig;
   let warnings: readonly string[];

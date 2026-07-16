@@ -170,10 +170,10 @@ export function resolveContainedProjectPath(
           reason: 'Symlink target is outside the project root.',
         };
       }
-      const rel = relative(realRoot, realPath).replace(/\\/g, '/');
+      const rel = relative(resolvedRoot, resolvedPath).replace(/\\/g, '/');
       return {
         safe: true,
-        absolutePath: realPath,
+        absolutePath: resolvedPath,
         relativePath: rel === '' ? '.' : rel,
       };
     } catch {

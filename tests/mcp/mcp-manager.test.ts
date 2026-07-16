@@ -230,7 +230,7 @@ describe('persisted MCP reconciliation', () => {
 
     manager.closeAdmission();
     await expect(manager.reconcilePersistedConfig()).rejects.toThrow('closed');
-    await manager.dispose();
+    await manager.cleanupForApplicationStop();
 
     expect(signal).toHaveBeenCalled();
     expect(manager.getStatus()).toEqual([]);

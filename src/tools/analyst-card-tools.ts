@@ -1,9 +1,7 @@
 import { z } from 'zod';
 
-import { PROJECT_CARD_ID } from '../cards/store-api.js';
+import { PROJECT_CARD_ID } from '../cards/card-api.js';
 import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
-import { deriveCurrentCardId } from '../runtime/current-run.js';
-import { readRuntimeState } from '../runtime/state-api.js';
 import { orderedCardsForTree, toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
@@ -50,21 +48,21 @@ const plannerCreateCardInput = z.object({
   related: describe(cardIdArraySchema.optional(), 'Optional related-card list.'),
 }).strict();
 
-export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; brief: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; depends_on?: string[]; related?: string[] }): Promise<ToolResult> {
+export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; brief: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; depends_on?: string[]; related?: string[] }, signal?: AbortSignal): Promise<ToolResult> {
   const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
   const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'create_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error };
   const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error };
   const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(getStore(ctx), params.type);
   const input = { ...params, parent } as import('../application/analyst-mutation-services.js').CreateAnalystCardInput;
-  return runAuditedAnalystTool(ctx, input, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: 'intervention_ready', recheck: recheckCreateCard, commit: commitCreateCard });
+  return runAuditedAnalystTool(ctx, input, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: 'intervention_ready', recheck: recheckCreateCard, commit: commitCreateCard }, signal);
 }
 
-export async function delete_card(ctx: ToolContext, params: { ids: string[] }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.delete', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.ids.join(','), lifecycle: 'intervention_ready', recheck: recheckDeleteCards, commit: commitDeleteCards });
+export async function delete_card(ctx: ToolContext, params: { ids: string[] }, signal?: AbortSignal): Promise<ToolResult> {
+  return runAuditedAnalystTool(ctx, params, { action: 'card.delete', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.ids.join(','), lifecycle: 'intervention_ready', recheck: recheckDeleteCards, commit: commitDeleteCards }, signal);
 }
 
-export async function cancel_card(ctx: ToolContext, params: { cardId: string; reason?: string }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, lifecycle: 'intervention_ready', recheck: recheckCancelCard, commit: commitCancelCard });
+export async function cancel_card(ctx: ToolContext, params: { cardId: string; reason?: string }, signal?: AbortSignal): Promise<ToolResult> {
+  return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, lifecycle: 'runtime_cancellation', recheck: recheckCancelCard, commit: commitCancelCard }, signal);
 }
 
 export async function list_cards(ctx: ToolContext, params: { status?: CardStatus | CardStatus[]; type?: CardType | CardType[]; parent?: string; tag?: string }): Promise<ToolResult> {
@@ -104,7 +102,7 @@ function cardRecordSummaries(store: ReturnType<typeof getStore>, cardId: string)
 }
 
 interface TreeNode { id: string; type: string; title: string; status: string; display_path: string | null; children: TreeNode[]; }
-function buildNode(store: import('../cards/store-api.js').CardStore, id: string): TreeNode | null {
+function buildNode(store: import('../cards/card-api.js').CardService, id: string): TreeNode | null {
   const card = store.read(id); if (!card) return null;
   return { id: card.id, display_path: computeCardDisplayPath(store, card), type: card.type, title: card.title, status: card.status, children: store.listChildren(id).map((cid) => buildNode(store, cid)).filter((n): n is TreeNode => n !== null) };
 }
@@ -115,8 +113,8 @@ export async function get_tree(ctx: ToolContext, params: { rootId?: string }): P
 }
 
 export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  try { const store = getStore(ctx); const runtimeState = readRuntimeState(ctx.projectRoot); const allCards = store.list(); const runningProcesses = ctx.processRunner.list({ status: 'running' }); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.status] = (counts[card.status] ?? 0) + 1; return counts; }, {}); const activeCardRun = runtimeState?.active_card_run ?? null;
-    return { success: true, data: { runtime: runtimeState, runtimeSummary: { status: runtimeState?.status ?? 'unknown', currentCardId: deriveCurrentCardId(runtimeState), activeCardRun }, runningProcesses: runningProcesses.length, statusCounts, counts: { done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } } };
+  try { const store = getStore(ctx); const runtimeStatus = ctx.runtime?.getStatus() ?? { status: 'stopped', currentCardId: null, goalCount: 0, lastTickAt: null }; const allCards = store.list(); const runningProcesses = ctx.processRunner.list({ status: 'running' }); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.status] = (counts[card.status] ?? 0) + 1; return counts; }, {});
+    return { success: true, data: { runtime: runtimeStatus, runtimeSummary: { status: runtimeStatus.status, currentCardId: runtimeStatus.currentCardId }, runningProcesses: runningProcesses.length, statusCounts, counts: { done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } } };
   } catch (err) { return toolFailureFromError(err); }
 }
 
@@ -135,8 +133,8 @@ export async function diff_card(ctx: ToolContext, params: { cardId: string; from
   catch (err) { return toolFailureFromError(err); }
 }
 
-export async function reorder_child(ctx: ToolContext, params: { parentId: string; orderedChildIds: string[] }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, lifecycle: 'intervention_ready', recheck: recheckReorderChildren, commit: commitReorderChildren });
+export async function reorder_child(ctx: ToolContext, params: { parentId: string; orderedChildIds: string[] }, signal?: AbortSignal): Promise<ToolResult> {
+  return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, lifecycle: 'intervention_ready', recheck: recheckReorderChildren, commit: commitReorderChildren }, signal);
 }
 
 export const analystCardTools: readonly UnifiedToolDefinition<string, any>[] = [

@@ -39,7 +39,7 @@ describe('useCardRecords', () => {
       throw new ApiError(404, 'not found', {});
     });
 
-    const cardId = ref<string | null | undefined>('card-7');
+    const cardId = ref<string | null | undefined>('11111111-1111-4111-8111-111111111111');
     const { state } = useCardRecords(cardId);
     await flushPromises();
     await flushPromises();
@@ -58,7 +58,7 @@ describe('useCardRecords', () => {
   it('treats a missing logical record as non-existent rather than an error', async () => {
     getFileContent.mockRejectedValue(new ApiError(404, 'File not found', {}));
 
-    const cardId = ref<string | null | undefined>('card-7');
+    const cardId = ref<string | null | undefined>('11111111-1111-4111-8111-111111111111');
     const { state } = useCardRecords(cardId);
     await flushPromises();
     await flushPromises();
@@ -71,14 +71,14 @@ describe('useCardRecords', () => {
   it('reloads records when the card id ref changes', async () => {
     getFileContent.mockRejectedValue(new ApiError(404, 'File not found', {}));
 
-    const cardId = ref<string | null | undefined>('card-1');
+    const cardId = ref<string | null | undefined>('11111111-1111-4111-8111-111111111111');
     const { state } = useCardRecords(cardId);
     await flushPromises();
     await flushPromises();
     expect(getFileContent.mock.calls.length).toBeGreaterThan(0);
     const firstCount = getFileContent.mock.calls.length;
 
-    cardId.value = 'card-2';
+    cardId.value = '22222222-2222-4222-8222-222222222222';
     await flushPromises();
     await flushPromises();
     expect(getFileContent.mock.calls.length).toBeGreaterThan(firstCount);

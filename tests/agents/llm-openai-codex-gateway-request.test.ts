@@ -71,6 +71,15 @@ describe('buildOpenAICodexRequest wire shape', () => {
       },
     ]);
     expect(JSON.stringify(body.tools)).not.toContain('"function":{');
+    expect(body.max_output_tokens).toBe(4096);
+  });
+
+  it('uses the requested completion authority and universally projects system context into instructions', () => {
+    const opts: LlmCompleteOptions = { inputId: 'test:input:1', phase: 'tools', contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: { kind: 'auto' }, max_tokens: 777 };
+    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }], opts);
+    expect(body.max_output_tokens).toBe(777);
+    expect(body.instructions).toContain('compacted context');
+    expect(body.input).toEqual([{ role: 'user', content: [{ type: 'input_text', text: 'Proceed with the task described in the instructions.' }] }]);
   });
 
   it("tools phase with tool_choice 'auto': tool_choice serialized as the string 'auto'", () => {

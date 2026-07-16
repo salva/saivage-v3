@@ -13,7 +13,7 @@ function process(overrides: Partial<ProcessView>): ProcessView {
     owner_kind: 'agent',
     owner_id: 'agent-1',
     session_id: null,
-    card_id: 'card',
+    card_id: '11111111-1111-4111-8111-111111111111',
     command: 'echo ok',
     cwd: null,
     logs: { stdout: null, stderr: null },

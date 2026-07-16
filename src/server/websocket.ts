@@ -85,10 +85,6 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
     sendToClient,
     broadcast: (event) => broadcast(liveSyncSocket, event),
   });
-  fastify.addHook('onClose', async () => {
-    liveSyncSocket.dispose();
-  });
-
   fastify.get(
     '/ws',
     { websocket: true },
@@ -109,6 +105,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
       }));
 
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
+        if (!liveSyncSocket.isAdmissionOpen()) return;
         return analystWsHandler.handleRawMessage(ws, raw);
       });
 

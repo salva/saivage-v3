@@ -12,10 +12,6 @@ export function saivageCardsRoot(projectRoot: string): string {
   return join(projectRoot, SAIVAGE_CARDS_RELATIVE_DIR);
 }
 
-export function saivageStateRoot(projectRoot: string): string {
-  return join(saivageRoot(projectRoot), 'state');
-}
-
 export function saivageLogsRoot(projectRoot: string): string {
   return join(saivageRoot(projectRoot), 'logs');
 }
@@ -24,25 +20,12 @@ export function saivageLocksRoot(projectRoot: string): string {
   return join(saivageRoot(projectRoot), 'locks');
 }
 
-export function runtimeStateFile(projectRoot: string): string {
-  return join(saivageStateRoot(projectRoot), 'runtime.json');
-}
-
-
 export function appLogFile(projectRoot: string): string {
   return join(saivageLogsRoot(projectRoot), 'app.jsonl');
 }
 
 export function runtimeProcessLockFile(projectRoot: string): string {
   return join(saivageLocksRoot(projectRoot), 'runtime.lock');
-}
-
-export function recoveryDiagnosticsFile(projectRoot: string): string {
-  return join(saivageStateRoot(projectRoot), 'recovery-diagnostics.json');
-}
-
-export function providerAvailabilityFile(projectRoot: string): string {
-  return join(saivageStateRoot(projectRoot), 'provider-availability.jsonl');
 }
 
 export function saivageWorkRoot(projectRoot: string): string {

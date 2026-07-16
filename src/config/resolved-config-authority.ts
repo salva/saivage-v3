@@ -1,11 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import * as YAML from 'yaml';
 
 import { saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { validateModelRoles } from './validate-model-roles.js';
-import { PersistenceMutationUnhealthyError, type ApplicationPersistenceHealth } from '../application/persistence-health.js';
-import { ConfigFileStore } from './config-file-store.js';
+import { replaceConfigYaml } from './config-file.js';
 
 export type ConfigSelectionSource =
   | { readonly kind: 'cli'; readonly argument: '--config' }
@@ -34,13 +33,12 @@ export interface ResolvedConfigAuthority {
   readDocument(): ConfigDocument;
   validateDocument(document: ConfigDocument): { config: SaivageConfig; warnings: readonly string[] };
   loadEffective(): { config: SaivageConfig; warnings: readonly string[] };
-  restabilize(): void;
   initializeCanonicalDefaultIfMissing(): void;
   applyChange(mutation: ConfigMutation): ConfigMutationResult;
   validateChange(mutation: ConfigMutation): ConfigMutationResult;
 }
 
-const RUNTIME_KEYS = new Set(['continuous_improvement', 'max_review_retries', 'process_timeouts']);
+const RUNTIME_KEYS = new Set(['continuous_improvement', 'process_timeouts']);
 const SERVER_KEYS = new Set(['port', 'host']);
 const CANONICAL_DEFAULT = 'models:\n  default:\n    - gpt-4.1\nproviders: {}\nserver:\n  host: 0.0.0.0\n  port: 8080\nruntime: {}\n';
 
@@ -72,19 +70,19 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
   readonly path: string;
   readonly source: ConfigSelectionSource;
   readonly #interpolationEnvironment: EnvironmentSource;
-  readonly #store: ConfigFileStore;
 
-  constructor(path: string, source: ConfigSelectionSource, interpolationEnvironment: EnvironmentSource, health: ApplicationPersistenceHealth) {
+  constructor(path: string, source: ConfigSelectionSource, interpolationEnvironment: EnvironmentSource) {
     this.path = path;
     this.source = Object.freeze(source);
     this.#interpolationEnvironment = Object.freeze({ ...interpolationEnvironment });
-    this.#store = new ConfigFileStore(path, health);
     Object.freeze(this);
   }
 
   readDocument(): ConfigDocument {
-    if (!existsSync(this.path)) throw new Error(`Configuration not found at ${this.path}`);
-    const document = YAML.parseDocument(readFileSync(this.path, 'utf8')) as ConfigDocument;
+    let source: string;
+    try { source = readFileSync(this.path, 'utf8'); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Configuration not found at ${this.path}`); throw error; }
+    const document = YAML.parseDocument(source) as ConfigDocument;
     if (document.errors.length > 0) throw new Error(`Failed to parse configuration at ${this.path}: ${document.errors[0]!.message}`);
     documentObject(document);
     return document;
@@ -113,12 +111,11 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
     return this.validateDocument(this.readDocument());
   }
 
-  restabilize(): void {
-    this.#store.restabilize();
-  }
-
   initializeCanonicalDefaultIfMissing(): void {
-    this.#store.publishIfMissing(Buffer.from(CANONICAL_DEFAULT));
+    try { readFileSync(this.path); return; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    const document = YAML.parseDocument(CANONICAL_DEFAULT) as ConfigDocument;
+    replaceConfigYaml(this.path, document);
   }
 
   applyChange(mutation: ConfigMutation): ConfigMutationResult {
@@ -128,7 +125,7 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
       const precondition = this.applyMutation(document, raw, mutation);
       if (precondition) return precondition;
       const effective = this.validateDocument(document);
-      this.#store.replace(Buffer.from(document.toString()));
+      replaceConfigYaml(this.path, document);
       return {
         success: true as const,
         config: effective.config,
@@ -136,7 +133,6 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
         ...(mutation.kind === 'set_server_setting' ? { requires_restart: true } : {}),
       };
     } catch (error) {
-      if (error instanceof PersistenceMutationUnhealthyError) throw error;
       const failure = error as Error & { fieldPath?: string };
       return { success: false as const, fieldPath: failure.fieldPath ?? '/', message: failure.message };
     }
@@ -198,7 +194,6 @@ export function createResolvedConfigAuthority(input: {
   path: string;
   source: ConfigSelectionSource;
   interpolationEnvironment: EnvironmentSource;
-  health: ApplicationPersistenceHealth;
 }): ResolvedConfigAuthority {
-  return new ResolvedConfigAuthorityImpl(input.path, input.source, input.interpolationEnvironment, input.health);
+  return new ResolvedConfigAuthorityImpl(input.path, input.source, input.interpolationEnvironment);
 }

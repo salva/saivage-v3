@@ -61,7 +61,8 @@ export function responsesInputFromReplay(replay: ResponsesReplayProjection): Res
       input.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments });
       continue;
     }
-    if (message.kind === 'text' || message.kind === 'model_repair' || message.kind === 'context_compaction') {
+    if (message.kind === 'context_compaction' || (message.kind === 'text' && message.role === 'system')) continue;
+    if (message.kind === 'text' || message.kind === 'model_repair') {
       input.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content: [{ type: message.role === 'assistant' ? 'output_text' : 'input_text', text: message.content }] });
       continue;
     }

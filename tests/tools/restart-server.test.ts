@@ -1,4 +1,3 @@
-import { CardStore, testConfigAuthority, testInterventionReadiness, testPersistenceHealth } from '../helpers/canonical-project.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,17 +5,12 @@ import { join } from 'node:path';
 
 
 import { listControlActions } from '../../src/persistence/index.js';
-import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { restart_server } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { createAnalystControlProvider } from '../../src/tools/analyst-control-provider.js';
-import { testAppLogs } from '../helpers/app-logs.js';
 
 function context(projectRoot: string, restartServerAvailable: boolean): ToolContext {
-  const processRunner = createTestProcessRunner(projectRoot);
-  const store = new CardStore(projectRoot);
-  return { projectRoot, configAuthority: testConfigAuthority(projectRoot), persistenceHealth: testPersistenceHealth(projectRoot), interventionReadiness: testInterventionReadiness(), processRunner, processScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test-analyst', 'operator_session'), store, actor: 'analyst', surface: 'web-chat', restartServerAvailable, appLogs: testAppLogs(projectRoot) };
+  return { projectRoot, actor: 'analyst', surface: 'web-chat', restartServerAvailable } as ToolContext;
 }
 
 describe('restart_server', () => {
@@ -40,12 +34,12 @@ describe('restart_server', () => {
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
-  it('denies unavailable direct calls with an audited authentication reason', async () => {
+  it('denies unavailable direct calls without a lifecycle audit', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-restart-tool-'));
     try {
       await expect(restart_server(context(projectRoot, false))).resolves.toEqual({
         success: false,
-        error: 'Denied by permission policy for runtime.restart_server: restart unavailable: operator authentication disabled.',
+        error: 'restart unavailable: operator authentication disabled',
       });
       expect(listControlActions(projectRoot)).toEqual([]);
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }

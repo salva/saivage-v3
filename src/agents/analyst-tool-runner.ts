@@ -24,10 +24,10 @@ export interface MutatingSpec<P, Prepared = undefined> {
   readonly safety_class: SafetyClass;
   readonly target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
   readonly getTargetId: (params: P) => string | null;
-  readonly lifecycle: 'intervention_ready';
+  readonly lifecycle: 'intervention_ready' | 'runtime_cancellation';
   readonly prepare?: (params: P, ctx: AnalystMutationReadContext) => Promise<Prepared>;
   readonly recheck: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => MutationAdmission;
-  readonly commit: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => ToolResult;
+  readonly commit: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => ToolResult | Promise<ToolResult>;
   readonly successSummary?: string;
 }
 
@@ -37,10 +37,9 @@ function paramsSummary(params: unknown): string {
   return stableStringify(safe);
 }
 
-export async function runAuditedAnalystTool<P extends object, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>): Promise<ToolResult> {
+export async function runAuditedAnalystTool<P extends object, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>, signal?: AbortSignal): Promise<ToolResult> {
   const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });
   const auditBase = { actor: ctx.actor, surface: ctx.surface, action: spec.action, target_kind: spec.target_kind, target_id: spec.getTargetId(params), params_summary: paramsSummary(params), safety_class: spec.safety_class };
-  ctx.persistenceHealth.assertMutationHealthy();
   if (verdict === 'deny') {
     recordControlAction(ctx.appLogs, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' }, ctx.eventBus);
     return toolFailure(`Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.`, { action: spec.action, safety_class: spec.safety_class });
@@ -49,8 +48,8 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
   if (spec.prepare && !readServices) throw new Error('Analyst preparation services are required for prepared mutations.');
   const readContext: AnalystMutationReadContext = { projectRoot: ctx.projectRoot, actor: ctx.actor, surface: ctx.surface, services: readServices!, ...(ctx.sessionId === undefined ? {} : { sessionId: ctx.sessionId }) };
   const prepared = spec.prepare ? await spec.prepare(params, readContext) : undefined as Prepared;
-  ctx.persistenceHealth.assertMutationHealthy();
-  ctx.interventionReadiness.assertInterventionReady();
+  signal?.throwIfAborted();
+  if (spec.lifecycle === 'intervention_ready') ctx.interventionReadiness.assertInterventionReady();
   if (!ctx.analystMutations) throw new Error('Analyst mutation services are required for mutating tools.');
   const mutationContext: AnalystMutationContext = { actor: ctx.actor, surface: ctx.surface, services: ctx.analystMutations };
   const permission = spec.recheck(prepared, params, mutationContext);
@@ -58,7 +57,8 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
     recordControlAction(ctx.appLogs, { ...auditBase, outcome: 'denied', outcome_summary: `permission denied: ${permission.reason}` }, ctx.eventBus);
     return toolFailure(`Denied by permission policy for ${spec.action}: ${permission.reason}.`, { action: spec.action, reason: permission.reason });
   }
-  const result = spec.commit(prepared, params, mutationContext);
+  const result = await spec.commit(prepared, params, mutationContext);
+  signal?.throwIfAborted();
   recordControlAction(ctx.appLogs, {
     ...auditBase,
     outcome: result.success ? 'ok' : 'error',

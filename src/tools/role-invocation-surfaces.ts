@@ -1,7 +1,7 @@
 import type { AgentRole } from '../schemas/index.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
-import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { createAnalystControlProvider } from './analyst-control-provider.js';
@@ -14,8 +14,7 @@ import { createProcessProvider } from './process-provider.js';
 import { createSkillProvider } from './skill-provider.js';
 import { createWebProvider, type WebProviderContext } from './web-tools.js';
 import { createAnalystPatchProvider, createAnalystWorkspaceProvider, createPatchProvider, createWorkspaceProvider, type WorkspaceProviderContext } from './workspace-provider.js';
-import type { AppLogStore } from '../persistence/app-log.js';
-import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
+import type { AppLogContext } from '../persistence/app-log.js';
 
 export type RoleSurfaceRole = Extract<AgentRole, 'planner' | 'reviewer' | 'executor' | 'analyst'>;
 type ProviderName = 'plannerControl' | 'analystControl' | 'cardInspection' | 'workspace' | 'patch' | 'process' | 'cardHistory' | 'web' | 'skill' | 'mcp';
@@ -31,10 +30,10 @@ export interface RoleSurfaceContext {
   processScope?: ManagedProcessScope;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   children?: PlannerControlProviderContext['children'];
+  cancelCard?: PlannerControlProviderContext['cancelCard'];
   notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
   toolContext?: ToolContext;
-  appLogs?: AppLogStore;
-  persistenceHealth?: ApplicationPersistenceHealth;
+  appLogs?: AppLogContext;
 }
 
 export const ROLE_PROVIDER_ORDER: Readonly<Record<RoleSurfaceRole, readonly ProviderName[]>> = {
@@ -51,6 +50,7 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     sessionId: ctx.sessionId!,
     store: ctx.store as PlannerControlProviderContext['store'],
     children: ctx.children!,
+    cancelCard: ctx.cancelCard!,
     notifyCard: ctx.notifyCard,
     appLogs: ctx.appLogs!,
   }),
@@ -66,14 +66,12 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     agentRole: role,
     store: ctx.store as WorkspaceProviderContext['store'],
     notifyCard: undefined,
-    persistenceHealth: ctx.persistenceHealth,
   }),
   patch: (ctx, role) => role === 'analyst' ? createAnalystPatchProvider(ctx.toolContext!) : createPatchProvider({
     projectRoot: ctx.projectRoot,
     cardId: ctx.cardId,
     agentRole: role,
     store: ctx.store as WorkspaceProviderContext['store'],
-    persistenceHealth: ctx.persistenceHealth,
   }),
   process: (ctx, role) => role === 'analyst'
     ? createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, directScope: ctx.processScope!, category: 'operator_session', ownerId: ctx.ownerId ?? ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })
@@ -90,11 +88,10 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     agentRole: role,
     store: ctx.store as WebProviderContext['store'],
     notifyCard: undefined,
-    persistenceHealth: ctx.persistenceHealth,
     analystToolContext: role === 'analyst' ? ctx.toolContext : undefined,
   }),
   skill: (ctx, role) => createSkillProvider({ projectRoot: ctx.projectRoot, agentRole: role as SkillMcpRole }),
-  mcp: (ctx, role) => createMcpProvider({ mcpManagerProvider: ctx.mcpManagerProvider!, agentRole: role as SkillMcpRole, persistenceHealth: ctx.persistenceHealth }),
+  mcp: (ctx, role) => createMcpProvider({ mcpManagerProvider: ctx.mcpManagerProvider!, agentRole: role as SkillMcpRole }),
 };
 
 export function buildRoleSurface(role: RoleSurfaceRole, ctx: RoleSurfaceContext): InvocationSurface {

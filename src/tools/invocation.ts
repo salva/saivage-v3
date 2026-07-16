@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ToolDefinition as LlmToolDefinition } from '../agents/llm-contracts.js';
 import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import type { AgentRole } from '../schemas/index.js';
+import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 
 export type ToolResult =
   | { success: true; data?: unknown; error?: never }
@@ -70,8 +71,11 @@ export async function invokeTool(surface: InvocationSurface, name: string, args:
 
 export async function invokeToolForLlm(surface: InvocationSurface, name: string, args: unknown, signal?: AbortSignal): Promise<ToolResult> {
   try {
-    return await invokeTool(surface, name, args, signal);
+    const result = await invokeTool(surface, name, args, signal);
+    if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
+    return result;
   } catch (error) {
+    if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
     if (signal?.aborted) throw error;
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

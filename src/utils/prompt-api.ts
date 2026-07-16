@@ -33,7 +33,7 @@ type TemplateToken =
 const ALLOWED_PLACEHOLDERS: Readonly<Record<AgentRoleKey, ReadonlySet<string>>> = {
   planner: new Set(['cardId', 'cardTitle', 'cardBrief', 'contractDescription', 'toolList']),
   executor: new Set(['cardId', 'cardTitle', 'cardBrief', 'contractDescription', 'toolList', 'cardType']),
-  reviewer: new Set(['cardId', 'cardTitle', 'cardBrief', 'assessmentId', 'contractDescription', 'toolList']),
+  reviewer: new Set(['cardId', 'cardTitle', 'cardBrief', 'contractDescription', 'toolList']),
   analyst: new Set(['toolList', 'vocabularySnippet', 'projectContext']),
 };
 

@@ -56,8 +56,8 @@ const mockMetaRootFiles = {
 const mockMetaNestedFiles = {
   path: '.saivage/cards',
   files: [
-    { name: 'card-001.json', path: '.saivage/cards/card-001.json', type: 'file' as const, size: 4096, modifiedAt: '2025-01-02T00:00:00Z' },
-    { name: 'card-002.json', path: '.saivage/cards/card-002.json', type: 'file' as const, size: 1024, modifiedAt: '2025-01-02T01:00:00Z' },
+    { name: 'brief.json', path: '.saivage/cards/11111111-1111-4111-8111-111111111111/brief.json', type: 'file' as const, size: 4096, modifiedAt: '2025-01-02T00:00:00Z' },
+    { name: 'review.json', path: '.saivage/cards/22222222-2222-4222-8222-222222222222/review.json', type: 'file' as const, size: 1024, modifiedAt: '2025-01-02T01:00:00Z' },
   ],
 };
 

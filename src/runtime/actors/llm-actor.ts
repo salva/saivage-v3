@@ -4,20 +4,18 @@ import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletio
 import type { AgentMessage } from '../../schemas/index.js';
 import { genericContextMessagesForInvocation, type LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
-import type { ActorSnapshotStore } from './snapshots.js';
-import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
-import { appendUserContextMessage, readActiveVersionMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-store.js';
+import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
+import { appendUserContextMessage, readConversationMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
-import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
-import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
+import type { CompactionConfig } from './compaction/compactor.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
-import type { ConversationVersionReplacement } from './conversation-inventory.js';
-import type { ConversationStore } from '../../persistence/conversation-store.js';
+import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
 import type { ProviderExchangeAttempt } from '../../contracts/provider-exchange.js';
+import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -30,8 +28,8 @@ export interface LLMProviderPort {
 }
 
 export interface CompactorPort {
-  shouldCompact(input: LlmInvocationInput, config: CompactionConfig, estimator: BufferSizeEstimator): { shouldCompact: boolean };
-  compact(args: { projectRoot: string; conversations: ConversationStore; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; bufferSizeEstimator: BufferSizeEstimator; signal: AbortSignal }): Promise<{ rows: unknown[]; versionReplacement: ConversationVersionReplacement }>;
+  shouldCompact(input: LlmInvocationInput, config: CompactionConfig): { shouldCompact: boolean };
+  compact(args: { projectRoot: string; conversations: ConversationFileContext; sessionId: string; input: LlmInvocationInput; config: CompactionConfig; summarizerProvider: LLMProviderPort; signal: AbortSignal }): Promise<{ rows: unknown[] }>;
 }
 
 type PersistedProviderCompletion =
@@ -48,11 +46,10 @@ type WaitingToolCall = {
 
 type TurnStateUpdate = {
   input: LlmInvocationInput;
-  deliveryInputId?: string;
   waitingToolCall: WaitingToolCall | null;
 };
 
-export type LLMToolContinuationContextHook = (deliveryInputId: string) => readonly ProviderVisibleUserContextMessage[] | undefined;
+export type LLMToolContinuationContextHook = (continuationInputId: string) => { messages: readonly ProviderVisibleUserContextMessage[]; afterAppend?: () => void } | undefined;
 
 export class ConversationLLMActor extends BaseActor {
   static _actor: ActorDefinition = {
@@ -75,7 +72,6 @@ export class ConversationLLMActor extends BaseActor {
   #result: Deferred<LLMActorOutcome> | null = null;
   #activationSignal: AbortSignal | null = null;
   #currentInvocationSignal: AbortSignal | null = null;
-  #toolDeliveryCounter = 0;
   #systemPromptLoggedSessionIds = new Set<string>();
   #providerBoundaryEntered = false;
   #completionPersistenceEntered = false;
@@ -83,9 +79,9 @@ export class ConversationLLMActor extends BaseActor {
   #currentInvocation: InvocationLease | null = null;
 
   readonly conversationPublisher?: ConversationChangePublisher;
-  readonly conversations: ConversationStore;
+  readonly conversations: ConversationFileContext;
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationStore; gate?: RuntimeGate; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; conversationPublisher?: ConversationChangePublisher }) {
     super();
     if (actorKindFromId(args.agentId) !== 'llm') throw new Error(`LLMActor requires an LLM actor id: ${args.agentId}`);
     this.projectRoot = args.projectRoot;
@@ -125,28 +121,26 @@ export class ConversationLLMActor extends BaseActor {
     }
     this.recordToolSettled(toolCallId);
     const input = this.requireInput();
-    const deliveryInputId = this.nextDeliveryInputId(input.inputId);
-    const delivery = appendToolDelivery(this.conversations, {
-      agent_id: this.agentId,
+    const delivery = appendToolResult(this.conversations, {
       session_id: input.sessionId,
       source_input_id: waiting.sourceInputId,
-      delivery_input_id: deliveryInputId,
       tool_call_id: toolCallId,
       tool_name: waiting.toolName,
       result,
     });
     this.conversationPublisher?.entryAppended(delivery.message);
-    const contextMessages = this.continuationContextMessages(input, waiting, delivery, continuationContextHook);
+    const continuationInputId = randomUUID();
+    const contextMessages = this.continuationContextMessages(input, waiting, delivery, continuationInputId, continuationContextHook);
     this.input = {
       ...input,
-      inputId: deliveryInputId,
+      inputId: continuationInputId,
       genericContextMessages: contextMessages,
       contextMessages,
-      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readActiveVersionMessages(this.projectRoot, input.sessionId)),
+      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readConversationMessages(this.projectRoot, input.sessionId)),
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, result } },
     };
     this.waitingToolCall = null;
-    this.onTurnStateUpdated({ input: this.input, deliveryInputId, waitingToolCall: null });
+    this.onTurnStateUpdated({ input: this.input, waitingToolCall: null });
     return this.continueAfterTool(undefined, signal);
   }
 
@@ -154,11 +148,9 @@ export class ConversationLLMActor extends BaseActor {
     const waiting = this.requireWaitingTool(toolCallId);
     this.recordToolSettled(toolCallId);
     const input = this.requireInput();
-    const delivery = appendToolDelivery(this.conversations, {
-      agent_id: this.agentId,
+    const delivery = appendToolResult(this.conversations, {
       session_id: input.sessionId,
       source_input_id: waiting.sourceInputId,
-      delivery_input_id: this.nextDeliveryInputId(input.inputId),
       tool_call_id: toolCallId,
       tool_name: waiting.toolName,
       result,
@@ -171,7 +163,6 @@ export class ConversationLLMActor extends BaseActor {
     this.#currentInvocationSignal = null;
     this.onTurnSettled();
     this.deliveredToolCallIds.clear();
-    this.#toolDeliveryCounter = 0;
     this.parkedSendEvent('abandon');
   }
 
@@ -181,20 +172,22 @@ export class ConversationLLMActor extends BaseActor {
     if (this.#result) return Promise.reject(new Error(`LLMActor '${this.agentId}' already has a pending turn.`));
     if (this.outcome?.type !== 'result') return Promise.reject(new Error(`LLMActor '${this.agentId}' has no plain-text result to continue.`));
     const input = this.requireInput();
-    const repairInputId = this.nextDeliveryInputId(input.inputId);
+    const repairInputId = randomUUID();
     const repairMessage = appendModelRepairMessage(this.conversations, { ...input, inputId: repairInputId }, repairDirective);
     this.conversationPublisher?.entryAppended(repairMessage);
-    const extraMessages = (continuationContextHook?.(repairInputId) ?? []).map((message, index) => {
+    const continuation = continuationContextHook?.(repairInputId);
+    const extraMessages = (continuation?.messages ?? []).map((message, index) => {
       const result = appendUserContextMessage(this.conversations, input.sessionId, repairInputId, 'continuation_hook', index, message);
       this.conversationPublisher?.entryAppended(result);
       return result;
     });
+    continuation?.afterAppend?.();
     return this.startProviderTurn({
       ...input,
       inputId: repairInputId,
       genericContextMessages: [...genericContextMessagesForInvocation(input), repairMessage, ...extraMessages],
       contextMessages: [...input.contextMessages, { role: 'user', content: repairDirective }, ...extraMessages],
-      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readActiveVersionMessages(this.projectRoot, input.sessionId)),
+      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readConversationMessages(this.projectRoot, input.sessionId)),
       episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
     }, { resetDeliveredToolCalls: false, signal });
   }
@@ -210,7 +203,6 @@ export class ConversationLLMActor extends BaseActor {
     this.#currentInvocationSignal = null;
     this.onTurnSettled();
     this.deliveredToolCallIds.clear();
-    this.#toolDeliveryCounter = 0;
     this.parkedSendEvent('abandon');
   }
 
@@ -261,10 +253,12 @@ export class ConversationLLMActor extends BaseActor {
           void this.#invocations.trackConsumer(() => {
             try {
               const invocation = this.#currentInvocation;
+              const stopReason = this.runtimeStopReason();
               if (this.isCurrentTurnAborted(error)) {
-                if (invocation) this.#invocations.cancelCurrent(invocation, error);
+                const cancellation = stopReason ?? error;
+                if (invocation) this.#invocations.cancelCurrent(invocation, cancellation);
                 this.#currentInvocation = null;
-                this.completeWithCancellation(error);
+                this.completeWithCancellation(cancellation instanceof Error ? cancellation : new Error(String(cancellation)));
                 return;
               }
               if (this.#completionPersistenceEntered) throw error;
@@ -307,7 +301,7 @@ export class ConversationLLMActor extends BaseActor {
     const result = completion.result;
     if (persisted.kind === 'message' && result.kind === 'message') {
       this.conversationPublisher?.entryAppended(persisted.appended);
-      const activeRows = readActiveVersionMessages(this.projectRoot, input.sessionId);
+      const activeRows = readConversationMessages(this.projectRoot, input.sessionId);
       this.input = { ...input, genericContextMessages: conversationMessagesForModel(activeRows), contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }], activeConversationReplay: buildResponsesReplayProjection(input.sessionId, activeRows) };
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.onTurnSettled();
@@ -431,10 +425,6 @@ export class ConversationLLMActor extends BaseActor {
     return this.#result.promise;
   }
 
-  protected restoreToolDeliveryCounter(value: number): void {
-    this.#toolDeliveryCounter = value;
-  }
-
   private requireWaitingTool(toolCallId: string): WaitingToolCall {
     if (this.state() !== 'waiting_tool' || !this.waitingToolCall) throw new Error(`LLMActor '${this.agentId}' is not waiting for a tool result.`);
     if (this.waitingToolCall.toolCallId !== toolCallId) throw new Error(`LLMActor '${this.agentId}' is waiting for '${this.waitingToolCall.toolCallId}', not '${toolCallId}'.`);
@@ -447,22 +437,19 @@ export class ConversationLLMActor extends BaseActor {
     this.deliveredToolCallIds.add(toolCallId);
   }
 
-  private nextDeliveryInputId(inputId: string): string {
-    this.#toolDeliveryCounter++;
-    return `${inputId}:tool:${this.#toolDeliveryCounter}`;
-  }
-
-  private continuationContextMessages(input: LlmInvocationInput, waiting: WaitingToolCall, delivery: ReturnType<typeof appendToolDelivery>, continuationContextHook?: LLMToolContinuationContextHook): AgentMessage[] {
+  private continuationContextMessages(input: LlmInvocationInput, waiting: WaitingToolCall, delivery: ReturnType<typeof appendToolResult>, continuationInputId: string, continuationContextHook?: LLMToolContinuationContextHook): AgentMessage[] {
     const toolCallMessage = toolCallAgentMessage(input, {
       id: waiting.toolCallId,
       type: 'function',
       function: { name: waiting.toolName, arguments: waiting.toolCallArguments },
     });
-    const extraMessages = (continuationContextHook?.(delivery.delivery_input_id) ?? []).map((message, index) => {
-      const result = appendUserContextMessage(this.conversations, input.sessionId, delivery.delivery_input_id, 'continuation_hook', index, message);
+    const continuation = continuationContextHook?.(continuationInputId);
+    const extraMessages = (continuation?.messages ?? []).map((message, index) => {
+      const result = appendUserContextMessage(this.conversations, input.sessionId, continuationInputId, 'continuation_hook', index, message);
       this.conversationPublisher?.entryAppended(result);
       return result;
     });
+    continuation?.afterAppend?.();
     return [...genericContextMessagesForInvocation(input), toolCallMessage, toolResultAgentMessage(delivery), ...extraMessages];
   }
 
@@ -489,6 +476,13 @@ export class ConversationLLMActor extends BaseActor {
     return error instanceof Error && error.name === 'AbortError';
   }
 
+  private runtimeStopReason(): Error | null {
+    const activationReason = this.#activationSignal?.reason;
+    if (this.#activationSignal?.aborted && isRuntimeStoppedInterruption(activationReason)) return activationReason;
+    const invocationReason = this.#currentInvocationSignal?.reason;
+    return this.#currentInvocationSignal?.aborted && isRuntimeStoppedInterruption(invocationReason) ? invocationReason : null;
+  }
+
   protected onTurnStarting(_input: LlmInvocationInput): void {}
 
   protected onTurnStateUpdated(_params: TurnStateUpdate): void {}
@@ -497,140 +491,41 @@ export class ConversationLLMActor extends BaseActor {
 
   protected async onBeforeProviderCall(_input: LlmInvocationInput, _signal: AbortSignal): Promise<LlmInvocationInput | void> {}
 
-  protected toolDeliveryCounter(): number {
-    return this.#toolDeliveryCounter;
-  }
 }
 
 export class LLMActor extends ConversationLLMActor {
-  readonly snapshots: ActorSnapshotStore;
-  activeReconstruction: LlmActiveReconstructionRecord | null = null;
   #compacting = false;
   readonly compactor?: CompactorPort;
   readonly compactionConfig?: CompactionConfig;
   readonly summarizerProvider?: LLMProviderPort;
-  readonly bufferSizeEstimator?: BufferSizeEstimator;
 
-  static fromActiveReconstruction(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationStore; snapshots: ActorSnapshotStore; gate?: RuntimeGate; state: string; activeReconstruction: LlmActiveReconstructionRecord; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }): LLMActor {
-    const actor = new LLMActor({ ...args });
-    actor.activeReconstruction = args.activeReconstruction;
-    actor.input = args.activeReconstruction.input;
-    actor.deliveredToolCallIds = new Set(args.activeReconstruction.delivered_tool_call_ids);
-    actor.restoreToolDeliveryCounter(args.activeReconstruction.tool_delivery_counter);
-    const waiting = args.activeReconstruction.waiting_tool_call;
-    if (waiting) {
-      const logged = readLoggedToolCall(args.projectRoot, args.activeReconstruction.input.sessionId, args.agentId, waiting.sourceInputId, waiting.toolCallId);
-      actor.waitingToolCall = {
-        sourceInputId: waiting.sourceInputId,
-        toolCallId: waiting.toolCallId,
-        toolName: waiting.toolName,
-        toolCallArguments: JSON.stringify(logged.args),
-      };
-      actor.outcome = { type: 'tool_call', agentId: args.agentId, inputId: waiting.sourceInputId, toolCallId: waiting.toolCallId, toolName: waiting.toolName, args: logged.args };
-    }
-    if (args.state === 'calling_provider') actor.armTurn();
-    actor.recover(args.state);
-    return actor;
-  }
-
-  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
-    this.snapshots.save(this.snapshot());
-  }
-
-  snapshot() {
-    return {
-      actor_id: this.agentId,
-      actor_kind: 'llm' as const,
-      state_value: this.state(),
-      context: {
-        projectRoot: this.projectRoot,
-        agentId: this.agentId,
-        active_reconstruction: this.activeReconstruction,
-        compacting: this.#compacting,
-      },
-      updated_at: new Date().toISOString(),
-    };
-  }
-
-  protected override onTurnStarting(input: LlmInvocationInput): void {
-    this.activeReconstruction = this.createActiveReconstruction(input);
-  }
-
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationStore; snapshots: ActorSnapshotStore; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     if (parseLlmActorId(args.agentId).role === 'analyst') throw new Error(`LLMActor '${args.agentId}' only supports autonomous card roles.`);
     this.compactor = args.compactor;
     this.compactionConfig = args.compactionConfig;
     this.summarizerProvider = args.summarizerProvider;
-    this.bufferSizeEstimator = args.bufferSizeEstimator;
-    this.snapshots = args.snapshots;
   }
 
   protected override async onBeforeProviderCall(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmInvocationInput | void> {
     if (!this.compactor) return;
-    if (!this.compactionConfig || !this.summarizerProvider || !this.bufferSizeEstimator) throw new Error(`LLMActor '${this.agentId}' has incomplete compaction wiring.`);
+    if (!this.compactionConfig || !this.summarizerProvider) throw new Error(`LLMActor '${this.agentId}' has incomplete compaction wiring.`);
     if (this.state() !== 'calling_provider') throw new Error(`LLMActor '${this.agentId}' cannot compact from state '${this.state()}'.`);
-    const decision = this.compactor.shouldCompact(input, this.compactionConfig, this.bufferSizeEstimator);
+    const decision = this.compactor.shouldCompact(input, this.compactionConfig);
     if (!decision.shouldCompact) return;
     try {
       this.#compacting = true;
-      this.snapshots.save(this.snapshot());
-      const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, conversations: this.conversations, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, signal });
-      this.conversationPublisher?.versionReplaced(compacted.versionReplacement);
+      const compacted = await this.compactor.compact({ projectRoot: this.projectRoot, conversations: this.conversations, sessionId: input.sessionId, input, config: this.compactionConfig, summarizerProvider: this.summarizerProvider, signal });
+      signal.throwIfAborted();
       const compactedRows = compacted.rows as AgentMessage[];
       const compactedInput = { ...input, genericContextMessages: conversationMessagesForModel(compactedRows), contextMessages: conversationMessagesForModel(compactedRows), activeConversationReplay: buildResponsesReplayProjection(input.sessionId, compactedRows) } as LlmInvocationInput;
       this.#compacting = false;
-      if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction to refresh after compaction.`);
-      this.activeReconstruction = { ...this.activeReconstruction, input: compactedInput };
-      this.snapshots.save(this.snapshot());
       return compactedInput;
     } finally {
       this.#compacting = false;
     }
   }
 
-  private createActiveReconstruction(input: LlmInvocationInput): LlmActiveReconstructionRecord {
-    const cardId = input.episodeContext.cardId;
-    if (typeof cardId !== 'string' || cardId.length === 0) throw new Error(`LLMActor '${this.agentId}' input '${input.inputId}' has no cardId reconstruction context.`);
-    return {
-      schema_version: 1,
-      kind: 'llm_turn',
-      agent_id: this.agentId,
-      role: input.role,
-      card_id: cardId,
-      input_id: input.inputId,
-      input,
-      provider_call_id: `${this.agentId}:${input.inputId}`,
-      waiting_tool_call: null,
-      delivered_tool_call_ids: [...this.deliveredToolCallIds],
-      tool_delivery_counter: this.toolDeliveryCounter(),
-      started_at: new Date().toISOString(),
-    };
-  }
-
-  protected override onTurnStateUpdated(params: TurnStateUpdate): void {
-    if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction record.`);
-    const changes: Partial<LlmActiveReconstructionRecord> = {
-      input: params.input,
-      delivered_tool_call_ids: [...this.deliveredToolCallIds],
-      tool_delivery_counter: this.toolDeliveryCounter(),
-    };
-    if (params.deliveryInputId) {
-      changes.input_id = params.deliveryInputId;
-      changes.provider_call_id = `${this.agentId}:${params.deliveryInputId}`;
-    }
-    if (params.waitingToolCall) {
-      changes.waiting_tool_call = activeWaitingToolCall(params.waitingToolCall);
-      changes.provider_call_id = null;
-    } else {
-      changes.waiting_tool_call = null;
-    }
-    this.activeReconstruction = { ...this.activeReconstruction, ...changes };
-  }
-
-  protected override onTurnSettled(): void {
-    this.activeReconstruction = null;
-  }
 }
 
 function parseToolArguments(raw: string): unknown {
@@ -641,10 +536,4 @@ function parseToolArguments(raw: string): unknown {
   }
 }
 
-function activeWaitingToolCall(waiting: WaitingToolCall): LlmActiveReconstructionRecord['waiting_tool_call'] {
-  return {
-    sourceInputId: waiting.sourceInputId,
-    toolCallId: waiting.toolCallId,
-    toolName: waiting.toolName,
-  };
-}
+import { randomUUID } from 'node:crypto';

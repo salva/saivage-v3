@@ -4,7 +4,7 @@ import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/man
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { ProviderRoutingReadModel } from '../../agents/provider-routing-read-model.js';
 import type { RuntimeApi } from '../../runtime/control-api.js';
-import type { CardStoreRepository } from '../../cards/store-api.js';
+import type { CardService } from '../../cards/card-api.js';
 import type { buildServerAvailability } from '../availability.js';
 import type { ContractHandler } from '../contract-runtime.js';
 import type { ProcessRunner } from '../../runtime/process-runner.js';
@@ -19,13 +19,14 @@ export interface OperatorProjectContext {
   processRunner?: ProcessRunner;
 }
 
-export interface OperatorCardStoreContext {
-  cardStore?: CardStoreRepository;
+export interface OperatorCardServiceContext {
+  cardStore?: CardService;
 }
 
 export interface OperatorRuntimeProviderContext {
   runtimeApplication?: RuntimeApplication;
   restartPort?: RestartPort;
+  restartServerAvailable?: boolean;
 }
 
 export interface OperatorAvailabilityContext {

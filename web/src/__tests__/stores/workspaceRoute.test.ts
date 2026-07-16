@@ -40,10 +40,10 @@ describe('workspaceRoute store', () => {
   });
 
   it('reflects the initial route on store registration', () => {
-    const router = makeRouter(route('card-detail', { id: 'card-1' }, { tab: 'history' }));
+    const router = makeRouter(route('card-detail', { id: '11111111-1111-4111-8111-111111111111' }, { tab: 'history' }));
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
-    expect(store.current).toEqual({ view: 'cards', entityId: 'card-1', refinement: { tab: 'history' } });
+    expect(store.current).toEqual({ view: 'cards', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' } });
   });
 
   it('updates current and stores the previous route after router.afterEach', () => {
@@ -61,7 +61,7 @@ describe('workspaceRoute store', () => {
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
     const rows: Array<{ target: NavigateTarget; expected: RouteLocationRaw }> = [
-      { target: { kind: 'card', id: 'card-1' }, expected: { name: 'card-detail', params: { id: 'card-1' }, query: undefined } },
+      { target: { kind: 'card', id: '11111111-1111-4111-8111-111111111111' }, expected: { name: 'card-detail', params: { id: '11111111-1111-4111-8111-111111111111' }, query: undefined } },
       { target: { kind: 'transcript', id: 'session-1' }, expected: { name: 'agent-detail', params: { id: 'session-1' }, query: undefined } },
       { target: { kind: 'process', id: 'pid-1' }, expected: { name: 'process-detail', params: { id: 'pid-1' }, query: undefined } },
       { target: { kind: 'process_list' }, expected: { name: 'debug', query: undefined } },
@@ -79,12 +79,12 @@ describe('workspaceRoute store', () => {
     const router = makeRouter(route('cards'));
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
-    router.triggerAfterEach(route('card-detail', { id: 'child' }), route('cards'));
+    router.triggerAfterEach(route('card-detail', { id: '11111111-1111-4111-8111-111111111111' }), route('cards'));
 
     store.apply({ intent: 'navigate_back' });
     expect(router.replaceMock).toHaveBeenCalledWith({ name: 'cards', query: undefined });
 
-    router.triggerAfterEach(route('cards'), route('card-detail', { id: 'child' }));
+    router.triggerAfterEach(route('cards'), route('card-detail', { id: '11111111-1111-4111-8111-111111111111' }));
     store.apply({ intent: 'navigate_back' });
     expect(router.replaceMock).toHaveBeenCalledTimes(1);
   });
@@ -94,10 +94,11 @@ describe('workspaceRoute store', () => {
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
     for (let index = 0; index < 17; index += 1) {
-      router.triggerAfterEach(route('card-detail', { id: `card-${index + 1}` }), route('card-detail', { id: `card-${index}` }));
+      const cardId = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`;
+      router.triggerAfterEach(route('card-detail', { id: cardId(index + 1) }), route('card-detail', { id: cardId(index) }));
     }
     store.apply({ intent: 'navigate_back' });
-    expect(router.replaceMock).toHaveBeenCalledWith({ name: 'card-detail', params: { id: 'card-16' }, query: undefined });
+    expect(router.replaceMock).toHaveBeenCalledWith({ name: 'card-detail', params: { id: '00000000-0000-4000-8000-000000000016' }, query: undefined });
   });
 
   it('navigate_back on an empty stack does not push and does not throw', () => {

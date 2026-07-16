@@ -1,7 +1,7 @@
-import type { CardStore } from '../cards/store-api.js';
-import { PROJECT_CARD_ID } from '../cards/store-api.js';
+import type { CardService } from '../cards/card-api.js';
+import { PROJECT_CARD_ID } from '../cards/card-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
-import { queueNotification, resolveRecipient } from '../notifications/index.js';
+import { queueNotification } from '../notifications/index.js';
 import { decide } from '../permissions/index.js';
 import type { CardRecord, CardStatus, CardType, ControlActionSurface } from '../schemas/index.js';
 import { propagateAnalystBriefEdit, propagateChange } from '../runtime/changed-propagation.js';
@@ -30,7 +30,7 @@ export interface AnalystCardMutationService {
   validateReorder(parentId: string, orderedChildIds: readonly string[]): { allowed: true } | { allowed: false; reason: string };
   create(input: CreateAnalystCardInput): ToolResult;
   delete(ids: readonly string[]): ToolResult;
-  cancel(cardId: string, reason?: string): ToolResult;
+  cancel(cardId: string, reason?: string): Promise<ToolResult>;
   reorder(parentId: string, orderedChildIds: readonly string[]): ToolResult;
 }
 
@@ -40,8 +40,8 @@ export interface AnalystConfigMutationService {
 }
 
 export interface AnalystNotificationMutationService {
-  validate(recipient: string): { allowed: true } | { allowed: false; reason: string };
-  queue(recipient: string, kind: string, body: string): ToolResult;
+  validate(cardId: string): { allowed: true } | { allowed: false; reason: string };
+  queue(cardId: string, kind: string, body: string): ToolResult;
 }
 
 export interface AnalystBriefRecordMutationService {
@@ -58,10 +58,10 @@ export interface AnalystMutationServices {
   briefRecords: AnalystBriefRecordMutationService;
 }
 
-export function createAnalystMutationServices(input: { projectRoot: string; store: CardStore; configAuthority: ResolvedConfigAuthority; surface: ControlActionSurface; notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard'] }): AnalystMutationServices {
-  const notifyCard = input.notifyCard ?? (() => ({ ok: true }));
+export function createAnalystMutationServices(input: { projectRoot: string; store: CardService; configAuthority: ResolvedConfigAuthority; surface: ControlActionSurface; notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
+  const notifyCard = input.notifyCard ?? ((_cardId, notification) => ({ ok: true, notificationId: notification.id }));
   return {
-    cards: new DefaultAnalystCardMutationService(input.store, input.surface, notifyCard),
+    cards: new DefaultAnalystCardMutationService(input.store, input.surface, notifyCard, input.cancelCard),
     config: new DefaultAnalystConfigMutationService(input.configAuthority),
     notifications: new DefaultAnalystNotificationMutationService(input.projectRoot, input.store, input.surface, notifyCard),
     briefRecords: new DefaultAnalystBriefRecordMutationService(input.projectRoot, input.store, notifyCard),
@@ -72,12 +72,12 @@ function failure(error: string, data?: Record<string, unknown>): ToolResult {
   return { success: false, error, ...(data ? { data } : {}) };
 }
 
-function subtree(store: CardStore, rootId: string): CardRecord[] {
+function subtree(store: CardService, rootId: string): CardRecord[] {
   return [rootId, ...store.getDescendantIds(rootId)].map((id) => store.read(id)).filter((card): card is CardRecord => card !== null);
 }
 
 export class DefaultAnalystCardMutationService implements AnalystCardMutationService {
-  constructor(private readonly store: CardStore, private readonly surface: ControlActionSurface, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
+  constructor(private readonly store: CardService, private readonly surface: ControlActionSurface, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard'], private readonly cancelCardPort?: Pick<RuntimeApi, 'cancelCard'>['cancelCard']) {}
 
   validateCreate(input: CreateAnalystCardInput): { allowed: true } | { allowed: false; reason: string } {
     if (input.type === 'project' && input.parent === null) return { allowed: false, reason: 'Root project card already exists' };
@@ -108,10 +108,8 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
     const card = this.store.read(cardId);
     if (!card) return { allowed: false, reason: `card '${cardId}' does not exist` };
     if (card.id === PROJECT_CARD_ID) return { allowed: false, reason: 'root project card cannot be cancelled' };
-    for (const candidate of subtree(this.store, cardId)) {
-      const permission = decide({ role: 'analyst', action: 'card.cancel', targetState: candidate.status });
-      if (!permission.allowed) return permission;
-    }
+    const denied = subtree(this.store, cardId).find((candidate) => candidate.status === 'done' || candidate.status === 'cancelled');
+    if (denied) return { allowed: false, reason: `card '${denied.id}' is ${denied.status}` };
     return { allowed: true };
   }
 
@@ -138,7 +136,7 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
     const permission = decide({ role: 'analyst', action: 'card.create', targetState: parentCard.status });
     if (!permission.allowed) return failure(`create_card denied for parent '${parentCard.id}' in status '${parentCard.status}' (${permission.reason}).`, { parent: parentCard.id, status: parentCard.status });
     if (input.status !== undefined && input.status !== 'backlog') return failure('Analyst create_card can only create backlog child cards. Card creation does not dispatch work or set lifecycle state.', { status: input.status });
-    const card = this.store.create({ type: input.type, parent, depth: 0, title: input.title, brief: input.brief, status: input.status ?? 'backlog', tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: 'analyst', depends_on: input.depends_on ?? [], related: input.related ?? [], retries: 0 });
+    const card = this.store.create({ type: input.type, parent, depth: 0, title: input.title, brief: input.brief, status: input.status ?? 'backlog', tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: 'analyst', depends_on: input.depends_on ?? [], related: input.related ?? [] });
     try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch { /* notification is best effort */ }
     return { success: true, data: toCardView(this.store, card) };
   }
@@ -166,17 +164,15 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
     return { success: true, data: { deleted: deletedAll, top_level_deleted: deletedTopLevel } };
   }
 
-  cancel(cardId: string, reason?: string): ToolResult {
+  async cancel(cardId: string, reason?: string): Promise<ToolResult> {
     const card = this.store.read(cardId);
     if (!card) return failure(`Card '${cardId}' not found.`, { cardId });
     if (card.id === PROJECT_CARD_ID) return failure('cancel_card cannot cancel the root project card.', { cardId });
-    const cards = subtree(this.store, cardId);
-    const denied = cards.find((candidate) => !decide({ role: 'analyst', action: 'card.cancel', targetState: candidate.status }).allowed);
-    if (denied) return failure(`cancel_card denied for '${denied.id}' in status '${denied.status}'.`, { cardId: denied.id, status: denied.status });
-    const updated = cards.sort((a, b) => b.depth - a.depth).map((candidate) => this.store.setStatus(candidate.id, 'cancelled'));
+    if (!this.cancelCardPort) throw new Error('Analyst cancellation requires the runtime cancellation application port.');
+    const result = await this.cancelCardPort(cardId, reason ?? 'analyst_cancel_card');
     const anchor = card.parent ?? cardId;
     try { propagateChange(this.store, anchor, { kind: 'analyst_edit', summary: reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card' }, this.notifyCard); } catch { /* notification is best effort */ }
-    return { success: true, data: { cancelled: updated.map((candidate) => candidate.id), root: cardId } };
+    return { success: true, data: result };
   }
 
   reorder(parentId: string, orderedChildIds: readonly string[]): ToolResult {
@@ -212,24 +208,21 @@ export class DefaultAnalystConfigMutationService implements AnalystConfigMutatio
 }
 
 export class DefaultAnalystNotificationMutationService implements AnalystNotificationMutationService {
-  constructor(private readonly projectRoot: string, private readonly store: CardStore, private readonly surface: ControlActionSurface, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
-  validate(recipient: string): { allowed: true } | { allowed: false; reason: string } {
-    return resolveRecipient(this.projectRoot, this.store, recipient) === null ? { allowed: false, reason: `unknown recipient '${recipient}'` } : { allowed: true };
+  constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly surface: ControlActionSurface, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
+  validate(cardId: string): { allowed: true } | { allowed: false; reason: string } {
+    return this.store.read(cardId) === null ? { allowed: false, reason: `unknown card '${cardId}'` } : { allowed: true };
   }
-  queue(recipient: string, kind: string, body: string): ToolResult {
-    const resolved = resolveRecipient(this.projectRoot, this.store, recipient);
-    if (resolved === null) return failure(`Unknown notification recipient '${recipient}'.`, { reason: 'unknown_recipient', recipient });
-    const queued = queueNotification(this.projectRoot, resolved, kind, body, { actor: 'analyst', surface: this.surface }, this.store, this.notifyCard);
-    if (!queued.ok) {
-      const missingCards = queued.cardDeliveries.filter((delivery) => !delivery.result.ok && delivery.result.reason === 'missing_card').map((delivery) => delivery.cardId);
-      return failure(`Notification delivery failed for missing card(s): ${missingCards.join(', ')}.`, { reason: 'missing_card', recipient, cardIds: missingCards, notificationId: queued.notificationId });
-    }
-    return { success: true, data: { queued: true, recipient } };
+  queue(cardId: string, kind: string, body: string): ToolResult {
+    if (!this.notifyCard) throw new Error('Analyst queue_notification requires the runtime card notification port.');
+    const queued = queueNotification(cardId, kind, body, { actor: 'analyst', surface: this.surface }, this.notifyCard);
+    if (!queued.ok && queued.reason === 'terminal_card') return failure(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
+    if (!queued.ok) return failure(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
+    return { success: true, data: { queued: true, card_id: cardId, notification_id: queued.notificationId } };
   }
 }
 
 export class DefaultAnalystBriefRecordMutationService implements AnalystBriefRecordMutationService {
-  constructor(private readonly projectRoot: string, private readonly store: CardStore, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
+  constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
 
   validateWrite(path: string, content: string): { allowed: true } | { allowed: false; reason: string } {
     try { this.resolve(path, content); return { allowed: true }; } catch (error) { return { allowed: false, reason: error instanceof Error ? error.message : String(error) }; }

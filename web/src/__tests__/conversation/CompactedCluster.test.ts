@@ -6,7 +6,7 @@ import type { AgentConversationEntry } from '../../api/types';
 function entry(index: number, overrides: Partial<AgentConversationEntry> = {}): AgentConversationEntry {
   return {
     id: `entry-${index}`,
-    session_id: 'planner:card-1',
+    session_id: 'planner:11111111-1111-4111-8111-111111111111',
     role: index % 2 === 0 ? 'assistant' : 'user',
     kind: 'text',
     content: `Compacted historical message ${index}`,

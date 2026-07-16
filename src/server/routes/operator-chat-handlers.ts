@@ -7,7 +7,7 @@ import type {
   OperatorConfigContext,
   OperatorRuntimeProviderContext,
 } from './operator-handler-context.js';
-import type { OperatorCardStoreContext } from './operator-handler-context.js';
+import type { OperatorCardServiceContext } from './operator-handler-context.js';
 
 interface ChatWorkspaceContext {
   view: string | null;
@@ -29,7 +29,7 @@ function validateWorkspaceContext(value: unknown): { ok: true; value: ChatWorksp
   return { ok: true, value: { view: ctx.view, entityId: ctx.entityId, refinement: ctx.refinement } as ChatWorkspaceContext };
 }
 
-type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorCardStoreContext & Pick<OperatorConfigContext, 'saivageConfig'>;
+type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorCardServiceContext & Pick<OperatorConfigContext, 'saivageConfig'>;
 
 export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;

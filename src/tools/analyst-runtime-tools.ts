@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { PROJECT_CARD_ID } from '../cards/store-api.js';
+import { PROJECT_CARD_ID } from '../cards/card-api.js';
 import { listControlActions } from '../persistence/index.js';
 import { readAppLogEntries } from '../persistence/app-log.js';
 import type { ProcessRecord } from '../schemas/index.js';
@@ -57,8 +57,13 @@ export async function resume_runtime(ctx: ToolContext, params: Record<string, ne
   return { success: true, data: { status: updated.status } };
 }
 
+export async function stop_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
+  if (!ctx.runtimeControl) return toolFailure('Active runtime is not available.');
+  return { success: true, data: await ctx.runtimeControl.stopProject({ actor: ctx.actor, surface: ctx.surface, paramsSummary: stableStringify(params) }) };
+}
+
 export async function restart_server(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
-  if (!ctx.restartServerAvailable) return toolFailure('Denied by permission policy for runtime.restart_server: restart unavailable: operator authentication disabled.');
+  if (!ctx.restartServerAvailable) return toolFailure('restart unavailable: operator authentication disabled');
   return { success: true, data: { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } };
 }
 
@@ -86,6 +91,7 @@ export const analystRuntimeTools: readonly UnifiedToolDefinition<string, any>[] 
   { name: 'start_project', description: 'Start root project execution.', input: emptyInput, roles: ['analyst'], executor: start_project },
   { name: 'pause_runtime', description: 'Globally pause the runtime.', input: emptyInput, roles: ['analyst'], executor: pause_runtime },
   { name: 'resume_runtime', description: 'Resume the runtime after a pause.', input: emptyInput, roles: ['analyst'], executor: resume_runtime },
+  { name: 'stop_project', description: 'Stop project execution without disposing or restarting the server.', input: emptyInput, roles: ['analyst'], executor: stop_project },
   { name: 'restart_server', description: 'Request confirmed supervised server shutdown.', input: emptyInput, roles: ['analyst'], executor: restart_server },
   { name: 'read_runtime_events', description: 'Tail app-log-backed runtime event entries (.saivage/logs/app.jsonl, type=event). Optionally filter by event kind.', input: z.object({ limit: z.number().int().optional(), kind: z.string().optional() }).strict(), roles: ['analyst'], executor: read_runtime_events },
   { name: 'read_runtime_errors', description: 'Tail app-log-backed runtime error entries (.saivage/logs/app.jsonl, type=error).', input: z.object({ limit: z.number().int().optional() }).strict(), roles: ['analyst'], executor: read_runtime_errors },

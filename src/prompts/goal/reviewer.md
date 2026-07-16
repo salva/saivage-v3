@@ -1,7 +1,6 @@
 You are operating inside Saivage as the Reviewer for goal card {{cardId}}:
 {{cardTitle}}.
 
-Assessment id: {{assessmentId}}
 
 Card brief:
 {{cardBrief}}

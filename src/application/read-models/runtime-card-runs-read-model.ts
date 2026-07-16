@@ -1,7 +1,7 @@
 import type { ActiveCardRun, CardRecord, CardStatus } from '../../schemas/index.js';
-import type { CardStore, CardStoreRepository } from '../../cards/store-api.js';
-import { readRuntimeState } from '../../runtime/state-api.js';
-import { listConversationSessionIds } from '../../runtime/actors/conversation-store.js';
+import type { CardService } from '../../cards/card-api.js';
+import type { RuntimeApi } from '../../runtime/runtime-api.js';
+import { listConversationSessionIds } from '../../runtime/actors/conversation-session.js';
 
 export interface CardBreadcrumbNode { card_id: string; card_type: string; title: string; status_text?: string; }
 export interface DormantPlannerRow { goal_card_id: string; planner_session_id: string; latest_self_report: Record<string, unknown> | null; }
@@ -12,15 +12,15 @@ function plannerGoalFromSessionId(sessionId: string): string | null {
   return sessionId.startsWith('planner:') ? sessionId.slice('planner:'.length) : null;
 }
 
-export function buildCardRunsResponse(projectRoot: string, store: CardStore | CardStoreRepository): CardRunsResponse {
-  const state = readRuntimeState(projectRoot);
+export function buildCardRunsResponse(projectRoot: string, store: CardService, runtime: Pick<RuntimeApi, 'getRuntimeState'>): CardRunsResponse {
+  const state = runtime.getRuntimeState();
   const active = state?.active_card_run ?? null;
   const active_breadcrumb = active ? [active.card_id, ...store.getAncestors(active.card_id)].reverse().flatMap((id) => {
     const card = store.read(id);
     if (!card) return [];
     return [{ card_id: card.id, card_type: card.type, title: card.title, ...(card.status_text ? { status_text: card.status_text } : {}) }];
   }) : [];
-  const dormant_planners = listConversationSessionIds(projectRoot, store.namespace)
+  const dormant_planners = listConversationSessionIds(projectRoot)
     .flatMap((sessionId) => {
       const goalId = plannerGoalFromSessionId(sessionId);
       if (!goalId || sessionId === active?.planner_session_id) return [];

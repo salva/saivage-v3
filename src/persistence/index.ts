@@ -26,5 +26,5 @@ export {
 } from './canonical-record-artifacts.js';
 export type { AuthoredRecordSlot, RecordVersionArtifact } from './canonical-record-artifacts.js';
 export { listControlActions, recordControlAction, stableStringify } from './control-action-audit.js';
-export { AppLogStore, readAppLogEntries, appLogEntrySchema } from './app-log.js';
+export { appendAppLogEntry, readAppLogEntries, appLogEntrySchema, type AppLogContext } from './app-log.js';
 export type { AppLogEntry, AppLogEntryType } from './app-log.js';

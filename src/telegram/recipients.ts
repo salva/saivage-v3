@@ -1,5 +1,3 @@
-import type { NotificationDeliveryAdapter, NotificationDeliveryContext, NotificationQueueEntry } from '../notifications/index.js';
-import type { TelegramBot } from './bot.js';
 
 export type TelegramReadinessState = 'channel_not_enabled' | 'missing_bot_token' | 'missing_recipients' | 'ready';
 
@@ -7,7 +5,6 @@ export interface TelegramRecipientRegistry {
   recipients: number[];
   invalidValues: unknown[];
 }
-
 export interface TelegramRecipientReadiness {
   state: TelegramReadinessState;
   channelEnabled: boolean;
@@ -71,20 +68,4 @@ export function buildTelegramStartupDiagnosticSummary(readiness: TelegramRecipie
   ];
   if (readiness.invalidRecipientCount > 0) parts.push(`invalid_recipients=${readiness.invalidRecipientCount}`);
   return parts.join('; ');
-}
-
-
-export class TelegramNotificationDeliveryAdapter implements NotificationDeliveryAdapter {
-  readonly name = 'telegram';
-
-  constructor(
-    private readonly bot: Pick<TelegramBot, 'sendNotification'>,
-    private readonly recipients: number[],
-  ) {}
-
-  async deliver(entry: NotificationQueueEntry, _context: NotificationDeliveryContext): Promise<void> {
-    for (const chatId of this.recipients) {
-      await this.bot.sendNotification(chatId, { title: `[${entry.kind}] ${entry.body}` });
-    }
-  }
 }

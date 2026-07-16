@@ -10,6 +10,6 @@ export function createTestDirectProcessScope(runner: ProcessRunner, category: Pr
     ? runner.runtimeRootScope
     : category === 'operator_session'
       ? runner.analystRootScope
-      : runner.serviceRootScope;
+      : runner.mcpRootScope;
   return runner.createDirectScope(parent, `test-${category}`, category);
 }

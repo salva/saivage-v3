@@ -14,7 +14,7 @@ describe('process contract alignment', () => {
       timed_out: false,
       owner_kind: 'agent',
       session_id: 'session-1',
-      card_id: 'card-1',
+      card_id: '11111111-1111-4111-8111-111111111111',
       command: 'echo ok',
       cwd: '/work/project',
       logs: { stdout: 'work:///processes/proc-1/stdout.log', stderr: null },

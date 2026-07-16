@@ -11,7 +11,6 @@ export {
   AvailabilityComponentSourceSchema,
   AvailabilityDiagnosticSchema,
   AvailabilityStateSchema,
-  ApplicationPersistenceHealthSnapshotSchema,
   CardDetailResponseSchema,
   CardDiffQuerySchema,
   CardDiffResponseSchema,
@@ -120,7 +119,6 @@ export type {
 } from './provider-candidate.js';
 
 export type {
-  ApplicationPersistenceHealthProjection,
   AgentConversationResponse,
   AgentDetailResponse,
   AgentListResponse,

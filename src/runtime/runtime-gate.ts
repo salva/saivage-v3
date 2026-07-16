@@ -1,15 +1,27 @@
 export class RuntimeGate {
   #open: boolean;
+  #pauseRequested = false;
   #terminal = false;
   #terminalReason: unknown;
-  #waiters = new Set<{ resolve: () => void; reject: (reason: unknown) => void; signal: AbortSignal; onAbort: () => void }>();
+  #parked: { resolve: () => void; reject: (reason: unknown) => void; signal: AbortSignal; onAbort: () => void } | null = null;
+  #onParked: (() => void) | null = null;
 
   constructor(open = true) {
     this.#open = open;
   }
 
   get isOpen(): boolean {
-    return this.#open;
+    return this.#open && !this.#pauseRequested;
+  }
+
+  get pauseRequested(): boolean { return this.#pauseRequested; }
+  get isParked(): boolean { return this.#parked !== null; }
+
+  requestPause(onParked: () => void): void {
+    if (this.#terminal) throw new Error('Cannot pause a terminally closed RuntimeGate.');
+    this.#pauseRequested = true;
+    this.#open = false;
+    this.#onParked = onParked;
   }
 
   close(): void {
@@ -18,14 +30,13 @@ export class RuntimeGate {
 
   open(): void {
     if (this.#terminal) throw new Error('Cannot open a terminally closed RuntimeGate.');
-    if (this.#open) return;
+    this.#pauseRequested = false;
+    if (this.#open && !this.#parked) return;
     this.#open = true;
-    const waiters = [...this.#waiters];
-    this.#waiters.clear();
-    for (const waiter of waiters) {
-      waiter.signal.removeEventListener('abort', waiter.onAbort);
-      waiter.resolve();
-    }
+    const parked = this.#parked;
+    this.#parked = null;
+    this.#onParked = null;
+    if (parked) { parked.signal.removeEventListener('abort', parked.onAbort); parked.resolve(); }
   }
 
   setOpen(open: boolean): void {
@@ -38,15 +49,17 @@ export class RuntimeGate {
     this.#terminal = true;
     this.#terminalReason = reason;
     this.#open = false;
-    const waiters = [...this.#waiters];
-    this.#waiters.clear();
-    for (const waiter of waiters) waiter.reject(reason);
+    const parked = this.#parked;
+    this.#parked = null;
+    this.#onParked = null;
+    if (parked) parked.reject(reason);
   }
 
   waitUntilOpen(signal: AbortSignal): Promise<void> {
     if (signal.aborted) return Promise.reject(signal.reason);
     if (this.#terminal) return Promise.reject(this.#terminalReason);
-    if (this.#open) return Promise.resolve();
+    if (this.isOpen) return Promise.resolve();
+    if (this.#parked) throw new Error('RuntimeGate supports exactly one parked frontier.');
     return new Promise((resolve, reject) => {
       const waiter = {
         resolve: () => { cleanup(); resolve(); },
@@ -55,11 +68,12 @@ export class RuntimeGate {
         onAbort: () => waiter.reject(signal.reason),
       };
       const cleanup = (): void => {
-        this.#waiters.delete(waiter);
+        if (this.#parked === waiter) this.#parked = null;
         signal.removeEventListener('abort', waiter.onAbort);
       };
-      this.#waiters.add(waiter);
+      this.#parked = waiter;
       signal.addEventListener('abort', waiter.onAbort, { once: true });
+      this.#onParked?.();
     });
   }
 }

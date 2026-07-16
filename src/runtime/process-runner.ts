@@ -80,12 +80,12 @@ export class ProcessRunner {
 
   readonly runtimeRootScope: ManagedProcessScope;
   readonly analystRootScope: ManagedProcessScope;
-  readonly serviceRootScope: ManagedProcessScope;
+  readonly mcpRootScope: ManagedProcessScope;
 
   constructor(readonly projectRoot: string, readonly registry: ManagedProcessGroupRegistry) {
     this.runtimeRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
     this.analystRootScope = registry.createContainerScope(registry.rootScope, 'analyst-sessions');
-    this.serviceRootScope = registry.createContainerScope(registry.rootScope, 'service-infrastructure');
+    this.mcpRootScope = registry.createContainerScope(registry.rootScope, 'mcp-servers');
   }
 
   spawn(spec: ProcessSpawnSpec): ProcessRecord {
@@ -142,6 +142,15 @@ export class ProcessRunner {
   terminateScopeTree(input: { rootScope: ManagedProcessScope; categories: readonly ProcessCategory[]; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
     return this.registry.terminateScopeTree(input);
   }
+
+  terminateOwnedRoot(owner: 'runtime' | 'analyst' | 'mcp', rootScope: ManagedProcessScope, reason: string): Promise<ProcessStopReport> {
+    const expected = owner === 'runtime' ? this.runtimeRootScope : owner === 'analyst' ? this.analystRootScope : this.mcpRootScope;
+    if (rootScope !== expected) throw new Error(`Managed process root does not belong to component '${owner}'.`);
+    const category: ProcessCategory = owner === 'runtime' ? 'runtime_card' : owner === 'analyst' ? 'operator_session' : 'service_infrastructure';
+    return this.registry.terminateScopeTree({ rootScope, categories: [category], reason, graceMs: 5_000 });
+  }
+
+  closeLaunchAdmission(): void { this.registry.closeLaunchAdmission(); }
 
   closeScope(scope: ManagedProcessScope): void {
     this.registry.closeScope(scope);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cardIdSchema } from '../schemas/card-id.js';
 
 import { agentRoleSchema, type AgentRole } from '../schemas/index.js';
 
@@ -20,7 +21,7 @@ export const recordVersionArtifactSchema = z
   .object({
     kind: z.literal('record-version'),
     format_version: z.literal(1),
-    card_id: z.string().min(1),
+    card_id: cardIdSchema,
     slot: authoredRecordSlotSchema,
     version: z.number().int().safe().positive(),
     state: recordStateSchema,

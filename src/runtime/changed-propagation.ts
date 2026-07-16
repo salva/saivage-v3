@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { AnalystIssue, CardStatus } from '../schemas/index.js';
-import type { CardStore } from '../cards/store-api.js';
+import type { CardService } from '../cards/card-api.js';
 import { sanitizeAnalystText } from '../sanitization/analyst-sanitization.js';
-import type { CardNotification } from './actors/card-actor.js';
+import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from './runtime-api.js';
 
 const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'blocked']);
@@ -16,7 +16,7 @@ export interface ChangedPropagation {
   flipped: Array<{ card_id: string; previous_status: CardStatus }>;
 }
 
-type PropagationStore = Pick<CardStore, 'read' | 'getAncestors' | 'setStatus'>;
+type PropagationStore = Pick<CardService, 'read' | 'getAncestors' | 'setStatus'>;
 
 function originSummary(origin: ChangeOrigin): string {
   if (origin.kind === 'analyst_edit') return sanitizeAnalystText(origin.summary, 1000);
@@ -24,11 +24,11 @@ function originSummary(origin: ChangeOrigin): string {
   return sanitizeAnalystText(`${issueSummary}${origin.note ? `\n${origin.note}` : ''}`, 1000);
 }
 
-function ancestorPathIncludingEdited(store: Pick<CardStore, 'getAncestors'>, editedCardId: string): string[] {
+function ancestorPathIncludingEdited(store: Pick<CardService, 'getAncestors'>, editedCardId: string): string[] {
   return [editedCardId, ...store.getAncestors(editedCardId).reverse()];
 }
 
-function ancestorPathExcludingEdited(store: Pick<CardStore, 'getAncestors'>, editedCardId: string): string[] {
+function ancestorPathExcludingEdited(store: Pick<CardService, 'getAncestors'>, editedCardId: string): string[] {
   return store.getAncestors(editedCardId).reverse();
 }
 
@@ -92,7 +92,7 @@ function analystBriefAncestorRecipients(store: PropagationStore, path: readonly 
   return recipients;
 }
 
-export function propagateChange(store: CardStore, editedCardId: string, origin: ChangeOrigin, notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult): ChangedPropagation {
+export function propagateChange(store: CardService, editedCardId: string, origin: ChangeOrigin, notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult): ChangedPropagation {
   const edited = store.read(editedCardId);
   if (!edited) throw new Error(`Card '${editedCardId}' not found.`);
 
@@ -139,8 +139,8 @@ function changeNotification(cardId: string, kind: ChangeOrigin['kind'], summary:
   const createdAt = new Date().toISOString();
   return {
     id: `change:${cardId}:${createdAt}:${randomUUID()}`,
-    message: `Card changed: ${summary}`,
+    content: `Card changed: ${summary}`,
     created_at: createdAt,
-    reason: kind === 'analyst_correction' ? 'analyst_correction' : 'card_changed',
+    source: kind === 'analyst_correction' ? 'analyst_correction' : 'card_changed',
   };
 }

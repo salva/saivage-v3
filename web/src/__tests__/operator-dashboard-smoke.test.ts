@@ -36,6 +36,8 @@ function installOperatorApiFetch(): void {
           runtime: null,
           cardIndex: { total: 0, byStatus: {}, byType: {} },
         });
+      case '/api/runtime/status':
+        return jsonResponse({ runtime: 'stopped', currentCardId: null, goalCount: 0, lastTickAt: null, restart_server_available: false, pid: 1, actorRuntime: { pauseMode: 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [] } });
       case '/api/cards':
         return jsonResponse({ cards: [], total: 0 });
       case '/api/agents':
@@ -46,7 +48,7 @@ function installOperatorApiFetch(): void {
           files: [],
         });
       case '/api/debug/state':
-        return jsonResponse({ runtime: null, cards: [], totalCards: 0, persistenceHealth: { state: 'healthy' } });
+        return jsonResponse({ runtime: null, cards: [], totalCards: 0 });
       case '/api/debug/errors':
         return jsonResponse({ errors: [], total: 0 });
       case '/api/debug/timeline':

@@ -61,7 +61,7 @@ describe('DebugView processes tab', () => {
         id: 'proc-1',
         status: 'running',
         command: 'npm test',
-        card_id: 'card-1',
+        card_id: '11111111-1111-4111-8111-111111111111',
         session_id: 'session-1',
         owner_kind: 'agent',
         owner_id: 'executor-1',
@@ -70,7 +70,7 @@ describe('DebugView processes tab', () => {
         ended_at: null,
         exit_code: null,
         timed_out: false,
-        logs: { stdout: 'work:///cards/card-1/processes/proc-1/stdout.log', stderr: null },
+        logs: { stdout: 'work:///cards/11111111-1111-4111-8111-111111111111/processes/proc-1/stdout.log', stderr: null },
       }],
     });
   });
@@ -95,6 +95,6 @@ describe('DebugView processes tab', () => {
     expect(wrapper.findAll('button').map((button) => button.text().toLowerCase())).not.toEqual(expect.arrayContaining(['terminate', 'kill']));
 
     await wrapper.find('.process-link-button').trigger('click');
-    expect(mockPush).toHaveBeenCalledWith({ name: 'files', query: { path: 'work:///cards/card-1/processes/proc-1/stdout.log' } });
+    expect(mockPush).toHaveBeenCalledWith({ name: 'files', query: { path: 'work:///cards/11111111-1111-4111-8111-111111111111/processes/proc-1/stdout.log' } });
   });
 });

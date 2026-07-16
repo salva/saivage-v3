@@ -22,12 +22,8 @@ export function sourceInputIdFromToolResultMessageId(id: string, toolCallId?: st
   const suffix = toolCallId ? `:tool-result:${toolCallId}` : ':tool-result:';
   const suffixIndex = toolCallId ? id.lastIndexOf(suffix) : id.indexOf(suffix);
   if (suffixIndex <= 0) throw new Error(`Malformed tool_result message id '${id}': missing '${suffix}'.`);
-  const deliveryInputId = id.slice(0, suffixIndex);
-  const deliveryMarker = deliveryInputId.lastIndexOf(':tool:');
-  if (deliveryMarker <= 0) throw new Error(`Malformed tool_result message id '${id}': missing delivery input ':tool:<counter>' segment.`);
-  const counter = deliveryInputId.slice(deliveryMarker + ':tool:'.length);
-  if (!/^\d+$/.test(counter)) throw new Error(`Malformed tool_result message id '${id}': delivery counter '${counter}' is not numeric.`);
-  return deliveryInputId.slice(0, deliveryMarker);
+  if (toolCallId && suffixIndex + suffix.length !== id.length) throw new Error(`Malformed tool_result message id '${id}': unexpected trailing content.`);
+  return id.slice(0, suffixIndex);
 }
 
 export function sourceInputIdFromToolErrorMessageId(id: string, toolCallId: string): string {

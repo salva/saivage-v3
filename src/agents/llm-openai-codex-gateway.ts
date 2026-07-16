@@ -2,6 +2,7 @@ import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
+import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/message-identity.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
@@ -12,7 +13,7 @@ interface CodexInputText { type: 'input_text'; text: string; }
 type CodexMessage =
   | { role: 'user'; content: CodexInputText[] }
   | { role: 'assistant'; content: Array<{ type: 'output_text'; text: string }> }
-  | { role: 'system' | 'developer'; content: string }
+  | { role: 'system'; content: string }
   | Record<string, unknown>;
 
 export interface OpenAICodexGatewayConfig {
@@ -39,7 +40,8 @@ export class OpenAICodexGateway {
     _sessionId: string,
     opts: LlmCompleteOptions,
   ): Promise<ProviderTurnCompletion> {
-    const body = buildOpenAICodexRequest(candidate, systemPrompt, messages, opts);
+    const body = opts.builtCandidateRequest?.body ?? buildOpenAICodexRequest(candidate, systemPrompt, messages, opts);
+    const serializedBody = opts.builtCandidateRequest?.serializedBody ?? JSON.stringify(body);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
@@ -64,7 +66,7 @@ export class OpenAICodexGateway {
     let streamBuffer: string | undefined;
 
     try {
-      const response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal }).catch((err: unknown) => {
+      const response = await fetch(endpoint, { method: 'POST', headers, body: serializedBody, signal: opts.signal }).catch((err: unknown) => {
         if (handle) {
           recordedErr = true;
           const e = err as Error;
@@ -121,6 +123,7 @@ export function buildOpenAICodexRequest(
   messages: AgentMessage[],
   opts: LlmCompleteOptions,
 ): Record<string, unknown> {
+  const systemContext = messages.filter((message) => message.role === 'system').map((message) => message.content);
   const input = codexMessages(messages);
   if (input.length === 0) {
     input.push({ role: 'user', content: [{ type: 'input_text', text: 'Proceed with the task described in the instructions.' }] });
@@ -138,8 +141,9 @@ export function buildOpenAICodexRequest(
     model: candidate.model,
     store: false,
     stream: true,
-    instructions: systemPrompt,
+    instructions: [systemPrompt, ...systemContext].join('\n\n--- system context ---\n'),
     input,
+    max_output_tokens: opts.max_tokens ?? 4096,
   };
   if (tools.length > 0) {
     body.tools = serializeToolsForCodex(tools);
@@ -159,33 +163,33 @@ function firedTerminalFromCodexResult(result: LlmCompleteResult, opts: LlmComple
 }
 
 export function codexMessages(messages: AgentMessage[]): CodexMessage[] {
-  const callIdsWithOutput = new Set<string>();
-  const callIdsSeen = new Set<string>();
+  const callsWithOutput = new Set<string>();
+  const callsSeen = new Set<string>();
   for (const message of messages) {
     if (message.role === 'assistant' && message.kind === 'tool_call') {
       const call = parseToolCallMessageForModel(JSON.parse(message.content));
-      callIdsSeen.add(call.id);
+      callsSeen.add(`${sourceInputIdFromToolCallMessageId(message.id, call.id)}\u0000${call.id}`);
     } else if (message.role === 'tool') {
-      const toolMessage = message as AgentMessage & { tool_call_id?: string };
-      const id = toolMessage.tool_call_id ?? message.id;
-      if (id && callIdsSeen.has(id)) callIdsWithOutput.add(id);
+      if (!message.tool_call_id) throw new Error(`Codex tool settlement '${message.id}' is missing tool_call_id.`);
+      const key = `${sourceInputIdFromToolResultMessageId(message.id, message.tool_call_id)}\u0000${message.tool_call_id}`;
+      if (callsSeen.has(key)) callsWithOutput.add(key);
     }
   }
 
   const result: CodexMessage[] = [];
   for (const message of messages) {
+    if (message.role === 'system') continue;
     if (message.role === 'user') {
       result.push({ role: 'user', content: [{ type: 'input_text', text: message.content }] });
     } else if (message.role === 'assistant' && message.kind === 'tool_call') {
       const call = parseToolCallMessageForModel(JSON.parse(message.content));
-      if (!callIdsWithOutput.has(call.id)) continue;
+      if (!callsWithOutput.has(`${sourceInputIdFromToolCallMessageId(message.id, call.id)}\u0000${call.id}`)) continue;
       result.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments });
     } else if (message.role === 'assistant') {
       result.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
     } else if (message.role === 'tool') {
-      const toolMessage = message as AgentMessage & { tool_call_id?: string };
-      const callId = toolMessage.tool_call_id ?? message.id;
-      if (!callId || !callIdsWithOutput.has(callId)) continue;
+      const callId = message.tool_call_id;
+      if (!callId || !callsWithOutput.has(`${sourceInputIdFromToolResultMessageId(message.id, callId)}\u0000${callId}`)) continue;
       result.push({ type: 'function_call_output', call_id: callId, output: message.content });
     }
   }

@@ -6,11 +6,11 @@ import {
   AnalystOfflineError,
   formatVocabularySnippet,
 } from './analyst-prompt.js';
-import { CardStore, CardStoreRepository } from '../cards/store-api.js';
+import { CardService } from '../cards/card-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventBus, EventPayload } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
-import type { EventLogger } from '../observability/index.js';
+import type { EventLog } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
@@ -19,13 +19,13 @@ import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
-import { appendCanonicalUserText, buildContextTextMessage, conversationMessagesForModel, readActiveVersionMessages } from '../runtime/actors/conversation-store.js';
+import { appendCanonicalUserText, buildContextTextMessage, conversationMessagesForModel, readConversationMessages } from '../runtime/actors/conversation-session.js';
 import { buildResponsesReplayProjection } from './llm-openai-responses-mapper.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { createConversationChangePublisher } from '../runtime/actors/conversation-publisher.js';
-import type { ConversationStore } from '../persistence/conversation-store.js';
-import type { AppLogStore } from '../persistence/app-log.js';
+import type { ConversationFileContext } from '../persistence/conversation-file.js';
+import type { AppLogContext } from '../persistence/app-log.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
@@ -38,7 +38,6 @@ import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
-import { recordControlAction } from '../persistence/index.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from '../runtime/actors/invocation-lifecycle.js';
 import { DefaultAnalystBriefRecordMutationService, DefaultAnalystCardMutationService, DefaultAnalystConfigMutationService, DefaultAnalystNotificationMutationService } from '../application/analyst-mutation-services.js';
 
@@ -86,19 +85,18 @@ export interface AnalystResponse {
 
 export interface AnalystRuntimeDeps {
   configAuthority: ResolvedConfigAuthority;
-  cardStore: CardStoreRepository;
-  runtime: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
+  cardStore: CardService;
+  runtime: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'stopProject' | 'cancelCard' | 'notifyCard' | 'getStatus'>;
   runtimeControl?: import('../application/runtime-control-service.js').RuntimeControlApplicationPort;
-  eventLogger?: EventLogger;
+  eventLogger?: EventLog;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   eventBus: EventBus;
   mcpManager?: McpManager;
   provider: LLMProviderPort;
   processRunner: ProcessRunner;
   analystProcessRootScope: ManagedProcessScope;
-  conversations: ConversationStore;
-  appLogs: AppLogStore;
-  persistenceHealth: import('../application/persistence-health.js').ApplicationPersistenceHealth;
+  conversations: ConversationFileContext;
+  appLogs: AppLogContext;
   interventionReadiness: import('../application/intervention-readiness.js').InterventionReadinessFacet;
 }
 
@@ -159,10 +157,10 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
   deps.emitAnalystToolInvoked({ sessionId, tool, success: result.success, ...payload });
 }
 
-function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardStore; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
+function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardService; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
   const notifyCard = args.runtimeDeps.runtime.notifyCard.bind(args.runtimeDeps.runtime);
-  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, persistenceHealth: args.runtimeDeps.persistenceHealth, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs, analystMutations: {
-    cards: new DefaultAnalystCardMutationService(args.store, args.surface, notifyCard),
+  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs, analystMutations: {
+    cards: new DefaultAnalystCardMutationService(args.store, args.surface, notifyCard, args.runtimeDeps.runtime.cancelCard.bind(args.runtimeDeps.runtime)),
     config: new DefaultAnalystConfigMutationService(args.runtimeDeps.configAuthority),
     notifications: new DefaultAnalystNotificationMutationService(args.projectRoot, args.store, args.surface, notifyCard),
     briefRecords: new DefaultAnalystBriefRecordMutationService(args.projectRoot, args.store, notifyCard),
@@ -296,7 +294,7 @@ export class AnalystSessionActor extends BaseActor {
     }
     const store = this.args.runtimeDeps.cardStore.cards();
     const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
-    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, appLogs: ctx.appLogs, persistenceHealth: ctx.persistenceHealth, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
+    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
     const previousToolCallFingerprints = new Set<string>();
     let noProgressDirectiveSent = false;
     const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(input.workspaceContext));
@@ -388,7 +386,6 @@ export class AnalystSessionActor extends BaseActor {
       }
       this.toolInFlight = null;
       this.throwIfCancelled();
-      this.args.runtimeDeps.persistenceHealth.assertMutationHealthy();
 
       this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success } });
       toolInvocations.push({ tool: toolCall.toolName, params, result });
@@ -406,10 +403,6 @@ export class AnalystSessionActor extends BaseActor {
     if (!this.args.restartServerAvailable || !this.args.restartPort) throw new Error('Restart confirmation is unavailable without authenticated operator restart capability.');
     const appended = appendCanonicalUserText(this.args.runtimeDeps.conversations, this.sessionId, input.userContent);
     this.llm.conversationPublisher?.entryAppended(appended);
-    recordControlAction(this.args.runtimeDeps.appLogs, {
-      actor: 'analyst', surface: this.args.surface ?? 'web-chat', action: 'runtime.restart_server', target_kind: 'runtime', target_id: 'server',
-      params_summary: JSON.stringify({ session_id: this.sessionId, operator_authority: 'global' }), safety_class: 'destructive', outcome: 'ok', outcome_summary: 'restart accepted and scheduled',
-    }, this.args.runtimeDeps.eventBus);
     this.args.restartPort.schedule();
     return this.response(undefined, { status: 'scheduled' });
   }
@@ -438,12 +431,12 @@ export class AnalystSessionActor extends BaseActor {
     const modelParams = getModelParamsForRole(this.args.config, 'analyst');
     const activeRows = this.llm.input
       ? [...activeConversationReplayForInvocation(this.llm.input).messages, ...newMessages]
-      : [...readActiveVersionMessages(this.args.projectRoot, this.sessionId), ...newMessages];
+      : [...readConversationMessages(this.args.projectRoot, this.sessionId), ...newMessages];
     const genericContextMessages = this.llm.input
       ? [...genericContextMessagesForInvocation(this.llm.input), ...newMessages]
       : conversationMessagesForModel(activeRows);
     return {
-      inputId: `${this.llm.agentId}:turn:${Date.now()}`,
+      inputId: randomUUID(),
       agentId: this.llm.agentId,
       role: 'analyst',
       sessionId: this.sessionId,
@@ -573,10 +566,12 @@ export class AnalystSessionActor extends BaseActor {
 
 export class AnalystRuntime {
   private readonly sessions = new Map<string, AnalystSessionActor>();
+  private admissionOpen = true;
 
   constructor(private readonly args: { projectRoot: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; restartServerAvailable?: boolean; restartPort?: RestartPort }) {}
 
   submit(sessionId: string, input: AnalystTurnInput, onActivity?: ActivityCallback): Promise<AnalystTurnResult> {
+    if (!this.admissionOpen) return Promise.reject(new Error('Analyst admission is closed.'));
     return this.getOrCreateSession(sessionId, input).submit(input, onActivity);
   }
 
@@ -593,14 +588,27 @@ export class AnalystRuntime {
     try {
       const catalogStore = this.args.runtimeDeps.cardStore.cards();
       const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store: catalogStore, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
-      return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, appLogs: ctx.appLogs, persistenceHealth: ctx.persistenceHealth, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
+      return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
     } finally {
       this.args.runtimeDeps.processRunner.closeScope(processScope);
     }
   }
 
-  async shutdown(): Promise<void> {
-    await Promise.all([...this.sessions.values()].map((session) => session.shutdownProcesses()));
+  closeAdmission(): void {
+    this.admissionOpen = false;
+    for (const session of this.sessions.values()) session.disposeSession(new Error('Application stopping.'));
+  }
+
+  async cleanupForApplicationStop(): Promise<void> {
+    this.closeAdmission();
+    let termination: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
+    try { termination = this.args.runtimeDeps.processRunner.terminateOwnedRoot('analyst', this.args.runtimeDeps.analystProcessRootScope, 'application stopping'); }
+    catch (error) { termination = Promise.reject(error); }
+    const joins = [...this.sessions.values()].map((session) => session.joinSession());
+    const settlements = await Promise.allSettled([termination, ...joins]);
+    const terminationSettlement = settlements[0]!;
+    if (terminationSettlement.status === 'rejected') throw terminationSettlement.reason;
+    if (settlements.some((settlement) => settlement.status === 'rejected') || terminationSettlement.value.failed.length !== 0) throw new Error('Analyst application cleanup failed.');
   }
 
   async shutdownSessionProcesses(sessionId: string): Promise<void> {
@@ -619,3 +627,4 @@ export class AnalystRuntime {
     return actor;
   }
 }
+import { randomUUID } from 'node:crypto';

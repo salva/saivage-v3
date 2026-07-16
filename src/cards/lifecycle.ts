@@ -1,4 +1,4 @@
-import { isTerminalCardType, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
+import { cardNotificationSchema, isTerminalCardType, type CardNotification, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
 import { valuesEqual } from './value-equality.js';
@@ -34,7 +34,6 @@ export interface NewCardInput {
   status_text_author_session_id?: string | null;
   latest_self_report?: Record<string, unknown> | null;
   metadata?: import('../schemas/index.js').CardMetadata | null;
-  retries: number;
 }
 
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
@@ -228,6 +227,7 @@ export function validateMutablePatch(
   if (isTerminalState(existing.status)) {
     for (const key of changedKeys) {
       if ((explicitLifecycleWrite || explicitStatusTransition) && TERMINAL_LIFECYCLE_FIELDS.has(key)) continue;
+      if (existing.status === 'blocked' && key === 'pending_notifications') continue;
       if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
         throw new Error(
           `Card '${existing.id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
@@ -266,6 +266,7 @@ export function buildUpdatedCard(
   const newDepth = validateMutablePatch(existing, changes, facts, ctx);
   const newDependsOn =
     changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
+  const status = changes.status ?? existing.status;
   return {
     ...existing,
     ...changes,
@@ -275,6 +276,9 @@ export function buildUpdatedCard(
     updated_at: stamp,
     depth: newDepth,
     depends_on: newDependsOn,
+    pending_notifications: status === 'done' || status === 'failed' || status === 'cancelled'
+      ? []
+      : changes.pending_notifications ?? existing.pending_notifications,
     version_seq: existing.version_seq + 1,
   };
 }
@@ -313,11 +317,6 @@ export function assertCanCreateCard(input: NewCardInput): void {
   }
 }
 
-export function newCardId(type: CardType, generateId: () => string): string {
-  if (type === 'project') return PROJECT_CARD_ID;
-  return generateId();
-}
-
 export function buildNewCard({ input, id, depth, position, timestamp }: BuildNewCardParams): CardRecord {
   const lifecycle = input.lifecycle ?? ({ status: input.status, result: null, error: null, completed_at: null } as CardLifecycleState);
   if (input.status !== lifecycle.status) throw new Error(`New card status '${input.status}' must match lifecycle.status '${lifecycle.status}'.`);
@@ -348,11 +347,25 @@ export function buildNewCard({ input, id, depth, position, timestamp }: BuildNew
     status_text_updated_at: input.status_text_updated_at ?? null,
     status_text_author_session_id: input.status_text_author_session_id ?? null,
     latest_self_report: input.latest_self_report ?? null,
-    retries: input.retries,
+    pending_notifications: [],
     version_seq: 1,
   };
 }
 
 export function briefContentForNewCard(input: NewCardInput): string {
   return input.brief;
+}
+
+export function enqueueCardNotification(card: CardRecord, notification: CardNotification): CardRecord {
+  if (card.status === 'done' || card.status === 'failed' || card.status === 'cancelled') throw new Error(`Cannot queue notification for terminal card '${card.id}' in status '${card.status}'.`);
+  const parsed = cardNotificationSchema.parse(notification);
+  if (card.pending_notifications.some((candidate) => candidate.id === parsed.id)) throw new Error(`Notification '${parsed.id}' already exists on card '${card.id}'.`);
+  return { ...card, pending_notifications: [...card.pending_notifications, parsed] };
+}
+
+export function removeCardNotifications(card: CardRecord, notificationIds: readonly string[]): CardRecord {
+  const selected = new Set(notificationIds);
+  if (selected.size !== notificationIds.length) throw new Error('Notification removal ids must be unique.');
+  for (const id of selected) if (!card.pending_notifications.some((notification) => notification.id === id)) throw new Error(`Notification '${id}' is not pending on card '${card.id}'.`);
+  return { ...card, pending_notifications: card.pending_notifications.filter((notification) => !selected.has(notification.id)) };
 }

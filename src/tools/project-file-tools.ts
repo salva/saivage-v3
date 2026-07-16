@@ -1,16 +1,15 @@
 import * as childProcess from 'node:child_process';
 import { closeSync, createReadStream, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import type { AgentRole } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
-import type { CardStore } from '../cards/store-api.js';
-import { readRuntimeState } from '../runtime/state-api.js';
+import type { CardService } from '../cards/card-api.js';
 import { propagateAnalystBriefEdit } from '../runtime/changed-propagation.js';
-import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
 const { spawnSync } = childProcess;
@@ -25,7 +24,7 @@ export const READ_HEAD_SAMPLE_BYTES = 4096;
 const GREP_HEAD_SAMPLE_BYTES = 1024;
 const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
-export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read' | 'getAncestors' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
+export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardService, 'read' | 'getAncestors' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
 type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
 
 export class WorkspaceToolInputError extends Error {
@@ -86,6 +85,7 @@ function assertReadable(projectRoot: string, path: string, label = 'read path'):
 }
 
 function assertWritable(projectRoot: string, path: string): { absolutePath: string; relativePath: string } {
+  assertNoSymlinkComponents(projectRoot, isAbsolute(path) ? resolve(path) : resolve(projectRoot, path));
   const resolved = resolveProjectPath(projectRoot, path, 'write path');
   if (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')) throw toolInputError('write requires a file path, not a directory.');
   if (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/')) throw toolInputError('Cannot modify Saivage internal state directories.');
@@ -96,6 +96,21 @@ function assertWritable(projectRoot: string, path: string): { absolutePath: stri
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
   return resolved;
+}
+
+function assertNoSymlinkComponents(root: string, target: string): void {
+  const rel = relative(resolve(root), resolve(target));
+  if (rel === '') return;
+  let current = resolve(root);
+  for (const segment of rel.split(/[\\/]/)) {
+    current = join(current, segment);
+    try {
+      if (lstatSync(current).isSymbolicLink()) throw toolInputError(`Write access to symlink '${relative(root, current).replace(/\\/g, '/')}' is blocked for security reasons.`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+  }
 }
 
 function canWriteWorkspaceFiles(role: AgentRole | undefined): boolean {
@@ -122,6 +137,7 @@ function assertScopedWritable(ctx: WorkspaceContext, raw: string, resolved: VfsR
     return resolved;
   }
   if ((resolved.kind === 'project' || resolved.kind === 'system') && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write ${resolved.kind} files.`);
+  if (resolved.kind === 'project') assertNoSymlinkComponents(ctx.projectRoot, resolved.absolutePath);
   if (resolved.absolutePath === '/' || raw.endsWith('/') || (resolved.kind !== 'system' && (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')))) throw toolInputError('write requires a file path, not a directory.');
   if (resolved.kind === 'project' && (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/'))) throw toolInputError('Cannot modify Saivage internal state directories.');
   if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
@@ -302,7 +318,7 @@ function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; 
   ctx.store!.editRecord(target.cardId, 'brief.md', open.version, params.content);
   const closed = ctx.store!.closeRecord(target.cardId, 'brief.md', open.version, 'analyst', card.version_seq);
   try {
-    propagateAnalystBriefEdit(ctx.store! as CardStore, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, ctx.notifyCard!);
+    propagateAnalystBriefEdit(ctx.store! as CardService, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, ctx.notifyCard!);
     return { card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true, propagation: { ok: true } };
   } catch (error) {
     return { card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } };
@@ -313,8 +329,6 @@ function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path:
   if (!params.path.startsWith('record:///')) throw toolInputError('Analyst write only writes record:///brief.md document records. It cannot write host or project files.');
   if (!ctx.store) throw new Error('Analyst record writes require a card store.');
   if (!ctx.notifyCard) throw toolInputError('Analyst brief record edits require card notification capability.');
-  const runtimeState = readRuntimeState(ctx.projectRoot);
-  if (runtimeState?.status !== 'stopped' && runtimeState?.status !== 'paused') throw toolInputError(`Analyst write requires runtime status stopped or paused before mutating card records. Current runtime status is ${runtimeState?.status ?? 'unknown'}.`);
   const target = resolveAnalystBriefWriteUrl(ctx, params.path);
   if (params.content !== undefined) {
     if (params.content.length === 0) throw toolInputError('brief.md content must not be empty.');

@@ -3,7 +3,14 @@ import { join, relative } from 'node:path';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
 import { getSafeFileForAgent, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
-import type { ProjectCardRecordReader } from '../../persistence/project-store-repository.js';
+interface ProjectCardRecordReader {
+  record(cardId: string, filename: string, version: number | 'latest' | 'open'): {
+    recordUrl: string;
+    version: number;
+    artifact: { state: string; content: string; committed_at?: string | null };
+  };
+  isActiveCardId(cardId: string): boolean;
+}
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;

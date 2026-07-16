@@ -21,7 +21,7 @@ import {
   resolveAnalystSessionId,
 } from '../agents/analyst-api.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { readConversationMessages } from '../runtime/actors/conversation-store.js';
+import { readConversationMessages } from '../runtime/actors/conversation-session.js';
 
 export interface TelegramConfig {
   botToken?: string;
@@ -37,7 +37,6 @@ const POLL_TIMEOUT_SECONDS = 30;
 const MAX_RETRIES = 5;
 const BASE_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
-const STOP_TIMEOUT_MS = 5_000;
 
 export function convertMarkdownToHtml(markdown: string): string {
   if (!markdown) return '';
@@ -103,6 +102,7 @@ export class TelegramBot {
   private running = false;
   private pollAbortController: AbortController | null = null;
   private pollPromise: Promise<void> | null = null;
+  private stopAbortReason: object | null = null;
   private lastUpdateId = 0;
   constructor(projectRoot: string, private readonly analystRuntime: AnalystRuntime, saivageConfig?: SaivageConfig) {
     this.projectRoot = projectRoot;
@@ -111,18 +111,39 @@ export class TelegramBot {
     }
     this.config = { botToken: saivageConfig.telegram?.botToken, allowedUserIds: saivageConfig.telegram?.allowedUserIds };
   }
-  async start(): Promise<void> { if (this.running) return; if (!this.config.botToken) return; this.running = true; this.pollAbortController = new AbortController(); this.pollPromise = this._pollLoop(this.pollAbortController.signal); }
-  async stop(): Promise<void> { if (!this.running) return; this.running = false; if (this.pollAbortController) { this.pollAbortController.abort(); this.pollAbortController = null; } if (this.pollPromise) { try { await raceWithTimeout(this.pollPromise, STOP_TIMEOUT_MS, 'Poll shutdown timeout'); } catch { void 0; } this.pollPromise = null; } }
+  async start(): Promise<void> {
+    if (this.running) return;
+    if (!this.config.botToken) return;
+    this.running = true;
+    this.pollAbortController = new AbortController();
+    this.stopAbortReason = Object.freeze({});
+    this.pollPromise = this._pollLoop(this.pollAbortController.signal, this.stopAbortReason);
+  }
+  closeAdmission(): void { this.running = false; }
+  async stop(): Promise<void> {
+    const controller = this.pollAbortController;
+    const poll = this.pollPromise;
+    const stopReason = this.stopAbortReason;
+    this.closeAdmission();
+    if (!controller || !poll || !stopReason) return;
+    controller.abort(stopReason);
+    try { await poll; }
+    catch (error) { if (error !== stopReason) throw error; }
+    finally {
+      if (this.pollAbortController === controller) this.pollAbortController = null;
+      if (this.pollPromise === poll) this.pollPromise = null;
+      if (this.stopAbortReason === stopReason) this.stopAbortReason = null;
+    }
+  }
   async sendMessage(chatId: number, text: string, options?: { parseMode?: 'Markdown' | 'HTML' }): Promise<void> { if (!this.config.botToken) return; let parseMode: string | undefined; let processedText = text; if (options?.parseMode === 'Markdown') { processedText = convertMarkdownToHtml(text); parseMode = 'HTML'; } else if (options?.parseMode === 'HTML') { parseMode = 'HTML'; processedText = escapeHtmlEntities(text); } const chunks = splitLongMessage(processedText, DEFAULT_MAX_MESSAGE_LENGTH); for (const chunk of chunks) { await this._telegramApi('sendMessage', { chat_id: chatId, text: chunk, ...(parseMode ? { parse_mode: parseMode } : {}) }); if (chunks.length > 1) await sleep(50); } }
   async sendNotification(chatId: number, notification: { title: string; cardId?: string; attachments?: string[]; details?: string; }): Promise<void> { if (!this.config.botToken) return; await this._telegramApi('sendMessage', { chat_id: chatId, text: escapeHtmlEntities(notification.title), parse_mode: 'HTML' }); }
   isAuthorized(userId: number): boolean { if (!this.config.allowedUserIds || this.config.allowedUserIds.length === 0) return false; return this.config.allowedUserIds.includes(userId); }
   isRunning(): boolean { return this.running; }
-  private async _pollLoop(signal: AbortSignal): Promise<void> { while (!signal.aborted) { try { const updates = await this._getUpdates(signal); for (const update of updates) { if (signal.aborted) break; await this._handleUpdate(update); this.lastUpdateId = Math.max(this.lastUpdateId, update.update_id); } } catch (err) { if (signal.aborted) break; console.error(`[telegram] Poll error: ${redactTextForOutbound(err, 'telegram.diagnostic', { source: 'telegram-bot' })}`); await sleepWithSignal(POLL_INTERVAL_MS, signal); } } }
-  private async _getUpdates(signal: AbortSignal): Promise<TelegramUpdate[]> { const params: Record<string, unknown> = { offset: this.lastUpdateId + 1, timeout: POLL_TIMEOUT_SECONDS, allowed_updates: ['message'] }; const response = await this._telegramApiWithRetry<TelegramUpdate[]>('getUpdates', params, signal); return response ?? []; }
+  private async _pollLoop(signal: AbortSignal, stopReason: object): Promise<void> { while (!signal.aborted) { try { const updates = await this._getUpdates(signal, stopReason); for (const update of updates) { if (signal.aborted) throw signal.reason; await this._handleUpdate(update); this.lastUpdateId = Math.max(this.lastUpdateId, update.update_id); } } catch (err) { if (err === stopReason) throw err; if (signal.aborted) throw err; console.error(`[telegram] Poll error: ${redactTextForOutbound(err, 'telegram.diagnostic', { source: 'telegram-bot' })}`); await sleepWithSignal(POLL_INTERVAL_MS, signal); } } if (signal.reason === stopReason) throw stopReason; }
+  private async _getUpdates(signal: AbortSignal, stopReason: object): Promise<TelegramUpdate[]> { const params: Record<string, unknown> = { offset: this.lastUpdateId + 1, timeout: POLL_TIMEOUT_SECONDS, allowed_updates: ['message'] }; const response = await this._telegramApiWithRetry<TelegramUpdate[]>('getUpdates', params, signal, stopReason); return response ?? []; }
   private async _handleUpdate(update: TelegramUpdate): Promise<void> { const msg = update.message ?? update.edited_message; if (!msg || !msg.text) return; const from = msg.from; if (!from) return; const userId = from.id; const chatId = msg.chat.id; if (!this.isAuthorized(userId)) return; const sessionId = `telegram-${chatId}`; try { resolveAnalystSessionId(sessionId); } catch (err) { console.error(`[telegram] Failed to create session for chat ${chatId}: ${redactTextForOutbound(err, 'telegram.diagnostic', { source: 'telegram-bot' })}`); return; } try { const response = await this.analystRuntime.submit(sessionId, { userContent: msg.text, actor: 'analyst', surface: 'telegram' }); const reply = [...readConversationMessages(this.projectRoot, response.sessionId)].reverse().find((entry) => entry.role === 'assistant' && entry.kind === 'text')?.content ?? 'Done.'; await this.sendMessage(chatId, reply, { parseMode: 'Markdown' }); } catch (err) { console.error(`[telegram] Error handling message from ${userId}: ${redactTextForOutbound(err, 'telegram.diagnostic', { source: 'telegram-bot' })}`); try { await this.sendMessage(chatId, 'Sorry, something went wrong processing your request.'); } catch { void 0; } } }
   private async _telegramApi<T>(method: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<T | undefined> { const url = `${TELEGRAM_API_BASE}/bot${this.config.botToken}/${method}`; const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params), signal }); const data = (await response.json()) as TelegramApiResponse<T>; if (!data.ok) throw new Error(`Telegram API error (${method}): ${data.description ?? 'unknown'} (code ${data.error_code ?? 'N/A'})`); return data.result; }
-  private async _telegramApiWithRetry<T>(method: string, params: Record<string, unknown>, signal: AbortSignal): Promise<T | undefined> { let lastError: Error | null = null; for (let attempt = 0; attempt < MAX_RETRIES; attempt++) { if (signal.aborted) throw new Error('Aborted'); try { return await this._telegramApi<T>(method, params, signal); } catch (err) { lastError = err instanceof Error ? err : new Error(String(err)); if (signal.aborted) break; if (lastError.message.includes('Telegram API error') && !lastError.message.includes('code 5') && !lastError.message.includes('code N/A')) throw lastError; const delay = Math.min(BASE_BACKOFF_MS * Math.pow(2, attempt) + Math.random() * 500, MAX_BACKOFF_MS); console.warn(`[telegram] Retry ${attempt + 1}/${MAX_RETRIES} for ${method}: ${redactTextForOutbound(lastError, 'telegram.diagnostic', { source: 'telegram-bot' })} (waiting ${Math.round(delay)}ms)`); await sleepWithSignal(delay, signal); } } throw lastError ?? new Error('Max retries exceeded'); }
+  private async _telegramApiWithRetry<T>(method: string, params: Record<string, unknown>, signal: AbortSignal, stopReason: object): Promise<T | undefined> { let lastError: unknown; for (let attempt = 0; attempt < MAX_RETRIES; attempt++) { if (signal.aborted) throw signal.reason; try { return await this._telegramApi<T>(method, params, signal); } catch (err) { if (err === stopReason) throw err; if (signal.aborted) throw err; lastError = err; const retryError = err instanceof Error ? err : null; if (retryError?.message.includes('Telegram API error') && !retryError.message.includes('code 5') && !retryError.message.includes('code N/A')) throw err; const delay = Math.min(BASE_BACKOFF_MS * Math.pow(2, attempt) + Math.random() * 500, MAX_BACKOFF_MS); console.warn(`[telegram] Retry ${attempt + 1}/${MAX_RETRIES} for ${method}: ${redactTextForOutbound(err, 'telegram.diagnostic', { source: 'telegram-bot' })} (waiting ${Math.round(delay)}ms)`); await sleepWithSignal(delay, signal); } } throw lastError ?? new Error('Max retries exceeded'); }
 }
 function sleep(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
-function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> { return new Promise((resolve, reject) => { const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms); function onAbort() { clearTimeout(timer); reject(new Error('Aborted')); } signal.addEventListener('abort', onAbort, { once: true }); }); }
-function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> { let timer: ReturnType<typeof setTimeout> | undefined; const timeoutPromise = new Promise<never>((_, reject) => { timer = setTimeout(() => { timer = undefined; reject(new Error(message)); }, timeoutMs); }); return Promise.race([promise.then((value) => { if (timer !== undefined) clearTimeout(timer); return value; }, (err) => { if (timer !== undefined) clearTimeout(timer); throw err; }), timeoutPromise]); }
+export function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> { return new Promise((resolve, reject) => { if (signal.aborted) { reject(signal.reason); return; } const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms); function onAbort() { clearTimeout(timer); reject(signal.reason); } signal.addEventListener('abort', onAbort, { once: true }); }); }

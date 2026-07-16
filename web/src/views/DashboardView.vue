@@ -4,6 +4,8 @@
       <div class="console-header">
         <PanelHeader title="Runtime Console">
           <template #actions>
+            <button class="runtime-command" :disabled="!canStopProject" @click="stopProject">Stop project</button>
+            <button v-if="restartServerAvailable" class="runtime-command danger" @click="restartServer">Restart server</button>
             <button
               class="ui-refresh-button"
               :disabled="runtimeLoading"
@@ -151,9 +153,18 @@ const {
   lastFetchedAt,
   lastWsEventAt,
   lastUpdatedBy,
+  restartServerAvailable,
+  status,
 } = storeToRefs(runtimeStore);
 
 const errorMsg = ref<string | null>(null);
+const canStopProject = computed(() => ['starting', 'running', 'pausing', 'paused'].includes(status.value));
+
+async function stopProject(): Promise<void> { try { await runtimeStore.stopProject(); } catch (error) { errorMsg.value = error instanceof Error ? error.message : String(error); } }
+async function restartServer(): Promise<void> {
+  if (window.prompt('Type RESTART SERVER to confirm server restart:') !== 'RESTART SERVER') return;
+  try { await runtimeStore.restartServer(); } catch (error) { errorMsg.value = error instanceof Error ? error.message : String(error); }
+}
 
 const { goalChildren, runtimeBannerMessage, runtimeBannerClass, barWidth } = useDashboardReadModel({
   runtimeRefs: {

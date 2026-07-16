@@ -53,7 +53,7 @@ vi.mock('../api/client', () => {
           role: 'assistant',
           kind: 'tool_call',
           tool_call_id: 'tc1',
-          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'G3', reason: 'ready' }) } }] }),
+          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: '22222222-2222-4222-8222-222222222222', reason: 'ready' }) } }] }),
           timestamp: '2025-06-01T08:06:00Z',
         },
         {
@@ -101,8 +101,8 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
   return {
     id,
     role: 'planner' as AgentRole,
-    goal_card_id: 'goal-1',
-    card_id: 'card-1',
+    goal_card_id: '11111111-1111-4111-8111-111111111111',
+    card_id: '11111111-1111-4111-8111-111111111111',
     status: 'active' as const,
     started_at: '2025-06-01T08:00:00Z',
     completed_at: null,
@@ -150,7 +150,7 @@ async function mountAgentsView(opts?: {
           block_index: 0,
         timestamp: '2025-06-01T08:05:00Z',
         links: [
-          { entity_type: 'card', entity_id: 'card-123', label: 'Card 123' },
+          { entity_type: 'card', entity_id: '11111111-1111-4111-8111-111111111111', label: 'Card title' },
           { entity_type: 'process', entity_id: 'proc-1', label: 'Process proc-1' },
           { entity_type: 'artifact', entity_id: '.saivage/work/output.txt', label: 'Artifact output' },
         ],
@@ -233,7 +233,7 @@ describe('AgentsView', () => {
     await links[1].trigger('click');
     await links[2].trigger('click');
 
-    expect(pushSpy).toHaveBeenCalledWith({ name: 'card-detail', params: { id: 'card-123' } });
+    expect(pushSpy).toHaveBeenCalledWith({ name: 'card-detail', params: { id: '11111111-1111-4111-8111-111111111111' } });
     expect(pushSpy).toHaveBeenCalledWith({ name: 'debug', query: { tab: 'processes', process: 'proc-1' } });
     expect(pushSpy).toHaveBeenCalledWith({ name: 'files', query: { path: '.saivage/work/output.txt' } });
   });
@@ -248,7 +248,7 @@ describe('AgentsView', () => {
           role: 'assistant',
           kind: 'tool_call',
           tool_call_id: 'tc1',
-          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'G3', reason: 'ready' }) } }] }),
+          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: '22222222-2222-4222-8222-222222222222', reason: 'ready' }) } }] }),
           round_id: 'r-assistant-00000000000000000000000000000001',
           message_index: 0,
           block_index: 0,
@@ -281,7 +281,7 @@ describe('AgentsView', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('Activate');
-    expect(wrapper.text()).toContain('card G3');
+    expect(wrapper.text()).toContain('card 22222222-2222-4222-8222-222222222222');
     expect(wrapper.text()).toContain('activated G3');
     expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
 

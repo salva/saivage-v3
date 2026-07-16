@@ -303,10 +303,10 @@ describe('integration edge cases', () => {
 
   it('blocks current lock namespace paths from reads and writes', async () => {
     const mod = await import('../../src/workspace/index.js');
-    expect(mod.isReadBlocked('.saivage/locks/actor-snapshots.lock')).toBe(true);
-    expect(mod.isWriteBlocked('.saivage/locks/actor-snapshots.lock')).toBe(true);
+    expect(mod.isReadBlocked('.saivage/locks/runtime.lock')).toBe(true);
+    expect(mod.isWriteBlocked('.saivage/locks/runtime.lock')).toBe(true);
     expect(isSensitivePath('.saivage/locks/runtime.lock')).toBe(true);
-    expect(() => readProjectFileAtomic(root, '.saivage/locks/actor-snapshots.lock')).toThrow(/blocked for security reasons/);
+    expect(() => readProjectFileAtomic(root, '.saivage/locks/runtime.lock')).toThrow(/blocked for security reasons/);
   });
 
   it('getSafeFileForAgent preserves content for safe files', () => {

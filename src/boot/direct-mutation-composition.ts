@@ -1,8 +1,7 @@
 import { basename } from 'node:path';
 import { realpathSync } from 'node:fs';
 
-import { ApplicationPersistenceHealth } from '../application/persistence-health.js';
-import { ProjectIdentityStore, projectIdentityDigest } from '../persistence/project-identity-store.js';
+import { createProjectIdentity, projectIdentityDigest } from '../persistence/project-identity.js';
 import {
   acquireRuntimeLifecycleLock,
   bindRuntimeLifecycleLock,
@@ -13,9 +12,7 @@ import {
 export interface DirectMutationComposition {
   readonly projectRoot: string;
   readonly lifecycleLock: RuntimeLifecycleLockHandle;
-  readonly persistenceHealth: ApplicationPersistenceHealth;
-  readonly projectIdentity: ProjectIdentityStore;
-  createAndBindProjectIdentity(): ReturnType<ProjectIdentityStore['create']>;
+  createAndBindProjectIdentity(): ReturnType<typeof createProjectIdentity>;
 }
 
 export function withDirectMutationComposition<T>(
@@ -25,15 +22,11 @@ export function withDirectMutationComposition<T>(
 ): T {
   const canonicalProjectRoot = realpathSync(projectRoot);
   const lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: canonicalProjectRoot, mode });
-  const persistenceHealth = new ApplicationPersistenceHealth();
-  const projectIdentity = new ProjectIdentityStore(canonicalProjectRoot, persistenceHealth);
   const composition: DirectMutationComposition = Object.freeze({
     projectRoot: canonicalProjectRoot,
     lifecycleLock,
-    persistenceHealth,
-    projectIdentity,
     createAndBindProjectIdentity: () => {
-      const project = projectIdentity.create(basename(canonicalProjectRoot) || 'saivage-project');
+      const project = createProjectIdentity(canonicalProjectRoot, basename(canonicalProjectRoot) || 'saivage-project');
       bindRuntimeLifecycleLock(lifecycleLock, projectIdentityDigest(project));
       return project;
     },

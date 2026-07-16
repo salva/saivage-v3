@@ -1,7 +1,7 @@
 import type { CardHistoryEntry, CardRecord } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
 import { isTerminalType } from './lifecycle.js';
-import { CardStoreInvariantError } from './errors.js';
+import { CardServiceInvariantError } from './errors.js';
 
 export interface ValidateParsedCardsInput {
   cards: CardRecord[];
@@ -17,38 +17,38 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
   const byId = new Map(cards.map((c) => [c.id, c] as const));
   const projectCards = cards.filter((c) => c.type === 'project');
   if (projectCards.length > 1) {
-    throw new CardStoreInvariantError(
+    throw new CardServiceInvariantError(
       `Multiple project cards on disk: ${projectCards.map((c) => c.id).join(', ')}.`,
     );
   }
   const projectCard = projectCards[0];
   if (projectCard) {
     if (projectCard.id !== PROJECT_CARD_ID) {
-      throw new CardStoreInvariantError(
+      throw new CardServiceInvariantError(
         `Project card '${projectCard.id}' is invalid: expected canonical id '${PROJECT_CARD_ID}'.`,
       );
     }
     if (projectCard.parent !== null || projectCard.depth !== 0 || projectCard.position !== 0) {
-      throw new CardStoreInvariantError(
+      throw new CardServiceInvariantError(
         `Project card '${projectCard.id}' must be the root card with parent null, depth 0, and position 0.`,
       );
     }
   }
   for (const card of cards) {
-    if (card.parent === card.id) throw new CardStoreInvariantError(`Card '${card.id}' cannot parent itself.`);
+    if (card.parent === card.id) throw new CardServiceInvariantError(`Card '${card.id}' cannot parent itself.`);
     if (card.parent !== null && !byId.has(card.parent)) {
-      throw new CardStoreInvariantError(`Card '${card.id}' references missing parent '${card.parent}'.`);
+      throw new CardServiceInvariantError(`Card '${card.id}' references missing parent '${card.parent}'.`);
     }
     if (card.parent !== null) {
       const parent = byId.get(card.parent)!;
       if (isTerminalType(parent.type)) {
-        throw new CardStoreInvariantError(
+        throw new CardServiceInvariantError(
           `Terminal card '${parent.id}' (type=${parent.type}) cannot be parent of '${card.id}'.`,
         );
       }
     }
     for (const dep of card.depends_on) {
-      if (!byId.has(dep)) throw new CardStoreInvariantError(`Card '${card.id}' depends_on missing card '${dep}'.`);
+      if (!byId.has(dep)) throw new CardServiceInvariantError(`Card '${card.id}' depends_on missing card '${dep}'.`);
     }
   }
 
@@ -57,13 +57,13 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
   const computeDepth = (id: string): number => {
     const cached = depthById.get(id);
     if (cached !== undefined) return cached;
-    if (visiting.has(id)) throw new CardStoreInvariantError(`Card hierarchy contains a cycle at '${id}'.`);
+    if (visiting.has(id)) throw new CardServiceInvariantError(`Card hierarchy contains a cycle at '${id}'.`);
     visiting.add(id);
     const card = byId.get(id)!;
     const depth = card.parent === null ? 0 : computeDepth(card.parent) + 1;
     visiting.delete(id);
-    if (depth > maxDepth) throw new CardStoreInvariantError(`Card '${id}' depth ${depth} exceeds maximum ${maxDepth}.`);
-    if (card.depth !== depth) throw new CardStoreInvariantError(`Card '${id}' stores depth ${card.depth}, expected ${depth}.`);
+    if (depth > maxDepth) throw new CardServiceInvariantError(`Card '${id}' depth ${depth} exceeds maximum ${maxDepth}.`);
+    if (card.depth !== depth) throw new CardServiceInvariantError(`Card '${id}' stores depth ${card.depth}, expected ${depth}.`);
     depthById.set(id, depth);
     return depth;
   };
@@ -73,7 +73,7 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
   for (const card of cards) {
     if (card.parent === null) {
       if (card.position !== 0) {
-        throw new CardStoreInvariantError(`Root card '${card.id}' has position ${card.position}, expected 0; recovery hint: 'saivage init'.`);
+        throw new CardServiceInvariantError(`Root card '${card.id}' has position ${card.position}, expected 0; recovery hint: 'saivage init'.`);
       }
       continue;
     }
@@ -84,7 +84,7 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
   for (const [parentId, children] of childrenByParent.entries()) {
     const positions = children.map((child) => child.position).sort((a, b) => a - b);
     if (!positions.every((position, index) => position === index)) {
-      throw new CardStoreInvariantError(`Parent '${parentId}' has non-contiguous child positions: [${positions.join(',')}]; recovery hint: 'saivage init'.`);
+      throw new CardServiceInvariantError(`Parent '${parentId}' has non-contiguous child positions: [${positions.join(',')}]; recovery hint: 'saivage init'.`);
     }
   }
 
@@ -102,7 +102,7 @@ export function validateCardHistoryInvariant(
 ): CardHistoryEntry[] {
   if (cardVersionSeq === 1) {
     if (entries.length > 0) {
-      throw new CardStoreInvariantError(
+      throw new CardServiceInvariantError(
         `Card '${cardId}' has version_seq=1 but history file '${jsonlPath}' contains ${entries.length} row(s). Recovery hint: 'saivage reset' or operator hand-edit.`,
       );
     }
@@ -120,7 +120,7 @@ export function validateCardHistoryInvariant(
   const observed = new Set<number>();
   for (const entry of deduped) {
     if (entry.version_seq < 1) {
-      throw new CardStoreInvariantError(
+      throw new CardServiceInvariantError(
         `Card '${cardId}' history at '${jsonlPath}' contains a row with version_seq=${entry.version_seq} (entry_id=${entry.entry_id}); positive sequence is required.`,
       );
     }
@@ -128,14 +128,14 @@ export function validateCardHistoryInvariant(
   }
   for (const version of expected) {
     if (!observed.has(version)) {
-      throw new CardStoreInvariantError(
+      throw new CardServiceInvariantError(
         `Card '${cardId}' history at '${jsonlPath}' is missing version_seq=${version} (card.version_seq=${cardVersionSeq}). Recovery hint: 'saivage reset' or operator hand-edit.`,
       );
     }
   }
   for (const version of observed) {
     if (!expected.has(version)) {
-      throw new CardStoreInvariantError(
+      throw new CardServiceInvariantError(
         `Card '${cardId}' history at '${jsonlPath}' has orphan version_seq=${version} (card.version_seq=${cardVersionSeq}). Recovery hint: 'saivage reset' or operator hand-edit.`,
       );
     }

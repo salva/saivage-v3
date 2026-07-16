@@ -43,7 +43,8 @@ export class OpenAIResponsesGateway {
 
   async complete(candidate: Candidate, systemPrompt: string, replay: ResponsesReplayProjection, _sessionId: string, opts: LlmCompleteOptions): Promise<ProviderTurnCompletion> {
     if (!this.apiKey) throw new LlmRequestError({ kind: 'auth_permanent', provider: candidate.provider, status: 401, message: 'OpenAI Responses provider requires an API key' });
-    const requestBody = buildOpenAIResponsesRequest(candidate, systemPrompt, replay, opts, this.capabilities);
+    const requestBody = (opts.builtCandidateRequest?.body ?? buildOpenAIResponsesRequest(candidate, systemPrompt, replay, opts, this.capabilities)) as unknown as OpenAIResponsesRequest;
+    const serializedBody = opts.builtCandidateRequest?.serializedBody ?? JSON.stringify(requestBody);
     const endpoint = this.responsesUrl();
     const headers: Record<string, string> = { 'Content-Type': 'application/json', Connection: 'close', Authorization: `Bearer ${this.apiKey}` };
     if (requestBody.stream) headers.Accept = 'text/event-stream';
@@ -59,7 +60,7 @@ export class OpenAIResponsesGateway {
     });
     let recordedErr = false;
     try {
-      const response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(requestBody), signal: opts.signal }).catch((err: unknown) => {
+      const response = await fetch(endpoint, { method: 'POST', headers, body: serializedBody, signal: opts.signal }).catch((err: unknown) => {
         if (handle) {
           recordedErr = true;
           const e = err as Error;
@@ -103,11 +104,12 @@ export class OpenAIResponsesGateway {
 }
 
 export function buildOpenAIResponsesRequest(candidate: Candidate, systemPrompt: string, replay: ResponsesReplayProjection, opts: LlmCompleteOptions, capabilities?: Pick<EffectiveProviderCapabilities, 'responsesReasoning'>): OpenAIResponsesRequest {
+  const systemContext = replay.messages.filter((message) => message.role === 'system' && (message.kind === 'model_recovered' || message.kind === 'context_compaction' || message.kind === 'text')).map((message) => message.content);
   const tools: ToolDefinition[] = opts.phase === 'terminal' ? [opts.terminalToolDefinition] : opts.tools;
   const toolChoice: 'auto' | ResponsesToolChoiceNamed = opts.phase === 'terminal' ? { type: 'function', name: opts.terminalToolName } : opts.tool_choice.kind === 'required_named' ? { type: 'function', name: opts.tool_choice.toolName } : 'auto';
   const body: OpenAIResponsesRequest = {
     model: candidate.model,
-    instructions: systemPrompt,
+    instructions: [systemPrompt, ...systemContext].join('\n\n--- system context ---\n'),
     input: responsesInputFromReplay(replay),
     store: false,
     include: ['reasoning.encrypted_content'],

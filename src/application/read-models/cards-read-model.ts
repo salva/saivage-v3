@@ -1,8 +1,8 @@
 import { basename } from 'node:path';
-import type { CardStore, CardStoreRepository } from '../../cards/store-api.js';
+import type { CardService } from '../../cards/card-api.js';
 import type { CardHistoryEntry, CardLifecycleState, CardRecord, CardView } from '../../schemas/index.js';
 import { allowedActions } from '../../permissions/index.js';
-import { readRuntimeState } from '../../runtime/state-api.js';
+import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import type { ServerAvailability } from '../../contracts/index.js';
 import { orderedCardsForTree, toCardView } from './card-view.js';
@@ -11,7 +11,7 @@ export type ReadModelResult<T> = { statusCode?: number; body: T };
 
 type CardReadModel = CardView & { lifecycle: CardLifecycleState };
 
-function withOperatorAllowedActions(store: CardStore | CardStoreRepository, card: CardRecord): CardReadModel {
+function withOperatorAllowedActions(store: CardService, card: CardRecord): CardReadModel {
   return toCardView(store, { ...card, allowedActions: allowedActions('operator', card.lifecycle.status) });
 }
 
@@ -35,12 +35,12 @@ function historyHeader(entry: CardHistoryEntry) {
 }
 
 export class CardsReadModelService {
-  constructor(private readonly projectRoot: string, private readonly store: CardStore | CardStoreRepository) {}
+  constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly runtime: Pick<RuntimeApi, 'getRuntimeState'>) {}
 
   getRuntimeState(serverAvailability?: ServerAvailability) {
     const projectId = basename(this.projectRoot);
     const identity = { projectRoot: this.projectRoot, projectId };
-    const state = readRuntimeState(this.projectRoot);
+    const state = this.runtime.getRuntimeState();
     const cards = this.store.list();
     const byStatus: Record<string, number> = {};
     const byType: Record<string, number> = {};

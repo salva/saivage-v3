@@ -1,36 +1,31 @@
 import type { FastifyInstance } from 'fastify';
-import type { Environment } from '../../config/index.js';
 import type { SaivageConfig } from '../../agents/config-api.js';
-import { createResourceScope, type ResourceScope } from '../../lifecycle/index.js';
+import type { AppTerminalRegistration } from '../../boot/app.js';
+import type { RestartPort } from '../../boot/restart-port.js';
 import { createRuntimeApplication, type RuntimeApplication } from '../../application/runtime-composition.js';
-import { CardStoreRepository } from '../../cards/store-api.js';
+import { ReadModelChangeBroadcaster, type ReadModelChangeSubscription } from '../../application/read-model-changes.js';
+import { CardService } from '../../cards/card-api.js';
+import type { Environment } from '../../config/index.js';
 import { EventBus } from '../../events/index.js';
 import { McpManager } from '../../mcp/manager-api.js';
-import { EventLogger, ErrorLogger } from '../../observability/index.js';
+import { createEventLog, createErrorLog, type ErrorLog, type EventLog } from '../../observability/index.js';
+import type { AppLogContext } from '../../persistence/app-log.js';
 import { TelegramBot } from '../../telegram/index.js';
-import { clearProjectNotificationDeliveryAdapters, clearProjectNotificationEventBus, setProjectNotificationEventBus } from '../../notifications/index.js';
 import { AuthPolicy } from '../auth-policy.js';
-import type { RestartPort } from '../../boot/restart-port.js';
 import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
 import { startTelegramNotifications } from './telegram-lifecycle.js';
-import { ReadModelChangeBroadcaster, type ReadModelChangeSubscription } from '../../application/read-model-changes.js';
-import type { ProjectStoreRepository } from '../../persistence/project-store-repository.js';
-import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
-import { AuthProfileRepository } from '../../auth/auth-profile-store.js';
-import { AppLogStore } from '../../persistence/app-log.js';
 
 export interface ServerServices {
   projectRoot: string;
   config: SaivageConfig;
   fastify: FastifyInstance;
-  scope: ResourceScope;
   eventBus: EventBus;
-  eventLogger: EventLogger;
-  errorLogger: ErrorLogger;
-  appLogs: AppLogStore;
-  cardStore: CardStoreRepository;
+  eventLogger: EventLog;
+  errorLogger: ErrorLog;
+  appLogs: AppLogContext;
+  cardStore: CardService;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
   liveSyncSocket: LiveSyncSocket;
@@ -39,113 +34,69 @@ export interface ServerServices {
   readModelChangeSubscription: ReadModelChangeSubscription | null;
   authPolicy: AuthPolicy;
   telegramBot?: TelegramBot;
-  stop(): Promise<void>;
-}
-
-async function stopServerResources(services: Omit<ServerServices, 'stop'>): Promise<void> {
-  const { projectRoot, fastify, runtimeApplication, mcpManager, telegramBot, syncHub } = services;
-  services.readModelChangeSubscription?.unsubscribe();
-  services.readModelChangeSubscription = null;
-  syncHub.dispose();
-  clearProjectNotificationDeliveryAdapters(projectRoot);
-  clearProjectNotificationEventBus(projectRoot);
-
-  try {
-    await fastify.close();
-  } finally {
-    if (telegramBot) {
-      try {
-        await telegramBot.stop();
-        fastify.log.info('Telegram bot stopped');
-      } catch (err) {
-        fastify.log.warn(`Telegram bot stop failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    try {
-      await mcpManager.dispose();
-      fastify.log.info('MCP manager stopped');
-    } catch (err) {
-      fastify.log.warn(`MCP manager stop failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    try {
-      await runtimeApplication.analystRuntime.shutdown();
-      await runtimeApplication.runtimeApi.shutdown();
-      fastify.log.info('Runtime application stopped');
-    } catch (err) {
-      fastify.log.warn(`Runtime application stop failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
 }
 
 export async function createServerServices(input: {
   environment: Environment;
-  scope?: ResourceScope;
+  terminal: AppTerminalRegistration;
   restartPort?: RestartPort;
-  authority: ProjectStoreRepository;
-  persistenceHealth: ApplicationPersistenceHealth;
 }): Promise<ServerServices> {
-  const { environment } = input;
+  const { environment, terminal } = input;
   const projectRoot = environment.projectRoot;
   const config = environment.config;
-  const scope = input.scope ?? createResourceScope('server');
-
   const authPolicy = new AuthPolicy({ apiToken: environment.auth.apiToken });
   const restartServerAvailable = authPolicy.authEnabled;
   if (restartServerAvailable && !input.restartPort) throw new Error('Authenticated server requires an application-owned restart port.');
 
   const fastify = await createFastifyApp(environment);
+  terminal.registerAdmissionCloser('http-admission', () => { /* onRequest observes the shared closing flag */ });
+  terminal.registerCleanupLeaf('fastify', () => fastify.close());
+  fastify.addHook('onRequest', async (_request, reply) => {
+    if (terminal.isApplicationClosing()) await reply.code(503).send({ error: 'application_closing' });
+  });
+
   const eventBus = new EventBus();
-  setProjectNotificationEventBus(projectRoot, eventBus);
   const readModelChanges = new ReadModelChangeBroadcaster();
-  const appLogs = new AppLogStore(projectRoot, input.persistenceHealth, readModelChanges);
-  appLogs.restabilize();
-  const eventLogger = new EventLogger(projectRoot, appLogs, eventBus);
-  const errorLogger = new ErrorLogger(projectRoot, appLogs, eventBus);
-  const cardStore = new CardStoreRepository({ projectRoot, reader: input.authority.reader, writer: input.authority.writer, eventBus, readModelChanges });
-  const authProfiles = new AuthProfileRepository(projectRoot, input.persistenceHealth);
-  authProfiles.restabilize();
+  const appLogs: AppLogContext = { projectRoot, changes: readModelChanges };
+  const eventLogger = createEventLog(projectRoot, appLogs, eventBus);
+  const errorLogger = createErrorLog(projectRoot, appLogs, eventBus);
+  const cardStore = new CardService(projectRoot, eventBus, readModelChanges);
   const liveSyncSocket = new LiveSyncSocket();
+  terminal.registerAdmissionCloser('websocket-admission', () => liveSyncSocket.closeAdmission());
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, appLogs, cardStore, authProfiles, persistenceHealth: input.persistenceHealth, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, appLogs, cardStore, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
+  terminal.registerAdmissionCloser('tool-admission', () => runtimeApplication.closeRuntimeAdmission());
+  terminal.registerAdmissionCloser('provider-admission', () => runtimeApplication.closeRuntimeAdmission());
+  terminal.registerAdmissionCloser('child-admission', () => runtimeApplication.closeRuntimeAdmission());
+  terminal.registerAdmissionCloser('process-admission', () => runtimeApplication.processRunner.closeLaunchAdmission());
+  terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());
+  terminal.registerCleanupLeaf('runtime', () => runtimeApplication.cleanupRuntimeForApplicationStop());
+  terminal.registerCleanupLeaf('analyst', () => runtimeApplication.cleanupAnalystForApplicationStop());
 
   const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner: runtimeApplication.processRunner });
   const mcpReconciliation = await mcpManager.reconcilePersistedConfig();
   if (!mcpReconciliation.converged) throw new Error('MCP startup did not converge to persisted configuration.');
   fastify.log.info('MCP manager started');
   runtimeApplication.setMcpManager(mcpManager);
+  terminal.registerAdmissionCloser('mcp', () => mcpManager.closeAdmission());
+  terminal.registerCleanupLeaf('mcp', () => mcpManager.cleanupForApplicationStop());
 
   const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig: config, fastify, runtimeApplication });
-  syncHub.wire(runtimeApplication.runtimeApi);
-  const readModelChangeSubscription = readModelChanges.subscribe(syncHub);
-
-  const servicesBase = {
-    projectRoot,
-    config,
-    fastify,
-    scope,
-    eventBus,
-    eventLogger,
-    errorLogger,
-    appLogs,
-    cardStore,
-    runtimeApplication,
-    mcpManager,
-    liveSyncSocket,
-    syncHub,
-    readModelChanges,
-    readModelChangeSubscription,
-    authPolicy,
-    telegramBot,
-  };
-
-  scope.add({ dispose: () => stopServerResources(servicesBase) }, { name: 'server-stop' });
-
-  async function stop(): Promise<void> {
-    await scope.dispose();
+  if (telegramBot) {
+    terminal.registerAdmissionCloser('telegram', () => telegramBot.closeAdmission());
+    terminal.registerCleanupLeaf('telegram', () => telegramBot.stop());
   }
+  syncHub.wire(runtimeApplication.runtimeApi);
+  let readModelChangeSubscription: ReadModelChangeSubscription | null = readModelChanges.subscribe(syncHub);
+  terminal.registerCleanupLeaf('subscriptions', () => {
+    readModelChangeSubscription?.unsubscribe();
+    readModelChangeSubscription = null;
+    syncHub.dispose();
+  });
+  terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
 
-  return { ...servicesBase, stop };
+  return { projectRoot, config, fastify, eventBus, eventLogger, errorLogger, appLogs, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, readModelChanges, readModelChangeSubscription, authPolicy, telegramBot };
 }

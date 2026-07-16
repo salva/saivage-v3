@@ -1,69 +1,48 @@
-import type { ClassifiedRound, PositionedMessage } from './round-classifier.js';
+import type { ClassifiedRound } from './round-classifier.js';
 
 export type SnapPolicy = 'keep_straddler_verbatim' | 'compact_straddler';
 
-export type BandConfig = {
-  buffer_tokens: number;
-  merge_line_fraction: number;
-  summary_line_fraction: number;
-  trigger_fraction: number;
-  snap: SnapPolicy;
-};
+export type SlidingBandConfig = { tail_budget_tokens: number; middle_budget_tokens: number; snap: SnapPolicy };
+export type SlidingBandPartitions = { merge_rounds: ClassifiedRound[]; summary_rounds: ClassifiedRound[]; tail_rounds: ClassifiedRound[]; open_round: ClassifiedRound | null };
 
-export type BandPartitions = {
-  raw_boundaries: { merge_line: number; summary_line: number; trigger: number };
-  snapped_boundaries: { merge_line: number; summary_line: number; trigger: number };
-  already_compacted_history: PositionedMessage[];
-  merge_rounds: ClassifiedRound[];
-  summary_rounds: ClassifiedRound[];
-  tail_rounds: ClassifiedRound[];
-};
-
-export function computeCompactionBands(args: {
-  total_estimated_tokens: number;
-  rounds: ClassifiedRound[];
-  already_compacted_history?: PositionedMessage[];
-  config: BandConfig;
-}): BandPartitions {
-  validateConfig(args.config);
-  const raw = {
-    merge_line: Math.min(args.total_estimated_tokens, Math.floor(args.config.buffer_tokens * args.config.merge_line_fraction)),
-    summary_line: Math.min(args.total_estimated_tokens, Math.floor(args.config.buffer_tokens * args.config.summary_line_fraction)),
-    trigger: Math.min(args.total_estimated_tokens, Math.floor(args.config.buffer_tokens * args.config.trigger_fraction)),
-  };
-  const snapped = {
-    merge_line: snapBoundary(raw.merge_line, args.rounds, args.config.snap),
-    summary_line: snapBoundary(raw.summary_line, args.rounds, args.config.snap),
-    trigger: snapBoundary(raw.trigger, args.rounds, args.config.snap),
-  };
-
-  const mergeRounds: ClassifiedRound[] = [];
-  const summaryRounds: ClassifiedRound[] = [];
-  const tailRounds: ClassifiedRound[] = [];
-  for (const round of args.rounds) {
-    if (round.end_token <= snapped.merge_line) mergeRounds.push(round);
-    else if (round.end_token <= snapped.summary_line) summaryRounds.push(round);
-    else tailRounds.push(round);
+/** Partitions completed rounds backward from the newest round. The latest round is always open/verbatim. */
+export function computeSlidingCompactionBands(rounds: readonly ClassifiedRound[], config: SlidingBandConfig): SlidingBandPartitions {
+  if (!Number.isInteger(config.tail_budget_tokens) || config.tail_budget_tokens < 0) throw new Error('Compaction tail budget must be a nonnegative integer.');
+  if (!Number.isInteger(config.middle_budget_tokens) || config.middle_budget_tokens < 0) throw new Error('Compaction middle budget must be a nonnegative integer.');
+  const openRound = rounds.length === 0 ? null : rounds[rounds.length - 1]!;
+  const completed = openRound ? rounds.slice(0, -1) : [];
+  let cursor = completed.length - 1;
+  const tailNewestFirst: ClassifiedRound[] = [];
+  let used = 0;
+  while (cursor >= 0) {
+    const round = completed[cursor]!;
+    const size = roundTokens(round);
+    if (used + size <= config.tail_budget_tokens) { tailNewestFirst.push(round); used += size; cursor--; continue; }
+    if (config.snap === 'keep_straddler_verbatim') { tailNewestFirst.push(round); cursor--; }
+    break;
   }
 
-  return {
-    raw_boundaries: raw,
-    snapped_boundaries: snapped,
-    already_compacted_history: args.already_compacted_history ?? [],
-    merge_rounds: mergeRounds,
-    summary_rounds: summaryRounds,
-    tail_rounds: tailRounds,
-  };
+  const middleNewestFirst: ClassifiedRound[] = [];
+  used = 0;
+  while (cursor >= 0) {
+    const round = completed[cursor]!;
+    const size = roundTokens(round);
+    if (used + size <= config.middle_budget_tokens) { middleNewestFirst.push(round); used += size; cursor--; continue; }
+    if (config.snap === 'keep_straddler_verbatim') { middleNewestFirst.push(round); cursor--; }
+    break;
+  }
+  return { merge_rounds: completed.slice(0, cursor + 1), summary_rounds: middleNewestFirst.reverse(), tail_rounds: tailNewestFirst.reverse(), open_round: openRound };
 }
 
-function snapBoundary(rawBoundary: number, rounds: ClassifiedRound[], policy: SnapPolicy): number {
-  const straddler = rounds.find((round) => round.start_token < rawBoundary && rawBoundary < round.end_token);
-  if (!straddler) return rawBoundary;
-  return policy === 'keep_straddler_verbatim' ? straddler.start_token : straddler.end_token;
+export function assertEscalatedSuffixSubsets(normal: SlidingBandPartitions, escalated: SlidingBandPartitions): void {
+  assertSuffix(normal.tail_rounds, escalated.tail_rounds, 'tail');
+  assertSuffix([...normal.summary_rounds, ...normal.tail_rounds], [...escalated.summary_rounds, ...escalated.tail_rounds], 'middle + tail');
 }
 
-function validateConfig(config: BandConfig): void {
-  if (config.buffer_tokens <= 0) throw new Error('Compaction buffer_tokens must be positive.');
-  if (!(config.merge_line_fraction >= 0 && config.merge_line_fraction <= config.summary_line_fraction)) throw new Error('Compaction merge_line_fraction must be <= summary_line_fraction.');
-  if (!(config.summary_line_fraction <= config.trigger_fraction && config.trigger_fraction <= 1)) throw new Error('Compaction summary_line_fraction must be <= trigger_fraction <= 1.');
+function assertSuffix(normal: readonly ClassifiedRound[], escalated: readonly ClassifiedRound[], label: string): void {
+  const expected = normal.slice(normal.length - escalated.length).map((round) => round.round_id);
+  const actual = escalated.map((round) => round.round_id);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Impossible compaction partition: escalated ${label} is not a suffix subset of normal ${label}.`);
 }
+
+function roundTokens(round: ClassifiedRound): number { return round.rows.reduce((sum, row) => sum + row.estimated_tokens, 0); }

@@ -5,6 +5,8 @@ description: 'Operate local LXC deployments that matter to Saivage v3: the v2-on
 
 # Saivage v3 LXC Operations
 
+Project runtime controls are not deployment discovery. CLI `status`, `pause`, `resume`, and `stop` may delegate only through a verified live lifecycle lock's published non-null origin/auth mode; never substitute container config, current YAML, host/port defaults, or service environment. CLI `stop` calls `stop_project` and leaves the server/lifecycle lock alive. Use service/container procedures only for terminal disposal, deployment restart, or maintenance; auth-enabled confirmed `restart_server` remains distinct.
+
 Use this skill for LXC-backed operations around the Saivage v3 implementation and
 the target projects it manages. It is not the general workspace LXC playbook.
 
@@ -134,15 +136,17 @@ Expected command shape for Saivage v3 target deployments is a Node process that
 runs `/opt/saivage-v3/bin/saivage.js start` or equivalent against the mounted
 target project. Verify the real unit before editing or manually starting.
 
-## Runtime State Inspection
+## Runtime File Inspection
 
-Target-project runtime state is project-local:
+Target-project Saivage files are project-local:
 
 - GetRich v2: `/home/salva/g/ml/getrich-v2/.saivage/` and `/home/salva/g/ml/getrich-v2/.saivage/work/`.
 - Pueblicos: `/home/salva/g/ml/pueblicos/.saivage/` and `/home/salva/g/ml/pueblicos/.saivage/work/`.
 
-Safe files to inspect when diagnosing behavior include runtime state, event logs,
-error logs, and stage/card metadata. Avoid printing provider configs or auth profiles.
+Safe canonical files to inspect when diagnosing behavior include event/error logs,
+cards, records, and conversations. Runtime lifecycle and provider availability are
+process-local; there is no durable runtime-state, snapshot, or availability file.
+Avoid printing provider configs or auth profiles.
 
 ## SSH Repair Fallback
 

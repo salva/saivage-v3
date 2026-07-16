@@ -1,83 +1,38 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { CardStore as ProductionCardStore, CardStoreRepository } from '../../src/cards/card-store.js';
 import { newProjectRootInput } from '../../src/boot/app.js';
-import { classifyPersistenceOpenMode, createProjectStoreRepository, type ProjectStoreRepository } from '../../src/persistence/project-store-repository.js';
-import { acquireRuntimeLifecycleLock, bindRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
+import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
+import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
 import type { EventBus } from '../../src/events/index.js';
 import type { ReadModelChanges } from '../../src/application/read-model-changes.js';
-import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
-import { ApplicationPersistenceHealth } from '../../src/application/persistence-health.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
-import { ProjectIdentityStore, projectIdentityDigest } from '../../src/persistence/project-identity-store.js';
-import { AuthProfileRepository } from '../../src/auth/auth-profile-store.js';
 import { createAnalystMutationServices, type AnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
-import { RuntimeStateStore } from '../../src/runtime/state.js';
-
-interface TestProjectComposition {
-  authority: ProjectStoreRepository;
-  lock: RuntimeLifecycleLockHandle;
-  repository: CardStoreRepository;
-  persistenceHealth: ApplicationPersistenceHealth;
-}
-
-const projects = new Map<string, TestProjectComposition>();
-
-function composition(projectRoot: string): TestProjectComposition {
-  const existing = projects.get(projectRoot);
-  if (existing) return existing;
-  const projectJson = join(projectRoot, '.saivage', 'project.json');
-  const lock = acquireRuntimeLifecycleLock({ projectRoot, mode: existsSync(projectJson) ? 'bound' : 'init' });
-  const persistenceHealth = new ApplicationPersistenceHealth();
-  if (!existsSync(projectJson)) {
-    const project = new ProjectIdentityStore(projectRoot, persistenceHealth).create(projectRoot.split('/').at(-1) || 'saivage-project');
-    bindRuntimeLifecycleLock(lock, projectIdentityDigest(project));
-  }
-  const mode = classifyPersistenceOpenMode(projectRoot, newProjectRootInput(projectRoot));
-  const authority = createProjectStoreRepository({ projectRoot, persistenceHealth, mode });
-  const repository = new CardStoreRepository({ projectRoot, reader: authority.reader, writer: authority.writer });
-  const created = { authority, lock, repository, persistenceHealth };
-  projects.set(projectRoot, created);
-  return created;
-}
+import { publishInitialProjectCard } from '../../src/persistence/card-files.js';
+import { createProjectIdentity, readProjectIdentity } from '../../src/persistence/project-identity.js';
 
 export function initProjectTree(projectRoot: string): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });
-  const alreadyOpen = projects.has(projectRoot);
-  const opened = composition(projectRoot);
-  new RuntimeStateStore(projectRoot, opened.persistenceHealth).initialize();
+  if (readProjectIdentity(projectRoot) === null) createProjectIdentity(projectRoot, projectRoot.split('/').at(-1) || 'saivage-project');
+  if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card', 'versions', '1.json'))) {
+    mkdirSync(join(projectRoot, '.saivage', 'cards'), { recursive: true });
+    const root = newProjectRootInput(projectRoot);
+    publishInitialProjectCard(projectRoot, root.card, root.brief, 'analyst');
+  }
   for (const relative of ['skills', 'config/prompts', 'agents/conversations', 'instructions', 'work/cards', 'work/processes', 'work/tmp/stash']) mkdirSync(join(projectRoot, '.saivage', relative), { recursive: true });
   const skills = join(projectRoot, '.saivage', 'skills', 'index.json');
   if (!existsSync(skills)) { mkdirSync(dirname(skills), { recursive: true }); writeFileSync(skills, '[]\n'); }
-  if (!alreadyOpen) { releaseRuntimeLifecycleLock(opened.lock); projects.delete(projectRoot); }
   return { projectRoot };
 }
 
 export function testConfigAuthority(projectRoot: string, env: Readonly<Record<string, string | undefined>> = process.env): ResolvedConfigAuthority {
-  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: env, health: composition(projectRoot).persistenceHealth });
+  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: env });
 }
 
-export class CardStore extends ProductionCardStore {
+export class CardService extends ProductionCardService {
   constructor(projectRoot: string, eventBus?: EventBus, readModelChanges?: ReadModelChanges) {
-    const opened = composition(projectRoot);
-    if (eventBus || readModelChanges) {
-      opened.repository = new CardStoreRepository({ projectRoot, reader: opened.authority.reader, writer: opened.authority.writer, eventBus, readModelChanges });
-    }
-    super(opened.repository);
+    super(projectRoot, eventBus, readModelChanges);
   }
-}
-
-export function testProjectAuthority(projectRoot: string): ProjectStoreRepository {
-  return composition(projectRoot).authority;
-}
-
-export function testCardRepository(projectRoot: string): CardStoreRepository {
-  return composition(projectRoot).repository;
-}
-
-export function testPersistenceHealth(projectRoot: string): ApplicationPersistenceHealth {
-  return composition(projectRoot).persistenceHealth;
 }
 
 export function testInterventionReadiness(): RuntimeInterventionBinding {
@@ -86,20 +41,20 @@ export function testInterventionReadiness(): RuntimeInterventionBinding {
   return readiness;
 }
 
-export function testAnalystMutationServices(projectRoot: string, store: ProductionCardStore = new CardStore(projectRoot), notifyCard?: (...args: any[]) => any): AnalystMutationServices {
-  return createAnalystMutationServices({ projectRoot, store, configAuthority: testConfigAuthority(projectRoot), surface: 'web-chat', notifyCard });
+export function testAnalystMutationServices(projectRoot: string, store: ProductionCardService = new CardService(projectRoot), notifyCard?: (...args: any[]) => any): AnalystMutationServices {
+  return createAnalystMutationServices({
+    projectRoot,
+    store,
+    configAuthority: testConfigAuthority(projectRoot),
+    surface: 'web-chat',
+    notifyCard,
+    cancelCard: async (cardId, reason) => {
+      const card = store.read(cardId);
+      if (!card) throw new Error(`Card '${cardId}' not found.`);
+      store.setStatus(cardId, 'cancelled');
+      return { card_id: cardId, status: 'cancelled', cancelled_card_ids: [cardId], reason };
+    },
+  });
 }
 
-export function testAuthProfiles(projectRoot: string): AuthProfileRepository {
-  const opened = composition(projectRoot);
-  const repository = new AuthProfileRepository(projectRoot, opened.persistenceHealth);
-  repository.restabilize();
-  return repository;
-}
-
-export function closeTestProject(projectRoot: string): void {
-  const opened = projects.get(projectRoot);
-  if (!opened) return;
-  releaseRuntimeLifecycleLock(opened.lock);
-  projects.delete(projectRoot);
-}
+export function closeTestProject(_projectRoot: string): void {}

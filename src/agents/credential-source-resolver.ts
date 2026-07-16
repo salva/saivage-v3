@@ -43,7 +43,7 @@ export type AuthProfileDependency = 'none' | 'requires_explicit_auth_profile' | 
 
 export interface CredentialSourceResolverOptions {
   loadAuthProfiles: () => Promise<AuthProfilesFile | null>;
-  usableProfileAccessToken: (profileName: string, profile: AuthProfile) => Promise<string | undefined>;
+  usableProfileAccessToken: (profileName: string, profile: AuthProfile, abortSignal?: AbortSignal) => Promise<string | undefined>;
   providerDefaultBaseUrls?: Record<string, string>;
   providerAuthProfileAliases?: Record<string, string[]>;
   defaultOpenAiBaseUrl?: string;
@@ -68,7 +68,7 @@ interface ProfileCredentialResult {
  */
 export class CredentialSourceResolver {
   private readonly loadAuthProfiles: () => Promise<AuthProfilesFile | null>;
-  private readonly usableProfileAccessToken: (profileName: string, profile: AuthProfile) => Promise<string | undefined>;
+  private readonly usableProfileAccessToken: (profileName: string, profile: AuthProfile, abortSignal?: AbortSignal) => Promise<string | undefined>;
   private readonly providerDefaultBaseUrls: Record<string, string>;
   private readonly providerAuthProfileAliases: Record<string, string[]>;
   private readonly defaultOpenAiBaseUrl: string;
@@ -81,9 +81,9 @@ export class CredentialSourceResolver {
     this.defaultOpenAiBaseUrl = options.defaultOpenAiBaseUrl ?? DEFAULT_OPENAI_BASE_URL;
   }
 
-  async resolve(provider: Provider, account: Account): Promise<ResolvedCredentialSources> {
+  async resolve(provider: Provider, account: Account, abortSignal?: AbortSignal): Promise<ResolvedCredentialSources> {
     const { baseUrl, source: baseUrlSource } = this.resolveBaseUrl(provider, account);
-    const credential = await this.resolveCredential(provider, account);
+    const credential = await this.resolveCredential(provider, account, abortSignal);
     if (provider.name === 'openai-codex') {
       if (!credential.apiKey) throw localSetupFailure({ provider: provider.name, account: account.name, reason: 'missing_required_credential', message: `Provider '${provider.name}' requires a resolved credential before provider I/O.` });
       return { baseUrl, apiKey: credential.apiKey, openAICodexAccountId: deriveOpenAICodexAccountId(credential.apiKey, provider.name, account.name) };
@@ -113,9 +113,10 @@ export class CredentialSourceResolver {
   private async resolveCredential(
     provider: Provider,
     account: Account,
+    abortSignal?: AbortSignal,
   ): Promise<{ source: CredentialSource; apiKey?: string; profileName?: string; aliasProvider?: string }> {
     if (isExplicitAccount(account) && account.authProfile) {
-      const profile = await this.resolveExplicitProfile(provider.name, account.name, account.authProfile);
+      const profile = await this.resolveExplicitProfile(provider.name, account.name, account.authProfile, abortSignal);
       return {
         source: 'explicit-account-auth-profile',
         apiKey: profile.apiKey,
@@ -123,7 +124,7 @@ export class CredentialSourceResolver {
       };
     }
     if (provider.authProfile) {
-      const profile = await this.resolveExplicitProfile(provider.name, account.name, provider.authProfile);
+      const profile = await this.resolveExplicitProfile(provider.name, account.name, provider.authProfile, abortSignal);
       return {
         source: 'explicit-provider-auth-profile',
         apiKey: profile.apiKey,
@@ -136,7 +137,7 @@ export class CredentialSourceResolver {
     }
     if (provider.apiKey) return { source: 'provider-api-key', apiKey: provider.apiKey };
 
-    const profile = await this.resolveImplicitAliasProfile(provider.name, account.name);
+    const profile = await this.resolveImplicitAliasProfile(provider.name, account.name, abortSignal);
     if (!profile.profileName) {
       if (this.providerNeedsCredential(provider.name)) throw localSetupFailure({ provider: provider.name, account: account.name, reason: 'missing_required_credential', message: `Provider '${provider.name}' requires a resolved credential before provider I/O.` });
       return { source: 'none' };
@@ -149,11 +150,11 @@ export class CredentialSourceResolver {
     };
   }
 
-  private async resolveExplicitProfile(providerName: string, accountName: string, profileName: string): Promise<ProfileCredentialResult> {
+  private async resolveExplicitProfile(providerName: string, accountName: string, profileName: string, abortSignal?: AbortSignal): Promise<ProfileCredentialResult> {
     const file = await this.loadAuthProfileStore(providerName, accountName, profileName);
     const profile = file?.profiles[profileName];
     if (!profile) throw localSetupFailure({ provider: providerName, account: accountName, reason: 'missing_auth_profile', message: `Configured auth profile '${profileName}' was not found for provider '${providerName}'.` });
-    const apiKey = await this.usableProfileAccessToken(profileName, profile);
+    const apiKey = await this.usableProfileAccessToken(profileName, profile, abortSignal);
     if (!apiKey) throw localSetupFailure({ provider: providerName, account: accountName, reason: 'invalid_auth_profile', message: `Configured auth profile '${profileName}' for provider '${providerName}' has no usable access token.` });
     return {
       profileName,
@@ -162,7 +163,7 @@ export class CredentialSourceResolver {
     };
   }
 
-  private async resolveImplicitAliasProfile(providerName: string, accountName: string): Promise<ProfileCredentialResult> {
+  private async resolveImplicitAliasProfile(providerName: string, accountName: string, abortSignal?: AbortSignal): Promise<ProfileCredentialResult> {
     const file = await this.loadAuthProfileStore(providerName, accountName);
     if (!file) return {};
     const aliases = new Set(this.aliasesForProvider(providerName));
@@ -180,7 +181,7 @@ export class CredentialSourceResolver {
     return {
       profileName: match.profileName,
       aliasProvider: match.profile.provider,
-      apiKey: await this.usableProfileAccessToken(match.profileName, match.profile),
+      apiKey: await this.usableProfileAccessToken(match.profileName, match.profile, abortSignal),
     };
   }
 

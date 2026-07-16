@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { buildInvocationSurface, defineTool, invokeTool, invokeToolCall, surfaceToolDefinitions, type ToolProvider } from '../../src/tools/invocation.js';
+import { buildInvocationSurface, defineTool, invokeTool, invokeToolCall, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
+import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 
 describe('tool invocation surface', () => {
   const provider = (providerName: string, toolName = 'demo'): ToolProvider => ({
@@ -86,6 +87,22 @@ describe('tool invocation surface', () => {
     controller.abort(reason);
 
     await expect(invokeToolCall(surface, 'demo', JSON.stringify({ value: 'ok' }), controller.signal)).rejects.toThrow('cancelled');
+  });
+
+  it.each(['fulfill', 'same-reject', 'different-reject'] as const)('gives exact Stop identity priority after abort-ignoring tool %s', async (mode) => {
+    let resolve!: (value: ToolResult) => void;
+    let reject!: (error: unknown) => void;
+    const tool = new Promise<ToolResult>((done, fail) => { resolve = done; reject = fail; });
+    const surface = buildInvocationSurface('planner', [{ providerName: 'controlled', tools: [defineTool({ name: 'controlled', description: 'controlled', inputSchema: z.object({}).strict(), executor: () => tool })] }]);
+    const controller = new AbortController();
+    const interruption = new RuntimeStoppedInterruption();
+    const pending = invokeToolForLlm(surface, 'controlled', {}, controller.signal);
+    await Promise.resolve();
+    controller.abort(interruption);
+    if (mode === 'fulfill') resolve({ success: true });
+    else if (mode === 'same-reject') reject(interruption);
+    else reject(new Error('different tool failure'));
+    await expect(pending).rejects.toBe(interruption);
   });
 
   it('projects invocation surface tools to LLM tool definitions', () => {

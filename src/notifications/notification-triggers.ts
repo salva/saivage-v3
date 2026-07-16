@@ -1,149 +1,25 @@
 import { randomUUID } from 'node:crypto';
-import { createNotificationDeliveryService } from './notification-delivery.js';
-import type { CardStore } from '../cards/store-api.js';
-import type { AgentRole, ControlActionSurface, NoteAuthor } from '../schemas/index.js';
-import { readActiveActorSnapshots } from '../runtime/actors/snapshots.js';
-import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { CardNotification, ControlActionSurface, NoteAuthor } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
-interface ActiveSession {
-  id: string;
-  role: AgentRole;
-  card_id: string | null;
-  goal_card_id: string | null;
-  assessment_id: string | null;
-}
+export type NotificationSourceMeta = { actor: NoteAuthor; surface: ControlActionSurface };
 
-export interface NotificationTriggerTarget {
-  sessionId: string;
-  role: AgentRole;
-}
-
-export type NotificationSourceMeta = {
-  actor: NoteAuthor;
-  surface: ControlActionSurface;
-};
-
-export type Recipient =
-  | { kind: 'card'; cardId: string }
-  | { kind: 'role'; role: AgentRole }
-  | { kind: 'session'; sessionId: string };
-
-export interface QueueNotificationResult {
-  ok: boolean;
-  notificationId: string;
-  cardDeliveries: Array<{ cardId: string; result: NotifyCardResult }>;
-  sessionDeliveries: string[];
-}
-
-function getActiveSessions(projectRoot: string, store: CardStore): ActiveSession[] {
-  return readActiveActorSnapshots(projectRoot, store.namespace)
-    .filter((snapshot) => snapshot.actor_kind === 'llm' && (snapshot.state_value === 'calling_provider' || snapshot.state_value === 'waiting_tool'))
-    .flatMap((snapshot) => parseAgentSessionId(snapshot.actor_id));
-}
-
-function parseAgentSessionId(sessionId: string): ActiveSession[] {
-  if (sessionId.startsWith('analyst:')) return [{ id: sessionId, role: 'analyst', card_id: null, goal_card_id: null, assessment_id: null }];
-  if (sessionId.startsWith('planner:')) {
-    const goalId = sessionId.slice('planner:'.length);
-    return [{ id: sessionId, role: 'planner', card_id: goalId, goal_card_id: goalId, assessment_id: null }];
-  }
-  if (sessionId.startsWith('executor:')) {
-    const cardId = sessionId.slice('executor:'.length);
-    return [{ id: sessionId, role: 'executor', card_id: cardId, goal_card_id: null, assessment_id: null }];
-  }
-  if (sessionId.startsWith('reviewer:')) {
-    const rest = sessionId.slice('reviewer:'.length);
-    const separator = rest.indexOf(':');
-    if (separator === -1) return [];
-    const goalId = rest.slice(0, separator);
-    const assessmentId = rest.slice(separator + 1);
-    return [{ id: sessionId, role: 'reviewer', card_id: goalId, goal_card_id: goalId, assessment_id: assessmentId }];
-  }
-  return [];
-}
-
-function buildAncestorScope(store: CardStore, cardId: string): Set<string> {
-  const scope = new Set(store.getAncestors(cardId));
-  scope.add(cardId);
-  return scope;
-}
-
-function sessionIsAffectedByCardChange(store: CardStore, session: ActiveSession, cardId: string, scope: Set<string>): boolean {
-  if (session.card_id === cardId) return true;
-  if (session.card_id && store.isDescendantOf(session.card_id, cardId)) {
-    if (session.goal_card_id === cardId) return true;
-    if (session.goal_card_id && scope.has(session.goal_card_id)) return true;
-  }
-  return session.goal_card_id ? scope.has(session.goal_card_id) : false;
-}
-
-export function findAffectedActiveSessionsForCard(projectRoot: string, store: CardStore, cardId: string): NotificationTriggerTarget[] {
-  const scope = buildAncestorScope(store, cardId);
-  return getActiveSessions(projectRoot, store)
-    .filter((session) => sessionIsAffectedByCardChange(store, session, cardId, scope))
-    .map((session) => ({ sessionId: session.id, role: session.role }));
-}
-
-function resolveSessionIds(projectRoot: string, recipient: Recipient, store: CardStore): string[] {
-  if (recipient.kind === 'session') return [recipient.sessionId];
-  if (recipient.kind === 'role') return getActiveSessions(projectRoot, store).filter((session) => session.role === recipient.role).map((session) => session.id);
-  return findAffectedActiveSessionsForCard(projectRoot, store, recipient.cardId).map((target) => target.sessionId);
-}
-
-function resolveRecipientCardIds(projectRoot: string, recipient: Recipient, store: CardStore): string[] {
-  if (recipient.kind === 'card') return [recipient.cardId];
-  if (recipient.kind === 'session') return parseAgentSessionId(recipient.sessionId).flatMap((session) => session.card_id ? [session.card_id] : []);
-  return getActiveSessions(projectRoot, store).filter((session) => session.role === recipient.role).flatMap((session) => session.card_id ? [session.card_id] : []);
-}
-
-function buildCardNotification(kind: string, body: string): CardNotification {
-  const createdAt = new Date().toISOString();
-  return {
-    id: `notify:${kind}:${createdAt}:${randomUUID()}`,
-    message: body,
-    created_at: createdAt,
-    reason: kind,
-  };
-}
-
-export function resolveRecipient(projectRoot: string, store: CardStore, recipientLiteral: string): Recipient | null {
-  const literal = recipientLiteral.trim();
-  if (!literal) return null;
-  if (store.read(literal)) return { kind: 'card', cardId: literal };
-  const roles: AgentRole[] = ['analyst', 'planner', 'executor', 'reviewer', 'content_supervisor'];
-  if ((roles as string[]).includes(literal)) return { kind: 'role', role: literal as AgentRole };
-  if (getActiveSessions(projectRoot, store).some((session) => session.id === literal)) return { kind: 'session', sessionId: literal };
-  return null;
-}
+export type QueueNotificationResult = NotifyCardResult & { notificationId?: string };
 
 export function queueNotification(
-  projectRoot: string,
-  recipient: Recipient,
+  cardId: string,
   kind: string,
   body: string,
-  source: NotificationSourceMeta,
-  store: CardStore,
-  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult,
+  _source: NotificationSourceMeta,
+  notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult,
 ): QueueNotificationResult {
-  const notification = buildCardNotification(kind, body);
-  const cardDeliveries: QueueNotificationResult['cardDeliveries'] = [];
-  if (notifyCard) {
-    for (const cardId of resolveRecipientCardIds(projectRoot, recipient, store)) {
-      cardDeliveries.push({ cardId, result: notifyCard(cardId, notification) });
-    }
-  }
-  const delivery = createNotificationDeliveryService(projectRoot);
-  const queued_at = new Date().toISOString();
-  const sessionDeliveries: string[] = [];
-  for (const sessionId of resolveSessionIds(projectRoot, recipient, store)) {
-    delivery.enqueue(sessionId, { kind, body, queued_at, source_actor: source.actor, source_surface: source.surface });
-    sessionDeliveries.push(sessionId);
-  }
-  return {
-    ok: cardDeliveries.every((deliveryResult) => deliveryResult.result.ok),
-    notificationId: notification.id,
-    cardDeliveries,
-    sessionDeliveries,
+  const createdAt = new Date().toISOString();
+  const notification: CardNotification = {
+    id: randomUUID(),
+    content: body,
+    created_at: createdAt,
+    source: kind,
   };
+  const result = notifyCard(cardId, notification);
+  return result.ok ? { ...result, notificationId: notification.id } : result;
 }

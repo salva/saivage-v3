@@ -13,7 +13,6 @@ import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
-import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { commitFetchedBrief, recheckFetchedBrief } from '../application/analyst-mutation-operations.js';
 import { prepareAnalystBriefWebfetch, type PreparedFetchedBrief } from '../application/analyst-prepare/webfetch.js';
@@ -28,7 +27,6 @@ type ReadMode = 'auto' | 'text' | 'multimodal';
 
 export interface WebProviderContext extends WorkspaceContext {
   readonly agentRole: Extract<AgentRole, 'planner' | 'executor' | 'reviewer' | 'analyst'>;
-  readonly persistenceHealth?: ApplicationPersistenceHealth;
   readonly analystToolContext?: ToolContext;
 }
 
@@ -192,7 +190,6 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
     if (!isText) return { success: true, data: { ...metadata, bytes: fetched.body.byteLength, content: null, binary: true } };
     const text = Buffer.from(fetched.body).toString('utf8');
     if (params.save_as) {
-      ctx.persistenceHealth?.assertMutationHealthy();
       const write = await writeProject(ctx, { path: params.save_as, content: text }) as Record<string, unknown>;
       const savedAs = typeof write.record_url === 'string' ? write.record_url : String(write.path);
       return { success: true, data: { ...metadata, saved_as: savedAs, write, bytes: Buffer.byteLength(text, 'utf8') } };
@@ -259,7 +256,7 @@ export function createWebProvider(ctx: WebProviderContext): ToolProvider {
           return runAuditedAnalystTool(preparedContext, { url: args.url, read_mode: args.read_mode, max_bytes: args.max_bytes, save_as: args.save_as }, {
             action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.save_as, lifecycle: 'intervention_ready',
             prepare: prepareAnalystBriefWebfetch, recheck: recheckFetchedBrief, commit: commitFetchedBrief,
-          });
+          }, signal);
         },
       }),
     ],

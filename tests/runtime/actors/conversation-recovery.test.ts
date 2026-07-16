@@ -34,7 +34,7 @@ function toolCall(sourceInputId: string, toolCallId: string, sessionId = 'planne
 
 function toolResult(sourceInputId: string, toolCallId: string, sessionId = 'planner:G-1', tool = 'emit_result'): AgentMessage {
   return message({
-    id: `${sourceInputId}:tool:0:tool-result:${toolCallId}`,
+    id: `${sourceInputId}:tool-result:${toolCallId}`,
     session_id: sessionId,
     role: 'tool',
     kind: 'tool_result',

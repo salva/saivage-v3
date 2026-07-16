@@ -15,6 +15,7 @@ export {
   toPublicAgentPhase,
   toPublicCardActorState,
 } from './actor-vocabulary.js';
+export { canonicalJson, contextCompactionContentSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
 export type {
   ActorKind,
   ActorPauseMode,
@@ -87,6 +88,7 @@ export type {
   NoteAuthor,
   ControlActionSurface,
   CardMetadata,
+  CardNotification,
   CardRecord,
   CardOperatorSummary,
   CardView,
@@ -211,3 +213,4 @@ export {
   loggedEventSchemaByKind,
   loggedEventSchema,
 } from './validators.js';
+export { canonicalUuidSchema, cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './validators.js';

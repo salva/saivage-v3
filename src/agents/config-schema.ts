@@ -117,11 +117,9 @@ const processTimeoutsPersistedSchema = z.object({
 
 export const runtimeSectionSchema = z.object({
   continuous_improvement: z.boolean().default(false),
-  max_review_retries: z.number().int().nonnegative().default(3),
   process_timeouts: processTimeoutsPersistedSchema.default({}),
 }).strict().transform((runtime) => ({
   continuousImprovement: runtime.continuous_improvement,
-  maxReviewRetries: runtime.max_review_retries,
   processTimeouts: {
     plannerMs: runtime.process_timeouts.planner_ms,
     executorMs: runtime.process_timeouts.executor_ms,
@@ -152,8 +150,9 @@ const notificationsSectionSchema = z.object({
 
 const compactionSectionSchema = z.object({
   enabled: z.boolean().default(false),
+  input_budget_tokens: z.number().int().positive().optional(),
   trigger_fraction: z.number().positive().max(1).default(0.80),
-  completion_reserve_fraction: z.number().nonnegative().max(1).default(0.20),
+  completion_reserve_fraction: z.number().positive().max(1).default(0.20),
   merge_line_fraction: z.number().nonnegative().max(1).default(0.30),
   summary_line_fraction: z.number().nonnegative().max(1).default(0.50),
   escalate_merge_line_fraction: z.number().nonnegative().max(1).default(0.40),
@@ -161,9 +160,26 @@ const compactionSectionSchema = z.object({
   snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']).default('keep_straddler_verbatim'),
   summarizer_model: z.string().optional(),
 }).strict().superRefine((value, ctx) => {
+  if (value.enabled && value.input_budget_tokens === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['input_budget_tokens'], message: 'compaction.input_budget_tokens is required when compaction.enabled=true' });
   if (value.merge_line_fraction > value.summary_line_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['merge_line_fraction'], message: 'merge_line_fraction must be <= summary_line_fraction' });
   if (value.summary_line_fraction > value.trigger_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['summary_line_fraction'], message: 'summary_line_fraction must be <= trigger_fraction' });
   if (value.escalate_merge_line_fraction > value.escalate_summary_line_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_merge_line_fraction'], message: 'escalate_merge_line_fraction must be <= escalate_summary_line_fraction' });
+  if (value.escalate_summary_line_fraction > value.trigger_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_summary_line_fraction'], message: 'escalate_summary_line_fraction must be <= trigger_fraction' });
+  if (value.trigger_fraction + value.completion_reserve_fraction > 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'trigger_fraction + completion_reserve_fraction must be <= 1' });
+  const normalTailWidth = value.trigger_fraction - value.summary_line_fraction;
+  const normalMiddleWidth = value.summary_line_fraction - value.merge_line_fraction;
+  const escalatedTailWidth = value.trigger_fraction - value.escalate_summary_line_fraction;
+  const escalatedMiddleWidth = value.escalate_summary_line_fraction - value.escalate_merge_line_fraction;
+  if (escalatedTailWidth > normalTailWidth) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_summary_line_fraction'], message: `Escalated compaction tail width must be <= normal tail width (trigger - summary): escalated=${JSON.stringify(escalatedTailWidth)}, normal=${JSON.stringify(normalTailWidth)}.` });
+  if (escalatedMiddleWidth > normalMiddleWidth) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_merge_line_fraction'], message: `Escalated compaction middle width must be <= normal middle width (summary - merge): escalated=${JSON.stringify(escalatedMiddleWidth)}, normal=${JSON.stringify(normalMiddleWidth)}.` });
+  if (value.enabled && value.input_budget_tokens !== undefined && Math.floor(value.input_budget_tokens * value.completion_reserve_fraction) < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'compaction requestedCompletionTokens must be positive' });
+  if (value.enabled && value.input_budget_tokens !== undefined) {
+    const normalTailBudget = Math.floor(value.input_budget_tokens * normalTailWidth);
+    const normalMiddleBudget = Math.floor(value.input_budget_tokens * normalMiddleWidth);
+    const escalatedTailBudget = Math.floor(value.input_budget_tokens * escalatedTailWidth);
+    const escalatedMiddleBudget = Math.floor(value.input_budget_tokens * escalatedMiddleWidth);
+    if (escalatedTailBudget > normalTailBudget || escalatedMiddleBudget > normalMiddleBudget) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['input_budget_tokens'], message: 'Escalated compaction token budgets must not exceed normal token budgets.' });
+  }
 });
 
 // MCP Server entry

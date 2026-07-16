@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cardIdSchema } from '../schemas/index.js';
 
 import type { AgentRole } from '../schemas/index.js';
 import type { ToolContext } from './analyst-tool-types.js';
@@ -11,9 +12,9 @@ export interface CardHistoryProviderContext {
   readonly agentRole: Extract<AgentRole, 'planner' | 'executor' | 'reviewer' | 'analyst'>;
 }
 
-const listCardHistorySchema = z.object({ cardId: z.string() }).strict();
-const getCardHistoryEntrySchema = z.object({ cardId: z.string(), version_seq: z.number().int() }).strict();
-const diffCardSchema = z.object({ cardId: z.string(), fromSeq: z.number().int().optional(), toSeq: z.number().int().optional() }).strict();
+const listCardHistorySchema = z.object({ cardId: cardIdSchema }).strict();
+const getCardHistoryEntrySchema = z.object({ cardId: cardIdSchema, version_seq: z.number().int() }).strict();
+const diffCardSchema = z.object({ cardId: cardIdSchema, fromSeq: z.number().int().optional(), toSeq: z.number().int().optional() }).strict();
 
 function getStore(ctx: CardHistoryProviderContext): ToolContext['store'] {
   return ctx.store;

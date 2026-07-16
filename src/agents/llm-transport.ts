@@ -6,8 +6,7 @@ import {
   type AuthProfile,
   isProfileExpired,
 } from '../auth/index.js';
-import { authProfileRevision, type AuthProfileRepository } from '../auth/auth-profile-store.js';
-import { replaceRefreshedAuthProfile } from '../auth/auth-profile-service.js';
+import { readAuthProfiles, replaceAuthProfiles } from '../auth/auth-profile-file.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -19,9 +18,10 @@ export interface LlmTransportConfig {
 }
 
 export async function resolveLlmTransportConfig(
-  authProfiles: AuthProfileRepository,
+  projectRoot: string,
   registry: ProviderRegistry,
   candidate: Candidate,
+  abortSignal?: AbortSignal,
 ): Promise<LlmTransportConfig> {
   const provider = registry.get(candidate.provider);
   if (!provider) {
@@ -45,11 +45,11 @@ export async function resolveLlmTransportConfig(
   }
 
   const resolver = new CredentialSourceResolver({
-    loadAuthProfiles: async () => authProfiles.load(),
-    usableProfileAccessToken: (profileName, profile) =>
-      usableProfileAccessToken(authProfiles, profileName, profile),
+    loadAuthProfiles: async () => readAuthProfiles(projectRoot),
+    usableProfileAccessToken: (profileName, profile, ownerSignal) =>
+      usableProfileAccessToken(projectRoot, profileName, profile, ownerSignal),
   });
-  const resolved = await resolver.resolve(provider, account);
+  const resolved = await resolver.resolve(provider, account, abortSignal);
 
   return {
     baseUrl: resolved.baseUrl,
@@ -70,25 +70,27 @@ export function transportAuthProfileDependency(registry: ProviderRegistry, candi
 }
 
 async function usableProfileAccessToken(
-  authProfiles: AuthProfileRepository,
+  projectRoot: string,
   profileName: string,
   profile: AuthProfile,
+  abortSignal?: AbortSignal,
 ): Promise<string | undefined> {
   if (profile.provider === 'openai-codex' && isProfileExpired(profile) && profile.refreshToken) {
-    const refreshed = await refreshOpenAICodexProfile(authProfiles, profileName, profile);
+    const refreshed = await refreshOpenAICodexProfile(projectRoot, profileName, profile, abortSignal);
     return refreshed?.accessToken ?? profile.accessToken;
   }
   if (profile.provider === 'github-copilot' && isProfileExpired(profile) && profile.refreshToken) {
-    const refreshed = await refreshGitHubCopilotProfile(authProfiles, profileName, profile);
+    const refreshed = await refreshGitHubCopilotProfile(projectRoot, profileName, profile, abortSignal);
     return refreshed?.accessToken ?? profile.accessToken;
   }
   return profile.accessToken;
 }
 
 async function refreshOpenAICodexProfile(
-  authProfiles: AuthProfileRepository,
+  projectRoot: string,
   profileName: string,
   profile: AuthProfile,
+  abortSignal?: AbortSignal,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
   let refreshed: AuthProfile;
@@ -105,9 +107,12 @@ async function refreshOpenAICodexProfile(
         refresh_token: profile.refreshToken,
         client_id: OPENAI_CODEX_CLIENT_ID,
       }).toString(),
+      signal: abortSignal,
     });
+    abortSignal?.throwIfAborted();
     if (!response.ok) return null;
     const data = await response.json().catch(() => null);
+    abortSignal?.throwIfAborted();
     if (typeof data?.access_token !== 'string') return null;
     refreshed = {
       ...profile,
@@ -120,16 +125,18 @@ async function refreshOpenAICodexProfile(
         : profile.expiresAt,
     };
   } catch {
+    abortSignal?.throwIfAborted();
     return null;
   }
-  replaceRefreshedAuthProfile(authProfiles, profileName, authProfileRevision(profile), refreshed);
+  commitRefreshedAuthProfile(projectRoot, profileName, refreshed, abortSignal);
   return refreshed;
 }
 
 async function refreshGitHubCopilotProfile(
-  authProfiles: AuthProfileRepository,
+  projectRoot: string,
   profileName: string,
   profile: AuthProfile,
+  abortSignal?: AbortSignal,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
   let refreshed: AuthProfile;
@@ -144,9 +151,12 @@ async function refreshGitHubCopilotProfile(
         'Copilot-Integration-Id': 'vscode-chat',
         Connection: 'close',
       },
+      signal: abortSignal,
     });
+    abortSignal?.throwIfAborted();
     if (!response.ok) return null;
     const data = await response.json().catch(() => null);
+    abortSignal?.throwIfAborted();
     if (typeof data?.token !== 'string') return null;
     refreshed = {
       ...profile,
@@ -156,8 +166,17 @@ async function refreshGitHubCopilotProfile(
         : profile.expiresAt,
     };
   } catch {
+    abortSignal?.throwIfAborted();
     return null;
   }
-  replaceRefreshedAuthProfile(authProfiles, profileName, authProfileRevision(profile), refreshed);
+  commitRefreshedAuthProfile(projectRoot, profileName, refreshed, abortSignal);
   return refreshed;
+}
+
+function commitRefreshedAuthProfile(projectRoot: string, profileName: string, refreshed: AuthProfile, abortSignal?: AbortSignal): void {
+  abortSignal?.throwIfAborted();
+  const file = readAuthProfiles(projectRoot);
+  if (!file?.profiles[profileName]) throw new Error(`Auth profile '${profileName}' no longer exists.`);
+  file.profiles[profileName] = refreshed;
+  replaceAuthProfiles(projectRoot, file);
 }

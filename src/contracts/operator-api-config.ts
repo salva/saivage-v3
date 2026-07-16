@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cardIdSchema } from '../schemas/index.js';
 import { controlActionAuditEntrySchema } from '../schemas/index.js';
 import {
   publicContract,
@@ -32,6 +33,7 @@ export const ProviderSummarySchema = z.object({
 });
 
 export const ProvidersListResponseSchema = z.object({
+  availabilityScope: z.literal('process_local_reset_on_restart'),
   providers: z.record(z.string(), ProviderSummarySchema),
 });
 
@@ -41,7 +43,7 @@ export const ProvidersUnavailableErrorSchema = z.object({
 });
 
 export const ControlActionsQuerySchema = z.object({
-  card_id: z.string().optional(),
+  card_id: cardIdSchema.optional(),
   since: z.string().optional(),
 });
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cardIdSchema } from '../schemas/card-id.js';
 
 import {
   cardHistoryEntrySchema,
@@ -12,7 +13,7 @@ export const cardVersionArtifactSchema = z
   .object({
     kind: z.literal('card-version'),
     format_version: z.literal(1),
-    card_id: z.string().min(1),
+    card_id: cardIdSchema,
     version: z.number().int().safe().positive(),
     committed_at: z.string().datetime(),
     card: persistedCardRecordSchema,

@@ -18,15 +18,15 @@ describe('CardHistoryPanel', () => {
     pinia = createPinia();
     setActivePinia(pinia);
     const store = useCardStore();
-    store.currentCard = { id: 'card-1', version_seq: 3 } as any;
+    store.currentCard = { id: '11111111-1111-4111-8111-111111111111', version_seq: 3 } as any;
   });
 
   it('renders success path with history list, entry details, and diff rows', async () => {
-    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated' }], total: 1 });
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated', snapshot: { id: 'card-1', acceptance: 'before' } as any } });
-    vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 2, to: 3, diff: [{ field: 'acceptance', before: 'before', after: 'after' }] });
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: '11111111-1111-4111-8111-111111111111', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated' }], total: 1 });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: '11111111-1111-4111-8111-111111111111', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated', snapshot: { id: '11111111-1111-4111-8111-111111111111', acceptance: 'before' } as any } });
+    vi.mocked(getCardDiff).mockResolvedValue({ card_id: '11111111-1111-4111-8111-111111111111', from: 2, to: 3, diff: [{ field: 'acceptance', before: 'before', after: 'after' }] });
 
-    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: '11111111-1111-4111-8111-111111111111' }, global: { plugins: [pinia] } });
     await flushPromises();
 
     expect(wrapper.text()).toContain('acceptance updated');
@@ -39,7 +39,7 @@ describe('CardHistoryPanel', () => {
     let resolveHistory: (value: { history: any[]; total: number }) => void = () => {};
     vi.mocked(listCardHistory).mockReturnValue(new Promise((resolve) => { resolveHistory = resolve; }));
 
-    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: '11111111-1111-4111-8111-111111111111' }, global: { plugins: [pinia] } });
     await Promise.resolve();
     expect(wrapper.text()).toContain('Loading card history…');
 
@@ -49,34 +49,34 @@ describe('CardHistoryPanel', () => {
 
   it('renders empty state when no history exists', async () => {
     vi.mocked(listCardHistory).mockResolvedValue({ history: [], total: 0 });
-    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: '11111111-1111-4111-8111-111111111111' }, global: { plugins: [pinia] } });
     await flushPromises();
     expect(wrapper.text()).toContain('No tracked card history exists yet for this card.');
   });
 
   it('renders unauthorized state', async () => {
     vi.mocked(listCardHistory).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
-    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: '11111111-1111-4111-8111-111111111111' }, global: { plugins: [pinia] } });
     await flushPromises();
     expect(wrapper.text()).toContain('Unauthorized');
   });
 
   it('renders detail failure state when selected version fetch fails', async () => {
-    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated' }], total: 1 });
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: '11111111-1111-4111-8111-111111111111', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated' }], total: 1 });
     vi.mocked(getCardHistoryEntry).mockRejectedValue(new ApiError(500, 'History detail failed', {}));
     vi.mocked(getCardDiff).mockRejectedValue(new ApiError(500, 'History detail failed', {}));
 
-    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: '11111111-1111-4111-8111-111111111111' }, global: { plugins: [pinia] } });
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain('History detail failed');
   });
 
   it('redacts secret-bearing snapshot and diff payloads before rendering', async () => {
-    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['config', 'env'], change_summary: 'sensitive payload update' }], total: 1 });
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['config', 'env'], change_summary: 'sensitive payload update', snapshot: { id: 'card-1', auth_profile: { token: 'sk-live-raw-secret' }, env_value: 'process.env.OPENAI_API_KEY', safe_field: 'visible' } as any } });
-    vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 2, to: 3, diff: [{ field: 'config_blob', before: 'Bearer very-secret-token', after: 'sk-updated-secret' }, { field: 'safe_field', before: 'before', after: 'after' }] });
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: '11111111-1111-4111-8111-111111111111', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['config', 'env'], change_summary: 'sensitive payload update' }], total: 1 });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: '11111111-1111-4111-8111-111111111111', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['config', 'env'], change_summary: 'sensitive payload update', snapshot: { id: '11111111-1111-4111-8111-111111111111', auth_profile: { token: 'sk-live-raw-secret' }, env_value: 'process.env.OPENAI_API_KEY', safe_field: 'visible' } as any } });
+    vi.mocked(getCardDiff).mockResolvedValue({ card_id: '11111111-1111-4111-8111-111111111111', from: 2, to: 3, diff: [{ field: 'config_blob', before: 'Bearer very-secret-token', after: 'sk-updated-secret' }, { field: 'safe_field', before: 'before', after: 'after' }] });
 
-    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: '11111111-1111-4111-8111-111111111111' }, global: { plugins: [pinia] } });
     await flushPromises();
 
     expect(wrapper.text()).toContain('[redacted]');

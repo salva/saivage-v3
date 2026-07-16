@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cardIdSchema } from '../schemas/index.js';
 import { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 import {
   ApiErrorSchema,
@@ -46,7 +47,7 @@ export const ProcessViewSchema = z.object({
   owner_id: z.string(),
   owner_kind: z.enum(['agent', 'operator', 'runtime']),
   session_id: z.string().nullable(),
-  card_id: z.string().nullable(),
+  card_id: cardIdSchema.nullable(),
   command: z.string(),
   cwd: z.string().nullable(),
   logs: ProcessLogRefsSchema,

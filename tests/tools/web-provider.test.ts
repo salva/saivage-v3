@@ -51,7 +51,7 @@ describe('WebProvider', () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
     try {
       fetchSpy.mockResolvedValue(new Response('0123456789abcdef', { status: 200, headers: { 'content-type': 'text/plain' } }));
-      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' }), createWorkspaceProvider({ projectRoot: root, agentRole: 'executor', cardId: 'card-1' })]);
+      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' }), createWorkspaceProvider({ projectRoot: root, agentRole: 'executor', cardId: '11111111-1111-4111-8111-111111111111' })]);
 
       const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com', max_inline_bytes: 4 });
 

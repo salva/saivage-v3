@@ -1,7 +1,7 @@
 import type { AgentMessage } from '../../../schemas/index.js';
-import { isConversationBudgetVisible } from '../conversation-store.js';
+import { isConversationBudgetVisible } from '../conversation-session.js';
 
-export type SubRoundKind = 'repair' | 'reviewer_rework';
+export type SubRoundKind = 'repair';
 
 export type PositionedMessage = {
   message: AgentMessage;
@@ -30,25 +30,19 @@ export type ClassifiedRound = {
 
 export type ClassifiedConversation = {
   preamble: PositionedMessage[];
-  already_compacted_history: PositionedMessage[];
   rounds: ClassifiedRound[];
   total_estimated_tokens: number;
 };
 
 export function classifyConversationRounds(messages: AgentMessage[]): ClassifiedConversation {
-  const positioned = positionMessages(messages);
+  const positioned = positionMessages(messages.filter((message) => message.kind !== 'context_compaction'));
   const preamble: PositionedMessage[] = [];
-  const alreadyCompactedHistory: PositionedMessage[] = [];
   const rounds: ClassifiedRound[] = [];
   let currentRoundRows: PositionedMessage[] | null = null;
   let currentMarker: PositionedMessage | null = null;
   let sawActivation = false;
 
   for (const row of positioned) {
-    if (row.message.kind === 'context_compaction') {
-      alreadyCompactedHistory.push(row);
-      continue;
-    }
     if (isActivationOpenMarker(row.message)) {
       if (currentRoundRows && currentMarker) rounds.push(buildRound(currentMarker, currentRoundRows));
       sawActivation = true;
@@ -68,7 +62,6 @@ export function classifyConversationRounds(messages: AgentMessage[]): Classified
 
   return {
     preamble,
-    already_compacted_history: alreadyCompactedHistory,
     rounds,
     total_estimated_tokens: positioned.length === 0 ? 0 : positioned[positioned.length - 1].end_token,
   };
@@ -113,7 +106,7 @@ function buildSubRounds(roundId: string, rows: PositionedMessage[]): ClassifiedS
     const subRows = rows.slice(index, next);
     return {
       id: `${roundId}#${row.message.id}`,
-      kind: isReviewerReworkToolResult(row.message) ? 'reviewer_rework' : 'repair',
+      kind: 'repair',
       anchor_message_id: row.message.id,
       rows: subRows,
       start_token: subRows[0].start_token,
@@ -132,12 +125,6 @@ function isFailedToolResult(message: AgentMessage): boolean {
   if (message.kind !== 'tool_result') return false;
   const parsed = parseJsonObject(message.content);
   return parsed.success === false;
-}
-
-function isReviewerReworkToolResult(message: AgentMessage): boolean {
-  if (!isFailedToolResult(message)) return false;
-  const parsed = parseJsonObject(message.content);
-  return typeof parsed.error === 'string' && /^Reviewer requested rework at .*review\.md/.test(parsed.error);
 }
 
 function parseJsonObject(content: string): Record<string, unknown> {

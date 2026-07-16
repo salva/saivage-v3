@@ -1,16 +1,12 @@
 /**
- * CandidateAvailability — on-disk availability substrate for LLM provider candidates.
- *
- * Replaces the in-memory `ProviderRegistry` health surface. Decisions about
- * cooldown / blocking come from the invocation recovery policy as
- * `AvailabilityDecision` values that this substrate persists.
+ * Process-local candidate availability for one application lifetime.
  */
 
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry } from '../contracts/candidate-availability.js';
 export type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry, CandidateState } from '../contracts/candidate-availability.js';
 
-/** In-memory implementation suitable for tests and short-lived processes. */
+/** Availability intentionally resets whenever the process restarts. */
 export class MemoryCandidateAvailability implements CandidateAvailability {
   protected readonly entries = new Map<string, CandidateAvailabilityEntry>();
 

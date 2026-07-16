@@ -87,9 +87,9 @@ describe('AppShell persistent analyst panel', () => {
     expect(wrapper.text()).toContain('Files');
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
 
-    await router.push('/cards/card-1');
+    await router.push('/cards/11111111-1111-4111-8111-111111111111');
     await flushPromises();
-    expect(router.currentRoute.value.path).toBe('/cards/card-1');
+    expect(router.currentRoute.value.path).toBe('/cards/11111111-1111-4111-8111-111111111111');
     expect(wrapper.text()).toContain('Card Detail');
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
     wrapper.unmount();

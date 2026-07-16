@@ -2,30 +2,25 @@ import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
 import type { EventBus } from '../events/index.js';
 import type { RuntimeControlMechanics } from './runtime-control-service.js';
 import type { LLMProviderPort, ProjectRootCardReader } from '../runtime/actors/index.js';
-import type { CardStoreRepository } from '../cards/card-store.js';
+import type { CardService } from '../cards/card-service.js';
 import type { InvocationService } from '../agents/invocation-service.js';
 import type { SaivageConfig } from '../agents/config-api.js';
 import { parseCandidateKey } from '../contracts/provider-candidate.js';
-import { compact, heuristicBufferSizeEstimator, shouldCompact } from '../runtime/actors/compaction/compactor.js';
+import { compact, shouldCompact } from '../runtime/actors/compaction/compactor.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
 import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
-import type { ConversationStore } from '../persistence/conversation-store.js';
-import type { AppLogStore } from '../persistence/app-log.js';
+import type { ConversationFileContext } from '../persistence/conversation-file.js';
+import type { AppLogContext } from '../persistence/app-log.js';
 import type { ReadModelChanges } from './read-model-changes.js';
-import type { ApplicationPersistenceHealth } from './persistence-health.js';
 import type { RuntimeInterventionBinding } from './intervention-readiness.js';
-import type { RuntimeStateStore } from '../runtime/state.js';
-import type { ActorSnapshotStore } from '../runtime/actors/snapshots.js';
-import type { RecoveryDiagnosticsStore } from '../runtime/actors/actor-recovery.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
   eventBus: EventBus;
-  cardStore: CardStoreRepository & ProjectRootCardReader;
-  persistenceHealth: ApplicationPersistenceHealth;
+  cardStore: CardService & ProjectRootCardReader;
   interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
@@ -34,11 +29,8 @@ export interface MicroActorRuntimeApiFactoryDeps {
   runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   now?: () => string;
-  conversations: ConversationStore;
-  appLogs: AppLogStore;
-  runtimeState: RuntimeStateStore;
-  snapshots: ActorSnapshotStore;
-  recoveryDiagnostics: RecoveryDiagnosticsStore;
+  conversations: ConversationFileContext;
+  appLogs: AppLogContext;
   readModelChanges: ReadModelChanges;
 }
 
@@ -49,13 +41,11 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     eventBus: deps.eventBus,
     rootCards: deps.cardStore,
     actorStore: deps.cardStore,
-    persistenceHealth: deps.persistenceHealth,
     interventionBinding: deps.interventionBinding,
     provider: createInvocationServiceProvider(deps.invocationService),
     compactor: compaction?.compactor,
     compactionConfig: compaction?.compactionConfig,
     summarizerProvider: compaction?.summarizerProvider,
-    bufferSizeEstimator: compaction?.bufferSizeEstimator,
     processRunner: deps.processRunner,
     promptTemplates: deps.promptTemplates,
     runtimeGate: deps.runtimeGate,
@@ -63,9 +53,6 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     now: deps.now,
     conversations: deps.conversations,
     appLogs: deps.appLogs,
-    runtimeState: deps.runtimeState,
-    snapshots: deps.snapshots,
-    recoveryDiagnostics: deps.recoveryDiagnostics,
     readModelChanges: deps.readModelChanges,
   });
 }
@@ -79,7 +66,6 @@ function buildCompactionWiring(invocationService: InvocationService, config: Sai
   return {
     compactor: { shouldCompact, compact },
     compactionConfig,
-    bufferSizeEstimator: heuristicBufferSizeEstimator,
     summarizerProvider: {
       completeTurn: (input: Parameters<LLMProviderPort['completeTurn']>[0], signal: AbortSignal) => invocationService.invokeWithRecovery({
         inputId: input.inputId,

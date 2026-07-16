@@ -2,6 +2,7 @@ import type { Page, Route } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 
 const now = '2026-05-19T12:00:00.000Z';
+export const smokeCardId = '11111111-1111-4111-8111-111111111111';
 
 const runtimeRunning = {
   status: 'running',
@@ -13,9 +14,9 @@ const runtimeRunning = {
 };
 
 const card = {
-  id: 'card-smoke',
+  id: smokeCardId,
   type: 'code',
-  parent: 'project-smoke',
+  parent: 'project',
   depth: 1,
   position: 1,
   title: 'Synthetic dashboard smoke card',
@@ -33,14 +34,14 @@ const card = {
   depends_on: [],
   related: [],
   acceptance: 'Synthetic acceptance only.',
-  retries: 0,
+  pending_notifications: [],
   result: { summary: 'synthetic result', checks: ['docs:verify', 'typecheck'] },
   version_seq: 3,
 };
 
 const projectCard = {
   ...card,
-  id: 'project-smoke',
+  id: 'project',
   type: 'project',
   parent: null,
   depth: 0,
@@ -69,7 +70,6 @@ const cardDetail = parseOperatorResponse('cards.get', {
     startedAt: now,
     completedAt: now,
     durationMs: 1000,
-    retries: 0,
     childCounts: { backlog: 0, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0 },
     hasActiveChildren: false,
     hasBlockingChildren: false,
@@ -83,9 +83,9 @@ const cardDetail = parseOperatorResponse('cards.get', {
 
 const sessions = [
   { id: 'analyst-smoke', role: 'analyst', status: 'active', started_at: now, completed_at: null, model: 'synthetic-model' },
-  { id: 'planner-smoke', role: 'planner', status: 'inactive', goal_card_id: 'project-smoke', card_id: 'card-smoke', started_at: now, completed_at: null, model: 'synthetic-model' },
-  { id: 'reviewer-smoke', role: 'reviewer', status: 'inactive', goal_card_id: 'project-smoke', card_id: 'card-smoke', started_at: now, completed_at: now, model: 'synthetic-model' },
-  { id: 'executor-smoke', role: 'executor', status: 'inactive', goal_card_id: 'project-smoke', card_id: 'card-smoke', started_at: now, completed_at: now, model: 'synthetic-model' },
+  { id: 'planner-smoke', role: 'planner', status: 'inactive', goal_card_id: 'project', card_id: smokeCardId, started_at: now, completed_at: null, model: 'synthetic-model' },
+  { id: 'reviewer-smoke', role: 'reviewer', status: 'inactive', goal_card_id: 'project', card_id: smokeCardId, started_at: now, completed_at: now, model: 'synthetic-model' },
+  { id: 'executor-smoke', role: 'executor', status: 'inactive', goal_card_id: 'project', card_id: smokeCardId, started_at: now, completed_at: now, model: 'synthetic-model' },
 ];
 
 const metaRoot = {
@@ -169,11 +169,14 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/state') {
       return json(route, parseOperatorResponse('runtime.getState', { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning, cardIndex: { total: 2, byStatus: { running: 1, done: 1 }, byType: { project: 1, code: 1 } } }));
     }
+    if (request.method() === 'GET' && url.pathname === '/api/runtime/status') {
+      return json(route, parseOperatorResponse('runtime.status', { runtime: 'running', currentCardId: smokeCardId, goalCount: 1, lastTickAt: null, pid: 4242, actorRuntime: { pauseMode: 'running', activeWork: 'model_invocation', cards: [{ cardId: smokeCardId, actorState: 'running' }], agents: [], diagnostics: [] }, restart_server_available: false }));
+    }
     if (request.method() === 'GET' && url.pathname === '/api/cards') return json(route, cardList);
-    if (request.method() === 'GET' && url.pathname === '/api/cards/card-smoke') return json(route, cardDetail);
-    if (request.method() === 'GET' && url.pathname === '/api/cards/card-smoke/history') return json(route, { history: [], total: 0 });
-    if (request.method() === 'GET' && url.pathname === '/api/cards/card-smoke/history/3') return json(route, { entry: { ...card, snapshot: card } });
-    if (request.method() === 'GET' && url.pathname === '/api/cards/card-smoke/diff') return json(route, { diff: [], from: 1, to: 3, card_id: 'card-smoke' });
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}`) return json(route, cardDetail);
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history`) return json(route, { history: [], total: 0 });
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/3`) return json(route, { entry: { ...card, snapshot: card } });
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/diff`) return json(route, { diff: [], from: 1, to: 3, card_id: smokeCardId });
     if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, { sessions });
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/conversation')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
@@ -264,7 +267,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, { errors: [{ source: 'planner-smoke', type: 'runtime_diagnostic', severity: 'error', message: 'Synthetic provider failure redacted', timestamp: now }], total: 1 });
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/timeline') {
-      return json(route, { events: [{ id: 'evt-1', kind: 'runtime_diagnostic', session_id: 'planner-smoke', timestamp: now, error_message: 'Synthetic provider failure redacted' }, { id: 'evt-2', kind: 'card_history_appended', card_id: 'card-smoke', timestamp: now, entry_id: '11111111-1111-4111-8111-111111111111', entry_kind: 'status', version_seq: 1, changed_fields: ['status'], changed_at: now }], total: 2 });
+      return json(route, { events: [{ id: 'evt-1', kind: 'runtime_diagnostic', session_id: 'planner-smoke', timestamp: now, error_message: 'Synthetic provider failure redacted' }, { id: 'evt-2', kind: 'card_history_appended', card_id: smokeCardId, timestamp: now, entry_id: '11111111-1111-4111-8111-111111111111', entry_kind: 'status', version_seq: 1, changed_fields: ['status'], changed_at: now }], total: 2 });
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, { status: 'ok', checks: [], issues: [] });
     if (request.method() === 'GET' && url.pathname === '/api/debug/supervision') return json(route, { reviews: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } });
@@ -284,7 +287,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         status: 'completed',
         command: 'npm run synthetic-smoke',
         cwd: '/work/saivage-e2e-checkers',
-        card_id: 'card-smoke',
+        card_id: smokeCardId,
         session_id: 'planner-smoke',
         owner_id: 'planner-smoke',
         owner_kind: 'agent',

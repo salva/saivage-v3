@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
+import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
 import { cardStatusValues, cardTypeValues, type AgentRole, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardDisplayPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
@@ -136,17 +136,17 @@ function displayPath(store: CardInspectionStore, card: CardRecord): string | nul
   return segments.join(' / ');
 }
 
-function isFullStore(store: CardInspectionStore): store is CardStore {
+function isFullStore(store: CardInspectionStore): store is CardService {
   return typeof store.list === 'function' && typeof store.listChildren === 'function';
 }
 
-function effectiveUpdatedAt(store: CardStore, cardId: string): string | null {
+function effectiveUpdatedAt(store: CardService, cardId: string): string | null {
   const committedTimes = [store.recordReader.cardArtifacts(cardId).current.committed_at, ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch { return null; } })].filter((value): value is string => Boolean(value));
   if (committedTimes.length === 0) return null;
   return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
 }
 
-function cardRecordSummaries(store: CardStore, cardId: string): Array<Record<string, unknown>> {
+function cardRecordSummaries(store: CardService, cardId: string): Array<Record<string, unknown>> {
   return recordSlotDefinitions()
     .filter((definition) => definition.exposed)
     .map((definition) => {

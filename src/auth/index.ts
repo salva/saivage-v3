@@ -5,6 +5,6 @@
  * persistence helpers required for provider credential resolution.
  */
 
-export { AuthProfileRepository } from './auth-profile-store.js';
-export type { AuthProfile, AuthProfilesFile, AuthProfileProjection } from './auth-profile-store.js';
+export { readAuthProfile, readAuthProfiles, replaceAuthProfiles } from './auth-profile-file.js';
+export type { AuthProfile, AuthProfilesFile } from './auth-profile-file.js';
 export { isProfileExpired } from './oauth-profiles.js';

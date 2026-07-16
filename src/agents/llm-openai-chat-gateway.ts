@@ -80,7 +80,8 @@ export class OpenAIChatGateway {
     _sessionId: string,
     opts: LlmCompleteOptions,
   ): Promise<ProviderTurnCompletion> {
-    const requestBody = buildOpenAIChatRequest(candidate, systemPrompt, messages, opts);
+    const requestBody = (opts.builtCandidateRequest?.body ?? buildOpenAIChatRequest(candidate, systemPrompt, messages, opts)) as unknown as ChatCompletionRequest;
+    const serializedBody = opts.builtCandidateRequest?.serializedBody ?? JSON.stringify(requestBody);
     const url = this.chatCompletionsUrl();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -108,7 +109,7 @@ export class OpenAIChatGateway {
         response = await fetch(url, {
           method: 'POST',
           headers,
-          body: JSON.stringify(requestBody),
+          body: serializedBody,
           signal: opts.signal,
         });
       } catch (err) {

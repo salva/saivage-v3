@@ -1,17 +1,12 @@
 export * from './ids.js';
-export * from './snapshots.js';
 export * from './llm-delivery-log.js';
-export * from './conversation-store.js';
+export * from './conversation-session.js';
 export * from './conversation-publisher.js';
 export * from './conversation-recovery.js';
 export {
-  activeVersionPath,
-  readConversationInventory,
   parseConversationSessionId,
 } from './conversation-inventory.js';
-export type { ConversationInventory, ParsedConversationSessionId } from './conversation-inventory.js';
-export * from './actor-recovery.js';
-export * from './active-reconstruction.js';
+export type { ParsedConversationSessionId } from './conversation-inventory.js';
 export * from './llm-invocation.js';
 export * from './invocation-lifecycle.js';
 export * from './llm-actor.js';

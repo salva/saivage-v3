@@ -3,14 +3,11 @@ import { BaseCardProcessorActor, type CardProcessorOutcome } from './base-card-p
 import type { CardActivationInput } from './card-actor.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
-import { replayToolForRecovery, type InvocationSurface } from '../../tools/invocation.js';
-import { readLlmActiveReconstruction } from './active-reconstruction.js';
-import { readActorSnapshot, type ActorSnapshotStore } from './snapshots.js';
-import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
+import type { InvocationSurface } from '../../tools/invocation.js';
+import type { CompactionConfig } from './compaction/compactor.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
-import { listConversationSessionIds, readConversationMessages, type ProviderVisibleUserContextMessage } from './conversation-store.js';
-import type { AgentMessage } from '../../schemas/index.js';
-import type { ConversationStore } from '../../persistence/conversation-store.js';
+import type { ProviderVisibleUserContextMessage } from './conversation-session.js';
+import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
@@ -19,14 +16,13 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   readonly compactor?: CompactorPort;
   readonly compactionConfig?: CompactionConfig;
   readonly summarizerProvider?: LLMProviderPort;
-  readonly bufferSizeEstimator?: BufferSizeEstimator;
   readonly conversationPublisher?: ConversationChangePublisher;
-  readonly conversations: ConversationStore;
+  readonly conversations: ConversationFileContext;
   readonly activeLlmActors = new Map<string, LLMActor>();
-  #invocationInputCounter = 0;
   #joiningLlmActors: readonly LLMActor[] | null = null;
+  #llmInvocationsDisposed = false;
 
-  protected constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationStore; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.provider = args.provider;
     this.conversations = args.conversations;
@@ -34,14 +30,13 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     this.compactor = args.compactor;
     this.compactionConfig = args.compactionConfig;
     this.summarizerProvider = args.summarizerProvider;
-    this.bufferSizeEstimator = args.bufferSizeEstimator;
     this.conversationPublisher = args.conversationPublisher;
   }
 
   protected createMainLlm(agentId: string): LLMActor {
     const existing = this.activeLlmActors.get(agentId);
     if (existing) return existing;
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, conversations: this.conversations, snapshots: this.snapshots, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, bufferSizeEstimator: this.bufferSizeEstimator, conversationPublisher: this.conversationPublisher });
+    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, conversations: this.conversations, gate: this.gate, compactor: this.compactor, compactionConfig: this.compactionConfig, summarizerProvider: this.summarizerProvider, conversationPublisher: this.conversationPublisher });
     llm.start();
     this.activeLlmActors.set(agentId, llm);
     return llm;
@@ -56,10 +51,17 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   }
 
   override disposeActivation(reason: unknown): void {
-    if (this.#joiningLlmActors) return;
-    this.#joiningLlmActors = [...this.activeLlmActors.values()];
-    for (const llm of this.#joiningLlmActors) llm.disposeInvocations(reason);
+    this.#joiningLlmActors ??= [...this.activeLlmActors.values()];
+    if (!this.#llmInvocationsDisposed) {
+      for (const llm of this.#joiningLlmActors) llm.disposeInvocations(reason);
+      this.#llmInvocationsDisposed = true;
+    }
     super.disposeActivation(reason);
+  }
+
+  override suppressContinuationAndPrepareJoin(): void {
+    this.#joiningLlmActors ??= [...this.activeLlmActors.values()];
+    super.suppressContinuationAndPrepareJoin();
   }
 
   override async joinActivation(): Promise<readonly InvocationJoinOutcome[]> {
@@ -75,12 +77,6 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     return super.pendingJoinTaskCount() + (this.#joiningLlmActors ?? []).reduce((count, llm) => count + llm.pendingInvocationCount(), 0);
   }
 
-  override recoverActive(state: string, input: CardActivationInput, signal: AbortSignal): Promise<CardProcessorOutcome> {
-    this.seedInvocationInputCounterFromConversations();
-    this.adoptRecoveredLlmSnapshots();
-    return super.recoverActive(state, input, signal);
-  }
-
   protected async resolveInitialOutcome(
     llm: LLMActor,
     buildInput: () => LlmInvocationInput | Promise<LlmInvocationInput>,
@@ -92,52 +88,8 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     switch (llm.state()) {
       case 'idle':
         return llm.turn(await buildInput(), signal);
-      case 'calling_provider':
-        return llm.awaitPendingTurn();
-      case 'waiting_tool':
-        return this.resolveWaitingToolOutcome(llm, surface, isTerminalToolName, signal, continuationContextHook);
       default:
-        throw new Error(`LLMActor '${llm.agentId}' is in unexpected state '${llm.state()}' for initial outcome resolution.`);
-    }
-  }
-
-  private async resolveWaitingToolOutcome(
-    llm: LLMActor,
-    surface: InvocationSurface,
-    isTerminalToolName: (name: string) => boolean,
-    signal: AbortSignal,
-    continuationContextHook?: LLMToolContinuationContextHook,
-  ): Promise<LLMActorOutcome> {
-    const outcome = llm.waitingToolOutcome();
-    if (isTerminalToolName(outcome.toolName)) return outcome;
-    const replay = await replayToolForRecovery(surface, outcome.toolName, outcome.args);
-    if (replay.kind === 'settled') return llm.appendToolResult(outcome.toolCallId, replay.result, signal, continuationContextHook);
-    return outcome;
-  }
-
-  private adoptRecoveredLlmSnapshots(): void {
-    for (const agentId of this.recoverableLlmAgentIds()) {
-      if (this.activeLlmActors.has(agentId)) continue;
-      const snapshot = this.snapshots.read(agentId);
-      if (!snapshot) continue;
-      const activeReconstruction = readLlmActiveReconstruction(snapshot);
-      if (!activeReconstruction) continue;
-      const llm = LLMActor.fromActiveReconstruction({
-        snapshots: this.snapshots,
-        projectRoot: this.projectRoot,
-        agentId,
-        provider: this.provider,
-        conversations: this.conversations,
-        gate: this.gate,
-        compactor: this.compactor,
-        compactionConfig: this.compactionConfig,
-        summarizerProvider: this.summarizerProvider,
-        bufferSizeEstimator: this.bufferSizeEstimator,
-        conversationPublisher: this.conversationPublisher,
-        state: String(snapshot.state_value),
-        activeReconstruction,
-      });
-      this.adoptRecoveredLlmActor(llm);
+        throw new Error(`LLMActor '${llm.agentId}' must be idle at the start of a process-local activation, received '${llm.state()}'.`);
     }
   }
 
@@ -149,57 +101,16 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     this.activeLlmActors.clear();
   }
 
-  protected nextInvocationInputId(prefix: string): string {
-    this.#invocationInputCounter++;
-    return `${prefix}:${this.cardId}:${this.#invocationInputCounter}`;
-  }
+  protected freshSourceInputId(): string { return randomUUID(); }
 
-  private seedInvocationInputCounterFromConversations(): void {
-    let maxSuffix = 0;
-    for (const sessionId of listConversationSessionIds(this.projectRoot, this.conversations.namespace)) {
-      for (const message of readConversationMessages(this.projectRoot, sessionId)) {
-        for (const inputId of inputIdsFromMessage(message)) {
-          const suffix = this.parseOwnedInputSuffix(inputId);
-          if (suffix !== null) maxSuffix = Math.max(maxSuffix, suffix);
-        }
-      }
-    }
-    this.#invocationInputCounter = maxSuffix;
-  }
-
-  private parseOwnedInputSuffix(inputId: string): number | null {
-    for (const role of ['planner', 'terminal', 'reviewer']) {
-      const prefix = `${role}:${this.cardId}:`;
-      if (!inputId.startsWith(prefix)) continue;
-      const rest = inputId.slice(prefix.length);
-      const numeric = rest.match(/^\d+/)?.[0];
-      if (!numeric) return null;
-      const suffix = Number(numeric);
-      return Number.isSafeInteger(suffix) ? suffix : null;
-    }
-    return null;
-  }
-
-  protected notificationContext(input: CardActivationInput, inputId: string): readonly ProviderVisibleUserContextMessage[] {
-    const notifications = input.notificationDelivery.deliverNotificationsForInput(inputId);
-    return notifications.map((notification) => ({ role: 'user', content: notification.message }));
+  protected notificationContext(input: CardActivationInput, inputId: string): ReturnType<LLMToolContinuationContextHook> {
+    void inputId;
+    const notifications = input.notificationDelivery.selectNotifications();
+    if (notifications.length === 0) return undefined;
+    return {
+      messages: notifications.map((notification) => ({ role: 'user', content: notification.content })),
+      afterAppend: () => input.notificationDelivery.removeNotifications(notifications.map((notification) => notification.id)),
+    };
   }
 }
-
-function inputIdsFromMessage(message: AgentMessage): string[] {
-  const ids = new Set<string>();
-  for (const delimiter of [':started', ':message', ':error', ':repair', ':tool-call:', ':provider-exchange:', ':tool:']) {
-    const index = message.id.indexOf(delimiter);
-    if (index > 0) ids.add(message.id.slice(0, index));
-  }
-  try {
-    const parsed = JSON.parse(message.content) as unknown;
-    if (typeof parsed === 'object' && parsed !== null) {
-      const record = parsed as Record<string, unknown>;
-      for (const key of ['input_id', 'inputId', 'source_input_id']) {
-        if (typeof record[key] === 'string') ids.add(record[key]);
-      }
-    }
-  } catch {}
-  return [...ids];
-}
+import { randomUUID } from 'node:crypto';

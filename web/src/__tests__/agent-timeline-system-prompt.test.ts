@@ -6,10 +6,10 @@ import { entriesToTimeline } from '../utils/agent-timeline/timeline';
 function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
   return {
     id: 'entry-1',
-    session_id: 'planner:card-1',
+    session_id: 'planner:11111111-1111-4111-8111-111111111111',
     role: 'system',
     kind: 'system_prompt',
-    content: 'Plan and coordinate card card-1',
+    content: 'Plan and coordinate card 11111111-1111-4111-8111-111111111111',
     round_id: 'r-pre-00000000000000000000000000000001',
     message_index: 0,
     block_index: 0,

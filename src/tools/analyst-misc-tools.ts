@@ -8,12 +8,13 @@ import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { describe, emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { commitQueueNotification, commitReconfigure, recheckQueueNotification, recheckReconfigure } from '../application/analyst-mutation-operations.js';
+import { cardIdSchema } from '../schemas/index.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
 
-export async function queue_notification(ctx: ToolContext, params: { recipient: string; kind: string; body: string }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'notification.queue', safety_class: 'low', target_kind: 'session', getTargetId: () => params.recipient, lifecycle: 'intervention_ready', recheck: recheckQueueNotification, commit: commitQueueNotification });
+export async function queue_notification(ctx: ToolContext, params: { card_id: string; kind: string; body: string }, signal?: AbortSignal): Promise<ToolResult> {
+  return runAuditedAnalystTool(ctx, params, { action: 'notification.queue', safety_class: 'low', target_kind: 'card', getTargetId: () => params.card_id, lifecycle: 'intervention_ready', recheck: recheckQueueNotification, commit: commitQueueNotification }, signal);
 }
 
 export async function show_config(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
@@ -23,12 +24,12 @@ export async function show_config(ctx: ToolContext, _params: Record<string, neve
 
 type ReconfigureParams = { action: 'set_role_routing' | 'set_failover_chain' | 'mcp_add' | 'mcp_edit' | 'mcp_remove' | 'set_runtime_setting' | 'set_server_setting'; role?: string; model_candidate?: string; for_model?: string; ordered_failover_models?: string[]; name?: string; command?: string; args?: string[]; env?: Record<string, string>; key?: string; value?: unknown };
 
-export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): Promise<ToolResult> {
+export async function reconfigure(ctx: ToolContext, params: ReconfigureParams, signal?: AbortSignal): Promise<ToolResult> {
   if (params.action === 'mcp_add' || params.action === 'mcp_edit' || params.action === 'mcp_remove') {
     return toolFailure('MCP desired-config mutation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
   }
   const actionName = `reconfigure.${params.action.replace(/^set_/, 'set_')}`;
-  return runAuditedAnalystTool(ctx, params as ReconfigureParams & Record<string, unknown>, { action: actionName, safety_class: 'low', target_kind: 'config', getTargetId: () => params.name ?? params.role ?? params.key ?? params.action, lifecycle: 'intervention_ready', recheck: recheckReconfigure, commit: commitReconfigure });
+  return runAuditedAnalystTool(ctx, params as ReconfigureParams & Record<string, unknown>, { action: actionName, safety_class: 'low', target_kind: 'config', getTargetId: () => params.name ?? params.role ?? params.key ?? params.action, lifecycle: 'intervention_ready', recheck: recheckReconfigure, commit: commitReconfigure }, signal);
 }
 
 export async function mcp_reconcile(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
@@ -60,7 +61,7 @@ export async function read_agent_session(ctx: ToolContext, params: { sessionId: 
 }
 
 export const analystMiscTools: readonly UnifiedToolDefinition<string, any>[] = [
-  { name: 'queue_notification', description: 'Queue a notification for delivery into the next agent session targeting a given card or role. The platform forgets the notification once it has been delivered; there is no list/get/acknowledge/delete.', input: z.object({ recipient: describe(z.string(), 'A card id, an agent role, or an active session id.'), kind: describe(z.string(), 'A short categorical label for the notification.'), body: describe(z.string(), 'The notification text to inject.') }).strict(), roles: ['analyst', 'planner'], executor: queue_notification },
+  { name: 'queue_notification', description: 'Queue operator context on one nonterminal card for its planner or executor.', input: z.object({ card_id: describe(cardIdSchema, 'The exact card id.'), kind: describe(z.string().min(1), 'A short categorical label.'), body: describe(z.string().min(1), 'The context text to inject.') }).strict(), roles: ['analyst', 'planner'], executor: queue_notification },
   { name: 'show_config', description: 'Show the current project configuration with secrets redacted.', input: emptyInput, roles: ['analyst'], executor: show_config },
   { name: 'reconfigure', description: 'Reconfigure role routing, failover, MCP servers, runtime, or server settings.', input: z.object({ action: z.enum(['set_role_routing', 'set_failover_chain', 'mcp_add', 'mcp_edit', 'mcp_remove', 'set_runtime_setting', 'set_server_setting']), role: z.string().optional(), model_candidate: z.string().optional(), for_model: z.string().optional(), ordered_failover_models: z.array(z.string()).optional(), name: z.string().optional(), command: z.string().optional(), args: z.array(z.string()).optional(), env: z.record(z.string()).optional(), key: z.string().optional(), value: z.unknown().optional() }).strict(), roles: ['analyst'], executor: reconfigure },
   { name: 'mcp_reconcile', description: 'Retry MCP runtime convergence from the already persisted configuration without writing configuration again.', input: emptyInput, roles: ['analyst'], executor: mcp_reconcile },

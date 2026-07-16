@@ -12,10 +12,15 @@ function isOpen(ws: WebSocket): boolean {
 export class LiveSyncSocket {
   private readonly clients = new Set<WebSocket>();
   private readonly conversationSubscriptions = new WeakMap<WebSocket, Map<string, string>>();
+  private admissionOpen = true;
 
   add(ws: WebSocket): void {
+    if (!this.admissionOpen) { ws.close(); return; }
     this.clients.add(ws);
   }
+
+  closeAdmission(): void { this.admissionOpen = false; }
+  isAdmissionOpen(): boolean { return this.admissionOpen; }
 
   delete(ws: WebSocket): void {
     this.clients.delete(ws);

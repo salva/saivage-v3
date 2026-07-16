@@ -1,14 +1,13 @@
-import type { CardStore } from '../cards/store-api.js';
+import type { CardService } from '../cards/card-api.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { ControlActionSurface } from '../schemas/index.js';
 import type { ActorRole } from '../agents/authz.js';
 import type { EventBus } from '../events/index.js';
-import type { AppLogStore } from '../persistence/app-log.js';
+import type { AppLogContext } from '../persistence/app-log.js';
 import type { ToolResult } from './invocation.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
-import type { ApplicationPersistenceHealth } from '../application/persistence-health.js';
 import type { InterventionReadinessFacet } from '../application/intervention-readiness.js';
 import type { RuntimeControlApplicationPort } from '../application/runtime-control-service.js';
 import type { AnalystMutationServices } from '../application/analyst-mutation-services.js';
@@ -25,11 +24,10 @@ export interface SafeToolData {
 export interface ToolContext {
   projectRoot: string;
   configAuthority: ResolvedConfigAuthority;
-  persistenceHealth: ApplicationPersistenceHealth;
   interventionReadiness: InterventionReadinessFacet;
   processRunner: ProcessRunner;
   processScope: ManagedProcessScope;
-  store: CardStore;
+  store: CardService;
   sessionId?: string;
   runtime?: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
   runtimeControl?: RuntimeControlApplicationPort;
@@ -38,7 +36,7 @@ export interface ToolContext {
   actor: ActorRole;
   surface: ControlActionSurface;
   eventBus?: EventBus;
-  appLogs: AppLogStore;
+  appLogs: AppLogContext;
   analystMutations?: AnalystMutationServices;
   analystPreparation?: AnalystPreparationReadServices;
 }

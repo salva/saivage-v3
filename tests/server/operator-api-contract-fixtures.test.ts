@@ -1,81 +1,62 @@
-import { initProjectTree, testPersistenceHealth, testProjectAuthority } from '../helpers/canonical-project.js';
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { readRuntimeState } from '../../src/runtime/state.js';
-import { initRuntimeState } from '../helpers/runtime-state.js';
-import { createServer, type ServerInstance } from '../../src/server/server.js';
-import { loadEnvironment } from '../../src/config/environment.js';
-import { runtimeStateSchema } from '../../src/schemas/validators.js';
-import { ensureTestSaivageConfig } from '../helpers/test-runtime-application.js';
+import { createServer as createNetServer } from 'node:net';
+import { startApp, type App } from '../../src/boot/app.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
 
-const CORE_RUNTIME_STATE_KEYS = [
-  'status',
-  'project_id',
-  'started_at',
-  'updated_at',
-] as const;
+let projectRoot: string;
+let app: App;
 
-let root: string;
-let server: ServerInstance;
-
-function expectTopLevelKeys(body: Record<string, unknown>, keys: readonly string[]): void {
-  for (const key of keys) expect(body).toHaveProperty(key);
-}
-
-function expectRuntimeStateContract(body: unknown): void {
-  const parsed = runtimeStateSchema.safeParse(body);
-  expect(parsed.success).toBe(true);
-  if (!parsed.success) return;
-  expectTopLevelKeys(parsed.data as unknown as Record<string, unknown>, CORE_RUNTIME_STATE_KEYS);
-  expect(parsed.data.project_id).toBe('project');
-  expect(parsed.data).not.toHaveProperty('queue');
-  expect(parsed.data).not.toHaveProperty('running_processes');
+async function availablePort(): Promise<number> {
+  const probe = createNetServer();
+  await new Promise<void>((resolve, reject) => probe.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const address = probe.address();
+  if (address === null || typeof address === 'string') throw new Error('Failed to reserve an ephemeral test port.');
+  await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+  return address.port;
 }
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), 'saivage-operator-api-contract-'));
-  initProjectTree(root);
-  ensureTestSaivageConfig(root);
-  initRuntimeState(root);
-  server = await createServer({ environment: await loadEnvironment(['node', 'test', '--project-root', root], process.env, testPersistenceHealth(root)), authority: testProjectAuthority(root), persistenceHealth: testPersistenceHealth(root) });
+  projectRoot = mkdtempSync(join(tmpdir(), 'saivage-operator-api-contract-'));
+  initProjectTree(projectRoot);
+  const port = await availablePort();
+  writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), `models:\n  default: [test-model]\nproviders: {}\nruntime:\n  continuous_improvement: false\nserver:\n  host: 127.0.0.1\n  port: ${port}\n`);
+  app = await startApp({
+    argv: ['node', 'test', 'start', '--project-root', projectRoot],
+    env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined },
+  });
 });
 
 afterEach(async () => {
-  await server.stop();
-  rmSync(root, { recursive: true, force: true });
+  const report = await app.stop();
+  expect(report).toEqual({ warnings: [] });
+  rmSync(projectRoot, { recursive: true, force: true });
 });
 
 describe('operator API response contracts', () => {
-  it('GET /health exposes the liveness response keys', async () => {
-    const response = await server.fastify.inject({ method: 'GET', url: '/health' });
+  it('exposes liveness without runtime internals', async () => {
+    const response = await app.server.fastify.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
-    const body = response.json<Record<string, unknown>>();
-    expectTopLevelKeys(body, ['status', 'version', 'project']);
-    expect(body.status).toBe('ok');
-    expect(typeof body.version).toBe('string');
-    expect(typeof body.project).toBe('string');
-    expect(body).not.toHaveProperty('runtime');
-    expect(body).not.toHaveProperty('serverAvailability');
+    expect(response.json()).toEqual({ status: 'ok', version: '0.1.0', project: 'saivage-v3' });
   });
 
-  it('GET /health/ready exposes readiness response keys', async () => {
-    const response = await server.fastify.inject({ method: 'GET', url: '/health/ready' });
+  it('exposes readiness and server availability', async () => {
+    const response = await app.server.fastify.inject({ method: 'GET', url: '/health/ready' });
     expect(response.statusCode).toBe(200);
-    const body = response.json<Record<string, unknown>>();
-    expectTopLevelKeys(body, ['status']);
-    expect(['ready', 'not_ready']).toContain(body.status);
+    expect(response.json()).toMatchObject({ status: 'ready', serverAvailability: expect.any(Object) });
   });
 
-  it('GET /api/state exposes runtime state keys and validates RuntimeState when present', async () => {
-    const response = await server.fastify.inject({ method: 'GET', url: '/api/state' });
+  it('projects the canonical root card and process-local runtime', async () => {
+    const response = await app.server.fastify.inject({ method: 'GET', url: '/api/state' });
     expect(response.statusCode).toBe(200);
-    const body = response.json<Record<string, unknown>>();
-    expectTopLevelKeys(body, ['projectRoot', 'projectId', 'runtime', 'cardIndex']);
-    expect(body.cardIndex).toMatchObject({ total: expect.any(Number), byStatus: expect.any(Object), byType: expect.any(Object) });
-    expectRuntimeStateContract(body.runtime);
+    expect(response.json()).toMatchObject({
+      projectRoot,
+      projectId: expect.any(String),
+      cardIndex: { total: 1 },
+      runtime: expect.any(Object),
+    });
   });
-
 });

@@ -1,11 +1,8 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { BlockedResult, CardRecord, CardStatus, DoneResult, FailedResult, ReworkResult } from '../../schemas/index.js';
-import type { NewCardInput } from '../../cards/store-api.js';
+import type { BlockedResult, CardNotification, CardRecord, CardStatus, DoneResult, FailedResult, ReworkResult } from '../../schemas/index.js';
+import type { NewCardInput } from '../../cards/card-api.js';
 import type { CardMutationContext } from '../../cards/lifecycle.js';
-import { cardActorId, processorActorId } from './ids.js';
-import { readActorSnapshot, type ActorSnapshotStore } from './snapshots.js';
-import type { CardActiveReconstructionRecord } from './active-reconstruction.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { NotifyCardResult } from '../runtime-api.js';
@@ -14,18 +11,16 @@ import { PlanningCardProcessorActor } from './planning-card-processor-actor.js';
 import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
-import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
+import type { CompactionConfig } from './compaction/compactor.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
-import type { ConversationStore } from '../../persistence/conversation-store.js';
-import type { AppLogStore } from '../../persistence/app-log.js';
-import type { RecordProjection } from '../../persistence/project-store-repository.js';
-import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
+import type { ConversationFileContext } from '../../persistence/conversation-file.js';
+import type { AppLogContext } from '../../persistence/app-log.js';
+import type { RecordProjection } from '../../persistence/authored-record-files.js';
 import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
-import type { CardStore } from '../../cards/card-store.js';
+import type { CardService } from '../../cards/card-service.js';
 import type { ActiveCardLeaf } from '../active-card-leaf.js';
-
-export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
+import { isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
 
 export type CardActivationOutcome =
   | { status: 'done'; summary: string; result: DoneResult }
@@ -38,6 +33,7 @@ export interface CardActivationInput {
   card: CardRecord;
   caller: CardActivationCaller;
   notificationDelivery: CardNotificationDeliveryPort;
+  claimResult(): void;
 }
 
 export interface CardActivationCaller {
@@ -46,21 +42,9 @@ export interface CardActivationCaller {
   sessionId?: string | null;
 }
 
-export interface CardNotification {
-  id: string;
-  message: string;
-  created_at: string;
-  reason?: string;
-}
-
-export interface CardNotificationDeliveryMarker {
-  notification_id: string;
-  delivered_to_input_id: string;
-  delivered_at: string;
-}
-
 export interface CardNotificationDeliveryPort {
-  deliverNotificationsForInput(inputId: string): CardNotification[];
+  selectNotifications(): CardNotification[];
+  removeNotifications(ids: readonly string[]): void;
 }
 
 export interface CardCancelReason {
@@ -70,9 +54,9 @@ export interface CardCancelReason {
 
 export interface CardProcessorActor {
   start?(): void;
-  recoverActive?(state: string, input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
   activate(input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
   disposeActivation(reason: unknown): void;
+  suppressContinuationAndPrepareJoin(): void;
   joinActivation(): Promise<readonly InvocationJoinOutcome[]>;
   pendingJoinTaskCount(): number;
 }
@@ -96,60 +80,63 @@ export interface CardActorStorePort {
 
 export interface CardActorDeps {
   projectRoot: string;
-  storeForCard(cardId: string): CardStore;
+  storeForCard(cardId: string): CardService;
   currentness: Pick<ActiveCardLeaf, 'enterChild' | 'resumeParent'>;
   provider: LLMProviderPort;
   compactor?: CompactorPort;
   compactionConfig?: CompactionConfig;
   summarizerProvider?: LLMProviderPort;
-  bufferSizeEstimator?: BufferSizeEstimator;
   gate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   processRunner: ProcessRunner;
   promptTemplates: PromptTemplateRegistry;
   notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
   lookup: Map<string, CardActor>;
+  liveLookup: Map<string, CardActor>;
+  cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
   conversationPublisher?: ConversationChangePublisher;
-  conversations: ConversationStore;
-  appLogs: AppLogStore;
-  snapshots: ActorSnapshotStore;
-  persistenceHealth?: ApplicationPersistenceHealth;
+  conversations: ConversationFileContext;
+  appLogs: AppLogContext;
+  isRuntimeClosing(): boolean;
 }
 
 export class CardActor extends BaseActor {
   static _actor: ActorDefinition = {
     initial: 'parked',
     states: {
-      parked: { parked: true, on: { activate: 'running', cancel: 'cancelled' } },
-      running: { on: { settled: 'parked', cancel: 'cancelled' } },
+      parked: { parked: true, on: { activate: 'running', wait: 'structural_wait', cancel: 'cancelled' } },
+      structural_wait: { parked: true, on: { child_settled: 'running', claim_cancel: 'cancelling', settled: 'parked' } },
+      running: { on: { settled: 'parked', claim_cancel: 'cancelling' } },
+      cancelling: { parked: true, on: { cancel: 'cancelled' } },
       cancelled: { terminal: true },
     },
   };
 
   readonly cardId: string;
   readonly deps: CardActorDeps;
-  readonly processor: CardProcessorActor;
-  readonly store: CardStore;
-  notifications: CardNotification[] = [];
-  notificationDeliveryMarkers: CardNotificationDeliveryMarker[] = [];
+  processor: CardProcessorActor | null;
+  readonly store: CardService;
   lastOutcome: CardActivationOutcome | null = null;
   cancelReason: CardCancelReason | null = null;
-  activeReconstruction: CardActiveReconstructionRecord | null = null;
   #result: Deferred<CardActivationOutcome> | null = null;
   #activationCaller: CardActivationCaller | null = null;
   #activationId: string | null = null;
   #activationAbort: AbortController | null = null;
-  #activationCounter = 0;
   #processorStarted = false;
+  #terminalClaim: 'open' | 'claimed_result' | 'claimed_cancel' | 'claimed_stop' = 'open';
+  #cancelSettlement: Promise<CardCancellationResult> | null = null;
+  #structuralChildId: string | null = null;
+  #continuationSuppressed = false;
+  #stopSettlementEventQueued = false;
 
   constructor(args: { card: CardRecord; deps: CardActorDeps; deferProcessorStart?: boolean }) {
     super();
     this.cardId = args.card.id;
     this.deps = args.deps;
     this.store = args.deps.storeForCard(this.cardId);
-    this.processor = createProcessor(args.card, this);
+    this.processor = args.deferProcessorStart ? null : createProcessor(args.card, this);
     if (!args.deferProcessorStart) {
-      this.processor.start?.();
+      this.processor!.start?.();
       this.#processorStarted = true;
     }
     this.deps.lookup.set(this.cardId, this);
@@ -160,43 +147,10 @@ export class CardActor extends BaseActor {
   }
 
   static fromCard(args: { card: CardRecord; deps: CardActorDeps; deferRunningRecovery?: boolean }): CardActor {
-    const deferProcessorStart = args.deferRunningRecovery === true && args.card.status === 'running';
-    const actor = new CardActor({ card: args.card, deps: args.deps, deferProcessorStart });
-    const snapshot = args.deps.snapshots.read(cardActorId(args.card.id));
-    if (snapshot) {
-      actor.notifications = Array.isArray(snapshot.context.notifications) ? snapshot.context.notifications as CardNotification[] : [];
-      actor.notificationDeliveryMarkers = Array.isArray(snapshot.context.notificationDeliveryMarkers) ? snapshot.context.notificationDeliveryMarkers as CardNotificationDeliveryMarker[] : [];
-      actor.cancelReason = snapshot.context.cancelReason && typeof snapshot.context.cancelReason === 'object' ? snapshot.context.cancelReason as CardCancelReason : null;
-      actor.activeReconstruction = snapshot.context.active_reconstruction && typeof snapshot.context.active_reconstruction === 'object' ? snapshot.context.active_reconstruction as CardActiveReconstructionRecord : null;
-      actor.#activationId = typeof snapshot.context.activationId === 'string' ? snapshot.context.activationId : null;
-    }
-    const hadStaleActiveState = args.card.status !== 'running' && (actor.activeReconstruction !== null || actor.#activationId !== null);
-    if (args.card.status === 'running' && !actor.activeReconstruction) {
-      throw new Error(`Card '${args.card.id}' is running without active reconstruction.`);
-    }
-    if (args.card.status === 'running') {
-      actor.#result = deferred<CardActivationOutcome>();
-      actor.#activationCaller = actor.activeReconstruction!.caller;
-      actor.#activationId ??= `card:${actor.cardId}:activation:recovered`;
-    } else {
-      actor.activeReconstruction = null;
-      actor.#activationId = null;
-    }
-    if (!(args.deferRunningRecovery && args.card.status === 'running')) actor.recover(cardActorLifecycleState(args.card.status));
-    if (hadStaleActiveState) actor.persist();
+    void args.deferRunningRecovery;
+    const actor = new CardActor({ card: args.card, deps: args.deps, deferProcessorStart: args.deferRunningRecovery });
+    actor.start();
     return actor;
-  }
-
-  recoverCurrentCardState(): void {
-    const card = this.requireCard();
-    if (card.status === 'running' && !this.activeReconstruction) throw new Error(`Card '${this.cardId}' is running without active reconstruction.`);
-    const hadStaleActiveState = card.status !== 'running' && (this.activeReconstruction !== null || this.#activationId !== null);
-    if (hadStaleActiveState) {
-      this.activeReconstruction = null;
-      this.#activationId = null;
-    }
-    this.recover(cardActorLifecycleState(card.status));
-    if (hadStaleActiveState) this.persist();
   }
 
   childCardActor(cardId: string): CardActor | null {
@@ -227,24 +181,106 @@ export class CardActor extends BaseActor {
       parentAdmit();
       if (this.requireCard().status !== 'running') return Promise.reject(new Error(`Parent planner did not admit child '${this.cardId}' as running.`));
     }
-    this.#activationCounter++;
-    this.#activationId = `card:${this.cardId}:activation:${this.#activationCounter}`;
+    this.#activationId = randomUUID();
     this.#activationCaller = caller;
     this.#result = deferred<CardActivationOutcome>();
-    this.activeReconstruction = {
-      schema_version: 1,
-      kind: 'card_activation',
-      card_id: this.cardId,
-      processor_actor_id: processorActorId(this.cardId),
-      caller,
-      started_at: new Date().toISOString(),
-    };
+    this.#terminalClaim = 'open';
+    this.#stopSettlementEventQueued = false;
+    this.claimLiveOwnership();
     if (caller.kind === 'parent') this.deps.currentness.enterChild(caller.cardId!, this.cardId);
     this.parkedSendEvent('activate');
     const pending = this.#result.promise;
     return caller.kind === 'parent'
       ? pending.finally(() => this.deps.currentness.resumeParent(this.cardId, caller.cardId!))
       : pending;
+  }
+
+  restartRunning(caller: CardActivationCaller): Promise<CardActivationOutcome> {
+    const pending = this.prepareRunning(caller);
+    this.startPreparedProcessor();
+    return pending;
+  }
+
+  prepareRunning(caller: CardActivationCaller): Promise<CardActivationOutcome> {
+    const card = this.requireCard();
+    if (card.status !== 'running' || this.state() !== 'parked' || this.#result) throw new Error(`Card '${this.cardId}' is not an unowned running restart leaf.`);
+    this.#activationId = randomUUID();
+    this.#activationCaller = caller;
+    this.#result = deferred<CardActivationOutcome>();
+    this.#terminalClaim = 'open';
+    this.#stopSettlementEventQueued = false;
+    this.claimLiveOwnership();
+    return this.#result.promise;
+  }
+
+  startPreparedProcessor(): void {
+    if (!this.#result || this.state() !== 'parked') throw new Error(`Card '${this.cardId}' has no prepared processor activation.`);
+    this.parkedSendEvent('activate');
+  }
+
+  installStructuralWait(child: CardActor, caller: CardActivationCaller): Promise<CardActivationOutcome> {
+    const card = this.requireCard();
+    if (card.status !== 'running' || this.state() !== 'parked' || this.#result) throw new Error(`Card '${this.cardId}' cannot enter structural wait.`);
+    if (child.requireCard().parent !== this.cardId) throw new Error(`Card '${child.cardId}' is not the immediate child of '${this.cardId}'.`);
+    this.#activationId = randomUUID();
+    this.#activationCaller = caller;
+    this.#result = deferred<CardActivationOutcome>();
+    this.#terminalClaim = 'open';
+    this.#stopSettlementEventQueued = false;
+    this.#structuralChildId = child.cardId;
+    this.claimLiveOwnership();
+    this.parkedSendEvent('wait');
+    void child.awaitSettlement().then(
+      () => {
+        if (this.#terminalClaim !== 'open' || this.#continuationSuppressed || this.deps.isRuntimeClosing()) return;
+        this.deps.currentness.resumeParent(child.cardId, this.cardId);
+        this.#structuralChildId = null;
+        this.parkedSendEvent('child_settled');
+      },
+      (error) => {
+        if (isRuntimeStoppedInterruption(error)) return;
+        this.#result?.reject(error);
+      },
+    );
+    return this.#result.promise;
+  }
+
+  get structuralChildId(): string | null { return this.#structuralChildId; }
+  get claim(): 'open' | 'claimed_result' | 'claimed_cancel' | 'claimed_stop' { return this.#terminalClaim; }
+
+  stop(operation: RuntimeStopOperation): Promise<void> {
+    this.#continuationSuppressed = true;
+    if (this.#terminalClaim === 'open') {
+      this.#terminalClaim = 'claimed_stop';
+      this.#activationAbort?.abort(operation.interruption);
+      this.processor?.disposeActivation(operation.interruption);
+      this.#stopSettlementEventQueued = true;
+      if (this.state() === 'structural_wait') this.parkedSendEvent('settled');
+      else if (this.state() === 'running') this.sendEvent('settled');
+    } else if (this.#terminalClaim === 'claimed_result') {
+      this.processor?.suppressContinuationAndPrepareJoin();
+    }
+    const processorJoin = this.processor?.joinActivation() ?? Promise.resolve([]);
+    return processorJoin.then(
+      () => {
+        if (this.#terminalClaim === 'claimed_stop' && this.#result) {
+          this.#result.reject(operation.interruption);
+          this.#result = null;
+        }
+      },
+      (error) => { operation.reportContainmentFailure(`card:${this.cardId}`, error); if (this.#terminalClaim === 'claimed_stop' && this.#result) { this.#result.reject(operation.interruption); this.#result = null; } },
+    );
+  }
+
+  closeForApplicationStop(): void {
+    this.#continuationSuppressed = true;
+    const reason = new Error('Application stopping.');
+    this.#activationAbort?.abort(reason);
+    this.processor?.disposeActivation(reason);
+    this.#result?.reject(reason);
+    this.#result = null;
+    if (this.state() === 'structural_wait') this.parkedSendEvent('settled');
+    else if (this.state() === 'running') this.sendEvent('settled');
   }
 
   awaitSettlement(caller?: { kind: 'parent'; cardId: string; sessionId?: string | null }): Promise<CardActivationOutcome> {
@@ -262,66 +298,62 @@ export class CardActor extends BaseActor {
   }
 
   enqueueNotification(notification: CardNotification): void {
-    this.notifications.push(notification);
-    this.persist();
+    this.store.enqueueNotification(this.cardId, notification);
   }
 
   markChanged(): void {
     const card = this.requireCard();
     if (card.status === 'cancelled') return;
     if (this.state() === 'running') {
-      this.persist();
       return;
     }
     this.writeStoreStatus('changed');
-    this.persist();
   }
 
   hasPendingNotifications(): boolean {
-    return this.notifications.length > 0;
+    return this.requireCard().pending_notifications.length > 0;
   }
 
   listPendingNotifications(): CardNotification[] {
-    return [...this.notifications];
+    return [...this.requireCard().pending_notifications];
   }
 
-  deliverNotificationsForInput(inputId: string): CardNotification[] {
-    if (this.notifications.length === 0) return [];
-    const deliveredAt = new Date().toISOString();
-    const notifications = this.notifications.splice(0);
-    this.notificationDeliveryMarkers.push(...notifications.map((notification) => ({
-      notification_id: notification.id,
-      delivered_to_input_id: inputId,
-      delivered_at: deliveredAt,
-    })));
-    compactNotificationDeliveryMarkers(this.notificationDeliveryMarkers);
-    this.persist();
-    return notifications;
+  hasLiveActivation(): boolean { return this.deps.liveLookup.get(this.cardId) === this && this.#result !== null; }
+
+  cancel(reason: CardCancelReason): Promise<CardCancellationResult> {
+    if (this.#cancelSettlement) return this.#cancelSettlement;
+    if (!this.hasLiveActivation()) return Promise.reject(new Error(`Card '${this.cardId}' has no live activation owner.`));
+    if (this.#terminalClaim === 'claimed_result') return this.#result!.promise.then(() => { throw new Error(`Card '${this.cardId}' result already claimed the activation.`); });
+    this.claimCancellation(reason);
+    const settlement = this.settleClaimedCancellation(reason);
+    this.#cancelSettlement = settlement;
+    return settlement;
   }
 
-  cancel(reason: CardCancelReason, mutationStore: CardActorStorePort = this.store): void {
-    const card = this.requireCard();
-    if (this.state() === 'cancelled' || card.status === 'done') return;
+  canClaimCancellation(): boolean { return this.hasLiveActivation() && this.#terminalClaim === 'open'; }
+
+  claimCancellation(reason: CardCancelReason): void {
+    if (!this.hasLiveActivation()) throw new Error(`Card '${this.cardId}' has no live activation owner.`);
+    if (this.#terminalClaim !== 'open') throw new Error(`Card '${this.cardId}' has invalid cancellation claim state '${this.#terminalClaim}'.`);
+    this.#terminalClaim = 'claimed_cancel';
     this.cancelReason = reason;
-    this.cancelDescendants(mutationStore);
-    this.activeReconstruction = null;
-    this.writeStoreStatus('cancelled', mutationStore);
-    this.processor.disposeActivation(new Error(reason.reason));
-    this.#activationAbort?.abort(new Error(reason.reason));
-    this.#result?.resolve({ status: 'cancelled', summary: reason.reason });
-    this.#result = null;
-    this.#activationCaller = null;
-    this.#activationId = null;
-    this.#activationAbort = null;
-    if (this.state() === 'running') this.sendEvent('cancel');
-    else this.parkedSendEvent('cancel');
-    this.persist();
+    const cancellationError = new Error(reason.reason);
+    this.#activationAbort?.abort(cancellationError);
+    this.processor?.disposeActivation(cancellationError);
+  }
+
+  settleClaimedCancellation(reason: CardCancelReason): Promise<CardCancellationResult> {
+    if (this.#cancelSettlement) return this.#cancelSettlement;
+    if (this.#terminalClaim !== 'claimed_cancel') return Promise.reject(new Error(`Card '${this.cardId}' cancellation was not claimed.`));
+    const settlement = this.finishCancellation(reason);
+    this.#cancelSettlement = settlement;
+    return settlement;
   }
 
   async join(options: { timeoutMs: number }): Promise<ActorJoinOutcome> {
     let awaitingLifecycle = false;
     const settlement = (async (): Promise<ActorJoinOutcome> => {
-      const processorOutcomes = await this.processor.joinActivation();
+      const processorOutcomes = await this.processor?.joinActivation() ?? [];
       awaitingLifecycle = true;
       await this.awaitLifecycleSettlement();
       awaitingLifecycle = false;
@@ -330,7 +362,7 @@ export class CardActor extends BaseActor {
     })();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<ActorJoinOutcome>((resolve) => {
-      timer = setTimeout(() => resolve({ status: 'timed_out', pendingTaskCount: awaitingLifecycle ? 1 : this.processor.pendingJoinTaskCount() }), options.timeoutMs);
+        timer = setTimeout(() => resolve({ status: 'timed_out', pendingTaskCount: awaitingLifecycle ? 1 : (this.processor?.pendingJoinTaskCount() ?? 0) }), options.timeoutMs);
     });
     try {
       return await Promise.race([settlement, timeout]);
@@ -339,15 +371,18 @@ export class CardActor extends BaseActor {
     }
   }
 
+  async joinForApplicationStop(): Promise<void> {
+    await this.processor?.joinActivation();
+    await this.awaitLifecycleSettlement();
+  }
+
   _on_enter__running(): void {
-    this.beginProcessorActivation('fresh');
+    this.beginProcessorActivation();
   }
 
-  _on_recover__running(): void {
-    this.beginProcessorActivation('recovery');
-  }
-
-  private beginProcessorActivation(mode: 'fresh' | 'recovery'): void {
+  private beginProcessorActivation(): void {
+    if (this.#continuationSuppressed || this.deps.isRuntimeClosing()) { this.sendEvent('settled'); return; }
+    if (!this.processor) this.processor = createProcessor(this.requireCard(), this);
     if (!this.#processorStarted) {
       this.processor.start?.();
       this.#processorStarted = true;
@@ -358,55 +393,52 @@ export class CardActor extends BaseActor {
     const caller = this.#activationCaller;
     if (!caller) throw new Error(`Card '${this.cardId}' entered running without an activation caller.`);
     const notificationDelivery: CardNotificationDeliveryPort = {
-      deliverNotificationsForInput: (inputId) => this.deliverNotificationsForInput(inputId),
+      selectNotifications: () => this.listPendingNotifications(),
+      removeNotifications: (ids) => { this.store.removeNotifications(this.cardId, [...ids]); },
     };
-    const input: CardActivationInput = { activationId: this.#activationId, card: this.requireCard(), caller, notificationDelivery };
+    const input: CardActivationInput = { activationId: this.#activationId, card: this.requireCard(), caller, notificationDelivery, claimResult: () => this.claimResult() };
     this.#activationAbort = new AbortController();
     this.runTask(async () => {
-      if (mode === 'recovery' && this.processor.recoverActive) return this.processor.recoverActive(this.processorActiveState(), input, this.#activationAbort!.signal);
-      return this.processor.activate(input, this.#activationAbort!.signal);
+      return this.processor!.activate(input, this.#activationAbort!.signal);
     }, {
       on_done: (outcome) => this.commitOutcome(outcome),
-      on_failed: (error) => this.commitOutcome({
-        status: 'failed',
-        summary: error.message,
-        result: { kind: 'failed', summary: error.message },
-      }),
+      on_failed: (error) => {
+        if (this.#terminalClaim === 'claimed_cancel') {
+          if (this.state() === 'running') this.sendEvent('claim_cancel');
+          return;
+        }
+        if (this.#continuationSuppressed) return;
+        if (isRuntimeStoppedInterruption(error)) { this.#result?.reject(error); return; }
+        this.commitOutcome({ status: 'failed', summary: error.message, result: { kind: 'failed', summary: error.message } });
+      },
     });
   }
 
-  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
-    this.persist();
-  }
-
-  snapshot() {
-    return {
-      actor_id: cardActorId(this.cardId),
-      actor_kind: 'card' as const,
-      state_value: this.state(),
-      context: {
-        projectRoot: this.projectRoot,
-        cardId: this.cardId,
-        notifications: this.notifications,
-        notificationDeliveryMarkers: this.notificationDeliveryMarkers,
-        lastOutcome: this.lastOutcome,
-        cancelReason: this.cancelReason,
-        active_reconstruction: this.activeReconstruction,
-        activationId: this.#activationId,
-      },
-      updated_at: new Date().toISOString(),
-    };
-  }
-
   private commitOutcome(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): void {
-    if (this.requireCard().status === 'cancelled') return;
+    if (this.#terminalClaim === 'claimed_cancel') {
+      if (this.state() === 'running') this.sendEvent('claim_cancel');
+      return;
+    }
+    if (this.#continuationSuppressed) {
+      if (this.#terminalClaim !== 'claimed_result' || !this.#result) return;
+      this.lastOutcome = outcome;
+      this.#activationId = null;
+      this.#activationAbort = null;
+      this.#result.resolve(outcome);
+      this.#result = null;
+      this.#activationCaller = null;
+      if (this.state() === 'running') this.sendEvent('settled');
+      return;
+    }
+    if (this.#terminalClaim === 'open') this.#terminalClaim = 'claimed_result';
+    if (this.#terminalClaim !== 'claimed_result') throw new Error(`Card '${this.cardId}' cannot commit from claim '${this.#terminalClaim}'.`);
     this.lastOutcome = outcome;
-    this.activeReconstruction = null;
     this.#activationId = null;
     this.#activationAbort = null;
     this.#result?.resolve(outcome);
     this.#result = null;
     this.#activationCaller = null;
+    if (!this.deps.isRuntimeClosing()) this.removeLiveOwnership();
     this.sendEvent('settled');
   }
 
@@ -423,18 +455,57 @@ export class CardActor extends BaseActor {
     mutationStore.setStatus(this.cardId, status);
   }
 
-  private cancelDescendants(mutationStore: CardActorStorePort): void {
-    this.cancelDescendantIds(this.cardId, mutationStore);
+  private claimResult(): void {
+    this.#activationAbort?.signal.throwIfAborted();
+    if (this.#terminalClaim !== 'open') throw new Error(`Card '${this.cardId}' activation is already ${this.#terminalClaim}.`);
+    this.#terminalClaim = 'claimed_result';
   }
 
-  private cancelDescendantIds(parentId: string, mutationStore: CardActorStorePort): void {
-    for (const childId of this.store.listChildren?.(parentId) ?? []) {
+  private claimLiveOwnership(): void {
+    if (this.deps.liveLookup.has(this.cardId)) throw new Error(`Card '${this.cardId}' already has a live activation owner.`);
+    this.deps.liveLookup.set(this.cardId, this);
+  }
+
+  private removeLiveOwnership(): void {
+    if (this.deps.liveLookup.get(this.cardId) !== this) throw new Error(`Card '${this.cardId}' live activation ownership changed unexpectedly.`);
+    this.deps.liveLookup.delete(this.cardId);
+  }
+
+  private async finishCancellation(reason: CardCancelReason): Promise<CardCancellationResult> {
+    const cancelledIds: string[] = [];
+    await this.cancelDescendantIds(this.cardId, reason, cancelledIds);
+    await this.processor?.joinActivation();
+    await Promise.resolve();
+    await this.awaitLifecycleSettlement();
+    this.writeStoreStatus('cancelled');
+    cancelledIds.push(this.cardId);
+    const result = this.#result;
+    if (!result) throw new Error(`Card '${this.cardId}' cancellation lost its activation settlement.`);
+    result.resolve({ status: 'cancelled', summary: reason.reason });
+    this.#result = null;
+    this.#activationCaller = null;
+    this.#activationId = null;
+    this.#activationAbort = null;
+    if (this.state() === 'running') this.sendEvent('cancel');
+    else this.parkedSendEvent('cancel');
+    if (!this.deps.isRuntimeClosing()) this.removeLiveOwnership();
+    return { card_id: this.cardId, status: 'cancelled', cancelled_card_ids: cancelledIds };
+  }
+
+  private async cancelDescendantIds(parentId: string, reason: CardCancelReason, cancelledIds: string[]): Promise<void> {
+    for (const childId of this.store.listChildren(parentId)) {
       const child = this.store.read(childId);
       if (!child || child.status === 'done' || child.status === 'cancelled') continue;
-      const live = this.deps.lookup.get(childId);
-      if (live) live.cancel(this.cancelReason ?? { reason: 'ancestor cancelled' }, mutationStore);
-      else mutationStore.setStatus(childId, 'cancelled');
-      this.cancelDescendantIds(childId, mutationStore);
+      const live = this.deps.liveLookup.get(childId);
+      if (live) {
+        const result = await live.cancel({ reason: `ancestor cancelled: ${reason.reason}`, cancelled_at: reason.cancelled_at });
+        cancelledIds.push(...result.cancelled_card_ids);
+        continue;
+      }
+      if (child.status === 'running') throw new Error(`Running card '${childId}' has no live activation owner.`);
+      await this.cancelDescendantIds(childId, reason, cancelledIds);
+      this.store.setStatus(childId, 'cancelled');
+      cancelledIds.push(childId);
     }
   }
 
@@ -449,14 +520,9 @@ export class CardActor extends BaseActor {
     return card;
   }
 
-  private processorActiveState(): string {
-    return this.requireCard().type === 'project' || this.requireCard().type === 'goal' ? 'planning' : 'executing';
-  }
-
-  private persist(): void {
-    this.deps.snapshots.save(this.snapshot());
-  }
 }
+
+export interface CardCancellationResult { readonly card_id: string; readonly status: 'cancelled'; readonly cancelled_card_ids: string[] }
 
 function cardLifecycleSummary(card: CardRecord): string {
   const summary = card.lifecycle?.result?.summary;
@@ -472,20 +538,18 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       cardId: card.id,
       store: owner.store,
       children: { get: (childId) => owner.childCardActor(childId) },
+      cancelCard: owner.deps.cancelCard,
       provider: owner.deps.provider,
       conversations: owner.deps.conversations,
       appLogs: owner.deps.appLogs,
-      snapshots: owner.deps.snapshots,
       gate: owner.deps.gate,
       notifyCard: owner.deps.notifyCard,
       mcpManagerProvider: owner.deps.mcpManagerProvider,
       compactor: owner.deps.compactor,
       compactionConfig: owner.deps.compactionConfig,
       summarizerProvider: owner.deps.summarizerProvider,
-      bufferSizeEstimator: owner.deps.bufferSizeEstimator,
       promptTemplates: owner.deps.promptTemplates,
       conversationPublisher: owner.deps.conversationPublisher,
-      persistenceHealth: owner.deps.persistenceHealth,
     });
   }
   return new TerminalCardProcessorActor({
@@ -494,18 +558,15 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
     provider: owner.deps.provider,
     conversations: owner.deps.conversations,
     appLogs: owner.deps.appLogs,
-    snapshots: owner.deps.snapshots,
     processRunner: owner.deps.processRunner,
     gate: owner.deps.gate,
-    store: owner.store.records(),
+    store: owner.store,
     mcpManagerProvider: owner.deps.mcpManagerProvider,
     compactor: owner.deps.compactor,
     compactionConfig: owner.deps.compactionConfig,
     summarizerProvider: owner.deps.summarizerProvider,
-    bufferSizeEstimator: owner.deps.bufferSizeEstimator,
     promptTemplates: owner.deps.promptTemplates,
     conversationPublisher: owner.deps.conversationPublisher,
-    persistenceHealth: owner.deps.persistenceHealth,
   });
 }
 
@@ -531,8 +592,4 @@ function cardActorLifecycleState(status: CardStatus): 'parked' | 'running' | 'ca
   if (status === 'running' || status === 'cancelled') return status;
   return 'parked';
 }
-
-function compactNotificationDeliveryMarkers(markers: CardNotificationDeliveryMarker[]): void {
-  if (markers.length <= MAX_NOTIFICATION_DELIVERY_MARKERS) return;
-  markers.splice(0, markers.length - MAX_NOTIFICATION_DELIVERY_MARKERS);
-}
+import { randomUUID } from 'node:crypto';

@@ -12,7 +12,7 @@ function fail(message: string): Error {
 function ctx(): ResolveScopedPathContext {
   return {
     projectRoot: '/tmp/saivage-workspace-resolver-test',
-    agent: { cardId: 'card-1', agentRole: 'planner' },
+    agent: { cardId: '11111111-1111-4111-8111-111111111111', agentRole: 'planner' },
     fail,
   };
 }
@@ -30,7 +30,7 @@ async function expectWorkspaceToolInputError(action: () => unknown): Promise<voi
 
 describe('scoped path record resolvers', () => {
   it('classifies unsupported write record slots through the fail callback', async () => {
-    await expectWorkspaceToolInputError(() => resolveRecordWriteTarget(ctx(), 'record:///bogus.md?card=card-1&v=next'));
+    await expectWorkspaceToolInputError(() => resolveRecordWriteTarget(ctx(), 'record:///bogus.md?card=11111111-1111-4111-8111-111111111111&v=next'));
   });
 
   it('classifies malformed write record URLs through the fail callback', async () => {
@@ -38,7 +38,7 @@ describe('scoped path record resolvers', () => {
   });
 
   it('classifies unsupported read record slots through the fail callback', async () => {
-    await expectWorkspaceToolInputError(() => resolveRecordReadTarget(ctx(), 'record:///bogus.md?card=card-1&v=latest'));
+    await expectWorkspaceToolInputError(() => resolveRecordReadTarget(ctx(), 'record:///bogus.md?card=11111111-1111-4111-8111-111111111111&v=latest'));
   });
 
   it('classifies malformed read record URLs through the fail callback', async () => {

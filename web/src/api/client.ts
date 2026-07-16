@@ -206,6 +206,12 @@ export function getRuntimeState(signal?: AbortSignal): Promise<RuntimeStateRespo
   return operatorRequest('runtime.getState', { signal });
 }
 
+export function getRuntimeStatus(signal?: AbortSignal): Promise<OperatorApiSuccess<'runtime.status'>> { return operatorRequest('runtime.status', { signal }); }
+export function pauseRuntime(): Promise<OperatorApiSuccess<'runtime.pause'>> { return operatorRequest('runtime.pause', { body: {} }); }
+export function resumeRuntime(): Promise<OperatorApiSuccess<'runtime.resume'>> { return operatorRequest('runtime.resume', { body: {} }); }
+export function stopProject(): Promise<OperatorApiSuccess<'stop_project'>> { return operatorRequest('stop_project', { body: {} }); }
+export function restartServer(): Promise<OperatorApiSuccess<'restart_server'>> { return operatorRequest('restart_server', { body: { confirmation: 'RESTART SERVER' } }); }
+
 
 
 

@@ -163,7 +163,6 @@ export interface CardLifecycleSummary {
   startedAt: string | null;
   completedAt: string | null;
   durationMs: number | null;
-  retries: number;
   childCounts: Record<CardStatus, number>;
   hasActiveChildren: boolean;
   hasBlockingChildren: boolean;
@@ -243,7 +242,6 @@ export function deriveCardLifecycleSummary(card: CardRecord, children: CardRecor
     startedAt: card.started_at ?? null,
     completedAt: card.lifecycle?.completed_at ?? null,
     durationMs: null,
-    retries: card.retries,
     childCounts,
     hasActiveChildren: children.some((child) => child.status === 'running'),
     hasBlockingChildren: children.some((child) => child.status === 'blocked' || child.status === 'failed'),

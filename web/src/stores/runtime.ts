@@ -18,6 +18,11 @@ import type {
 } from '../api/types';
 import {
   getRuntimeState,
+  getRuntimeStatus,
+  pauseRuntime,
+  resumeRuntime,
+  stopProject as stopProjectRequest,
+  restartServer as restartServerRequest,
   ApiError,
 } from '../api/client';
 import { useSyncStore } from './sync';
@@ -57,6 +62,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
   const unauthorized = ref(false);
   const lastActionableError = ref<ActionableErrorEnvelope | null>(null);
+  const restartServerAvailable = ref(false);
   let requestEpoch = 0;
   let requestController: AbortController | null = null;
 
@@ -135,7 +141,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     if (initial) error.value = null; else refreshError.value = null;
     unauthorized.value = false;
     try {
-      const response = await getRuntimeState(requestController.signal);
+      const [response, liveStatus] = await Promise.all([getRuntimeState(requestController.signal), getRuntimeStatus(requestController.signal)]);
       if (epoch !== requestEpoch) return;
       runtime.value = response.runtime;
       projectRoot.value = response.projectRoot;
@@ -143,6 +149,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       applyRuntimeSummaryFromState(response.runtime);
       cardIndex.value = response.cardIndex;
       serverAvailability.value = response.serverAvailability ?? null;
+      restartServerAvailable.value = liveStatus.restart_server_available;
       markRestSync();
       error.value = null;
       refreshError.value = null;
@@ -166,6 +173,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
   }
   const refetch = fetchState;
 
+  async function pause(): Promise<void> { await pauseRuntime(); await fetchState(); }
+  async function resume(): Promise<void> { await resumeRuntime(); await fetchState(); }
+  async function stopProject(): Promise<void> { await stopProjectRequest(); await fetchState(); }
+  async function restartServer(): Promise<void> { if (!restartServerAvailable.value) throw new Error('restart unavailable: operator authentication disabled'); await restartServerRequest(); }
+
   return {
     runtime: readonly(runtime),
     projectRoot: readonly(projectRoot),
@@ -173,6 +185,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     cardIndex: readonly(cardIndex),
     serverAvailability: readonly(serverAvailability),
     lastActionableError: readonly(lastActionableError),
+    restartServerAvailable: readonly(restartServerAvailable),
     loading: readonly(loading),
     refreshing: readonly(refreshing),
     refreshError: readonly(refreshError),
@@ -201,5 +214,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
     fetchState,
     markWsSync,
     refetch,
+    pause,
+    resume,
+    stopProject,
+    restartServer,
   };
 });

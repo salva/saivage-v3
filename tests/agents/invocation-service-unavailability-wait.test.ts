@@ -9,7 +9,6 @@ import { ProviderTurnFailure, type LlmCallFn } from '../../src/agents/llm-contra
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { testAppLogs } from '../helpers/app-logs.js';
-import { createTestAuthProfileRepository } from '../helpers/mutation-composition.js';
 
 const candidate: Candidate = { provider: 'p', account: null, model: 'm' };
 const alternate: Candidate = { provider: 'alt', account: null, model: 'm-alt' };
@@ -40,7 +39,6 @@ function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvai
     registry: {} as never,
     router: { resolve: async () => chain, getLastCapabilitySkips: () => [] } as never,
     candidateAvailability: args.availability ?? new MemoryCandidateAvailability(),
-    authProfiles: createTestAuthProfileRepository(projectRoot).repository,
     llmCallFn: args.llmCallFn ?? (async () => ({ result: { kind: 'message', content: 'ok' }, provider_exchanges: [] })),
   });
 }
@@ -50,6 +48,22 @@ afterEach(() => {
 });
 
 describe('InvocationService temporary LLM unavailability wait', () => {
+  it('discards a late successful availability update after its owner closes', async () => {
+    const availability = new MemoryCandidateAvailability();
+    const controller = new AbortController();
+    let release!: (value: Awaited<ReturnType<LlmCallFn>>) => void;
+    const invocation = service({
+      availability,
+      llmCallFn: () => new Promise((resolve) => { release = resolve; }),
+    });
+    const pending = invocation.invokeWithRecovery(request([candidate], controller.signal));
+    await Promise.resolve();
+    release({ result: { kind: 'message', content: 'late' }, provider_exchanges: [] });
+    controller.abort(new Error('owner stopped'));
+    await expect(pending).rejects.toThrow('owner stopped');
+    expect(availability.getEntry(candidate)).toBeUndefined();
+  });
+
   it('waits and retries after a temporary failed candidate cools down', async () => {
     jest.useFakeTimers({ now: 0 });
     let calls = 0;

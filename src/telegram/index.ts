@@ -6,7 +6,6 @@
 export { TelegramBot, convertMarkdownToHtml, splitLongMessage } from './bot.js';
 export type { TelegramConfig } from './bot.js';
 export {
-  TelegramNotificationDeliveryAdapter,
   buildTelegramStartupDiagnosticSummary,
   evaluateTelegramRecipientReadiness,
   normalizeTelegramNotificationChatIds,

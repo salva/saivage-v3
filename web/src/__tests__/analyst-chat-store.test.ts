@@ -113,7 +113,7 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockClear();
 
     store.ingestWsEvent({ event: 'card_history_appended', sessionId: 'analyst:global' });
-    store.ingestWsEvent({ event: 'control_action_recorded', sessionId: 'analyst:global', actor: 'analyst', surface: 'web-chat', action: 'approved', target_id: 'card-1' });
+    store.ingestWsEvent({ event: 'control_action_recorded', sessionId: 'analyst:global', actor: 'analyst', surface: 'web-chat', action: 'approved', target_id: '11111111-1111-4111-8111-111111111111' });
 
     expect(apiMocks.getChatEntries).not.toHaveBeenCalled();
   });

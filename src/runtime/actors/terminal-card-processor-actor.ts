@@ -1,6 +1,6 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { CardActivationInput, CardActivationOutcome, CardProcessorActor } from './card-actor.js';
-import type { CardRecordStore } from '../../cards/card-store.js';
+import { cardActivationOutcomePatch, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from './card-actor.js';
+import type { CardService } from '../../cards/card-service.js';
 import { executorActorId } from './ids.js';
 import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
@@ -14,17 +14,16 @@ import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
-import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
-import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
+import { appendActivationMarker, appendRecoveryNotice, appendUserContextMessage, conversationMessagesForModel } from './conversation-session.js';
+import { stabilizeRoleSession } from './conversation-recovery.js';
 import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
-import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
+import { validateCompactionStaticCapacity, type CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
-import type { ConversationStore } from '../../persistence/conversation-store.js';
-import type { AppLogStore } from '../../persistence/app-log.js';
-import type { ApplicationPersistenceHealth } from '../../application/persistence-health.js';
-import type { ActorSnapshotStore } from './snapshots.js';
+import type { ConversationFileContext } from '../../persistence/conversation-file.js';
+import type { AppLogContext } from '../../persistence/app-log.js';
+import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' | 'blocked' }>;
 
@@ -38,22 +37,20 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     },
   };
 
-  readonly store: CardRecordStore;
+  readonly store: CardService;
   private activeProcessOwnerId: string | null = null;
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly processRunner: ProcessRunner;
   private readonly promptTemplates: PromptTemplateRegistry;
-  private readonly appLogs: AppLogStore;
-  private readonly persistenceHealth?: ApplicationPersistenceHealth;
+  private readonly appLogs: AppLogContext;
 
-  constructor(args: { projectRoot: string; cardId: string; snapshots: ActorSnapshotStore; provider: LLMProviderPort; conversations: ConversationStore; appLogs: AppLogStore; persistenceHealth?: ApplicationPersistenceHealth; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardRecordStore; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; bufferSizeEstimator?: BufferSizeEstimator; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; gate?: RuntimeGate; store: CardService; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.processRunner = args.processRunner;
     this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
     this.promptTemplates = args.promptTemplates;
     this.appLogs = args.appLogs;
-    this.persistenceHealth = args.persistenceHealth;
   }
 
   _on_enter__executing(): void {
@@ -101,12 +98,26 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
           if (invalidTerminal) {
             return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }, signal, (inputId) => this.notificationContext(input, inputId)));
           }
-          const missingRecord = this.closeRequiredStatusRecord(input.card.version_seq);
+          const missingRecord = this.validateRequiredStatusRecord();
           if (missingRecord) {
             return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `${missingRecord} Create record:///status.md?v=next, then call emit_result again.` }, signal, (inputId) => this.notificationContext(input, inputId)));
           }
+          const currentCard = this.store.read(this.cardId);
+          if (!currentCard) throw new Error(`Executor card '${this.cardId}' disappeared before terminal acceptance.`);
+          const pending = [...currentCard.pending_notifications];
+          if (pending.length > 0) {
+            return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, {
+              success: false,
+              error: 'emit_result was not accepted because new operator context is pending. Consider the appended notifications, update the required record, and call emit_result again.',
+              data: { reason: 'pending_notifications' },
+            }, signal, (inputId) => this.notificationContext(input, inputId)));
+          }
+          input.claimResult();
+          const closeError = this.closeRequiredStatusRecord(currentCard.version_seq);
+          if (closeError) return control.done({ status: 'failed', summary: closeError, result: executorFailure(closeError) });
           const projected = projectTerminalExecutorOutcome(terminalOutcome, contract);
-          this.markTerminalProjected(terminalOutcome, executorActorId(this.cardId));
+          llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
+          this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(projected, new Date().toISOString()));
           return control.done(projected);
         },
         onNonTerminalTool: async (toolOutcome) => {
@@ -119,43 +130,54 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       cleanupStatus = result.value.status;
       return result.value;
     } finally {
-      await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
-      this.activeProcessOwnerId = null;
+      try {
+        await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
+      } catch (error) {
+        if (signal.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
+        throw error;
+      } finally {
+        this.activeProcessOwnerId = null;
+      }
     }
   }
 
   private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createExecutorContract()): LlmInvocationInput {
-    const inputId = this.nextInvocationInputId('terminal');
+    const inputId = this.freshSourceInputId();
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
     const sessionId = executorActorId(this.cardId);
-    const loadedRows = readActiveVersionMessages(this.projectRoot, sessionId);
+    const systemPrompt = this.promptTemplates.render(input.card.type, 'executor', {
+      cardId: input.card.id, cardTitle: input.card.title, cardBrief: cardBriefForPrompt(this.store!, input.card), contractDescription: contract.describe(),
+      toolList: formatPromptToolList(surfaceToolDefinitions(surface)), cardType: input.card.type,
+    });
+    const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
+    const budget = this.compactionConfig?.enabled ? validateCompactionStaticCapacity(this.compactionConfig, systemPrompt, tools) : null;
+    const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
+    const loadedRows = stabilized.messages;
     const loaded = conversationMessagesForModel(loadedRows);
     this.conversationPublisher?.entryAppended(appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId }));
-    const notifications = this.notificationContext(input, inputId).map((message, index) => {
+    const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
+    if (recovery) this.conversationPublisher?.entryAppended(recovery);
+    const selected = input.notificationDelivery.selectNotifications();
+    const notifications = selected.map((notification, index) => {
+      const message = { role: 'user' as const, content: notification.content };
       const result = appendUserContextMessage(this.conversations, sessionId, inputId, 'notification', index, message);
       this.conversationPublisher?.entryAppended(result);
       return result;
     });
+    if (selected.length > 0) input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id));
     return {
       inputId,
       agentId: sessionId,
       role: 'executor',
       sessionId,
-      systemPrompt: this.promptTemplates.render(input.card.type, 'executor', {
-        cardId: input.card.id,
-        cardTitle: input.card.title,
-        cardBrief: cardBriefForPrompt(this.store!, input.card),
-        contractDescription: contract.describe(),
-        toolList: formatPromptToolList(surfaceToolDefinitions(surface)),
-        cardType: input.card.type,
-      }),
-      genericContextMessages: [...loaded, ...notifications],
-      contextMessages: [...loaded, ...notifications],
-      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, ...notifications]),
-      tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
+      systemPrompt,
+      genericContextMessages: [...loaded, ...(recovery ? [recovery] : []), ...notifications],
+      contextMessages: [...loaded, ...(recovery ? [recovery] : []), ...notifications],
+      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, ...(recovery ? [recovery] : []), ...notifications]),
+      tools,
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
-      modelParams: {},
-      capabilityRequest: { requiresTools: true },
+      modelParams: budget ? { maxTokens: budget.requestedCompletionTokens } : {},
+      capabilityRequest: { requiresTools: true, ...(budget ? { requestedCompletionTokens: budget.requestedCompletionTokens } : {}) },
       episodeContext: { cardId: input.card.id, caller: input.caller },
     };
   }
@@ -166,7 +188,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private executorInvocationSurface(processOwnerId: string, processScope: ManagedProcessScope): InvocationSurface {
-    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, store: this.store, processRunner: this.processRunner, processScope, mcpManagerProvider: this.mcpManagerProvider, appLogs: this.appLogs, persistenceHealth: this.persistenceHealth });
+    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, store: this.store, processRunner: this.processRunner, processScope, mcpManagerProvider: this.mcpManagerProvider, appLogs: this.appLogs });
   }
 
   private validateExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): string | null {
@@ -179,22 +201,8 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, sessionId: string): void {
-    const result = appendTerminalProjectedToolResult(this.conversations, {
-      sessionId,
-      sourceInputId: outcome.inputId,
-      toolCallId: outcome.toolCallId,
-      toolName: outcome.toolName,
-    });
-    this.conversationPublisher?.entryAppended(result);
-  }
-
   protected get processorLabel(): string {
     return 'Terminal processor';
-  }
-
-  protected get processorKind(): 'terminal' {
-    return 'terminal';
   }
 
   protected activationFailureOutcome(error: string): TerminalProcessorOutcome {
@@ -212,8 +220,24 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
+  private validateRequiredStatusRecord(): string | null {
+    try {
+      const open = this.store.readRecord(this.cardId, 'status.md', 'open');
+      return open.artifact.content.trim().length > 0 ? null : `Required record '${open.recordUrl}' was not created or is empty.`;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(`'${this.cardId}/status/open'`)) return `Required record 'record:///status.md?card=${this.cardId}&v=next' was not created.`;
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
   private discardOpenRecord(filename: string, reason: string): void {
-    try { const open = this.store!.readRecord(this.cardId, filename, 'open'); this.store!.discardRecord(this.cardId, filename, open.version, reason); } catch { /* no open record */ }
+    try {
+      const open = this.store.readRecord(this.cardId, filename, 'open');
+      this.store.discardRecord(this.cardId, filename, open.version, reason);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(`'${this.cardId}/${filename.slice(0, -3)}/open'`)) return;
+      throw error;
+    }
   }
 }
 

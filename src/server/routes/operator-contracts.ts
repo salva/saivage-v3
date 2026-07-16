@@ -8,7 +8,7 @@ import { buildConfigOperatorContractHandlers } from './operator-config-handlers.
 import { buildEventsOperatorContractHandlers } from './operator-events-handlers.js';
 import { buildFilesDebugOperatorContractHandlers } from './operator-files-debug-handlers.js';
 import type {
-  OperatorCardStoreContext,
+  OperatorCardServiceContext,
   OperatorAvailabilityContext,
   OperatorConfigContext,
   OperatorContractHandlerMap,
@@ -24,7 +24,7 @@ interface OperatorContractRouteRegistrationOptions extends
   OperatorProjectContext,
   OperatorAvailabilityContext,
   OperatorConfigContext,
-  OperatorCardStoreContext,
+  OperatorCardServiceContext,
   OperatorRuntimeProviderContext {
   fastify: FastifyInstance;
   authPolicy: AuthPolicy;
@@ -36,11 +36,11 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
   const runtime = new ContractRuntime({ authPolicy: options.authPolicy });
   const handlers: OperatorContractHandlerMap = {
     'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),
-    ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider }),
+    ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider, restartPort: options.restartPort, restartServerAvailable: options.authPolicy.authEnabled }),
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildAgentOperatorContractHandlers({ projectRoot, cardStore: options.cardStore }),
     ...buildChatOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, restartPort: options.restartPort, saivageConfig: options.saivageConfig }),
-    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardStoreProvider: () => options.cardStore, runtimeApplication: options.runtimeApplication }),
+    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider: () => options.cardStore, runtimeApplication: options.runtimeApplication }),
     ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication?.processRunner }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
     ...buildConfigOperatorContractHandlers({

@@ -3,7 +3,7 @@ import type { LoggedEvent, EventKind } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { loggedEventSchema } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
-import { readAppLogEntries, type AppLogStore } from '../persistence/app-log.js';
+import { appendAppLogEntry, readAppLogEntries, type AppLogContext } from '../persistence/app-log.js';
 import { appLogFile } from '../persistence/layout.js';
 
 // ── Constants ─────────────────────────────────────────────────
@@ -58,18 +58,16 @@ function getSessionId(e: LoggedEvent): string | undefined {
   return e.session_id ?? undefined;
 }
 
-// ── EventLogger ──────────────────────────────────────────────
+// ── Event log producer ───────────────────────────────────────
 
-export class EventLogger {
-  private projectRoot: string;
-  private logPath: string;
-  private readonly eventBus: EventBus;
+export interface EventLog {
+  appendEvent(event: AppendEventInput): LoggedEvent;
+  getEvents(filter?: EventFilter): LoggedEvent[];
+  getLogPath(): string;
+}
 
-  constructor(projectRoot: string, private readonly appLogs: AppLogStore, eventBus = new EventBus()) {
-    this.projectRoot = projectRoot;
-    this.logPath = appLogFile(projectRoot);
-    this.eventBus = eventBus;
-  }
+export function createEventLog(projectRoot: string, appLogs: AppLogContext, eventBus = new EventBus()): EventLog {
+  return {
 
   /**
    * Append an event to the log. The event gets an auto-generated id and
@@ -87,10 +85,10 @@ export class EventLogger {
       throw new Error(`LoggedEvent validation failed for kind '${event.kind}': ${parsed.error.message}`);
     }
 
-    this.appLogs.append({ id: parsed.data.id, timestamp: parsed.data.timestamp, type: 'event', data: parsed.data });
-    this.eventBus.emit('event_log_record_appended', { record: parsed.data as unknown as Record<string, unknown> });
+    appendAppLogEntry(appLogs.projectRoot, { id: parsed.data.id, timestamp: parsed.data.timestamp, type: 'event', data: parsed.data }, appLogs.changes);
+    eventBus.emit('event_log_record_appended', { record: parsed.data as unknown as Record<string, unknown> });
     return parsed.data;
-  }
+  },
 
   /**
    * Get events, with optional filtering.
@@ -104,7 +102,7 @@ export class EventLogger {
    * Events are returned in file order (chronological, oldest first).
    */
   getEvents(filter?: EventFilter): LoggedEvent[] {
-    let events = readAppLogEntries(this.projectRoot, 'event').map((entry) => entry.data);
+    let events = readAppLogEntries(projectRoot, 'event').map((entry) => entry.data);
 
     // Step 1: Apply content filters
     if (filter) {
@@ -140,12 +138,11 @@ export class EventLogger {
     }
 
     return events;
-  }
+  },
 
   /**
    * Get the path to the events file.
    */
-  getLogPath(): string {
-    return this.logPath;
-  }
+  getLogPath(): string { return appLogFile(projectRoot); },
+  };
 }

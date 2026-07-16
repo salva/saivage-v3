@@ -40,7 +40,7 @@ describe('EventRegistry', () => {
     expect(() => payloadSchemaByKind.card_history_appended.parse({
       entry_id: '11111111-1111-4111-8111-111111111111',
       entry_kind: 'update',
-      card_id: 'card-1',
+      card_id: '11111111-1111-4111-8111-111111111111',
       version_seq: 1,
       changed_fields: [],
       changed_at: '2026-01-01T00:00:00.000Z',

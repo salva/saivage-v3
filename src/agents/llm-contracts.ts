@@ -4,6 +4,13 @@ import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js'
 import type { ProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 
+export interface BuiltCandidateRequest {
+  body: Record<string, unknown>;
+  serializedBody: string;
+  estimatedWireInputTokens: number;
+  requestHash: string;
+}
+
 export interface ToolFunctionDefinition {
   name: string;
   description: string;
@@ -42,6 +49,7 @@ interface LlmCompleteOptionsBase extends LlmModelParams {
   contract_id: string;
   contractName: string;
   terminalToolOffered: readonly string[];
+  builtCandidateRequest?: BuiltCandidateRequest;
 }
 
 export interface LlmCompleteOptionsTools extends LlmCompleteOptionsBase {

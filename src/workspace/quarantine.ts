@@ -7,7 +7,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { readAppLogEntries, type AppLogStore } from '../persistence/app-log.js';
+import { appendAppLogEntry, readAppLogEntries, type AppLogContext } from '../persistence/app-log.js';
 import { contentReviewSchema } from '../schemas/index.js';
 import type { ContentReview, RiskLevel, SourceKind } from '../schemas/index.js';
 
@@ -27,7 +27,7 @@ export function quarantineContent(params: {
   content: string;
   reason: string;
   risk: RiskLevel;
-  appLogs: AppLogStore;
+  appLogs: AppLogContext;
 }): BlockedContentReviewResult {
   const { projectRoot, sourceKind, sourceRef, reason, risk } = params;
   const now = new Date().toISOString();
@@ -42,7 +42,7 @@ export function quarantineContent(params: {
   };
 
   const parsedReview = contentReviewSchema.parse(review);
-  params.appLogs.append({ id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview });
+  appendAppLogEntry(params.appLogs.projectRoot, { id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview }, params.appLogs.changes);
 
   return {
     review: parsedReview,
@@ -51,7 +51,7 @@ export function quarantineContent(params: {
 }
 
 export function recordContentPass(
-  appLogs: AppLogStore,
+  appLogs: AppLogContext,
   sourceKind: SourceKind,
   sourceRef: string,
   summary: string,
@@ -69,7 +69,7 @@ export function recordContentPass(
   };
 
   const parsedReview = contentReviewSchema.parse(review);
-  appLogs.append({ id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview });
+  appendAppLogEntry(appLogs.projectRoot, { id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview }, appLogs.changes);
   return parsedReview;
 }
 

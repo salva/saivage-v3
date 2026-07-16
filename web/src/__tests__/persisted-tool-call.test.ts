@@ -11,11 +11,11 @@ describe('persisted tool-call parser', () => {
           {
             id: 'call-1',
             type: 'function',
-            function: { name: 'get_card', arguments: JSON.stringify({ id: 'card-1' }) },
+            function: { name: 'get_card', arguments: JSON.stringify({ id: '11111111-1111-4111-8111-111111111111' }) },
           },
         ],
       }),
-    ).toEqual({ id: 'call-1', name: 'get_card', args: { id: 'card-1' } });
+    ).toEqual({ id: 'call-1', name: 'get_card', args: { id: '11111111-1111-4111-8111-111111111111' } });
   });
 
   it('rejects legacy wrapper rows and non-object arguments', () => {

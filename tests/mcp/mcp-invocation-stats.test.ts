@@ -5,7 +5,7 @@ describe('McpInvocationStatsRecorder', () => {
   it('records success/error counts and emits event logger entries', () => {
     const recorder = new McpInvocationStatsRecorder();
     const appendEvent = jest.fn();
-    recorder.setEventLogger({ appendEvent } as any);
+    recorder.setEventLog({ appendEvent } as any);
 
     recorder.record('srv', 'tool', true);
     recorder.record('srv', 'tool', false);

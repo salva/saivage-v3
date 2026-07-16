@@ -28,7 +28,7 @@ describe('control action audit persistence', () => {
       surface: 'web-chat',
       action: 'card.update',
       target_kind: 'card',
-      target_id: 'goal-1',
+      target_id: '11111111-1111-4111-8111-111111111111',
       params_summary: 'apiKey="secret-123" token=hunter2 nested password=abc123',
       outcome: 'error',
       outcome_summary: 'request rejected because secret=bad-value leaked',
@@ -53,7 +53,7 @@ describe('control action audit persistence', () => {
     expect(controlActionAuditEntrySchema.parse(reloaded[0])).toEqual(reloaded[0]);
   });
 
-  it('ignores malformed jsonl entries while preserving valid latest entries across reopen', () => {
+  it('fails on a complete malformed JSONL entry without discarding it', () => {
     recordControlAction(testAppLogs(projectRoot), {
       id: 'audit-1',
       created_at: '2026-01-01T00:00:00.000Z',

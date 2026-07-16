@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test';
 import { parseOperatorResponse } from '../../src/contracts/operator-api.js';
-import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, smokeCardId } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const syntheticToken = 'synthetic-playwright-token';
 const now = '2026-05-19T12:00:00.000Z';
 
 const card = {
-  id: 'card-smoke',
+  id: smokeCardId,
   type: 'code',
-  parent: 'project-smoke',
+  parent: 'project',
   depth: 1,
   position: 1,
   title: 'Synthetic dashboard smoke card',
@@ -25,13 +25,13 @@ const card = {
   updated_at: now,
   depends_on: [],
   related: [],
-  retries: 0,
+  pending_notifications: [],
   version_seq: 3,
 } as const;
 
 const baseChild = {
   type: 'code',
-  parent: 'card-smoke',
+  parent: smokeCardId,
   depth: 2,
   status: 'done',
   lifecycle: {
@@ -48,14 +48,14 @@ const baseChild = {
   updated_at: now,
   depends_on: [],
   related: [],
-  retries: 0,
+  pending_notifications: [],
   version_seq: 1,
   operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
 } as const;
 
 const children = Array.from({ length: 40 }, (_, index) => ({
   ...baseChild,
-  id: `card-smoke-child-${index + 1}`,
+  id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
   position: index + 1,
   title: `Synthetic child card ${index + 1} for hierarchy overflow`,
   display_path: `1.${index + 1}`,
@@ -70,7 +70,7 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
   await page.setViewportSize({ width: 1280, height: 720 });
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-  await page.route('**/api/cards/card-smoke', async (route) => {
+  await page.route(`**/api/cards/${smokeCardId}`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -81,7 +81,7 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
     });
   });
 
-  await page.goto('/cards/card-smoke');
+  await page.goto(`/cards/${smokeCardId}`);
   await page.evaluate((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
   await page.reload();
 

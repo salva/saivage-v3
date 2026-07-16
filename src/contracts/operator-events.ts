@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cardIdSchema } from '../schemas/index.js';
 import { RestartChatAcknowledgementSchema } from './operator-api-chats.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
@@ -67,7 +68,7 @@ export const AnalystActivityEventNames = [
 
 export const CardHistoryAppendedContentSchema = z.object({
   event: z.literal('card_history_appended'),
-  card_id: z.string().min(1),
+  card_id: cardIdSchema,
   version_seq: z.number().int(),
   changed_fields: z.array(z.string()),
   changed_at: z.string().min(1),

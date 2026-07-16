@@ -1,4 +1,4 @@
-import type { ProjectCardRecordReader } from '../persistence/project-store-repository.js';
+import { readCardArtifacts } from '../persistence/card-files.js';
 import type { CardHistoryEntry, CardRecord } from '../schemas/index.js';
 import { valuesEqual } from './value-equality.js';
 
@@ -9,7 +9,7 @@ export interface CardDiffEntry {
 }
 
 export interface CardHistoryReaderConfig {
-  persistenceReader: ProjectCardRecordReader;
+  projectRoot: string;
   read: (id: string) => CardRecord | null;
 }
 
@@ -22,13 +22,13 @@ export class CardHistoryReader {
 
   listCardHistory(id: string): CardHistoryEntry[] {
     if (!this.config.read(id)) return [];
-    const card = this.config.persistenceReader.cardArtifacts(id);
+    const card = readCardArtifacts(this.config.projectRoot, id);
     return card.artifacts.flatMap((artifact) => artifact.history ? [artifact.history] : []).reverse();
   }
 
   getCardAt(id: string, versionSeq: number): CardRecord {
     if (!this.config.read(id)) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
-    const artifact = this.config.persistenceReader.cardArtifacts(id).artifacts.find((candidate) => candidate.version === versionSeq);
+    const artifact = readCardArtifacts(this.config.projectRoot, id).artifacts.find((candidate) => candidate.version === versionSeq);
     if (!artifact) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
     return deepClone(artifact.card);
   }

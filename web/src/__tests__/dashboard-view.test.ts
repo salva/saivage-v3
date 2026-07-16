@@ -7,7 +7,7 @@ describe('DashboardView S06 read-only contract', () => {
     expect(source).toContain('Runtime Status');
   });
 
-  it('keeps refresh and navigation while removing runtime command controls and dashboard chat', () => {
+  it('keeps refresh/navigation and exposes only Stop project plus capability-gated confirmed restart', () => {
     expect(source).toContain('class="ui-refresh-button"');
     expect(source).toContain('@click="refreshRuntime"');
     expect(source).toContain('goToCard');
@@ -16,8 +16,10 @@ describe('DashboardView S06 read-only contract', () => {
     expect(source).not.toContain('sendChatMessage');
     expect(source).not.toContain('Analyst Chat');
     expect(source).not.toContain('class="chat-panel"');
-    expect(source).not.toMatch(/Start Project|Stop Project|startProject|stopProject/);
-    expect(source).not.toMatch(/runtime-command start-project|runtime-command stop-project/);
+    expect(source).toContain('Stop project');
+    expect(source).toContain('v-if="restartServerAvailable"');
+    expect(source).toContain("window.prompt('Type RESTART SERVER to confirm server restart:') !== 'RESTART SERVER'");
+    expect(source).toContain('restartServerAvailable');
     expect(source).not.toMatch(/pauseRuntime|resumeRuntime|freezeRuntime|resumeRuntimeFromFreeze/);
   });
 

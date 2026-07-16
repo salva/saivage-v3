@@ -4,7 +4,7 @@ import { applyCardFilters, buildTree, selectChildrenOf } from '../stores/cards';
 
 function card(overrides: Partial<CardRecord>): CardRecord {
   return {
-    id: overrides.id ?? 'card',
+    id: overrides.id ?? '11111111-1111-4111-8111-111111111111',
     type: 'code',
     parent: null,
     depth: 0,
@@ -20,7 +20,7 @@ function card(overrides: Partial<CardRecord>): CardRecord {
     version_seq: 1,
     depends_on: [],
     related: [],
-    retries: 0,
+    pending_notifications: [],
     ...overrides,
     lifecycle: (overrides.lifecycle ?? { status: overrides.status ?? 'running', result: null, error: null, completed_at: null }) as CardRecord['lifecycle'],
   } as CardRecord;
@@ -29,22 +29,22 @@ function card(overrides: Partial<CardRecord>): CardRecord {
 describe('card selectors', () => {
   it('filters cards without owning fetch state', () => {
     const cards = [
-      card({ id: 'low', title: 'Alpha', priority: 1, tags: ['ui'] }),
-      card({ id: 'high', title: 'Beta', priority: 9, tags: ['ui'] }),
-      card({ id: 'other', title: 'Gamma', priority: 10, tags: ['api'] }),
+      card({ id: '11111111-1111-4111-8111-111111111111', title: 'Alpha', priority: 1, tags: ['ui'] }),
+      card({ id: '22222222-2222-4222-8222-222222222222', title: 'Beta', priority: 9, tags: ['ui'] }),
+      card({ id: '33333333-3333-4333-8333-333333333333', title: 'Gamma', priority: 10, tags: ['api'] }),
     ];
 
-    expect(applyCardFilters(cards, { status: '', type: '', query: 'a' }).map((entry) => entry.id)).toEqual(['low', 'high', 'other']);
+    expect(applyCardFilters(cards, { status: '', type: '', query: 'a' }).map((entry) => entry.id)).toEqual(['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333']);
   });
 
   it('builds trees and ordered child projections from authoritative card records', () => {
     const cards = [
-      card({ id: 'root', type: 'project', position: 0 }),
-      card({ id: 'child-b', parent: 'root', position: 2 }),
-      card({ id: 'child-a', parent: 'root', position: 1 }),
+      card({ id: 'project', type: 'project', position: 0 }),
+      card({ id: '22222222-2222-4222-8222-222222222222', parent: 'project', position: 2 }),
+      card({ id: '11111111-1111-4111-8111-111111111111', parent: 'project', position: 1 }),
     ];
 
-    expect((buildTree(cards)[0].children ?? []).map((entry) => entry.id)).toEqual(['child-b', 'child-a']);
-    expect(selectChildrenOf(cards, 'root').map((entry) => entry.id)).toEqual(['child-a', 'child-b']);
+    expect((buildTree(cards)[0].children ?? []).map((entry) => entry.id)).toEqual(['22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111']);
+    expect(selectChildrenOf(cards, 'project').map((entry) => entry.id)).toEqual(['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']);
   });
 });

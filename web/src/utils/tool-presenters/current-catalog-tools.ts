@@ -8,6 +8,7 @@ for (const name of [
   'reconfigure',
   'reorder_child',
   'restart_server',
+  'stop_project',
   'show_config',
   'start_project',
 ] as const) {
