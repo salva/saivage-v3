@@ -330,16 +330,21 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });
 
-  it('installs every chain owner, activates only the deepest role, and stops without card mutation', async () => {
+  it('replaces every running-chain owner on Stop then Run while reusing only the stable executor session', async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-lifecycle-'));
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({
-      type: 'code', parent: 'project', depth: 1, title: 'deepest', brief: 'execute', status: 'backlog', tags: [], priority: 0,
+    const goal = cards.create({
+      type: 'goal', parent: 'project', depth: 1, title: 'goal', brief: 'plan', status: 'backlog', tags: [], priority: 0,
+      urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+    });
+    const terminal = cards.create({
+      type: 'code', parent: goal.id, depth: 2, title: 'deepest', brief: 'execute', status: 'backlog', tags: [], priority: 0,
       urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
     });
     cards.setStatus('project', 'running');
-    cards.setStatus(child.id, 'running');
+    cards.setStatus(goal.id, 'running');
+    cards.setStatus(terminal.id, 'running');
     const invocations: LlmInvocationInput[] = [];
     const provider = {
       completeTurn: jest.fn((input: LlmInvocationInput, signal: AbortSignal) => {
@@ -363,20 +368,57 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
     supervisor.launchStartedProject(prepared.state);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await waitUntil(() => invocations.length === 1);
 
-    const readModel = supervisor.getActorRuntimeReadModel();
-    expect(readModel.cards.map((card) => card.cardId).sort()).toEqual(['project', child.id].sort());
+    const internals = supervisor as unknown as SupervisorInternals;
+    const chainIds = ['project', goal.id, terminal.id];
+    const beforeCardActors = new Map(internals.cardActors);
+    const beforeLiveCardActors = new Map(internals.liveCardActors);
+    expect([...beforeCardActors.keys()].sort()).toEqual([...chainIds].sort());
+    expect([...beforeLiveCardActors.keys()].sort()).toEqual([...chainIds].sort());
+    for (const cardId of chainIds) {
+      expect(beforeCardActors.get(cardId)).toBe(beforeLiveCardActors.get(cardId));
+    }
+    expect(beforeCardActors.get('project')?.processor).toBeNull();
+    expect(beforeCardActors.get(goal.id)?.processor).toBeNull();
+    expect(beforeCardActors.get(terminal.id)?.processor).not.toBeNull();
     expect(invocations).toHaveLength(1);
     expect(invocations[0]?.role).toBe('executor');
-    expect(invocations[0]?.sessionId).toBe(`executor:${child.id}`);
-    expect(readModel.agents).toHaveLength(1);
+    expect(invocations[0]?.sessionId).toBe(`executor:${terminal.id}`);
+    expect(supervisor.getActorRuntimeReadModel().agents).toEqual([expect.objectContaining({ role: 'executor', cardId: terminal.id })]);
 
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(internals.cardActors.size).toBe(0);
+    expect(internals.liveCardActors.size).toBe(0);
     expect(cards.read('project')?.status).toBe('running');
-    expect(cards.read(child.id)?.status).toBe('running');
+    expect(cards.read(goal.id)?.status).toBe('running');
+    expect(cards.read(terminal.id)?.status).toBe('running');
     expect(supervisor.getStatus().status).toBe('stopped');
     expect(supervisor.getActorRuntimeReadModel().cards).toEqual([]);
+
+    const restarted = await supervisor.beginStartProject();
+    if (!restarted.accepted) throw new Error('runtime restart was not accepted');
+    supervisor.launchStartedProject(restarted.state);
+    await waitUntil(() => invocations.length === 2);
+
+    const afterCardActors = new Map(internals.cardActors);
+    const afterLiveCardActors = new Map(internals.liveCardActors);
+    expect([...afterCardActors.keys()].sort()).toEqual([...chainIds].sort());
+    expect([...afterLiveCardActors.keys()].sort()).toEqual([...chainIds].sort());
+    for (const cardId of chainIds) {
+      const owner = afterCardActors.get(cardId);
+      expect(owner).toBe(afterLiveCardActors.get(cardId));
+      expect(owner).not.toBe(beforeCardActors.get(cardId));
+    }
+    expect(afterCardActors.get('project')?.processor).toBeNull();
+    expect(afterCardActors.get(goal.id)?.processor).toBeNull();
+    expect(afterCardActors.get(terminal.id)?.processor).not.toBeNull();
+    expect(invocations).toHaveLength(2);
+    expect(invocations[1]?.role).toBe('executor');
+    expect(invocations[1]?.sessionId).toBe(invocations[0]?.sessionId);
+    expect(invocations[1]?.inputId).not.toBe(invocations[0]?.inputId);
+    expect(supervisor.getActorRuntimeReadModel().agents).toEqual([expect.objectContaining({ role: 'executor', cardId: terminal.id })]);
+    await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });
 
   it('retains the full owner map and closing runtime when process containment fails', async () => {

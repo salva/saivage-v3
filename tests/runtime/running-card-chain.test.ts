@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { firstAgentForCard, selectRunningCardChain } from '../../src/runtime/running-card-chain.js';
+import { selectRunningCardChain } from '../../src/runtime/running-card-chain.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 
 function card(id: string, parent: string | null, type: CardRecord['type'], status: CardRecord['status']): CardRecord {
@@ -7,14 +7,11 @@ function card(id: string, parent: string | null, type: CardRecord['type'], statu
 }
 
 describe('running card restart selection', () => {
-  it('selects the unique deepest running leaf and derives its first agent from type', () => {
+  it('selects the unique deepest running leaf', () => {
     const root = card('project', null, 'project', 'running');
     const goal = card('11111111-1111-4111-8111-111111111111', 'project', 'goal', 'running');
     const code = card('22222222-2222-4222-8222-222222222222', goal.id, 'code', 'running');
     expect(selectRunningCardChain([code, root, goal]).map((entry) => entry.id)).toEqual([root.id, goal.id, code.id]);
-    expect(firstAgentForCard(root)).toBe('planner');
-    expect(firstAgentForCard(goal)).toBe('planner');
-    expect(firstAgentForCard(code)).toBe('executor');
   });
 
   it('rejects disconnected and branching running sets', () => {

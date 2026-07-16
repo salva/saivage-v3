@@ -466,7 +466,7 @@ describe('parked states', () => {
     expect(() => actor.sendWhileRunning()).toThrow(InternalActorError);
   });
 
-  it('rejects parked event delivery before start or recover', () => {
+  it('rejects parked event delivery before actor start', () => {
     class ParkedActor extends BaseActor {
       static _actor = { states: { idle: { parked: true } } };
 

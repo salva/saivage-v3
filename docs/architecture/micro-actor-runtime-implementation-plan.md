@@ -10,7 +10,8 @@ This implementation note is subordinate to [System Architecture](./system-archit
 - One `CardActor` owns each live activation and its synchronous result/cancel claim.
 - Project/goal restart begins planner; terminal-card restart begins executor; reviewer is nested live work only.
 - Pause is one request flag and one parked frontier. Stop interrupts open work for restartable containment; only when domain cancellation already owns the claim does Stop join that exact actor's cancellation settlement.
-- Stable planner/executor/reviewer sessions recover only their latest local conversation round.
+- Stable planner/executor/reviewer session owners locally settle only the latest interrupted conversation round.
+- The micro-actor lifecycle exposes only initial-state `start()`; no recover or rehydrate entrypoint exists.
 - Runtime state, actor snapshots, active reconstruction, recovery diagnostics, and replay coordinators do not exist.
 
 ## CardActor Cancellation Contract
@@ -41,7 +42,7 @@ The former reconstruction, durable-runtime-state, and indirect persistence phase
 
 Process ownership is process-local and activation-scoped. Stopped runtime instances do not reconstruct or adopt prior process identities.
 
-## P2 Startup Reconciles Processes Before Actor Recovery
+## P2 Startup Process Reconciliation And Actor Reconstruction Are Removed
 
 Obsolete. Startup begins with an empty process registry and performs no process reconciliation or actor replay.
 

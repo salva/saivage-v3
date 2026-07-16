@@ -19,8 +19,3 @@ export function selectRunningCardChain(cards: readonly CardRecord[]): CardRecord
   if (chain[0]?.id !== 'project' || chain.length !== running.length) throw new Error('Running cards must form one strict project-rooted ancestor chain.');
   return chain;
 }
-
-export function firstAgentForCard(card: CardRecord): 'planner' | 'executor' {
-  if (card.type === 'project' || card.type === 'goal') return 'planner';
-  return 'executor';
-}

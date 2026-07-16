@@ -243,7 +243,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (chain.length === 0) throw new Error('Runtime launch requires a running chain.');
     const actors = chain.map((card, index) => {
       if (this.cardActors.has(card.id) || this.liveCardActors.has(card.id)) throw new Error(`Card '${card.id}' already has runtime ownership.`);
-      return CardActor.fromCard({ card, deps: this.cardActorDeps(), deferRunningRecovery: index < chain.length - 1 });
+      return CardActor.fromCard({ card, deps: this.cardActorDeps(), deferProcessorStart: index < chain.length - 1 });
     });
     const leaf = actors.at(-1)!;
     const leafCard = chain.at(-1)!;

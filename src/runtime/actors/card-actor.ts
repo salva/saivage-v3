@@ -149,9 +149,8 @@ export class CardActor extends BaseActor {
     return this.deps.projectRoot;
   }
 
-  static fromCard(args: { card: CardRecord; deps: CardActorDeps; deferRunningRecovery?: boolean }): CardActor {
-    void args.deferRunningRecovery;
-    const actor = new CardActor({ card: args.card, deps: args.deps, deferProcessorStart: args.deferRunningRecovery });
+  static fromCard(args: { card: CardRecord; deps: CardActorDeps; deferProcessorStart?: boolean }): CardActor {
+    const actor = new CardActor({ card: args.card, deps: args.deps, deferProcessorStart: args.deferProcessorStart });
     actor.start();
     return actor;
   }
@@ -593,8 +592,4 @@ export function isActivatable(status: CardStatus): boolean {
   return status === 'backlog' || status === 'changed' || status === 'blocked';
 }
 
-function cardActorLifecycleState(status: CardStatus): 'parked' | 'running' | 'cancelled' {
-  if (status === 'running' || status === 'cancelled') return status;
-  return 'parked';
-}
 import { randomUUID } from 'node:crypto';

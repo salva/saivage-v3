@@ -45,10 +45,6 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     });
   }
 
-  protected processorSnapshotContext(): Record<string, unknown> {
-    return { projectRoot: this.projectRoot, cardId: this.cardId, outcome: this.outcome };
-  }
-
   protected abstract get processorLabel(): string;
 
   protected abstract activationFailureOutcome(error: string): CardProcessorOutcome;

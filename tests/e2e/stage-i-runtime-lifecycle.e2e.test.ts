@@ -35,7 +35,7 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
 }
 
 describe('Stage-I runtime lifecycle E2E', () => {
-  it('parks an admitted child at Pause, resumes once, Stops without mutation, and recovers the same stable session on Run', async () => {
+  it('parks an admitted child at Pause, resumes once, Stops without mutation, and starts a fresh activation in the same stable session on Run', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-stage-i-lifecycle-e2e-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);

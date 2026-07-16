@@ -1,5 +1,5 @@
 // BaseActor design and implementation are frozen except for the explicitly
-// authorized lifecycle-settlement snapshot hook. Any further core change
+// authorized in-memory lifecycle-settlement hook. Any further core change
 // requires user approval.
 
 import type { ActorDefinition, CompiledActorDefinition, CompiledStateDefinition } from './types.js';
@@ -91,20 +91,6 @@ export abstract class BaseActor {
     this.#ensureActorMain();
   }
 
-  recover(state: string): void {
-    if (this.#currentState !== undefined) {
-      throw new InternalActorError(`Cannot recover actor after it has entered state "${this.#currentState}"`);
-    }
-    const definition = getCompiledActorDefinition(this.constructor as ActorClassWithDefinition);
-    if (!definition.states.has(state)) {
-      throw new InternalActorError(`Cannot recover actor to unknown state "${state}"`);
-    }
-    this.#definition = definition;
-    this.#currentState = state;
-    this.#callHandler('recover') || this.#callHandler('enter');
-    this.#ensureActorMain();
-  }
-
   protected sendEvent(name: string): void {
     if (this.#nextEvent !== undefined) {
       throw new InternalActorError(`Actor already has pending event "${this.#nextEvent.name}", cannot send "${name}"`);
@@ -116,7 +102,7 @@ export abstract class BaseActor {
   protected parkedSendEvent(name: string): void {
     const currentState = this.#currentState;
     if (currentState === undefined) {
-      throw new InternalActorError('Cannot send parked event before actor has started or recovered');
+      throw new InternalActorError('Cannot send parked event before actor start');
     }
     if (!this.#definition!.states.get(currentState)?.parked) {
       throw new InternalActorError(`Cannot send parked event from non-parked state "${currentState}"`);
@@ -272,7 +258,7 @@ export abstract class BaseActor {
     }
   }
 
-  #callHandler(hook: 'enter' | 'leave' | 'recover'): boolean {
+  #callHandler(hook: 'enter' | 'leave'): boolean {
     const method = this.#getMethod(`_on_${hook}__${this.#currentState!}`);
     if (method) {
       method.call(this);

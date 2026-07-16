@@ -57,18 +57,6 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     this.runPendingActivation('executing', (input, signal) => this.runActivation(input, signal));
   }
 
-  _on_recover__executing(): void {
-    this._on_enter__executing();
-  }
-
-  recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): TerminalProcessorOutcome | null {
-    return projectTerminalExecutorOutcome(outcome);
-  }
-
-  protected override processorSnapshotContext(): Record<string, unknown> {
-    return { ...super.processorSnapshotContext(), processOwnerId: this.activeProcessOwnerId };
-  }
-
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<TerminalProcessorOutcome> {
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
     const contract = createExecutorContract();

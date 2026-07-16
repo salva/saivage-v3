@@ -73,14 +73,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     this.runPendingActivation('planning', (input, signal) => this.runActivation(input, signal));
   }
 
-  _on_recover__planning(): void {
-    this._on_enter__planning();
-  }
-
-  recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): PlannerProcessorOutcome | null {
-    return projectPlannerTerminalOutcome(outcome);
-  }
-
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
     const contract = createPlannerContract();
     const llm = this.createMainLlm(plannerActorId(this.cardId));
