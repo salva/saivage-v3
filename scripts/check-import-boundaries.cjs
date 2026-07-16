@@ -5,12 +5,12 @@ const path = require('node:path');
 const root = process.cwd();
 const SRC = path.join(root, 'src');
 const PACKAGES = new Set([
-  'agents', 'auth', 'boot', 'cards', 'config', 'contracts', 'events', 'lifecycle',
+  'agents', 'auth', 'boot', 'cards', 'config', 'contracts', 'events',
   'mcp', 'notifications', 'observability', 'permissions', 'persistence', 'projections',
   'redaction', 'runtime', 'schemas', 'server', 'telegram', 'tools', 'utils', 'workspace'
 ]);
 const DOMAIN_PACKAGES = new Set([
-  'agents', 'cards', 'contracts', 'events', 'lifecycle', 'mcp', 'notifications',
+  'agents', 'cards', 'contracts', 'events', 'mcp', 'notifications',
   'observability', 'permissions', 'persistence', 'projections', 'redaction', 'runtime',
   'schemas', 'telegram', 'tools', 'utils', 'workspace'
 ]);
