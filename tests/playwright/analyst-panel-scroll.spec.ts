@@ -41,11 +41,11 @@ test('desktop analyst panel keeps the transcript scroll inside the bounded pane'
     });
   });
 
+  await page.addInitScript((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
   await page.goto('/dashboard');
-  await page.evaluate((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
-  await page.reload();
 
   await expect(page.getByRole('region', { name: 'Analyst chat' })).toBeVisible();
+  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id }), sessionId);
 
   await expect(page.locator('.analyst-pane')).toHaveJSProperty('isConnected', true);
   await expect.poll(async () => page.locator('.analyst-pane').evaluate((el, viewportHeight) => el.getBoundingClientRect().height <= viewportHeight, 720)).toBe(true);
