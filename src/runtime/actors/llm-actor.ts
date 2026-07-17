@@ -1,6 +1,7 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
+import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { AutonomousLlmInvocationInput, LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
@@ -12,10 +13,11 @@ import { deferred, type Deferred } from './deferred.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
-import type { ProviderExchangeAttempt } from '../../contracts/provider-exchange.js';
+import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../../contracts/provider-exchange.js';
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
-import type { CompactArgs, CompactionResult } from './compaction/compactor.js';
-import type { SummarizerProviderPort } from './compaction/summarizer.js';
+import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult } from './compaction/compactor.js';
+import { SummarizerExchangeProjectionError, type SummarizerProviderPort } from './compaction/summarizer.js';
+import { sanitizeRecoveryMessage } from '../../agents/invocation-recovery-policy.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -228,7 +230,7 @@ export class ConversationLLMActor extends BaseActor {
           await this.gate.waitUntilOpen(exactSignal);
           this.#invocations.assertCurrent(invocation);
           this.#providerBoundaryEntered = true;
-          const completion = await this.provider.completeTurn(providerInput, exactSignal);
+          const completion = await this.callProvider(providerInput, exactSignal);
           this.#invocations.assertCurrent(invocation);
           this.#completionPersistenceEntered = true;
           return this.persistProviderCompletion(providerInput, completion);
@@ -252,6 +254,7 @@ export class ConversationLLMActor extends BaseActor {
             try {
               const invocation = this.#currentInvocation;
               const stopReason = this.runtimeStopReason();
+              if (error instanceof PostRejectionFatalError) throw error.fatalCause;
               if (this.isCurrentTurnAborted(error)) {
                 const cancellation = stopReason ?? error;
                 if (invocation) this.#invocations.cancelCurrent(invocation, cancellation);
@@ -490,6 +493,15 @@ export class ConversationLLMActor extends BaseActor {
 
   protected async onBeforeProviderCall(_input: LlmInvocationInput, _signal: AbortSignal): Promise<LlmInvocationInput | void> {}
 
+  protected callProvider(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
+    return this.provider.completeTurn(input, signal);
+  }
+
+  protected assertProviderReplayBoundary(): void {
+    if (!this.#providerBoundaryEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover before entering the provider boundary.`);
+    if (this.#completionPersistenceEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover after completion persistence began.`);
+  }
+
 }
 
 export class LLMActor extends ConversationLLMActor {
@@ -533,6 +545,125 @@ export class LLMActor extends ConversationLLMActor {
     }
   }
 
+  protected override async callProvider(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
+    let firstFailure: AuthoritativeContextFailure;
+    try {
+      return await super.callProvider(input, signal);
+    } catch (error) {
+      if (!isAuthoritativeContextFailure(error)) throw error;
+      firstFailure = error;
+    }
+
+    this.assertProviderReplayBoundary();
+    const firstAttempts = strictContextFailureAttempts(firstFailure, input.inputId);
+    if (!input.preparedCompaction) throw new PostRejectionFatalError(new Error(`Context recovery for '${input.inputId}' requires prepared compaction.`));
+    signal.throwIfAborted();
+
+    let compaction: Extract<CompactionResult, { kind: 'compacted' }>;
+    try {
+      this.#compacting = true;
+      const result = await this.compactor.compact({ strategy: 'authoritative_context_recovery', conversations: this.conversations, input, summarizerProvider: this.summarizerProvider, signal });
+      signal.throwIfAborted();
+      if (result.kind === 'no_smaller_projection') {
+        throw normalContextFailure(
+          'Provider input context exhausted; last-chance compaction found no strictly smaller safe provider projection, so no provider retry was attempted.',
+          firstAttempts,
+          firstFailure.originalFailure,
+        );
+      }
+      compaction = result;
+    } catch (error) {
+      if (error instanceof ProviderTurnFailure) throw error;
+      if (error instanceof CompactionSummaryConstructionError) {
+        signal.throwIfAborted();
+        const message = `Provider input context exhausted; last-chance compaction failed while constructing a smaller projection: ${sanitizeRecoveryMessage(error.cause)}. No provider retry was attempted.`;
+        throw normalContextFailure(message, firstAttempts, firstFailure.originalFailure, error.cause);
+      }
+      if (error instanceof CompactionAppendError) throw new PostRejectionFatalError(error.cause);
+      if (error instanceof SummarizerExchangeProjectionError) throw new PostRejectionFatalError(error);
+      if (signal.aborted) signal.throwIfAborted();
+      throw new PostRejectionFatalError(error);
+    } finally {
+      this.#compacting = false;
+    }
+
+    if (compaction.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) {
+      throw new PostRejectionFatalError(new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compaction.providerConversation.sourceSessionId}'.`));
+    }
+    const retryInput = { ...input, providerConversation: compaction.providerConversation };
+    let secondCompletion: ProviderTurnCompletion;
+    try {
+      secondCompletion = await super.callProvider(retryInput, signal);
+    } catch (error) {
+      if (!(error instanceof ProviderTurnFailure)) throw error;
+      if (isAuthoritativeContextFailure(error)) {
+        const secondAttempts = strictContextFailureAttempts(error, input.inputId);
+        const combined = combineProviderAttempts(input.inputId, firstAttempts, secondAttempts);
+        throw normalContextFailure(
+          `Provider input context remained exhausted after one forced compacted retry (first_pass_attempts=${firstAttempts.length}, second_pass_attempts=${secondAttempts.length}, compacted_estimated_message_tokens=${compaction.estimatedProviderMessageTokens}).`,
+          combined,
+          error.originalFailure,
+        );
+      }
+      throw new ProviderTurnFailure({
+        failure_phase: 'provider_attempt',
+        provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, error.provider_exchanges),
+        originalFailure: error.originalFailure,
+        message: error.message,
+      });
+    }
+    return {
+      ...secondCompletion,
+      provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, secondCompletion.provider_exchanges),
+    };
+  }
+
+}
+
+class PostRejectionFatalError extends Error {
+  constructor(readonly fatalCause: unknown) {
+    super('Fatal failure during post-rejection context recovery.', { cause: fatalCause });
+    this.name = 'PostRejectionFatalError';
+  }
+}
+
+type AuthoritativeContextFailure = ProviderTurnFailure & {
+  originalFailure: LlmRequestError & { failure: Extract<LlmTransportFailure, { kind: 'input_context_exhausted' }> };
+};
+
+function isAuthoritativeContextFailure(error: unknown): error is AuthoritativeContextFailure {
+  return error instanceof ProviderTurnFailure
+    && error.originalFailure instanceof LlmRequestError
+    && error.originalFailure.failure.kind === 'input_context_exhausted';
+}
+
+function strictContextFailureAttempts(error: ProviderTurnFailure, inputId: string): ProviderExchangeAttempt[] {
+  if (error.failure_phase !== 'provider_attempt') throw new PostRejectionFatalError(new Error(`Context failure for '${inputId}' did not occur during a provider attempt.`));
+  if (error.provider_exchanges.length === 0) throw new PostRejectionFatalError(new Error(`Context failure for '${inputId}' carried no provider_exchange envelope.`));
+  return error.provider_exchanges.map((attempt, index) => {
+    if (attempt.status !== 'error') throw new PostRejectionFatalError(new Error(`Context failure for '${inputId}' carried a non-error provider exchange.`));
+    if (attempt.terminal_tool_fired !== null) throw new PostRejectionFatalError(new Error(`Context failure for '${inputId}' carried a terminal tool effect.`));
+    let parsed: ReturnType<typeof providerExchangePayloadSchema.parse>;
+    try {
+      parsed = providerExchangePayloadSchema.parse(attempt);
+    } catch (validationError) {
+      throw new PostRejectionFatalError(validationError);
+    }
+    if (parsed.source_input_id !== inputId) throw new PostRejectionFatalError(new Error(`Context failure exchange source '${parsed.source_input_id}' does not match input '${inputId}'.`));
+    if (parsed.attempt_index !== index) throw new PostRejectionFatalError(new Error(`Context failure exchange indexes for '${inputId}' are not contiguous from zero.`));
+    return parsed;
+  });
+}
+
+function combineProviderAttempts(inputId: string, ...passes: ProviderExchangeAttempt[][]): ProviderExchangeAttempt[] {
+  return passes.flat().map((attempt, attempt_index) => ({ ...attempt, source_input_id: inputId, attempt_index }));
+}
+
+function normalContextFailure(message: string, attempts: ProviderExchangeAttempt[], classifiedFailure: LlmRequestError, cause?: unknown): ProviderTurnFailure {
+  if (classifiedFailure.failure.kind !== 'input_context_exhausted') throw new Error('Normal context failure requires input_context_exhausted classification.');
+  const originalFailure = new LlmRequestError({ ...classifiedFailure.failure, message });
+  if (cause !== undefined) originalFailure.cause = cause;
+  return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: attempts, originalFailure });
 }
 
 function parseToolArguments(raw: string): unknown {

@@ -43,13 +43,13 @@ function runtime(projectRoot: string, cards: CardService, provider: { completeTu
   });
 }
 
-function contextFailure(input: LlmInvocationInput): ProviderTurnFailure {
-  const message = 'LLM input context exhausted (HTTP 400): context_length_exceeded';
-  const originalFailure = new LlmRequestError({ kind: 'input_context_exhausted', provider: 'test-provider', status: 400, message });
+function permanentFailure(input: LlmInvocationInput): ProviderTurnFailure {
+  const message = 'LLM authentication failed permanently';
+  const originalFailure = new LlmRequestError({ kind: 'auth_permanent', provider: 'test-provider', status: 401, message });
   const exchange: ProviderExchangeAttempt = {
     contract_id: 'test-contract', contract_name: 'test contract', transport: 'generic', provider: 'test-provider', model: 'test-model',
-    source_input_id: input.inputId, request_params: {}, started_at: '2026-07-17T00:00:00.000Z', completed_at: '2026-07-17T00:00:00.001Z',
-    status: 'error', response_status: 400, terminal_tool_fired: null, error: { name: 'LlmRequestError', message, status: 400 },
+    source_input_id: input.inputId, attempt_index: 0, request_params: {}, started_at: '2026-07-17T00:00:00.000Z', completed_at: '2026-07-17T00:00:00.001Z',
+    status: 'error', response_status: 401, terminal_tool_fired: null, error: { name: 'LlmRequestError', message, status: 401 },
   };
   return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [exchange], originalFailure });
 }
@@ -101,7 +101,7 @@ describe('failed child activation lifecycle E2E', () => {
           failedChildCalls += 1;
           if (failedChildCalls === 1) {
             failedRunningVersion = cards.read(failedChild.id)!.version_seq;
-            throw contextFailure(input);
+            throw permanentFailure(input);
           }
           if (failedChildCalls === 2) return complete(tool('write-a', 'write', { path: 'record:///status.md?v=next', content: 'Retry succeeded.' }));
           return complete(tool('done-a', 'emit_result', { status: 'done', summary: 'A succeeded on retry.' }));
@@ -126,8 +126,8 @@ describe('failed child activation lifecycle E2E', () => {
 
     const internals = supervisor as unknown as RuntimeInternals;
     const failed = cards.read(failedChild.id)!;
-    expect(failed).toMatchObject({ status: 'failed', version_seq: failedRunningVersion + 1, lifecycle: { result: { kind: 'failed', summary: expect.stringContaining('context_length_exceeded') }, error: expect.stringContaining('context_length_exceeded') } });
-    expect(failureToolResult).toEqual({ success: true, data: { card_id: failedChild.id, outcome: 'failed', summary: expect.stringContaining('context_length_exceeded'), result: { kind: 'failed', summary: expect.stringContaining('context_length_exceeded') } } });
+    expect(failed).toMatchObject({ status: 'failed', version_seq: failedRunningVersion + 1, lifecycle: { result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') }, error: expect.stringContaining('authentication failed permanently') } });
+    expect(failureToolResult).toEqual({ success: true, data: { card_id: failedChild.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') } } });
     expect(internals.cardActors.has(failedChild.id)).toBe(false);
     expect(internals.liveCardActors.has(failedChild.id)).toBe(false);
     expect(cards.listCardHistory(failedChild.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
