@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 
-import type { CardService, NewCardInput } from '../cards/card-api.js';
+import type { CardActivationAdmissionProjection, CardService, NewCardInput } from '../cards/card-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
 import { queueNotification } from '../notifications/index.js';
 import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
@@ -19,6 +19,7 @@ interface PlannerChildActor {
 
 interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
+  readActivationAdmission(cardId: string): CardActivationAdmissionProjection | null;
   create?(input: NewCardInput): CardRecord;
   mutateCard?(cardId: string, changes: Partial<CardRecord>, ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): CardRecord;
   setStatus(cardId: string, status: 'changed' | 'running'): CardRecord;
@@ -165,9 +166,14 @@ async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<ty
 
 async function activateCard(ctx: PlannerControlProviderContext, record: z.infer<typeof activateCardSchema>): Promise<ToolResult> {
   if (record.card_id.length === 0) return failure('activate_card requires card_id.');
-  const child = ctx.store.read(record.card_id);
-  if (!child) return failure(`Child card '${record.card_id}' not found.`);
+  const admission = ctx.store.readActivationAdmission(record.card_id);
+  if (!admission) return failure(`Child card '${record.card_id}' not found.`);
+  const child = admission.child;
   if (child.parent !== ctx.parentCardId) return failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`);
+  const incomplete = admission.dependencies.filter(({ status }) => status !== 'done');
+  if (incomplete.length > 0) {
+    return failure(`Child card '${record.card_id}' has incomplete dependencies: ${incomplete.map(({ id, status }) => `${id} (${status})`).join(', ')}.`);
+  }
   const actor = ctx.children.get(record.card_id);
   if (!actor) return failure(`No CardActor is registered for child '${record.card_id}'.`);
   try {
