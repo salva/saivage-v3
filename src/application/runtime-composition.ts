@@ -29,7 +29,7 @@ import type { AppLogContext } from '../persistence/app-log.js';
 import { RuntimeInterventionBinding } from './intervention-readiness.js';
 import { RuntimeControlService, type RuntimeControlApplicationPort, type RuntimeControlMechanics } from './runtime-control-service.js';
 import type { AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
-import type { LLMProviderPort } from '../runtime/actors/llm-actor.js';
+import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -39,7 +39,7 @@ export interface RuntimeApiFactoryDeps {
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
   compactionPolicy: AutonomousCompactionPolicy;
-  summarizerProvider: LLMProviderPort;
+  summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner;
   runtimeGate: RuntimeGate;
   mcpManagerProvider?: () => McpManager | undefined;
@@ -142,8 +142,9 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     candidateAvailability,
     appLogs: services.appLogs,
   });
-  const summarizerProvider: LLMProviderPort = {
+  const summarizerProvider: SummarizerProviderPort = {
     completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal, [summarizerCandidate])),
+    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
   };
   const { enabled: _enabled, summarizer_candidate: _summarizerCandidate, ...compactionPolicy } = config.compaction;
   const processRegistry = new ManagedProcessGroupRegistry();

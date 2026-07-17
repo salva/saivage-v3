@@ -25,7 +25,7 @@ describe('autonomous LLM admission', () => {
       provider: { completeTurn: providerCall },
       conversations: { projectRoot },
       compactor: { shouldCompact, compact },
-      summarizerProvider: { completeTurn: summarize },
+      summarizerProvider: { completeTurn: summarize, projectProviderExchanges: jest.fn() },
       runtimeProjectionChanged: projectionChanged,
     });
     actor.start();

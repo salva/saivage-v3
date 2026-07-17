@@ -26,6 +26,7 @@ import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { AppLogContext } from '../../persistence/app-log.js';
 import type { CardService } from '../../cards/card-service.js';
+import type { SummarizerProviderPort } from './compaction/summarizer.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -57,7 +58,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly promptTemplates: PromptTemplateRegistry;
   private readonly appLogs: AppLogContext;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardService; children: PlannerChildActorPort; cancelCard: (cardId: string, reason: string) => Promise<CardCancellationResult>; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged: () => void; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardService; children: PlannerChildActorPort; cancelCard: (cardId: string, reason: string) => Promise<CardCancellationResult>; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged: () => void; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.children = args.children;

@@ -1,6 +1,7 @@
 import type { LlmCompleteOptions, LlmCompleteResult, ProviderTurnCompletion, ToolCall } from '../../src/agents/llm-contracts.js';
 import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
-import type { CompactorPort, LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
+import type { CompactorPort } from '../../src/runtime/actors/llm-actor.js';
+import type { SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 
 export const testCompactionPolicy: AutonomousCompactionPolicy = {
   input_budget_tokens: 100_000,
@@ -14,8 +15,9 @@ export const testCompactionPolicy: AutonomousCompactionPolicy = {
 };
 
 export const testCompactor: CompactorPort = { shouldCompact, compact };
-export const unusedSummarizerProvider: LLMProviderPort = {
+export const unusedSummarizerProvider: SummarizerProviderPort = {
   completeTurn: () => Promise.reject(new Error('Unexpected summarizer call in test.')),
+  projectProviderExchanges: () => { throw new Error('Unexpected summarizer exchange projection in test.'); },
 };
 
 export const testAutonomousCompaction = {

@@ -9,13 +9,14 @@ import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ProviderVisibleUserContextMessage } from './conversation-session.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
+import type { SummarizerProviderPort } from './compaction/summarizer.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
   readonly gate: RuntimeGate;
   readonly compactor: CompactorPort;
   readonly compactionConfig: AutonomousCompactionPolicy;
-  readonly summarizerProvider: LLMProviderPort;
+  readonly summarizerProvider: SummarizerProviderPort;
   readonly conversationPublisher?: ConversationChangePublisher;
   readonly conversations: ConversationFileContext;
   readonly runtimeProjectionChanged: () => void;
@@ -23,7 +24,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   #joiningLlmActors: readonly LLMActor[] | null = null;
   #llmInvocationsDisposed = false;
 
-  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.provider = args.provider;
     this.conversations = args.conversations;

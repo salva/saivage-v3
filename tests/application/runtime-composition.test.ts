@@ -54,6 +54,7 @@ describe('runtime compaction composition', () => {
     let deps!: RuntimeApiFactoryDeps;
     const runtimeApiFactory = jest.fn((value: RuntimeApiFactoryDeps) => { deps = value; return mechanics(); });
     const invoke = jest.spyOn(InvocationService.prototype, 'invokeWithRecovery').mockResolvedValue({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] });
+    const project = jest.spyOn(InvocationService.prototype, 'projectProviderExchanges').mockImplementation(() => undefined);
     createRuntimeApplication(services(runtimeApiFactory));
 
     expect(runtimeApiFactory).toHaveBeenCalledTimes(1);
@@ -63,5 +64,7 @@ describe('runtime compaction composition', () => {
     const input: LlmInvocationInput = { inputId: 'id', agentId: 'llm:compaction-summarizer', role: 'analyst', sessionId: 'summary:test', systemPrompt: 'summarize', providerConversation: { sourceSessionId: 'summary:test', messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 2000 }, capabilityRequest: {}, episodeContext: { compaction: true } };
     await deps.summarizerProvider.completeTurn(input, new AbortController().signal);
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ candidateChain: [{ provider: 'test', account: null, model: 'org/summary/model' }] }));
+    deps.summarizerProvider.projectProviderExchanges('summary:test', 'id', [], []);
+    expect(project).toHaveBeenCalledWith('summary:test', 'id', [], []);
   });
 });

@@ -13,7 +13,7 @@ describe('summarizer input identity boundary', () => {
     });
     const row = agentMessageSchema.parse({ id: 'source', session_id: 'planner:project', role: 'user', kind: 'text', content: 'work', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' });
 
-    await summarizeRound({ sourceSessionId: 'planner:project', round_id: row.round_id, rows: [row], summarizerProvider: { completeTurn }, signal: new AbortController().signal });
+    await summarizeRound({ sourceSessionId: 'planner:project', round_id: row.round_id, rows: [row], summarizerProvider: { completeTurn, projectProviderExchanges: jest.fn() }, signal: new AbortController().signal });
 
     expect(captured.systemPrompt).not.toContain('Model:');
     expect(captured.episodeContext).toEqual({ compaction: true });

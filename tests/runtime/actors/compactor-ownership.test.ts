@@ -17,18 +17,19 @@ describe('LLMActor compaction ownership', () => {
     const differentActorRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-decoy-'));
     try {
       const projection = [agentMessageSchema.parse({ id: 'projected', session_id: 'planner:project', role: 'system', kind: 'text', content: 'canonical compacted projection', round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' })];
-      const compact = jest.fn<CompactorPort['compact']>(async () => ({ providerConversation: { sourceSessionId: 'planner:project', messages: projection } }));
+      const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'planner:project', messages: projection }, compactionMessage: projection[0]!, estimatedProviderMessageTokens: 1 }));
       const compactor: CompactorPort = { shouldCompact: () => true, compact };
       const providerInput = jest.fn(async (_input: AutonomousLlmInvocationInput) => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
       const provider: LLMProviderPort = { completeTurn: providerInput };
-      const actor = new LLMActor({ projectRoot: differentActorRoot, agentId: 'planner:project', provider, conversations: { projectRoot: ownerRoot }, runtimeProjectionChanged() {}, compactor, summarizerProvider: provider });
+      const actor = new LLMActor({ projectRoot: differentActorRoot, agentId: 'planner:project', provider, conversations: { projectRoot: ownerRoot }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(provider) });
       actor.start();
 
       await actor.turn(input());
 
       expect(compact).toHaveBeenCalledTimes(1);
       const compactArgs = compact.mock.calls[0]![0];
-      expect(Object.keys(compactArgs).sort()).toEqual(['conversations', 'input', 'signal', 'summarizerProvider']);
+      expect(Object.keys(compactArgs).sort()).toEqual(['conversations', 'input', 'signal', 'strategy', 'summarizerProvider']);
+      expect(compactArgs.strategy).toBe('preventive');
       expect(compactArgs.conversations.projectRoot).toBe(ownerRoot);
       expect(compactArgs.input.sessionId).toBe('planner:project');
       expect(providerInput).toHaveBeenCalledWith(expect.objectContaining({ providerConversation: { sourceSessionId: 'planner:project', messages: projection } }), expect.any(AbortSignal));
@@ -52,7 +53,7 @@ describe('LLMActor compaction ownership', () => {
         if (++calls === 1) return { result: { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }, provider_exchanges: [] };
         return { result: { kind: 'message', content: 'done' }, provider_exchanges: [] };
       } };
-      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor, summarizerProvider: provider });
+      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(provider) });
       actor.start();
       const tool = await actor.turn(first);
       if (tool.type !== 'tool_call') throw new Error('Expected tool call.');
@@ -78,7 +79,7 @@ describe('LLMActor compaction ownership', () => {
       const compactor: CompactorPort = { shouldCompact: (value) => { checked.push(value); return false; }, compact: jest.fn() as never };
       let calls = 0;
       const provider: LLMProviderPort = { completeTurn: async () => ({ result: { kind: 'message', content: ++calls === 1 ? 'plain' : 'repaired' }, provider_exchanges: [] }) };
-      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor, summarizerProvider: provider });
+      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(provider) });
       actor.start();
       await actor.turn(first);
       await actor.continueAfterPlainText(`repair ${'y'.repeat(4000)}`);
@@ -100,7 +101,7 @@ describe('LLMActor compaction ownership', () => {
     try {
       const compact = jest.fn<CompactorPort['compact']>();
       const providerCall = jest.fn<LLMProviderPort['completeTurn']>();
-      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall } });
+      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
       actor.start();
       const malformed = { ...input(), providerConversation: { sourceSessionId: 'planner:other', messages: [] } };
 
@@ -116,9 +117,9 @@ describe('LLMActor compaction ownership', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-hook-mismatch-'));
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
-      const compact = jest.fn<CompactorPort['compact']>(async () => ({ providerConversation: { sourceSessionId: 'planner:other', messages: [] } }));
+      const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'planner:other', messages: [] }, compactionMessage: agentMessageSchema.parse({ id: 'compaction', session_id: 'planner:other', role: 'system', kind: 'text', content: 'x', round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' }), estimatedProviderMessageTokens: 1 }));
       const providerCall = jest.fn<LLMProviderPort['completeTurn']>();
-      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall } });
+      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
       actor.start();
 
       await expect(actor.turn(input())).rejects.toThrow(/Compaction changed provider conversation source session/);
@@ -130,4 +131,8 @@ describe('LLMActor compaction ownership', () => {
 
 function input(): AutonomousLlmInvocationInput {
   return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {}, episodeContext: {} };
+}
+
+function summarizer(provider: LLMProviderPort) {
+  return { completeTurn: provider.completeTurn.bind(provider), projectProviderExchanges: jest.fn() };
 }

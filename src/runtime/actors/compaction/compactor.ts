@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../../persistence/conversation-file.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type ContextCompactionContent } from '../../../schemas/index.js';
-import { hashConversationRows, validateConversationRows, type ValidatedContextCompaction, type ValidatedConversation } from '../../../contracts/conversation-compaction.js';
+import { hashConversationRows, validateConversationRows, type ValidatedContextCompaction } from '../../../contracts/conversation-compaction.js';
 import { classifySourceSegments } from '../../../contracts/conversation-source-classification.js';
 import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { ProviderConversationProjection, ToolDefinition } from '../../../agents/llm-contracts.js';
@@ -10,7 +10,7 @@ import { providerConversationProjection } from '../conversation-session.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type SlidingBandPartitions, type SnapPolicy } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConversation, type ClassifiedRound } from './round-classifier.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors } from './result-dropping.js';
-import { summarizeMerge, summarizeRound, type MergeSummaryInput, type SummarizerProviderPort } from './summarizer.js';
+import { summarizeMerge, summarizeRound, SummarizerExchangeProjectionError, type MergeSummaryInput, type SummarizerProviderPort } from './summarizer.js';
 
 export type AutonomousCompactionPolicy = {
   input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
@@ -65,12 +65,31 @@ export function shouldCompact(input: LlmInvocationInput): boolean {
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
-type CompactArgs = { conversations: ConversationFileContext; input: LlmInvocationInput & { preparedCompaction: PreparedCompaction }; summarizerProvider: SummarizerProviderPort; signal: AbortSignal };
-type Candidate = { payload: ContextCompactionContent; conversation: ValidatedConversation; compaction: ValidatedContextCompaction; message: AgentMessage };
-type CandidateFit = { candidate: Candidate; fits: boolean };
+export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery';
+export type CompactionResult =
+  | { kind: 'compacted'; providerConversation: ProviderConversationProjection; compactionMessage: AgentMessage; estimatedProviderMessageTokens: number }
+  | { kind: 'no_smaller_projection'; rejectedEstimatedProviderMessageTokens: number; smallestCandidateEstimatedProviderMessageTokens: number | null };
+
+export class CompactionSummaryConstructionError extends Error {
+  constructor(cause: unknown) {
+    super('Failed to construct compaction summary.', { cause });
+    this.name = 'CompactionSummaryConstructionError';
+  }
+}
+
+export class CompactionAppendError extends Error {
+  constructor(cause: unknown) {
+    super('Failed to append canonical context compaction.', { cause });
+    this.name = 'CompactionAppendError';
+  }
+}
+
+export type CompactArgs = { strategy: CompactionStrategy; conversations: ConversationFileContext; input: LlmInvocationInput & { preparedCompaction: PreparedCompaction }; summarizerProvider: SummarizerProviderPort; signal: AbortSignal };
+type Candidate = { payload: ContextCompactionContent; compaction: ValidatedContextCompaction; message: AgentMessage; providerConversation: ProviderConversationProjection; estimatedProviderMessageTokens: number };
+type CandidateFit = { candidate: Candidate; accepted: boolean };
 type CandidateFitFactory = (payload: ContextCompactionContent) => CandidateFit;
 
-export async function compact(args: CompactArgs): Promise<{ providerConversation: ProviderConversationProjection; compactionMessage: AgentMessage }> {
+export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const projectRoot = args.conversations.projectRoot;
   const sessionId = args.input.sessionId;
   const budget = args.input.preparedCompaction;
@@ -78,6 +97,8 @@ export async function compact(args: CompactArgs): Promise<{ providerConversation
   const sourceRows = conversation.sourceRows;
   const latest = conversation.latestCompaction;
   const classified = classifyConversationRounds(sourceRows);
+  const rejectedEstimatedProviderMessageTokens = estimateProviderConversationTokens(args.input.providerConversation);
+  let smallestCandidateEstimatedProviderMessageTokens: number | null = null;
   const normal = computeSlidingCompactionBands(classified.rounds, { tail_budget_tokens: budget.normalTailBudget, middle_budget_tokens: budget.normalMiddleBudget, snap: budget.snap });
   const escalated = computeSlidingCompactionBands(classified.rounds, { tail_budget_tokens: budget.escalatedTailBudget, middle_budget_tokens: budget.escalatedMiddleBudget, snap: budget.snap });
   assertEscalatedSuffixSubsets(normal, escalated);
@@ -89,35 +110,58 @@ export async function compact(args: CompactArgs): Promise<{ providerConversation
     const prospective = validateConversationRows(sessionId, [...conversation.physicalRows, message]);
     const compaction = prospective.latestCompaction;
     if (!compaction || compaction.metadataRow.id !== message.id) throw new Error('Prospective compaction validation did not derive the candidate metadata row.');
-    const candidate = { payload: parsed, conversation: prospective, compaction, message };
-    return { candidate, fits: effectiveCompactionTokens(compaction, classified) <= budget.triggerMessageThreshold };
+    const providerConversation = providerConversationProjection(prospective);
+    const estimatedProviderMessageTokens = estimateProviderConversationTokens(providerConversation);
+    smallestCandidateEstimatedProviderMessageTokens = smallestCandidateEstimatedProviderMessageTokens === null
+      ? estimatedProviderMessageTokens
+      : Math.min(smallestCandidateEstimatedProviderMessageTokens, estimatedProviderMessageTokens);
+    const candidate = { payload: parsed, compaction, message, providerConversation, estimatedProviderMessageTokens };
+    const accepted = args.strategy === 'preventive'
+      ? effectiveCompactionTokens(compaction, classified) <= budget.triggerMessageThreshold
+      : estimatedProviderMessageTokens < rejectedEstimatedProviderMessageTokens;
+    return { candidate, accepted };
   };
 
-  const normalFit = await buildCandidate(args, classified, normal, budget, 'normal', latest, candidateFitFor);
-  let candidate: Candidate;
-  if (normalFit.fits) {
-    candidate = normalFit.candidate;
-  } else {
-    const normalCoveredNoRounds = normal.merge_rounds.length === 0 && normal.summary_rounds.length === 0;
-    const escalatedCoveredNoRounds = escalated.merge_rounds.length === 0 && escalated.summary_rounds.length === 0;
-    const escalatedFit = latest && normalCoveredNoRounds && escalatedCoveredNoRounds
-      ? normalFit
-      : await buildCandidate(args, classified, escalated, budget, 'escalated', latest, candidateFitFor);
-    if (escalatedFit.fits) {
-      candidate = escalatedFit.candidate;
+  let candidate: Candidate | null = null;
+  if (args.strategy === 'preventive') {
+    const normalFit = await buildCandidate(args, classified, normal, budget, 'normal', latest, candidateFitFor);
+    if (normalFit?.accepted) {
+      candidate = normalFit.candidate;
     } else {
-      const fallback = await applyHardFallback(args, sourceRows, classified, escalatedFit, budget, latest, candidateFitFor);
-      if (!fallback) throw new Error('Compaction could not fit the residual context below the trigger threshold without splitting an indivisible provider bundle. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
-      candidate = fallback.candidate;
+      const normalCoveredNoRounds = normal.merge_rounds.length === 0 && normal.summary_rounds.length === 0;
+      const escalatedCoveredNoRounds = escalated.merge_rounds.length === 0 && escalated.summary_rounds.length === 0;
+      const escalatedFit = latest && normalFit && normalCoveredNoRounds && escalatedCoveredNoRounds
+        ? normalFit
+        : await buildCandidate(args, classified, escalated, budget, 'escalated', latest, candidateFitFor);
+      if (escalatedFit?.accepted) {
+        candidate = escalatedFit.candidate;
+      } else if (escalatedFit) {
+        candidate = (await applyHardFallback(args, sourceRows, classified, escalatedFit, budget, latest, candidateFitFor))?.candidate ?? null;
+      }
+    }
+    if (!candidate) throw new Error('Compaction could not fit the residual context below the trigger threshold without splitting an indivisible provider bundle. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
+  } else {
+    const escalatedFit = await buildCandidate(args, classified, escalated, budget, 'escalated', latest, candidateFitFor);
+    if (escalatedFit?.accepted) {
+      candidate = escalatedFit.candidate;
+    } else if (escalatedFit) {
+      candidate = (await applyHardFallback(args, sourceRows, classified, escalatedFit, budget, latest, candidateFitFor))?.candidate ?? null;
+    }
+    if (!candidate) {
+      return { kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens, smallestCandidateEstimatedProviderMessageTokens };
     }
   }
   args.signal.throwIfAborted();
   assertMonotonicCutoff(latest, candidate.compaction);
-  appendConversationBatch(projectRoot, [candidate.message], args.conversations.changes);
-  return { providerConversation: providerConversationProjection(candidate.conversation), compactionMessage: candidate.message };
+  try {
+    appendConversationBatch(projectRoot, [candidate.message], args.conversations.changes);
+  } catch (error) {
+    throw new CompactionAppendError(error);
+  }
+  return { kind: 'compacted', providerConversation: candidate.providerConversation, compactionMessage: candidate.message, estimatedProviderMessageTokens: candidate.estimatedProviderMessageTokens };
 }
 
-async function buildCandidate(args: CompactArgs, classified: ClassifiedConversation, partition: SlidingBandPartitions, budget: PreparedCompaction, band: 'normal' | 'escalated', latest: ValidatedContextCompaction | null, candidateFitFor: CandidateFitFactory): Promise<CandidateFit> {
+async function buildCandidate(args: CompactArgs, classified: ClassifiedConversation, partition: SlidingBandPartitions, budget: PreparedCompaction, band: 'normal' | 'escalated', latest: ValidatedContextCompaction | null, candidateFitFor: CandidateFitFactory): Promise<CandidateFit | null> {
   const preamble = classified.preamble.map((row) => row.message);
   const mergedRounds = partition.merge_rounds;
   const individual = await Promise.all(partition.summary_rounds.map((round) => summarizeRawRound(args, round)));
@@ -153,31 +197,31 @@ async function mergeSummaryGroups(args: CompactArgs, inputs: MergeSummaryInput[]
     const next: MergeSummaryInput[] = [];
     for (let index = 0; index < current.length; index += groupSize) {
       const group = current.slice(index, index + groupSize);
-       next.push({ round_id: group.map((entry) => entry.round_id).join(','), summary_text: await summarizeMerge({ entries: group, summarizerProvider: args.summarizerProvider, signal: args.signal }) });
+       next.push({ round_id: group.map((entry) => entry.round_id).join(','), summary_text: await summarizeMergeForCompaction(args, group) });
       args.signal.throwIfAborted();
     }
     current = next;
   }
-  return summarizeMerge({ entries: current, summarizerProvider: args.summarizerProvider, signal: args.signal });
+  return summarizeMergeForCompaction(args, current);
 }
 
-async function fallbackFromScratch(args: CompactArgs, classified: ClassifiedConversation, preamble: AgentMessage[], budget: PreparedCompaction, band: 'normal' | 'escalated', candidateFitFor: CandidateFitFactory): Promise<CandidateFit> {
+async function fallbackFromScratch(args: CompactArgs, classified: ClassifiedConversation, preamble: AgentMessage[], budget: PreparedCompaction, band: 'normal' | 'escalated', candidateFitFor: CandidateFitFactory): Promise<CandidateFit | null> {
   const boundaryRound = classified.rounds[0];
-  if (!boundaryRound) throw new Error('Compaction has no safe non-static source round to compact.');
+  if (!boundaryRound) return null;
   const boundaryRows = rawRoundRows(boundaryRound);
   for (let length = 1; length < boundaryRows.length; length++) {
     const prefix = boundaryRows.slice(0, length);
     if (!safeFallbackBoundary(prefix, boundaryRows[length])) continue;
     const last = prefix[prefix.length - 1]!;
-    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, false)], content_hash: hashConversationRows(prefix), summary_text: await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, signal: args.signal }), evidence: recoverableEvidenceDescriptors(prefix) };
+    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, false)], content_hash: hashConversationRows(prefix), summary_text: await summarizeRoundForCompaction(args, boundaryRound.round_id, dropRecoverableResultBodies(prefix)), evidence: recoverableEvidenceDescriptors(prefix) };
     args.signal.throwIfAborted();
     const retainedStatic = preamble.filter((row) => row.role === 'system' && row.kind !== 'activity').map((row) => row.id);
     const modeBand = band;
     const payload = contextCompactionContentSchema.parse({ boundary: fallbackBoundary(last), retained_static_message_ids: retainedStatic, summaries: [partial], applied_policy: appliedPolicy(budget, 'hard_limit_fallback', modeBand) });
     const fit = candidateFitFor(payload);
-    if (fit.fits) return fit;
+    if (fit.accepted) return fit;
   }
-  throw new Error('Compaction could not find a safe residual prefix below the trigger threshold. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.');
+  return null;
 }
 
 async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], classified: ClassifiedConversation, baseFit: CandidateFit, budget: PreparedCompaction, latest: ValidatedContextCompaction | null, candidateFitFor: CandidateFitFactory): Promise<CandidateFit | null> {
@@ -197,13 +241,13 @@ async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], 
     if (latest && cutoffSourceIndex <= latest.cutoffSourceIndex) continue;
     const last = prefix[prefix.length - 1]!;
     const complete = length === boundaryRows.length;
-    const summaryText = await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, signal: args.signal });
+    const summaryText = await summarizeRoundForCompaction(args, boundaryRound.round_id, dropRecoverableResultBodies(prefix));
     args.signal.throwIfAborted();
     const group: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, complete)], content_hash: hashConversationRows(prefix), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(prefix) };
     const summaries = replacesPartial ? [...base.payload.summaries.slice(0, -1), group] : [...base.payload.summaries, group];
     const payload = contextCompactionContentSchema.parse({ ...base.payload, boundary: complete ? 'round' : fallbackBoundary(last), summaries, applied_policy: { ...base.payload.applied_policy, mode: 'hard_limit_fallback' as const } });
     const fit = candidateFitFor(payload);
-    if (fit.fits) return fit;
+    if (fit.accepted) return fit;
   }
   return null;
 }
@@ -218,9 +262,27 @@ function payloadFor(preamble: AgentMessage[], merged: ContextCompactionContent['
 
 async function summarizeRawRound(args: CompactArgs, round: ClassifiedRound): Promise<ContextCompactionContent['summaries'][number]> {
   const rows = rawRoundRows(round);
-  const summaryText = await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: round.round_id, rows: dropRecoverableResultBodies(rows), summarizerProvider: args.summarizerProvider, signal: args.signal });
+  const summaryText = await summarizeRoundForCompaction(args, round.round_id, dropRecoverableResultBodies(rows));
   args.signal.throwIfAborted();
   return { kind: 'individual', rounds: [buildCoveredRound(rows, true)], content_hash: hashConversationRows(rows), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(rows) };
+}
+
+async function summarizeRoundForCompaction(args: CompactArgs, roundId: string, rows: AgentMessage[]): Promise<string> {
+  return wrapSummaryConstruction(args.signal, () => summarizeRound({ sourceSessionId: args.input.sessionId, round_id: roundId, rows, summarizerProvider: args.summarizerProvider, signal: args.signal }));
+}
+
+async function summarizeMergeForCompaction(args: CompactArgs, entries: MergeSummaryInput[]): Promise<string> {
+  return wrapSummaryConstruction(args.signal, () => summarizeMerge({ entries, summarizerProvider: args.summarizerProvider, signal: args.signal }));
+}
+
+async function wrapSummaryConstruction<T>(signal: AbortSignal, construct: () => Promise<T>): Promise<T> {
+  try {
+    return await construct();
+  } catch (error) {
+    signal.throwIfAborted();
+    if (error instanceof SummarizerExchangeProjectionError) throw error;
+    throw new CompactionSummaryConstructionError(error);
+  }
 }
 
 function buildCoveredRound(rows: AgentMessage[], complete: boolean): ContextCompactionContent['summaries'][number]['rounds'][number] {
@@ -251,4 +313,5 @@ function fallbackBoundary(row: AgentMessage): 'repair' | 'exchange' | 'message' 
 function failedResult(row: AgentMessage): boolean { try { return JSON.parse(row.content).success === false; } catch { return false; } }
 function rawRoundRows(round: ClassifiedRound): AgentMessage[] { return round.rows.map((row) => row.message); }
 function estimateTextTokens(text: string): number { return Math.ceil(Buffer.byteLength(text, 'utf8') / 4); }
+function estimateProviderConversationTokens(projection: ProviderConversationProjection): number { return projection.messages.reduce((sum, row) => sum + estimateMessageTokens(row), 0); }
 function isExactPrefix(prefix: string[], values: string[]): boolean { return prefix.length <= values.length && prefix.every((value, index) => values[index] === value); }

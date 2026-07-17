@@ -29,7 +29,7 @@ describe('raw-authoritative compaction primitives', () => {
 
   it('summarizes only raw rows and merges ordered summary prose without cache contracts', async () => {
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }));
-    const provider: SummarizerProviderPort = { completeTurn };
+    const provider: SummarizerProviderPort = { completeTurn, projectProviderExchanges: jest.fn() };
     await expect(summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows: [msg({ id: 'raw', role: 'user', kind: 'text', content: 'raw' })], summarizerProvider: provider, signal: new AbortController().signal })).resolves.toBe('summary');
     await expect(summarizeMerge({ entries: [{ round_id: 'round', summary_text: 'raw-derived summary' }], summarizerProvider: provider, signal: new AbortController().signal })).resolves.toBe('summary');
     expect(JSON.stringify(completeTurn.mock.calls)).toContain('raw-derived summary');
@@ -37,7 +37,7 @@ describe('raw-authoritative compaction primitives', () => {
 
   it('rejects metadata and wrong-source rows before calling the summarizer provider', async () => {
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
-    const provider: SummarizerProviderPort = { completeTurn };
+    const provider: SummarizerProviderPort = { completeTurn, projectProviderExchanges: jest.fn() };
     const common = { round_id: 'round', summarizerProvider: provider, signal: new AbortController().signal };
     await expect(summarizeRound({ ...common, sourceSessionId: 'planner:project', rows: [msg({ id: 'metadata', role: 'system', kind: 'context_compaction', content: '{}' })] })).rejects.toThrow(/immutable non-metadata/);
     await expect(summarizeRound({ ...common, sourceSessionId: 'planner:other', rows: [msg({ id: 'raw', role: 'user', kind: 'text', content: 'raw' })] })).rejects.toThrow(/not source session/);

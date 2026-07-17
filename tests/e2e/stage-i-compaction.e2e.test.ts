@@ -72,14 +72,14 @@ describe('Stage-I compaction contracts', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-stage-i-'));
     try {
       for (let ordinal = 1; ordinal <= 4; ordinal++) appendRawRound(root, ordinal);
-      const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }) };
+      const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
       const integrationConfig: AutonomousCompactionPolicy = { ...config, input_budget_tokens: 400, snap };
       const invocation = invocationFor('planner:project', [], integrationConfig);
-      await compact({ conversations: { projectRoot: root }, input: invocation, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation, summarizerProvider: provider, signal: new AbortController().signal });
       const first = readConversation(root, 'planner:project');
       const firstCutoff = first.latestCompaction!.cutoffMessageId;
       for (let ordinal = 5; ordinal <= 7; ordinal++) appendRawRound(root, ordinal);
-      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000002', providerConversation: providerConversationProjection(first) }, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000002', providerConversation: providerConversationProjection(first) }, summarizerProvider: provider, signal: new AbortController().signal });
       const second = readConversation(root, 'planner:project');
       const metadata = second.physicalRows.filter((row) => row.kind === 'context_compaction');
       expect(metadata).toHaveLength(2);
@@ -92,7 +92,7 @@ describe('Stage-I compaction contracts', () => {
       expect(projected.find((row) => row.id.endsWith(':rendered'))!.content).toBe(second.latestCompaction!.renderedContext);
       expect(projected.some((row) => row.kind === 'context_compaction')).toBe(false);
       for (let ordinal = 8; ordinal <= 10; ordinal++) appendRawRound(root, ordinal);
-      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000003', providerConversation: providerConversationProjection(second) }, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000003', providerConversation: providerConversationProjection(second) }, summarizerProvider: provider, signal: new AbortController().signal });
       const third = readConversation(root, 'planner:project');
       const allMetadata = third.physicalRows.filter((row) => row.kind === 'context_compaction');
       expect(allMetadata).toHaveLength(3);
@@ -116,11 +116,12 @@ describe('Stage-I compaction contracts', () => {
         ...Array.from({ length: 10 }, (_, index) => ({ id: `hard-message-${index}`, session_id, role: 'user' as const, kind: 'text' as const, content: `${index}:${'x'.repeat(320)}`, round_id: 'r-user-99999999999999999999999999999999', message_index: index + 1, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' })),
       ];
       appendConversationBatch(root, rows);
-      const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'small prefix summary' }, provider_exchanges: [] }) };
+      const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'small prefix summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
       const hardConfig: AutonomousCompactionPolicy = { ...config, input_budget_tokens: 400 };
       const invocation = invocationFor(session_id, rows, hardConfig);
 
-      const result = await compact({ conversations: { projectRoot: root }, input: invocation, summarizerProvider: provider, signal: new AbortController().signal });
+      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation, summarizerProvider: provider, signal: new AbortController().signal });
+      if (result.kind !== 'compacted') throw new Error('Expected preventive compaction.');
       const payload = contextCompactionContentSchema.parse(JSON.parse(result.compactionMessage.content));
       expect(payload.applied_policy.mode).toBe('hard_limit_fallback');
       expect(payload.summaries.at(-1)?.rounds[0]?.complete).toBe(false);
@@ -132,7 +133,7 @@ describe('Stage-I compaction contracts', () => {
       expect(first.latestCompaction!.cutoffMessageId).not.toBe('hard-message-9');
       appendConversationBatch(root, [{ id: 'hard-message-10', session_id, role: 'user', kind: 'text', content: `10:${'x'.repeat(320)}`, round_id: 'r-user-99999999999999999999999999999999', message_index: 11, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' }]);
       const current = readConversation(root, session_id);
-      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000100', providerConversation: providerConversationProjection(current) }, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000100', providerConversation: providerConversationProjection(current) }, summarizerProvider: provider, signal: new AbortController().signal });
       const second = readConversation(root, session_id).latestCompaction!;
       expect(second.cutoffSourceIndex).toBeGreaterThan(firstCutoff);
       expect(second.groups.filter((group) => !group.rounds[0]!.complete)).toHaveLength(second.groups.at(-1)!.rounds[0]!.complete ? 0 : 1);
@@ -147,7 +148,7 @@ describe('Stage-I compaction contracts', () => {
       appendRawRound(decoyRoot, 1, sessionId);
       const changes = { conversationChanged: jest.fn(), agentsChanged: jest.fn(), runtimeChanged: jest.fn(), cardStateChanged: jest.fn(), subscribe: jest.fn(() => ({ unsubscribe() {} })) };
       const invocation = invocationFor(sessionId, [], { ...config, input_budget_tokens: 400 });
-      await compact({ conversations: { projectRoot: ownerRoot, changes }, input: invocation, summarizerProvider: summaryProvider(), signal: new AbortController().signal });
+      await compact({ strategy: 'preventive', conversations: { projectRoot: ownerRoot, changes }, input: invocation, summarizerProvider: summaryProvider(), signal: new AbortController().signal });
       const owner = readConversation(ownerRoot, sessionId);
       expect(owner.compactions).toHaveLength(1);
       expect(owner.latestCompaction!.metadataRow.session_id).toBe(sessionId);
@@ -166,16 +167,16 @@ describe('Stage-I compaction contracts', () => {
       for (let ordinal = 1; ordinal <= 7; ordinal++) appendRawRound(root, ordinal);
       const inputs: LlmInvocationInput[] = [];
       let ordinal = 0;
-      const provider = { completeTurn: async (input: LlmInvocationInput) => { inputs.push(input); return { result: { kind: 'message' as const, content: `summary-${++ordinal}` }, provider_exchanges: [] }; } };
+      const provider = { completeTurn: async (input: LlmInvocationInput) => { inputs.push(input); return { result: { kind: 'message' as const, content: `summary-${++ordinal}` }, provider_exchanges: [] }; }, projectProviderExchanges: jest.fn() };
       const integrationConfig = { ...config, input_budget_tokens: 400 };
-      await compact({ conversations: { projectRoot: root }, input: invocationFor('planner:project', [], integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor('planner:project', [], integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
       const first = readConversation(root, 'planner:project');
       const priorMerged = first.latestCompaction!.groups.find((group) => group.payload.kind === 'merged');
       expect(priorMerged).toBeDefined();
       inputs.length = 0;
       for (let round = 8; round <= 10; round++) appendRawRound(root, round);
       const current = readConversation(root, 'planner:project');
-      await compact({ conversations: { projectRoot: root }, input: invocationFor('planner:project', providerConversationProjection(current).messages, integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor('planner:project', providerConversationProjection(current).messages, integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
       const mergeInputs = inputs.filter((input) => input.sessionId === 'summary:merge').flatMap((input) => input.providerConversation.messages);
       expect(mergeInputs.some((row) => row.content.includes(priorMerged!.payload.summary_text))).toBe(true);
       expect(priorMerged!.payload.content_hash).toBe(hashConversationRows(priorMerged!.sourceRows));
@@ -198,7 +199,8 @@ describe('Stage-I compaction contracts', () => {
         { id: 'protected-tail', session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: 'z'.repeat(600), round_id: 'r-user-99999999999999999999999999999999', message_index: 6, block_index: 0, timestamp },
       ];
       appendConversationBatch(root, rows);
-      const result = await compact({ conversations: { projectRoot: root }, input: invocationFor(sessionId, rows, { ...config, input_budget_tokens: 500 }), summarizerProvider: summaryProvider(), signal: new AbortController().signal });
+      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(sessionId, rows, { ...config, input_budget_tokens: 500 }), summarizerProvider: summaryProvider(), signal: new AbortController().signal });
+      if (result.kind !== 'compacted') throw new Error('Expected preventive compaction.');
       const validated = readConversation(root, sessionId).latestCompaction!;
       const cutoff = validated.cutoffMessageId;
       expect(cutoff).not.toBe(`${inputId}:tool-call:call-1`);
@@ -234,5 +236,5 @@ function invocationFor(sessionId: string, contextMessages: AgentMessage[], compa
 }
 
 function summaryProvider() {
-  return { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }) };
+  return { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
 }

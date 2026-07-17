@@ -16,6 +16,7 @@ import type { ReadModelChanges } from './read-model-changes.js';
 import type { RuntimeInterventionBinding } from './intervention-readiness.js';
 import type { InvocationRequest } from '../agents/invocation-service.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
+import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
@@ -25,7 +26,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
   compactionPolicy: AutonomousCompactionPolicy;
-  summarizerProvider: LLMProviderPort;
+  summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner;
   runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;

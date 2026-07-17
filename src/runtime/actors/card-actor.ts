@@ -21,6 +21,7 @@ import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 import type { CardService } from '../../cards/card-service.js';
 import type { ActiveCardLeaf } from '../active-card-leaf.js';
 import { isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
+import type { SummarizerProviderPort } from './compaction/summarizer.js';
 
 export type CardActivationOutcome =
   | { status: 'done'; summary: string; result: DoneResult }
@@ -85,7 +86,7 @@ export interface CardActorDeps {
   provider: LLMProviderPort;
   compactor: CompactorPort;
   compactionConfig: AutonomousCompactionPolicy;
-  summarizerProvider: LLMProviderPort;
+  summarizerProvider: SummarizerProviderPort;
   gate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   processRunner: ProcessRunner;
