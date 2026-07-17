@@ -1,7 +1,7 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
 import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderConversationProjection, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
 import { LlmRequestError } from './llm-errors.js';
-import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
+import { classifyHttpFailure, classifyTransportFailure } from './llm-failure-classifiers.js';
 import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
 import { serializeToolsForResponses, type WireToolDefinitionResponses } from './tool-definition-serializer.js';
 import { responsesInputFromProviderConversation } from './llm-openai-responses-mapper.js';
@@ -71,7 +71,7 @@ export class OpenAIResponsesGateway {
       if (!response.ok) {
         const ctx = { provider: candidate.provider, model: candidate.model };
         const bodyText = await response.clone().text().catch(() => '');
-        const failure = classifierFor(candidate.provider).classifyHttp(response, bodyText, ctx) ?? defaultHttpClassifier(response, bodyText, ctx);
+        const failure = classifyHttpFailure('responses', response, bodyText, ctx);
         if (handle && !recordedErr) {
           recordedErr = true;
           await handle.recordError({ errorName: 'LlmRequestError', message: failure.message, status: response.status });
@@ -80,12 +80,13 @@ export class OpenAIResponsesGateway {
       }
       if (requestBody.stream) {
         if (!response.body) throw new LlmRequestError({ kind: 'server_transient', provider: candidate.provider, status: response.status, message: 'OpenAI Responses streaming response has no body' });
-        const parsed = handle ? await readOpenAIResponsesStream(teeStreamForRecorder(response.body).stream, { provider: candidate.provider, model: candidate.model, sourceInputId: opts.inputId }) : await readOpenAIResponsesStream(response.body, { provider: candidate.provider, model: candidate.model, sourceInputId: opts.inputId });
+        const parserContext = { provider: candidate.provider, model: candidate.model, sourceInputId: opts.inputId, responseStatus: response.status };
+        const parsed = handle ? await readOpenAIResponsesStream(teeStreamForRecorder(response.body).stream, parserContext) : await readOpenAIResponsesStream(response.body, parserContext);
         if (handle) await handle.recordResponse({ status: response.status, token_usage: parsed.result.usage, finish_reason: parsed.responseStatus }, firedTerminalFromResult(parsed.result, opts));
         return { result: parsed.result, provider_exchanges: opts.recorder?.settledAttempts() ?? [], provider_private_context: parsed.privateContext };
       }
       const rawText = await response.text();
-      const parsed = parseOpenAIResponsesJson(rawText, { provider: candidate.provider, model: candidate.model, sourceInputId: opts.inputId });
+      const parsed = parseOpenAIResponsesJson(rawText, { provider: candidate.provider, model: candidate.model, sourceInputId: opts.inputId, responseStatus: response.status });
       if (handle) await handle.recordResponse({ status: response.status, token_usage: parsed.result.usage, finish_reason: parsed.responseStatus }, firedTerminalFromResult(parsed.result, opts));
       return { result: parsed.result, provider_exchanges: opts.recorder?.settledAttempts() ?? [], provider_private_context: parsed.privateContext };
     } catch (err) {

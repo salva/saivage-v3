@@ -113,8 +113,10 @@ export class InvocationRecoveryPolicy {
         });
       case 'provider_protocol_error':
         return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} returned a malformed protocol response: ${sanitized}`, { markFailed: true, appendModelIssue: true });
-      case 'token_budget_exceeded':
-        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} exceeded token budget: ${sanitized}`, { appendModelIssue: true });
+      case 'input_context_exhausted':
+        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} exhausted its input context: ${sanitized}`, { appendModelIssue: true });
+      case 'output_token_limit_exceeded':
+        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} exceeded its output token limit: ${sanitized}`, { appendModelIssue: true });
       case 'local_setup_error':
         return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} has a local setup error: ${sanitized}`, { appendModelIssue: true });
       case 'parse_error': {

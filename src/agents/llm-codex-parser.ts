@@ -1,7 +1,8 @@
 import type { LlmCompleteResult, ToolCall } from './llm-contracts.js';
 import { LlmRequestError, redactProviderErrorText } from './llm-errors.js';
+import { isInputContextErrorObject } from './llm-failure-classifiers.js';
 
-export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>): Promise<LlmCompleteResult> {
+export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, responseStatus: number): Promise<LlmCompleteResult> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -20,7 +21,7 @@ export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>): P
       while (boundary !== -1) {
         const chunk = buffer.slice(0, boundary);
         buffer = buffer.slice(boundary + 2);
-        handleOpenAICodexSseChunk(chunk, pendingToolCalls, finalizedToolCalls, toolCalls, (delta) => {
+        handleOpenAICodexSseChunk(chunk, responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, (delta) => {
           if (content.length > 0 && delta.startsWith(content)) {
             content = delta;
           } else if (!content.endsWith(delta)) {
@@ -46,6 +47,7 @@ export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>): P
 
 export function handleOpenAICodexSseChunk(
   chunk: string,
+  responseStatus: number,
   pendingToolCalls: Map<string, { id: string; name: string; args: string }>,
   finalizedToolCalls: Set<string>,
   toolCalls: ToolCall[],
@@ -112,9 +114,9 @@ export function handleOpenAICodexSseChunk(
       const response = event['response'] as Record<string, unknown> | undefined;
       if (response?.['status'] === 'incomplete') setFinishReason('length');
     } else if (type === 'response.failed') {
-      throw createCodexStreamError('OpenAI Codex response failed', event);
+      throw createCodexStreamError('OpenAI Codex response failed', event, responseStatus);
     } else if (type === 'error') {
-      throw createCodexStreamError('OpenAI Codex stream error', event);
+      throw createCodexStreamError('OpenAI Codex stream error', event, responseStatus);
     }
   }
 }
@@ -141,7 +143,7 @@ function appendCodexMessageContent(item: Record<string, unknown>, appendContent:
   }
 }
 
-function createCodexStreamError(prefix: string, payload: Record<string, unknown>): LlmRequestError {
+function createCodexStreamError(prefix: string, payload: Record<string, unknown>, responseStatus: number): LlmRequestError {
   const nested = payload['error'];
   const error = nested && typeof nested === 'object' ? nested as Record<string, unknown> : payload;
   const code = typeof error['code'] === 'string' ? error['code'] : '';
@@ -149,22 +151,37 @@ function createCodexStreamError(prefix: string, payload: Record<string, unknown>
   const rawMessage = String(error['message'] ?? payload['message'] ?? JSON.stringify(payload));
   const codePrefix = code ? `${code}: ` : '';
   const message = `${prefix}: ${codePrefix}${redactProviderErrorText(rawMessage, 'llm-codex-parser')}`;
-  const status = statusFromCodexPayload(payload, error);
+  const embeddedStatus = statusFromCodexPayload(payload, error);
   const retryAfterMs = retryAfterMsFromCodexPayload(payload, error);
   const evidence = [code, type, rawMessage].join(' ');
-  if (/context_length_exceeded|context_window|token_budget/i.test(evidence) || /context window|context length|token budget/i.test(rawMessage)) {
-    return new LlmRequestError({ kind: 'token_budget_exceeded', provider: 'openai-codex', status: 400, message });
+  const contextError = codexContextError(payload);
+  if (contextError !== undefined && isInputContextErrorObject(contextError, ['input'])) {
+    return new LlmRequestError({ kind: 'input_context_exhausted', provider: 'openai-codex', status: responseStatus, message });
   }
-  if (status === 401 || status === 403 || /auth|account|permission|unauthorized|forbidden/i.test(evidence)) {
-    return new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-codex', status: status ?? 401, message });
+  if (embeddedStatus === 401 || embeddedStatus === 403 || /auth|account|permission|unauthorized|forbidden/i.test(evidence)) {
+    return new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-codex', status: responseStatus, message });
   }
-  if (status === 429 || retryAfterMs !== undefined || /rate_limit|rate limit/i.test(evidence)) {
-    return new LlmRequestError({ kind: 'rate_limit', provider: 'openai-codex', status: 429, message, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) });
+  if (embeddedStatus === 429 || retryAfterMs !== undefined || /rate_limit|rate limit/i.test(evidence)) {
+    return new LlmRequestError({ kind: 'rate_limit', provider: 'openai-codex', status: responseStatus, message, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) });
   }
-  if ((status !== undefined && [500, 502, 503, 504].includes(status)) || /server_error|internal_server_error|service_unavailable|temporarily_unavailable|overloaded/i.test(evidence)) {
-    return new LlmRequestError({ kind: 'server_transient', provider: 'openai-codex', status: status ?? 500, message });
+  if ((embeddedStatus !== undefined && [500, 502, 503, 504].includes(embeddedStatus)) || /server_error|internal_server_error|service_unavailable|temporarily_unavailable|overloaded/i.test(evidence)) {
+    return new LlmRequestError({ kind: 'server_transient', provider: 'openai-codex', status: responseStatus, message });
   }
-  return new LlmRequestError({ kind: 'provider_protocol_error', provider: 'openai-codex', status: status ?? 400, message, bodyPreview: JSON.stringify(payload).slice(0, 500) });
+  return new LlmRequestError({ kind: 'provider_protocol_error', provider: 'openai-codex', status: responseStatus, message, bodyPreview: JSON.stringify(payload).slice(0, 500) });
+}
+
+function codexContextError(payload: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (payload['type'] === 'error') return directObject(payload['error']);
+  if (payload['type'] !== 'response.failed') return undefined;
+  const response = directObject(payload['response']);
+  if (response?.['status'] !== 'failed') return undefined;
+  return directObject(response['error']);
+}
+
+function directObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function statusFromCodexPayload(...payloads: Record<string, unknown>[]): number | undefined {

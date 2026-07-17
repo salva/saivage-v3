@@ -44,8 +44,8 @@ function runtime(projectRoot: string, cards: CardService, provider: { completeTu
 }
 
 function contextFailure(input: LlmInvocationInput): ProviderTurnFailure {
-  const message = 'LLM token budget exceeded (HTTP 400): context_length_exceeded';
-  const originalFailure = new LlmRequestError({ kind: 'token_budget_exceeded', provider: 'test-provider', status: 400, message });
+  const message = 'LLM input context exhausted (HTTP 400): context_length_exceeded';
+  const originalFailure = new LlmRequestError({ kind: 'input_context_exhausted', provider: 'test-provider', status: 400, message });
   const exchange: ProviderExchangeAttempt = {
     contract_id: 'test-contract', contract_name: 'test contract', transport: 'generic', provider: 'test-provider', model: 'test-model',
     source_input_id: input.inputId, request_params: {}, started_at: '2026-07-17T00:00:00.000Z', completed_at: '2026-07-17T00:00:00.001Z',

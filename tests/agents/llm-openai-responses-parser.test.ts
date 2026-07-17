@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { parseOpenAIResponsesJson, readOpenAIResponsesStream } from '../../src/agents/llm-openai-responses-parser.js';
 import { LlmRequestError } from '../../src/agents/llm-errors.js';
 
-const CTX = { provider: 'openai', model: 'gpt-5.6', sourceInputId: 'input-1' };
+const CTX = { provider: 'openai', model: 'gpt-5.6', sourceInputId: 'input-1', responseStatus: 200 };
 
 describe('OpenAI Responses parser', () => {
   it('accepts only completed responses and preserves raw output in private context', () => {
@@ -24,12 +24,38 @@ describe('OpenAI Responses parser', () => {
     }
   });
 
-  it('maps incomplete max output to token budget exceeded', () => {
-    try {
-      parseOpenAIResponsesJson(JSON.stringify({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [] }), CTX);
-    } catch (error) {
-      expect((error as LlmRequestError).failure.kind).toBe('token_budget_exceeded');
-    }
+  it('maps incomplete max output to output exhaustion, never input-context exhaustion', () => {
+    expect(failureFor({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [] }))
+      .toMatchObject({ kind: 'output_token_limit_exceeded', status: 200 });
+  });
+
+  it.each([
+    { code: 'context_length_exceeded' },
+    { code: 'context_length_exceeded', type: null, param: null },
+    { code: 'context_length_exceeded', type: 'invalid_request_error', param: 'input' },
+    { type: 'context_length_exceeded', code: null },
+  ])('maps exact failed response context evidence: %#', (error) => {
+    expect(failureFor({ status: 'failed', error })).toMatchObject({ kind: 'input_context_exhausted', status: 200 });
+  });
+
+  it.each([
+    { message: 'context_length_exceeded context window input too large token budget' },
+    { metadata: { code: 'context_length_exceeded' } },
+    { code: 'CONTEXT_LENGTH_EXCEEDED' },
+    { code: 'context_length_exceeded', type: 'other' },
+    { code: 'context_length_exceeded', param: 'messages' },
+    { code: 'max_tokens' },
+    { code: 'max_output_tokens' },
+    { code: 'token_budget' },
+  ])('does not map non-authoritative failed response evidence: %#', (error) => {
+    expect(failureFor({ status: 'failed', error }).kind).toBe('server_transient');
+  });
+
+  it('does not authorize terminal context classification from a non-200 HTTP response', () => {
+    expect(failureFor(
+      { status: 'failed', error: { code: 'context_length_exceeded' } },
+      { ...CTX, responseStatus: 201 },
+    )).toMatchObject({ kind: 'server_transient', status: 201 });
   });
 });
 
@@ -47,6 +73,16 @@ describe('OpenAI Responses streaming parser', () => {
 
   it('maps completed event with provider cancelled status to server_transient', async () => {
     await expect(readOpenAIResponsesStream(sseStream([{ event: 'response.completed', data: { status: 'cancelled', output: [] } }]), CTX)).rejects.toMatchObject({ failure: { kind: 'server_transient' } });
+  });
+
+  it('classifies exact failed context evidence from direct and wrapped SSE final responses', async () => {
+    await expect(readOpenAIResponsesStream(sseStream([
+      { event: 'response.failed', data: { status: 'failed', error: { code: 'context_length_exceeded', param: 'input' } } },
+    ]), CTX)).rejects.toMatchObject({ failure: { kind: 'input_context_exhausted', status: 200 } });
+
+    await expect(readOpenAIResponsesStream(sseStream([
+      { event: 'response.failed', data: { response: { status: 'failed', error: { type: 'context_length_exceeded' } } } },
+    ]), CTX)).rejects.toMatchObject({ failure: { kind: 'input_context_exhausted', status: 200 } });
   });
 
   it('rejects invalid JSON frames and streams without terminal response', async () => {
@@ -78,6 +114,16 @@ describe('OpenAI Responses streaming parser', () => {
     await expect(readOpenAIResponsesStream(sseStream([{ event: 'response.function_call_arguments.delta', data: { item_id: 'missing', delta: '{}' } }, { event: 'response.completed', data: { status: 'completed' } }]), CTX)).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
   });
 });
+
+function failureFor(payload: Record<string, unknown>, ctx = CTX) {
+  try {
+    parseOpenAIResponsesJson(JSON.stringify(payload), ctx);
+  } catch (error) {
+    expect(error).toBeInstanceOf(LlmRequestError);
+    return (error as LlmRequestError).failure;
+  }
+  throw new Error('Expected Responses payload to fail');
+}
 
 function sseStream(frames: Array<{ event: string; data: unknown }>): ReadableStream<Uint8Array> {
   return rawStream(frames.map((frame) => `event: ${frame.event}\ndata: ${JSON.stringify(frame.data)}\n\n`).join(''));

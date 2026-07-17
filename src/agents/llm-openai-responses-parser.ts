@@ -1,5 +1,6 @@
 import { LlmRequestError } from './llm-errors.js';
 import type { LlmCompleteResult, LlmUsage, OpenAIResponsesPrivateContext, ToolCall } from './llm-contracts.js';
+import { isInputContextErrorObject } from './llm-failure-classifiers.js';
 
 export interface ParsedOpenAIResponsesCompletion {
   result: LlmCompleteResult;
@@ -8,7 +9,7 @@ export interface ParsedOpenAIResponsesCompletion {
   responseStatus: string;
 }
 
-interface ParserContext { provider: string; model: string; sourceInputId: string }
+interface ParserContext { provider: string; model: string; sourceInputId: string; responseStatus: number }
 
 const KNOWN_STATUSES = new Set(['completed', 'incomplete', 'failed', 'cancelled', 'queued', 'in_progress']);
 
@@ -68,10 +69,10 @@ export async function readOpenAIResponsesStream(stream: ReadableStream<Uint8Arra
       if (!parsed) continue;
       assembled.apply(parsed.event, parsed.data);
       if (parsed.event === 'response.completed' || parsed.event === 'response.incomplete' || parsed.event === 'response.failed' || parsed.event === 'response.cancelled') finalResponse = parsed.data;
-      if (parsed.data && Array.isArray(parsed.data.output) && typeof parsed.data.status === 'string') finalResponse = parsed.data;
+      if (parsed.data && typeof parsed.data.status === 'string') finalResponse = parsed.data;
       if (parsed.data && parsed.data.response && typeof parsed.data.response === 'object') {
         const response = parsed.data.response as Record<string, unknown>;
-        if (Array.isArray(response.output) && typeof response.status === 'string') finalResponse = response;
+        if (typeof response.status === 'string') finalResponse = response;
       }
     }
   }
@@ -144,12 +145,18 @@ class ResponsesStreamAssembly {
 function nonCompletedFailure(response: Record<string, unknown>, ctx: ParserContext, status: string, bodyPreview: string): LlmRequestError {
   if (status === 'incomplete') {
     const reason = incompleteReason(response);
-    if (reason === 'max_output_tokens') return new LlmRequestError({ kind: 'token_budget_exceeded', provider: ctx.provider, status: 200, message: 'OpenAI Responses exceeded max_output_tokens.' });
-    return new LlmRequestError({ kind: 'provider_protocol_error', provider: ctx.provider, status: 200, message: `OpenAI Responses returned incomplete status${reason ? ` (${reason})` : ''}.`, bodyPreview: bodyPreview.slice(0, 500) });
+    if (ctx.responseStatus === 200 && reason === 'max_output_tokens') return new LlmRequestError({ kind: 'output_token_limit_exceeded', provider: ctx.provider, status: ctx.responseStatus, message: 'OpenAI Responses exceeded max_output_tokens.' });
+    return new LlmRequestError({ kind: 'provider_protocol_error', provider: ctx.provider, status: ctx.responseStatus, message: `OpenAI Responses returned incomplete status${reason ? ` (${reason})` : ''}.`, bodyPreview: bodyPreview.slice(0, 500) });
   }
-  if (status === 'cancelled') return new LlmRequestError({ kind: 'server_transient', provider: ctx.provider, status: 200, message: 'OpenAI Responses provider cancelled response before completion' });
-  if (status === 'failed') return new LlmRequestError({ kind: 'server_transient', provider: ctx.provider, status: 200, message: providerErrorMessage(response) });
-  return new LlmRequestError({ kind: 'provider_protocol_error', provider: ctx.provider, status: 200, message: `OpenAI Responses terminal parser received nonterminal status '${status}'.`, bodyPreview: bodyPreview.slice(0, 500) });
+  if (status === 'cancelled') return new LlmRequestError({ kind: 'server_transient', provider: ctx.provider, status: ctx.responseStatus, message: 'OpenAI Responses provider cancelled response before completion' });
+  if (status === 'failed') {
+    const error = objectField(response, 'error');
+    if (ctx.responseStatus === 200 && error !== undefined && isInputContextErrorObject(error, ['input'])) {
+      return new LlmRequestError({ kind: 'input_context_exhausted', provider: ctx.provider, status: ctx.responseStatus, message: providerErrorMessage(response) });
+    }
+    return new LlmRequestError({ kind: 'server_transient', provider: ctx.provider, status: ctx.responseStatus, message: providerErrorMessage(response) });
+  }
+  return new LlmRequestError({ kind: 'provider_protocol_error', provider: ctx.provider, status: ctx.responseStatus, message: `OpenAI Responses terminal parser received nonterminal status '${status}'.`, bodyPreview: bodyPreview.slice(0, 500) });
 }
 
 function incompleteReason(response: Record<string, unknown>): string | undefined {

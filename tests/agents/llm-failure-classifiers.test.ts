@@ -1,92 +1,95 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { classifierFor, defaultHttpClassifier } from '../../src/agents/llm-failure-classifiers.js';
+import {
+  classifyHttpFailure,
+  classifyTransportFailure,
+  type LlmHttpTransport,
+} from '../../src/agents/llm-failure-classifiers.js';
 
-function mockResponse(status: number, headers: Record<string, string> = {}, body = ''): Response {
-  return new Response(body, { status, headers });
+function mockResponse(status: number, headers: Record<string, string> = {}): Response {
+  return new Response(null, { status, headers });
 }
 
-describe('per-provider failure classifiers', () => {
-  it('opencode-go: HTTP 400 with response_format/function_call clash → provider_protocol_error', () => {
-    const body = '{"error":"You cannot specify response format and function call at the same time"}';
-    const failure = classifierFor('opencode-go').classifyHttp(mockResponse(400), body, { provider: 'opencode-go', model: 'm' });
-    expect(failure?.kind).toBe('provider_protocol_error');
-    expect(failure?.kind === 'provider_protocol_error' && failure.status).toBe(400);
+function classify(
+  transport: LlmHttpTransport,
+  status: number,
+  body: string,
+  provider = transport === 'codex' ? 'openai-codex' : 'openai-chat',
+) {
+  return classifyHttpFailure(transport, mockResponse(status), body, { provider, model: 'm' });
+}
+
+describe('strict HTTP input-context classification', () => {
+  it.each<[LlmHttpTransport, Record<string, unknown>]>([
+    ['chat', { code: 'context_length_exceeded' }],
+    ['chat', { code: 'context_length_exceeded', type: null, param: null }],
+    ['chat', { code: 'context_length_exceeded', type: 'invalid_request_error', param: 'messages' }],
+    ['chat', { code: 'context_length_exceeded', type: 'context_length_exceeded', param: 'input' }],
+    ['chat', { type: 'context_length_exceeded' }],
+    ['responses', { code: 'context_length_exceeded', param: 'input' }],
+    ['responses', { type: 'context_length_exceeded', code: null, param: null }],
+    ['codex', { code: 'context_length_exceeded', type: 'invalid_request_error', param: 'input' }],
+  ])('accepts exact %s HTTP-400 error shape %#', (transport, error) => {
+    expect(classify(transport, 400, JSON.stringify({ error })).kind).toBe('input_context_exhausted');
   });
 
-  it('opencode-go: any HTTP 400 → provider_protocol_error', () => {
-    const failure = classifierFor('opencode-go').classifyHttp(mockResponse(400), '{"error":"random bad request"}', { provider: 'opencode-go', model: 'm' });
-    expect(failure?.kind).toBe('provider_protocol_error');
+  it('recognizes exact opencode-go evidence before its generic HTTP-400 rule', () => {
+    expect(classify('chat', 400, JSON.stringify({ error: { code: 'context_length_exceeded', param: 'messages' } }), 'opencode-go').kind)
+      .toBe('input_context_exhausted');
+    expect(classify('chat', 400, JSON.stringify({ error: { message: 'random bad request' } }), 'opencode-go').kind)
+      .toBe('provider_protocol_error');
   });
 
-  it('openai-chat: 429 with Retry-After: 12 seconds → retryAfterMs 12000', () => {
-    const ctx = { provider: 'openai-chat', model: 'gpt-4' };
-    const failure = classifierFor('openai-chat').classifyHttp(mockResponse(429, { 'Retry-After': '12' }), '', ctx)
-      ?? defaultHttpClassifier(mockResponse(429, { 'Retry-After': '12' }), '', ctx);
-    expect(failure.kind).toBe('rate_limit');
-    expect(failure.kind === 'rate_limit' && failure.retryAfterMs).toBe(12000);
+  it.each<[number, unknown]>([
+    [200, { error: { code: 'context_length_exceeded' } }],
+    [413, { error: { code: 'context_length_exceeded' } }],
+    [422, { error: { code: 'context_length_exceeded' } }],
+    [429, { error: { code: 'context_length_exceeded' } }],
+    [500, { error: { code: 'context_length_exceeded' } }],
+    [400, { error: 'context_length_exceeded' }],
+    [400, { error: [{ code: 'context_length_exceeded' }] }],
+    [400, { error: { message: 'context_length_exceeded context window input too large token budget' } }],
+    [400, { error: { message: 'quoted user: {"code":"context_length_exceeded"}' } }],
+    [400, { error: { metadata: { code: 'context_length_exceeded' } } }],
+    [400, { error: { code: 'CONTEXT_LENGTH_EXCEEDED' } }],
+    [400, { error: { code: ' context_length_exceeded' } }],
+    [400, { error: { code: 'context_length_exceeded ' } }],
+    [400, { error: { code: 'context_length_exceeded', type: 'server_error' } }],
+    [400, { error: { code: 'other', type: 'context_length_exceeded' } }],
+    [400, { error: { code: 'context_length_exceeded', param: 'output' } }],
+    [400, { error: { code: 'token_budget' } }],
+    [400, { error: { code: 'max_tokens' } }],
+    [400, { error: { code: 'max_output_tokens' } }],
+    [400, { error: { code: 'length' } }],
+    [400, { code: 'context_length_exceeded' }],
+  ])('rejects non-authoritative HTTP evidence %#', (status, body) => {
+    expect(classify('responses', status, JSON.stringify(body)).kind).not.toBe('input_context_exhausted');
   });
 
-  it('openai-codex: 429 with x-ratelimit-reset ISO → resetsAt populated', () => {
-    const ctx = { provider: 'openai-codex', model: 'gpt-5' };
-    const iso = '2030-01-01T00:00:00Z';
-    const failure = classifierFor('openai-codex').classifyHttp(mockResponse(429, { 'x-ratelimit-reset': iso }), '', ctx)
-      ?? defaultHttpClassifier(mockResponse(429, { 'x-ratelimit-reset': iso }), '', ctx);
-    expect(failure.kind).toBe('rate_limit');
-    expect(failure.kind === 'rate_limit' && failure.resetsAt).toBe(iso);
+  it.each(['', 'null', '[]', '"context_length_exceeded"', '{bad'])('rejects malformed or non-object HTTP body %p', (body) => {
+    expect(classify('chat', 400, body).kind).toBe('provider_protocol_error');
   });
 
-  it('HTTP 400 with context_length_exceeded body → token_budget_exceeded', () => {
-    const ctx = { provider: 'openai-chat', model: 'gpt-4' };
-    const failure = defaultHttpClassifier(mockResponse(400), '{"error":{"code":"context_length_exceeded"}}', ctx);
-    expect(failure.kind).toBe('token_budget_exceeded');
+  it('allows messages only for Chat transport', () => {
+    const body = JSON.stringify({ error: { code: 'context_length_exceeded', param: 'messages' } });
+    expect(classify('chat', 400, body).kind).toBe('input_context_exhausted');
+    expect(classify('responses', 400, body).kind).toBe('provider_protocol_error');
+    expect(classify('codex', 400, body).kind).toBe('provider_protocol_error');
+  });
+});
+
+describe('common HTTP and transport classification', () => {
+  it('preserves rate-limit metadata and common HTTP classifications', () => {
+    const limited = classifyHttpFailure('chat', mockResponse(429, { 'Retry-After': '12' }), '', { provider: 'openai-chat', model: 'm' });
+    expect(limited).toMatchObject({ kind: 'rate_limit', retryAfterMs: 12000 });
+    expect(classify('chat', 401, '').kind).toBe('auth_permanent');
+    expect(classify('chat', 500, '').kind).toBe('server_transient');
+    expect(classify('chat', 418, 'teapot').kind).toBe('provider_protocol_error');
   });
 
-  it('unrecognised well-formed 4xx → provider_protocol_error via default classifier', () => {
-    const ctx = { provider: 'openai-chat', model: 'gpt-4' };
-    const failure = defaultHttpClassifier(mockResponse(418), 'teapot', ctx);
-    expect(failure.kind).toBe('provider_protocol_error');
-    expect(failure.kind === 'provider_protocol_error' && failure.status).toBe(418);
-  });
-
-  it.each(['opencode-go', 'openai-codex', 'openai-chat', 'opencode', 'github-copilot', 'nvidia-nim'])('%s classifies common HTTP statuses consistently', (provider) => {
-    const ctx = { provider, model: 'm' };
-    for (const status of [400, 404, 422]) {
-      const response = mockResponse(status);
-      const failure = classifierFor(provider).classifyHttp(response, '{"error":"invalid model"}', ctx) ?? defaultHttpClassifier(response, '{"error":"invalid model"}', ctx);
-      expect(failure.kind).toBe('provider_protocol_error');
-    }
-    const limited = classifierFor(provider).classifyHttp(mockResponse(429, { 'Retry-After': '2' }), '', ctx) ?? defaultHttpClassifier(mockResponse(429, { 'Retry-After': '2' }), '', ctx);
-    expect(limited.kind).toBe('rate_limit');
-    expect(limited.kind === 'rate_limit' && limited.retryAfterMs).toBe(2000);
-    for (const status of [500, 502, 503, 504]) {
-      const response = mockResponse(status);
-      const failure = classifierFor(provider).classifyHttp(response, '', ctx) ?? defaultHttpClassifier(response, '', ctx);
-      expect(failure.kind).toBe('server_transient');
-    }
-  });
-
-  it('HTTP 401 → auth_permanent', () => {
-    const ctx = { provider: 'openai-chat', model: 'gpt-4' };
-    const failure = defaultHttpClassifier(mockResponse(401), '', ctx);
-    expect(failure.kind).toBe('auth_permanent');
-  });
-
-  it('HTTP 500 → server_transient', () => {
-    const ctx = { provider: 'openai-chat', model: 'gpt-4' };
-    const failure = defaultHttpClassifier(mockResponse(500), '', ctx);
-    expect(failure.kind).toBe('server_transient');
-  });
-
-  it('transport AbortError → cancelled', () => {
-    const err = Object.assign(new Error('aborted'), { name: 'AbortError' });
-    const failure = classifierFor('openai-chat').classifyTransport(err, { provider: 'openai-chat', model: 'm' });
-    expect(failure?.kind).toBe('cancelled');
-  });
-
-  it('transport ETIMEDOUT → timeout', () => {
-    const err = Object.assign(new Error('connect ETIMEDOUT 1.2.3.4:443'), { code: 'ETIMEDOUT' });
-    const failure = classifierFor('openai-chat').classifyTransport(err, { provider: 'openai-chat', model: 'm' });
-    expect(failure?.kind).toBe('timeout');
+  it('preserves transport cancellation and timeout classification', () => {
+    const ctx = { provider: 'openai-chat', model: 'm' };
+    expect(classifyTransportFailure(Object.assign(new Error('aborted'), { name: 'AbortError' }), ctx).kind).toBe('cancelled');
+    expect(classifyTransportFailure(Object.assign(new Error('connect failed'), { code: 'ETIMEDOUT' }), ctx).kind).toBe('timeout');
   });
 });

@@ -13,9 +13,8 @@ import { ProviderTurnFailure } from './llm-contracts.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import {
-  classifierFor,
+  classifyHttpFailure,
   classifyTransportFailure,
-  defaultHttpClassifier,
 } from './llm-failure-classifiers.js';
 import {
   beginRecordedExchange,
@@ -128,10 +127,8 @@ export class OpenAIChatGateway {
           .clone()
           .text()
           .catch(() => '');
-        const failure =
-          classifierFor(candidate.provider).classifyHttp(response, bodyText, ctx) ??
-          defaultHttpClassifier(response, bodyText, ctx);
-        if (failure.kind === 'token_budget_exceeded')
+        const failure = classifyHttpFailure('chat', response, bodyText, ctx);
+        if (failure.kind === 'input_context_exhausted')
           failure.message = appendFinalOutboundLlmRequestSectionSizesDiagnostic(
             failure.message,
             requestBody.messages[0]?.content ?? systemPrompt,

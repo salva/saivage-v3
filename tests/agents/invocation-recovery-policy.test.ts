@@ -181,11 +181,20 @@ describe('InvocationRecoveryPolicy', () => {
     expect(policy.decideFailure(responsesFailure({ status: 'in_progress', output: [] }), baseContext)).toMatchObject({ action: 'fail_invocation', markFailed: true, appendModelIssue: true });
     expect(policy.decideFailure(responsesFailure({ status: 'mystery', output: [] }), baseContext)).toMatchObject({ action: 'retry_same_after_delay', markFailed: false, appendModelIssue: true });
   });
+
+  it.each(['input_context_exhausted', 'output_token_limit_exceeded'] as const)('fails invocation without provider-health mutation for %s', (kind) => {
+    expect(policy.decideFailure(new LlmRequestError({ kind, provider: 'openai-compatible', status: 400, message: 'structured limit failure' }), baseContext)).toMatchObject({
+      failure: { kind },
+      action: 'fail_invocation',
+      markFailed: false,
+      appendModelIssue: true,
+    });
+  });
 });
 
 function responsesFailure(payload: Record<string, unknown>): LlmRequestError {
   try {
-    parseOpenAIResponsesJson(JSON.stringify(payload), { provider: 'openai-compatible', model: 'gpt-test', sourceInputId: 'input-1' });
+    parseOpenAIResponsesJson(JSON.stringify(payload), { provider: 'openai-compatible', model: 'gpt-test', sourceInputId: 'input-1', responseStatus: 200 });
   } catch (error) {
     if (error instanceof LlmRequestError) return error;
     throw error;

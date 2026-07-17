@@ -4,7 +4,7 @@ import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, t
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/message-identity.js';
 import { LlmRequestError } from './llm-errors.js';
-import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
+import { classifyHttpFailure, classifyTransportFailure } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
 import { serializeToolsForCodex } from './tool-definition-serializer.js';
@@ -78,8 +78,7 @@ export class OpenAICodexGateway {
       if (!response.ok) {
         const ctx = { provider: candidate.provider, model: candidate.model };
         const bodyText = await response.clone().text().catch(() => '');
-        const failure = classifierFor(candidate.provider).classifyHttp(response, bodyText, ctx)
-          ?? defaultHttpClassifier(response, bodyText, ctx);
+        const failure = classifyHttpFailure('codex', response, bodyText, ctx);
         if (handle && !recordedErr) {
           recordedErr = true;
           await handle.recordError({ errorName: 'LlmRequestError', message: failure.message, status: response.status });
@@ -90,12 +89,12 @@ export class OpenAICodexGateway {
 
       if (handle) {
         const tee = teeStreamForRecorder(response.body);
-        const result = await readOpenAICodexStream(tee.stream);
+        const result = await readOpenAICodexStream(tee.stream, response.status);
         streamBuffer = tee.getBuffer();
         await handle.recordResponse({ status: response.status, token_usage: result.usage }, firedTerminalFromCodexResult(result, opts));
         return { result, provider_exchanges: opts.recorder?.settledAttempts() ?? [] };
       }
-      const result = await readOpenAICodexStream(response.body);
+      const result = await readOpenAICodexStream(response.body, response.status);
       return { result, provider_exchanges: opts.recorder?.settledAttempts() ?? [] };
     } catch (err) {
       if (handle && !recordedErr) await recordResponseError(handle, err);

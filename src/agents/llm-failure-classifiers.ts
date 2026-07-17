@@ -6,12 +6,8 @@ export interface ClassifierContext {
   model: string;
 }
 
-export interface ProviderFailureClassifier {
-  classifyHttp(response: Response, bodyText: string, ctx: ClassifierContext): LlmTransportFailure | undefined;
-  classifyTransport(err: unknown, ctx: ClassifierContext): LlmTransportFailure | undefined;
-}
-
 export type KnownProvider = 'openai-codex' | 'opencode-go' | 'openai-chat' | 'opencode' | 'github-copilot' | 'nvidia-nim';
+export type LlmHttpTransport = 'chat' | 'responses' | 'codex';
 
 function detail(bodyText: string, source: string): string {
   if (!bodyText) return '';
@@ -42,11 +38,30 @@ function bodyMatches(bodyText: string, fragment: string): boolean {
   return bodyText.toLowerCase().includes(fragment.toLowerCase());
 }
 
-export function defaultHttpClassifier(response: Response, bodyText: string, ctx: ClassifierContext): LlmTransportFailure {
+export function classifyHttpFailure(
+  transport: LlmHttpTransport,
+  response: Response,
+  bodyText: string,
+  ctx: ClassifierContext,
+): LlmTransportFailure {
   const status = response.status;
   const provider = ctx.provider;
   const source = `llm-${provider}`;
   const d = detail(bodyText, source);
+
+  if (status === 400) {
+    const body = parseJsonObject(bodyText);
+    const error = body === undefined ? undefined : directObject(body['error']);
+    const allowedParams = transport === 'chat' ? ['input', 'messages'] : ['input'];
+    if (error !== undefined && isInputContextErrorObject(error, allowedParams)) {
+      return {
+        kind: 'input_context_exhausted',
+        provider,
+        status,
+        message: `LLM input context exhausted (HTTP ${status})${d}`,
+      };
+    }
+  }
 
   if (status === 401 || status === 403) {
     return { kind: 'auth_permanent', provider, status, message: `LLM authentication failed (HTTP ${status})${d}` };
@@ -58,9 +73,6 @@ export function defaultHttpClassifier(response: Response, bodyText: string, ctx:
     if (retryAfterMs !== undefined) (failure as Extract<LlmTransportFailure, { kind: 'rate_limit' }>).retryAfterMs = retryAfterMs;
     if (resetsAt !== undefined) (failure as Extract<LlmTransportFailure, { kind: 'rate_limit' }>).resetsAt = resetsAt;
     return failure;
-  }
-  if (status === 400 && bodyMatches(bodyText, 'context_length_exceeded')) {
-    return { kind: 'token_budget_exceeded', provider, status, message: `LLM token budget exceeded (HTTP ${status})${d}` };
   }
   if (status >= 500) {
     return { kind: 'server_transient', provider, status, message: `LLM server error (HTTP ${status})${d}` };
@@ -75,6 +87,34 @@ export function defaultHttpClassifier(response: Response, bodyText: string, ctx:
     message: `LLM provider protocol error (HTTP ${status})${d}`,
     bodyPreview: bodyText.slice(0, 500),
   };
+}
+
+export function isInputContextErrorObject(
+  error: Record<string, unknown>,
+  allowedParams: readonly string[],
+): boolean {
+  const code = error['code'];
+  const type = error['type'];
+  const markerMatches = code === 'context_length_exceeded'
+    ? type === undefined || type === null || type === 'invalid_request_error' || type === 'context_length_exceeded'
+    : (code === undefined || code === null) && type === 'context_length_exceeded';
+  if (!markerMatches) return false;
+  const param = error['param'];
+  return param === undefined || param === null || (typeof param === 'string' && allowedParams.includes(param));
+}
+
+function parseJsonObject(bodyText: string): Record<string, unknown> | undefined {
+  try {
+    return directObject(JSON.parse(bodyText));
+  } catch {
+    return undefined;
+  }
+}
+
+function directObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function defaultTransportClassifier(err: unknown, ctx: ClassifierContext): LlmTransportFailure | undefined {
@@ -97,61 +137,7 @@ function defaultTransportClassifier(err: unknown, ctx: ClassifierContext): LlmTr
   return undefined;
 }
 
-const OPENCODE_GO_CONTRACT_FRAGMENTS = [
-  'You cannot specify response format and function call at the same time',
-];
-
-const OpenCodeGoClassifier: ProviderFailureClassifier = {
-  classifyHttp(response, bodyText, ctx) {
-    if (response.status === 400) {
-      const bodyPreview = bodyText.slice(0, 500);
-      for (const fragment of OPENCODE_GO_CONTRACT_FRAGMENTS) {
-        if (bodyMatches(bodyText, fragment)) {
-          return {
-            kind: 'provider_protocol_error',
-            provider: ctx.provider,
-            status: 400,
-            message: `LLM provider protocol error (HTTP 400)${detail(bodyText, `llm-${ctx.provider}`)}`,
-            bodyPreview,
-          };
-        }
-      }
-      // Any other HTTP 400 from opencode-go is also a provider protocol error.
-      return {
-        kind: 'provider_protocol_error',
-        provider: ctx.provider,
-        status: 400,
-        message: `LLM provider protocol error (HTTP 400)${detail(bodyText, `llm-${ctx.provider}`)}`,
-        bodyPreview,
-      };
-    }
-    return undefined;
-  },
-  classifyTransport(err, ctx) {
-    return defaultTransportClassifier(err, ctx);
-  },
-};
-
-const PassthroughClassifier: ProviderFailureClassifier = {
-  classifyHttp() { return undefined; },
-  classifyTransport(err, ctx) { return defaultTransportClassifier(err, ctx); },
-};
-
-const CLASSIFIERS: Record<string, ProviderFailureClassifier> = {
-  'opencode-go': OpenCodeGoClassifier,
-  'openai-codex': PassthroughClassifier,
-  'openai-chat': PassthroughClassifier,
-  'opencode': PassthroughClassifier,
-  'github-copilot': PassthroughClassifier,
-  'nvidia-nim': PassthroughClassifier,
-};
-
-export function classifierFor(provider: string): ProviderFailureClassifier {
-  return CLASSIFIERS[provider] ?? PassthroughClassifier;
-}
-
 export function classifyTransportFailure(err: unknown, ctx: ClassifierContext): LlmTransportFailure {
-  return classifierFor(ctx.provider).classifyTransport(err, ctx)
-      ?? defaultTransportClassifier(err, ctx)
+  return defaultTransportClassifier(err, ctx)
       ?? { kind: 'unknown', provider: ctx.provider, message: err instanceof Error ? err.message : String(err) };
 }
