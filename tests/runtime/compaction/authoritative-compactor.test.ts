@@ -181,7 +181,7 @@ function projectWithOversizedOpenRound(): string {
   const root = tempRoot();
   const timestamp = '2026-07-17T00:00:00.000Z';
   appendConversationBatch(root, [
-    message('open-activation', 'system', 'activity', JSON.stringify({ event: 'activation_open' }), 0, timestamp),
+    message('open-activation', 'system', 'activity', activationContent(99, timestamp), 0, timestamp),
     ...Array.from({ length: 10 }, (_, index) => message(`open-message-${index}`, 'user', 'text', `${index}:${'x'.repeat(320)}`, index + 1, timestamp)),
   ]);
   return root;
@@ -190,9 +190,13 @@ function projectWithOversizedOpenRound(): string {
 function roundRows(ordinal: number, contentLength = 400): AgentMessage[] {
   const timestamp = `2026-07-17T00:00:${String(ordinal).padStart(2, '0')}.000Z`;
   return [
-    message(`activation-${ordinal}`, 'system', 'activity', JSON.stringify({ event: 'activation_open' }), 0, timestamp),
+    message(`activation-${ordinal}`, 'system', 'activity', activationContent(ordinal, timestamp), 0, timestamp),
     message(`message-${ordinal}`, 'user', 'text', `${ordinal}:${'x'.repeat(contentLength)}`, 1, timestamp),
   ];
+}
+
+function activationContent(ordinal: number, timestamp: string): string {
+  return JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal + 1).padStart(12, '0')}`, timestamp });
 }
 
 function message(id: string, role: AgentMessage['role'], kind: AgentMessage['kind'], content: string, messageIndex: number, timestamp: string): AgentMessage {

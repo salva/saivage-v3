@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
 import type { ValidatedConversation } from '../../contracts/conversation-compaction.js';
@@ -47,7 +47,7 @@ export function appendUserContextMessage(
   return message;
 }
 
-export function appendActivationMarker(conversations: ConversationFileContext, sessionId: string, payload: { event: 'activation_open'; role: string; card_id: string; input_id: string }): AgentMessage {
+export function appendActivationMarker(conversations: ConversationFileContext, sessionId: string, payload: { event: 'activation_open'; role: 'planner' | 'reviewer' | 'executor'; card_id: string; input_id: string }): AgentMessage {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
   const message = agentMessageSchema.parse({
@@ -63,6 +63,48 @@ export function appendActivationMarker(conversations: ConversationFileContext, s
   });
   appendConversationBatch(conversations.projectRoot, [message], conversations.changes);
   return message;
+}
+
+export function appendAnalystIngressBatch(
+  conversations: ConversationFileContext,
+  sessionId: string,
+  inputId: string,
+  workspaceContent: string,
+  userContent: string,
+): readonly [AgentMessage, AgentMessage, AgentMessage] {
+  const marker = buildAnalystActivationMarker(sessionId, inputId);
+  const workspace = buildContextTextMessage(sessionId, 'system', workspaceContent);
+  const user = buildContextTextMessage(sessionId, 'user', userContent);
+  const rows = [marker, workspace, user] as const;
+  appendConversationBatch(conversations.projectRoot, rows, conversations.changes);
+  return rows;
+}
+
+export function appendAnalystRestartBatch(
+  conversations: ConversationFileContext,
+  sessionId: string,
+  inputId: string,
+  userContent: string,
+): readonly [AgentMessage, AgentMessage] {
+  const rows = [buildAnalystActivationMarker(sessionId, inputId), buildContextTextMessage(sessionId, 'user', userContent)] as const;
+  appendConversationBatch(conversations.projectRoot, rows, conversations.changes);
+  return rows;
+}
+
+function buildAnalystActivationMarker(sessionId: string, inputId: string): AgentMessage {
+  if (!sessionId.startsWith('analyst:')) throw new Error(`Analyst activation marker requires an analyst source session, received '${sessionId}'.`);
+  const timestamp = new Date().toISOString();
+  return agentMessageSchema.parse({
+    id: `${sessionId}:activation:${randomUUID()}`,
+    session_id: sessionId,
+    role: 'system',
+    kind: 'activity',
+    content: JSON.stringify({ event: 'activation_open', role: 'analyst', input_id: inputId, timestamp }),
+    round_id: generateRoundId('pre'),
+    message_index: 0,
+    block_index: 0,
+    timestamp,
+  });
 }
 
 export function appendRecoveryNotice(conversations: ConversationFileContext, sessionId: string, inputId: string): AgentMessage {

@@ -1,4 +1,4 @@
-import type { AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
+import type { ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import {
@@ -19,12 +19,11 @@ import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
-import { appendCanonicalUserText, buildContextTextMessage, providerConversationProjection, readConversationMessages } from '../runtime/actors/conversation-session.js';
+import { appendAnalystIngressBatch, appendAnalystRestartBatch, providerConversationProjection, readConversationMessages } from '../runtime/actors/conversation-session.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { createConversationChangePublisher } from '../runtime/actors/conversation-publisher.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
-import { appendConversationBatch } from '../persistence/conversation-file.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
@@ -302,9 +301,7 @@ export class AnalystSessionActor extends BaseActor {
     const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
     const previousToolCallFingerprints = new Set<string>();
     let noProgressDirectiveSent = false;
-    const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(input.workspaceContext));
-    const userMessage = buildContextTextMessage(sessionId, 'user', input.userContent);
-    const invocationInput = this.buildInvocationInput([workspaceContextMessage, userMessage], surface);
+    const invocationInput = this.buildInvocationInput(input, surface);
     let outcome: LLMActorOutcome;
 
     try {
@@ -406,8 +403,8 @@ export class AnalystSessionActor extends BaseActor {
 
   private scheduleConfirmedRestart(input: AnalystTurnInput): AnalystResponse {
     if (!this.args.restartServerAvailable || !this.args.restartPort) throw new Error('Restart confirmation is unavailable without authenticated operator restart capability.');
-    const appended = appendCanonicalUserText(this.args.runtimeDeps.conversations, this.sessionId, input.userContent);
-    this.llm.conversationPublisher?.entryAppended(appended);
+    const rows = appendAnalystRestartBatch(this.args.runtimeDeps.conversations, this.sessionId, randomUUID(), input.userContent);
+    for (const row of rows) this.llm.conversationPublisher?.entryAppended(row);
     this.args.restartPort.schedule();
     return this.response(undefined, { status: 'scheduled' });
   }
@@ -431,7 +428,7 @@ export class AnalystSessionActor extends BaseActor {
     }
   }
 
-  private buildInvocationInput(newMessages: AgentMessage[], surface: InvocationSurface): PreparedLlmInvocationInput {
+  private buildInvocationInput(turn: AnalystTurnInput, surface: InvocationSurface): PreparedLlmInvocationInput {
     const tools = surfaceToolDefinitions(surface);
     const modelParams = getModelParamsForRole(this.args.config, 'analyst');
     const inputId = randomUUID();
@@ -441,7 +438,7 @@ export class AnalystSessionActor extends BaseActor {
       projectContext: this.buildProjectContext(),
     });
     const preparedCompaction = prepareCompaction(this.args.runtimeDeps.compactionPolicy, systemPrompt, tools, modelParams.maxTokens);
-    appendConversationBatch(this.args.runtimeDeps.conversations.projectRoot, newMessages, this.args.runtimeDeps.conversations.changes);
+    const newMessages = appendAnalystIngressBatch(this.args.runtimeDeps.conversations, this.sessionId, inputId, buildWorkspaceContextNote(turn.workspaceContext), turn.userContent);
     for (const message of newMessages) this.llm.conversationPublisher?.entryAppended(message);
     return {
       inputId,

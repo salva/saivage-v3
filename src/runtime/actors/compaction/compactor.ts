@@ -98,7 +98,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const conversation = readConversation(projectRoot, sessionId);
   const sourceRows = conversation.sourceRows;
   const latest = conversation.latestCompaction;
-  const classified = classifyConversationRounds(sourceRows);
+  const classified = classifyConversationRounds(sessionId, sourceRows);
   const rejectedEstimatedProviderMessageTokens = estimateProviderConversationTokens(args.input.providerConversation);
   let smallestCandidateEstimatedProviderMessageTokens: number | null = null;
   const normal = computeSlidingCompactionBands(classified.rounds, { tail_budget_tokens: budget.normalTailBudget, middle_budget_tokens: budget.normalMiddleBudget, snap: budget.snap });

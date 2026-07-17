@@ -53,12 +53,13 @@ export function validateConversationRows(sourceSessionId: string, physicalRows: 
     }
     compactions.push(validateCompaction(row, sourceRows));
   }
+  classifyConversationSourceRows(sourceSessionId, sourceRows);
   return { sourceSessionId, physicalRows: [...physicalRows], sourceRows, compactions, latestCompaction: compactions.at(-1) ?? null };
 }
 
 function validateCompaction(metadataRow: AgentMessage, precedingSourceRows: readonly AgentMessage[]): ValidatedContextCompaction {
   const payload = parseCanonicalContextCompaction(metadataRow.content);
-  const classification = classifyConversationSourceRows(precedingSourceRows);
+  const classification = classifyConversationSourceRows(metadataRow.session_id, precedingSourceRows);
   const byId = new Map(precedingSourceRows.map((row) => [row.id, row]));
   const groups: ValidatedCompactionGroup[] = [];
   let roundIndex = 0;

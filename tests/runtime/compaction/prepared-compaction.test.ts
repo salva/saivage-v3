@@ -50,9 +50,9 @@ describe('prepared compaction estimates', () => {
     const base = prepareCompaction(config, 'system', []);
     expect(shouldCompact(invocation([privateRow], { ...base, triggerMessageThreshold: 1 }))).toBe(false);
     expect(shouldCompact(invocation([privateRow, visible], { ...base, triggerMessageThreshold: estimateMessageTokens(visible) }))).toBe(true);
-    const activation = message('activation', 'system', 'activity', JSON.stringify({ event: 'activation_open' }));
-    const withoutPrivate = classifyConversationRounds([activation, visible]);
-    const withPrivate = classifyConversationRounds([activation, privateRow, visible]);
+    const activation = message('activation', 'system', 'activity', activationContent());
+    const withoutPrivate = classifyConversationRounds('planner:project', [activation, visible]);
+    const withPrivate = classifyConversationRounds('planner:project', [activation, privateRow, visible]);
     expect(withPrivate.rounds[0]!.estimated_tokens).toBe(withoutPrivate.rounds[0]!.estimated_tokens);
     const bands = (rounds: typeof withPrivate.rounds) => {
       const selected = computeSlidingCompactionBands(rounds, { tail_budget_tokens: 0, middle_budget_tokens: 0, snap: 'compact_straddler' });
@@ -62,10 +62,10 @@ describe('prepared compaction estimates', () => {
   });
 
   it('classifies each source row with one estimate and stores only the consumed round aggregate', () => {
-    const marker = message('marker', 'system', 'activity', JSON.stringify({ event: 'activation_open' }));
+    const marker = message('marker', 'system', 'activity', activationContent());
     const first = message('first', 'user', 'text', 'first');
     const second = message('second', 'assistant', 'text', 'second');
-    const classified = classifyConversationRounds([marker, first, second]);
+    const classified = classifyConversationRounds('planner:project', [marker, first, second]);
     expect(classified).not.toHaveProperty('total_estimated_tokens');
     expect(classified.rounds[0]).not.toHaveProperty('start_token');
     expect(classified.rounds[0]).not.toHaveProperty('end_token');
@@ -153,6 +153,10 @@ function invocation(contextMessages: AgentMessage[], preparedCompaction: Prepare
 
 function message(id: string, role: AgentMessage['role'], kind: AgentMessage['kind'], content: string): AgentMessage {
   return agentMessageSchema.parse({ id, session_id: 'planner:project', role, kind, content, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' });
+}
+
+function activationContent(): string {
+  return JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp: '2026-07-16T00:00:00.000Z' });
 }
 
 function privatePair(): AgentMessage[] {

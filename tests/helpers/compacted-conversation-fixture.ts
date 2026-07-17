@@ -23,8 +23,12 @@ export function compactedConversationFixture(sessionId: string, includePrivatePa
 
 function round(sessionId: string, name: string, index: number): AgentMessage[] {
   const roundId = `r-user-${String(index).padStart(32, '0')}`;
+  const role = sessionId.slice(0, sessionId.indexOf(':'));
+  const marker = role === 'analyst'
+    ? { event: 'activation_open', role, input_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, timestamp: TIMESTAMP }
+    : { event: 'activation_open', role, card_id: sessionId.slice(sessionId.indexOf(':') + 1), input_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, timestamp: TIMESTAMP };
   return [
-    agentMessageSchema.parse({ id: `${name}-activation`, session_id: sessionId, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open' }), round_id: roundId, message_index: 0, block_index: 0, timestamp: TIMESTAMP }),
+    agentMessageSchema.parse({ id: `${name}-activation`, session_id: sessionId, role: 'system', kind: 'activity', content: JSON.stringify(marker), round_id: roundId, message_index: 0, block_index: 0, timestamp: TIMESTAMP }),
     agentMessageSchema.parse({ id: `${name}-text`, session_id: sessionId, role: 'user', kind: 'text', content: `${name} covered history`, round_id: roundId, message_index: 1, block_index: 0, timestamp: TIMESTAMP }),
   ];
 }

@@ -60,10 +60,14 @@ describe('runtime compaction composition', () => {
     expect(runtimeApiFactory).toHaveBeenCalledTimes(1);
     expect(deps.compactionPolicy).toEqual({ input_budget_tokens: 10000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim' });
     expect(app.analystDeps.compactionPolicy).toBe(deps.compactionPolicy);
+    expect(app.analystDeps.compactor).toBe(deps.compactor);
     expect(app.analystDeps.summarizerProvider).toBe(deps.summarizerProvider);
     expect(app.analystDeps.compactor).toEqual({ shouldCompact: expect.any(Function), compact: expect.any(Function) });
     expect(deps).not.toHaveProperty('config');
     expect(deps).not.toHaveProperty('summarizer_candidate');
+    await app.analystRuntime.submit('global', { userContent: 'route through the ordinary analyst role' });
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ role: 'analyst', sessionId: 'analyst:global', preparedCompaction: expect.any(Object) }));
+    expect(invoke.mock.calls[0]![0]).not.toHaveProperty('candidateChain');
     const input: LlmInvocationInput = { inputId: 'id', agentId: 'llm:compaction-summarizer', role: 'analyst', sessionId: 'summary:test', systemPrompt: 'summarize', providerConversation: { sourceSessionId: 'summary:test', messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 2000 }, capabilityRequest: {}, episodeContext: { compaction: true } };
     await deps.summarizerProvider.completeTurn(input, new AbortController().signal);
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ candidateChain: [{ provider: 'test', account: null, model: 'org/summary/model' }] }));

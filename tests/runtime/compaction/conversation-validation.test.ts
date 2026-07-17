@@ -107,7 +107,8 @@ describe('conversation compaction validation', () => {
 
 function sourceRound(name: string, minute = 0, repair = false): AgentMessage[] {
   const timestamp = `2026-07-16T00:${String(minute).padStart(2, '0')}:00.000Z`;
-  const rows: AgentMessage[] = [message(`${name}-activation`, 'activity', JSON.stringify({ event: 'activation_open' }), timestamp), message(`${name}-text`, 'text', name, timestamp)];
+  const inputId = `00000000-0000-4000-8000-${String(minute + 1).padStart(12, '0')}`;
+  const rows: AgentMessage[] = [message(`${name}-activation`, 'activity', JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: inputId, timestamp }), timestamp), message(`${name}-text`, 'text', name, timestamp)];
   if (repair) rows.push(message(`${name}-repair`, 'model_repair', 'repair', timestamp));
   return rows;
 }

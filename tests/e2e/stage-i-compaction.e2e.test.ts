@@ -112,7 +112,7 @@ describe('Stage-I compaction contracts', () => {
       const session_id = 'planner:project';
       const source_input_id = '00000000-0000-4000-8000-000000000099';
       const rows = [
-        { id: 'hard-activation', session_id, role: 'system' as const, kind: 'activity' as const, content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source_input_id }), round_id: 'r-pre-99999999999999999999999999999999', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' },
+        { id: 'hard-activation', session_id, role: 'system' as const, kind: 'activity' as const, content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source_input_id, timestamp: '2026-07-15T00:01:00.000Z' }), round_id: 'r-pre-99999999999999999999999999999999', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' },
         ...Array.from({ length: 10 }, (_, index) => ({ id: `hard-message-${index}`, session_id, role: 'user' as const, kind: 'text' as const, content: `${index}:${'x'.repeat(320)}`, round_id: 'r-user-99999999999999999999999999999999', message_index: index + 1, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' })),
       ];
       appendConversationBatch(root, rows);
@@ -190,7 +190,7 @@ describe('Stage-I compaction contracts', () => {
       const inputId = '00000000-0000-4000-8000-000000000099';
       const timestamp = '2026-07-15T00:01:00.000Z';
       const rows = [
-        { id: 'protected-activation', session_id: sessionId, role: 'system' as const, kind: 'activity' as const, content: JSON.stringify({ event: 'activation_open' }), round_id: 'r-pre-99999999999999999999999999999999', message_index: 0, block_index: 0, timestamp },
+        { id: 'protected-activation', session_id: sessionId, role: 'system' as const, kind: 'activity' as const, content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: 'r-pre-99999999999999999999999999999999', message_index: 0, block_index: 0, timestamp },
         { id: 'protected-prefix', session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: 'x'.repeat(600), round_id: 'r-user-99999999999999999999999999999999', message_index: 1, block_index: 0, timestamp },
         { id: `${inputId}:tool-call:call-1`, session_id: sessionId, role: 'assistant' as const, kind: 'tool_call' as const, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), tool: 'read', tool_call_id: 'call-1', round_id: 'r-assistant-99999999999999999999999999999999', message_index: 2, block_index: 0, timestamp },
         { id: `${inputId}:tool-result:call-1`, session_id: sessionId, role: 'tool' as const, kind: 'tool_result' as const, content: JSON.stringify({ success: true }), tool: 'read', tool_call_id: 'call-1', round_id: 'r-user-99999999999999999999999999999999', message_index: 3, block_index: 0, timestamp },
@@ -227,7 +227,9 @@ function round(id: string, tokens: number): ClassifiedRound {
 
 function appendRawRound(root: string, ordinal: number, session_id = 'planner:project'): void {
   const timestamp = `2026-07-15T00:00:${String(ordinal).padStart(2, '0')}.000Z`;
-  appendConversationBatch(root, [{ id: `activation-${ordinal}`, session_id, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}` }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id, role: 'user', kind: 'text', content: `${ordinal}:${'x'.repeat(400)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]);
+  const role = session_id.slice(0, session_id.indexOf(':'));
+  const cardId = session_id.slice(session_id.indexOf(':') + 1);
+  appendConversationBatch(root, [{ id: `activation-${ordinal}`, session_id, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role, card_id: cardId, input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id, role: 'user', kind: 'text', content: `${ordinal}:${'x'.repeat(400)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]);
 }
 
 function invocationFor(sessionId: string, contextMessages: AgentMessage[], compactionConfig: AutonomousCompactionPolicy): LlmInvocationInput & { preparedCompaction: NonNullable<LlmInvocationInput['preparedCompaction']> } {

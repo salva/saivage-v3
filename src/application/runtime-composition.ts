@@ -30,6 +30,7 @@ import { RuntimeInterventionBinding } from './intervention-readiness.js';
 import { RuntimeControlService, type RuntimeControlApplicationPort, type RuntimeControlMechanics } from './runtime-control-service.js';
 import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
+import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -39,6 +40,7 @@ export interface RuntimeApiFactoryDeps {
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
   compactionPolicy: AutonomousCompactionPolicy;
+  compactor: CompactorPort;
   summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner;
   runtimeGate: RuntimeGate;
@@ -94,6 +96,7 @@ function buildAnalystDeps(input: {
   appLogs: AppLogContext;
   interventionReadiness: RuntimeInterventionBinding;
   compactionPolicy: AutonomousCompactionPolicy;
+  compactor: CompactorPort;
   summarizerProvider: SummarizerProviderPort;
 }): AnalystRuntimeDeps {
   return {
@@ -106,7 +109,7 @@ function buildAnalystDeps(input: {
     emitAnalystToolInvoked: input.emitAnalystToolInvoked,
     provider: createInvocationServiceProvider(input.invocationService),
     compactionPolicy: input.compactionPolicy,
-    compactor: { shouldCompact, compact },
+    compactor: input.compactor,
     summarizerProvider: input.summarizerProvider,
     processRunner: input.processRunner,
     analystProcessRootScope: input.processRunner.analystRootScope,
@@ -152,6 +155,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
   };
   const { enabled: _enabled, summarizer_candidate: _summarizerCandidate, ...compactionPolicy } = config.compaction;
+  const compactor: CompactorPort = { shouldCompact, compact };
   const processRegistry = new ManagedProcessGroupRegistry();
   const processRunner = new ProcessRunner(projectRoot, processRegistry);
   const runtimeGate = new RuntimeGate();
@@ -161,7 +165,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
-  const runtimeMechanics = runtimeFactory({ projectRoot, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, compactionPolicy, summarizerProvider, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
+  const runtimeMechanics = runtimeFactory({ projectRoot, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
   const runtimeControl = new RuntimeControlService({ projectRoot, interventionBinding, mechanics: runtimeMechanics });
   const runtimeComposition = createComposedRuntimeApi({
     runtimeApi: runtimeControl,
@@ -190,6 +194,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       appLogs: services.appLogs,
       interventionReadiness: interventionBinding,
       compactionPolicy,
+      compactor,
       summarizerProvider,
     });
     return analystDepsCache;

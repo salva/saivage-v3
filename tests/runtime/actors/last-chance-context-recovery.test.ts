@@ -12,6 +12,7 @@ import { CompactionAppendError, CompactionSummaryConstructionError, prepareCompa
 import { SummarizerExchangeProjectionError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
+import { appendAnalystIngressBatch } from '../../../src/runtime/actors/conversation-session.js';
 
 const roots: string[] = [];
 const INITIAL_INPUT_ID = '00000000-0000-4000-8000-000000000001';
@@ -42,7 +43,8 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     };
     const compact = jest.fn<CompactorPort['compact']>(async () => { ordering.push('compact'); return compacted(compactedProjection, 17); });
     const { actor, root } = actorHarness(role, agentId, provider, compact);
-    appendConversationBatch(root, [source, trigger]);
+    if (role === 'analyst') appendAnalystIngressBatch({ projectRoot: root }, agentId, INITIAL_INPUT_ID, source.content, trigger.content);
+    else appendConversationBatch(root, [source, trigger]);
     const initial = input(role, agentId, firstProjection);
 
     await expect(actor.turn(initial)).resolves.toMatchObject({ type: 'result', result: { content: 'done' } });
@@ -58,7 +60,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     expect(project).toHaveBeenCalledTimes(1);
     expect(project.mock.calls[0]![2].map((attempt) => [attempt.status, attempt.attempt_index])).toEqual([['error', 0], ['ok', 1]]);
     const rows = readConversation(root, agentId).physicalRows;
-    expect(rows.filter((row) => row.id === 'trigger')).toHaveLength(1);
+    expect(rows.filter((row) => row.content === 'logical input')).toHaveLength(1);
     expect(rows.filter((row) => row.kind === 'model_issue')).toHaveLength(0);
     expect(rows.filter((row) => row.role === 'assistant' && row.kind === 'text')).toHaveLength(1);
   });

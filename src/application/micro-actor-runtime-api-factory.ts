@@ -4,7 +4,6 @@ import type { RuntimeControlMechanics } from './runtime-control-service.js';
 import type { LLMProviderPort, ProjectRootCardReader } from '../runtime/actors/index.js';
 import type { CardService } from '../cards/card-service.js';
 import type { InvocationService } from '../agents/invocation-service.js';
-import { compact, shouldCompact } from '../runtime/actors/compaction/compactor.js';
 import type { AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
@@ -17,6 +16,7 @@ import type { RuntimeInterventionBinding } from './intervention-readiness.js';
 import type { InvocationRequest } from '../agents/invocation-service.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
+import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
@@ -26,6 +26,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
   compactionPolicy: AutonomousCompactionPolicy;
+  compactor: CompactorPort;
   summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner;
   runtimeGate?: RuntimeGate;
@@ -44,7 +45,7 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     actorStore: deps.cardStore,
     interventionBinding: deps.interventionBinding,
     provider: createInvocationServiceProvider(deps.invocationService),
-    compactor: { shouldCompact, compact },
+    compactor: deps.compactor,
     compactionConfig: deps.compactionPolicy,
     summarizerProvider: deps.summarizerProvider,
     processRunner: deps.processRunner,

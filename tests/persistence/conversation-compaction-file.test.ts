@@ -59,7 +59,8 @@ describe('conversation compaction file persistence', () => {
 });
 
 function activation(): AgentMessage {
-  return agentMessageSchema.parse({ id: 'activation', session_id: 'planner:project', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open' }), round_id: 'r-pre-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' });
+  const timestamp = '2026-07-16T00:00:00.000Z';
+  return agentMessageSchema.parse({ id: 'activation', session_id: 'planner:project', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp }), round_id: 'r-pre-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp });
 }
 
 function metadata(id: string, hash: string): AgentMessage {

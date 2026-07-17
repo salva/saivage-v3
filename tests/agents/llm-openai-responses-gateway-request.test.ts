@@ -47,8 +47,8 @@ describe('OpenAI Responses request shape', () => {
   });
 
   it('builds and sends one byte-identical latest-only candidate from validated C1/C2 state', async () => {
-    const fixture = compactedConversationFixture('s1', true);
-    const providerConversation = providerConversationProjection(validateConversationRows('s1', fixture.rows));
+    const fixture = compactedConversationFixture('planner:project', true);
+    const providerConversation = providerConversationProjection(validateConversationRows('planner:project', fixture.rows));
     const opts: LlmCompleteOptions = { inputId: 'input-3', phase: 'tools', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: { kind: 'auto' }, max_tokens: 123 };
     const capabilities = { transportProtocol: 'openai-responses' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, streaming: false, contextWindowTokens: 10000, maxOutputTokens: 1000, quirks: [] };
     const built = buildCandidateRequest({ candidate: CANDIDATE, capabilities, systemPrompt: 'role prompt', providerConversation, options: opts });
@@ -58,7 +58,7 @@ describe('OpenAI Responses request shape', () => {
       return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }), { status: 200 });
     });
 
-    await new OpenAIResponsesGateway({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', capabilities }).complete(CANDIDATE, 'role prompt', providerConversation, 's1', { ...opts, builtCandidateRequest: built });
+    await new OpenAIResponsesGateway({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', capabilities }).complete(CANDIDATE, 'role prompt', providerConversation, 'planner:project', { ...opts, builtCandidateRequest: built });
 
     const body = JSON.parse(built.serializedBody) as { instructions: string; input: unknown[] };
     expect(body.instructions).toBe(`role prompt\n\n--- system context ---\nRound one-activation:\n${fixture.c2Summary}\n\nRound two-activation:\n${fixture.c2Summary}`);

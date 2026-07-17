@@ -29,11 +29,11 @@ export type ClassifiedConversation = {
   rounds: ClassifiedRound[];
 };
 
-export function classifyConversationRounds(messages: AgentMessage[]): ClassifiedConversation {
+export function classifyConversationRounds(sourceSessionId: string, messages: AgentMessage[]): ClassifiedConversation {
   const sourceRows = messages.filter((message) => message.kind !== 'context_compaction');
   const classifiedRows = sourceRows.map((message) => ({ message, estimated_tokens: estimateMessageTokens(message) }));
   const byId = new Map(classifiedRows.map((row) => [row.message.id, row]));
-  const source = classifyConversationSourceRows(sourceRows);
+  const source = classifyConversationSourceRows(sourceSessionId, sourceRows);
   const preamble = source.preamble.map((row) => byId.get(row.id)!);
   const rounds = source.rounds.map((round) => buildRound(byId.get(round.activationMarker.id)!, round.rows.map((row) => byId.get(row.id)!)));
 

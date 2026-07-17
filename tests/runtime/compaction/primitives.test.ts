@@ -11,11 +11,11 @@ describe('raw-authoritative compaction primitives', () => {
   it('excludes metadata from source classification and uses only repair segment kinds', () => {
     const rows = [
       msg({ id: 'static', role: 'system', kind: 'text', content: 'static' }),
-      msg({ id: 'activation', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open' }) }),
+      msg({ id: 'activation', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp }) }),
       msg({ id: 'failed', role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'call', content: JSON.stringify({ success: false, error: 'Reviewer requested rework' }) }),
       msg({ id: 'repair', role: 'user', kind: 'model_repair', content: 'repair' }),
     ];
-    const classified = classifyConversationRounds(rows);
+    const classified = classifyConversationRounds('planner:project', rows);
     expect(classified.preamble.map((row) => row.message.id)).toEqual(['static']);
     expect(classified.rounds[0]!.sub_rounds.map((segment) => segment.kind)).toEqual(['repair', 'repair']);
   });
