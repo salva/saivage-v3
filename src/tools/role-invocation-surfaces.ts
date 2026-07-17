@@ -1,19 +1,20 @@
 import type { AgentRole } from '../schemas/index.js';
+import type { CardService } from '../cards/card-service.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { createAnalystControlProvider } from './analyst-control-provider.js';
-import { createCardHistoryProvider, type CardHistoryProviderContext } from './card-history-provider.js';
-import { createCardInspectionProvider, type CardInspectionProviderContext } from './card-inspection-provider.js';
+import { createCardHistoryProvider } from './card-history-provider.js';
+import { createCardInspectionProvider } from './card-inspection-provider.js';
 import { buildInvocationSurface, type InvocationSurface, type ToolProvider } from './invocation.js';
 import { createMcpProvider } from './mcp-provider.js';
 import { createPlannerControlProvider, type PlannerControlProviderContext } from './planner-control-provider.js';
 import { createProcessProvider } from './process-provider.js';
 import { createSkillProvider } from './skill-provider.js';
-import { createWebProvider, type WebProviderContext } from './web-tools.js';
-import { createAnalystPatchProvider, createAnalystWorkspaceProvider, createPatchProvider, createWorkspaceProvider, type WorkspaceProviderContext } from './workspace-provider.js';
+import { createWebProvider } from './web-tools.js';
+import { createAnalystPatchProvider, createAnalystWorkspaceProvider, createPatchProvider, createWorkspaceProvider } from './workspace-provider.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 
 export type RoleSurfaceRole = Extract<AgentRole, 'planner' | 'reviewer' | 'executor' | 'analyst'>;
@@ -24,7 +25,7 @@ export interface RoleSurfaceContext {
   projectRoot: string;
   cardId?: string;
   sessionId?: string;
-  store?: unknown;
+  store: CardService;
   processRunner?: ProcessRunner;
   ownerId?: string;
   processScope?: ManagedProcessScope;
@@ -48,7 +49,7 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     projectRoot: ctx.projectRoot,
     parentCardId: ctx.cardId!,
     sessionId: ctx.sessionId!,
-    store: ctx.store as PlannerControlProviderContext['store'],
+    store: ctx.store,
     children: ctx.children!,
     cancelCard: ctx.cancelCard!,
     notifyCard: ctx.notifyCard,
@@ -57,28 +58,28 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
   analystControl: (ctx) => createAnalystControlProvider(ctx.toolContext!),
   cardInspection: (ctx, role) => createCardInspectionProvider({
     projectRoot: ctx.projectRoot,
-    store: ctx.store as CardInspectionProviderContext['store'],
+    store: ctx.store,
     agentRole: role,
   }),
   workspace: (ctx, role) => role === 'analyst' ? createAnalystWorkspaceProvider(ctx.toolContext!) : createWorkspaceProvider({
     projectRoot: ctx.projectRoot,
     cardId: ctx.cardId,
     agentRole: role,
-    store: ctx.store as WorkspaceProviderContext['store'],
+    store: ctx.store,
     notifyCard: undefined,
   }),
   patch: (ctx, role) => role === 'analyst' ? createAnalystPatchProvider(ctx.toolContext!) : createPatchProvider({
     projectRoot: ctx.projectRoot,
     cardId: ctx.cardId,
     agentRole: role,
-    store: ctx.store as WorkspaceProviderContext['store'],
+    store: ctx.store,
   }),
   process: (ctx, role) => role === 'analyst'
     ? createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, directScope: ctx.processScope!, category: 'operator_session', ownerId: ctx.ownerId ?? ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })
     : createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, directScope: ctx.processScope!, category: 'runtime_card', ownerId: ctx.ownerId ?? ctx.sessionId!, ownerKind: 'agent', cardId: ctx.cardId }),
   cardHistory: (ctx, role) => createCardHistoryProvider({
     projectRoot: ctx.projectRoot,
-    store: ctx.store as CardHistoryProviderContext['store'],
+    store: ctx.store,
     sessionId: ctx.sessionId,
     agentRole: role,
   }),
@@ -86,7 +87,7 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     projectRoot: ctx.projectRoot,
     cardId: ctx.cardId,
     agentRole: role,
-    store: ctx.store as WebProviderContext['store'],
+    store: ctx.store,
     notifyCard: undefined,
     analystToolContext: role === 'analyst' ? ctx.toolContext : undefined,
   }),

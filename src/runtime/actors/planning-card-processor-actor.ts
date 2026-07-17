@@ -459,7 +459,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private reviewerInvocationSurface(cardId: string, sessionId: string) {
-    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store.records(), mcpManagerProvider: this.mcpManagerProvider });
+    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store, mcpManagerProvider: this.mcpManagerProvider });
   }
 
   protected get processorLabel(): string {

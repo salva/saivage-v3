@@ -73,7 +73,6 @@ export class CardService {
 
   setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void { this.notifyCard = notifyCard; }
   cards(): CardService { return this; }
-  records(): AuthoredRecordService { return new AuthoredRecordService(this); }
   get recordReader() { return { record: (cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest') => this.readRecord(cardId, filename, version), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
   get namespace() { return { activeCardIds: () => this.list().map((card) => card.id), isActiveCardId: (cardId: string) => this.read(cardId) !== null }; }
 
@@ -186,21 +185,6 @@ export class CardService {
     this.readModelChanges.runtimeChanged();
   }
   archiveAndDeleteSubtree(ids: string[]): void { for (const id of [...ids].reverse()) this.delete(id); }
-}
-
-export class AuthoredRecordService {
-  constructor(private readonly cards: CardService) {}
-  get projectRoot(): string { return this.cards.projectRoot; }
-  read(id: string): CardRecord | null { return this.cards.read(id); }
-  getAncestors(id: string): string[] { return this.cards.getAncestors(id); }
-  readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest'): RecordProjection { return this.cards.readRecord(cardId, filename, version); }
-  openRecord(cardId: string, filename: string): RecordProjection { return this.cards.openRecord(cardId, filename); }
-  editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection { return this.cards.editRecord(cardId, filename, version, content); }
-  closeRecord(cardId: string, filename: string, version: number, role: AgentRole, cardVersionSeq: number): RecordProjection { return this.cards.closeRecord(cardId, filename, version, role, cardVersionSeq); }
-  discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection { return this.cards.discardRecord(cardId, filename, version, reason); }
-  listCardHistory(id: string): CardHistoryEntry[] { return this.cards.listCardHistory(id); }
-  getCardAt(id: string, versionSeq: number): CardRecord { return this.cards.getCardAt(id, versionSeq); }
-  diffCard(id: string, fromSeq: number, toSeq: number): CardDiffEntry[] { return this.cards.diffCard(id, fromSeq, toSeq); }
 }
 
 export { CardServiceInvariantError } from './errors.js';
