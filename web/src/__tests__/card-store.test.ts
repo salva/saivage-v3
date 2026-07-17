@@ -10,11 +10,18 @@ vi.mock('../api/client', () => ({
 
 import { getCard, listCards, ApiError } from '../api/client';
 import { useCardStore } from '../stores/cards';
-import { selectChildrenOf } from '../stores/cards';
 import { SyncClient } from '../sync/client';
+import { cardView } from './card-view-fixtures';
 
 function setupStore() { setActivePinia(createPinia()); vi.clearAllMocks(); return useCardStore(); }
-function makeCard(overrides: Partial<CardRecord> = {}): CardRecord { const id = overrides.id || 'project'; const lifecycle = overrides.lifecycle ?? { status: overrides.status ?? 'running', result: null, error: null, completed_at: null } as CardRecord['lifecycle']; return { id, type: 'code', parent: null, depth: 0, position: 0, children: [], title: `Card ${id}`, status: 'running', tags: [], priority: 5, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [], ...overrides, logical_path: overrides.logical_path ?? null, lifecycle, operator_summary: overrides.operator_summary ?? { lifecycleStatus: lifecycle.status, terminal: false, blocked: lifecycle.status === 'blocked', hasError: Boolean(lifecycle.error), error: lifecycle.error ?? null, completedAt: lifecycle.completed_at ?? null, stale: lifecycle.status === 'changed', actionCount: 0 } }; }
+function makeCard(overrides: Partial<CardRecord> = {}): CardRecord {
+  const id = overrides.id ?? 'project';
+  const rest = { ...overrides };
+  delete rest.id;
+  delete rest.parent;
+  delete rest.depth;
+  return cardView(id, { status: 'running', title: `Card ${id}`, priority: 5, created_by: 'user', ...rest });
+}
 function mlr(cards: CardRecord[], total?: number): CardListResponse { return { cards, total: total ?? cards.length }; }
 function mdr(card: CardRecord, children: CardRecord[] = []): CardDetailResponse { return { card, children }; }
 function deferred<T>() {
@@ -28,11 +35,6 @@ const A_ID = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const B_ID = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const A_CHILD_B_ID = `${A_ID}-bbbbbbbbbbbbbbbbbbbbbbbbbbbb`;
 const A_CHILD_C_ID = `${A_ID}-cccccccccccccccccccccccccccc`;
-const A_CHILD_D_ID = `${A_ID}-dddddddddddddddddddddddddddd`;
-const A_CHILD_E_ID = `${A_ID}-eeeeeeeeeeeeeeeeeeeeeeeeeeee`;
-const A_CHILD_F_ID = `${A_ID}-ffffffffffffffffffffffffffff`;
-const G_ID = 'card-gggggggggggggggggggggggggggg';
-const G_CHILD_H_ID = `${G_ID}-hhhhhhhhhhhhhhhhhhhhhhhhhhhh`;
 const A = makeCard({ id: A_ID, parent: 'project', depth: 1, title: 'Alpha' });
 const B = makeCard({ id: B_ID, parent: 'project', depth: 1, title: 'Beta' });
 
@@ -232,22 +234,5 @@ describe('useCardStore evidence support', () => {
     expect(s.isStale(A.id)).toBe(true);
     expect(s.isStale(B_ID)).toBe(false);
     expect(s.isStale(A_CHILD_C_ID)).toBe(false);
-  });
-
-  it('keeps child ordering in the pure card read-model selector, not the store public API', () => {
-    const s = setupStore();
-    s.cards = [
-      makeCard({ ...A, children: [A_CHILD_F_ID, A_CHILD_B_ID, A_CHILD_E_ID, A_CHILD_C_ID, A_CHILD_D_ID] }),
-      makeCard({ id: A_CHILD_F_ID, parent: A_ID, depth: 2, position: 3 }),
-      makeCard({ id: A_CHILD_C_ID, parent: A_ID, depth: 2, position: 1 }),
-      makeCard({ id: A_CHILD_E_ID, parent: A_ID, depth: 2, position: undefined }),
-      makeCard({ id: A_CHILD_B_ID, parent: A_ID, depth: 2, position: 1 }),
-      makeCard({ id: A_CHILD_D_ID, parent: A_ID, depth: 2, position: 2 }),
-      makeCard({ id: G_ID, parent: 'project', depth: 1, children: [G_CHILD_H_ID] }),
-      makeCard({ id: G_CHILD_H_ID, parent: G_ID, depth: 2, position: 0 }),
-    ];
-    expect(selectChildrenOf([...s.cards], A_ID).map((card) => card.id)).toEqual([A_CHILD_B_ID, A_CHILD_C_ID, A_CHILD_D_ID, A_CHILD_F_ID, A_CHILD_E_ID]);
-    expect(selectChildrenOf([...s.cards], B_ID)).toEqual([]);
-    expect('childrenOf' in s).toBe(false);
   });
 });

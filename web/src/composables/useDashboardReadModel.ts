@@ -1,7 +1,7 @@
 import { computed, type ComputedRef, type Ref } from 'vue';
 import type { CardIndex, CardRecord } from '../api/types';
 import type { useCardStore } from '../stores/cards';
-import { selectChildrenOf } from '../stores/cards';
+import { selectLinkedChildren } from '../stores/cards';
 
 export interface DashboardReadModel {
   goalChildren: ComputedRef<CardRecord[]>;
@@ -20,7 +20,7 @@ export function useDashboardReadModel(options: {
   cardsStore: Pick<ReturnType<typeof useCardStore>, 'cards' | 'currentCard'>;
 }): DashboardReadModel {
   const displayedGoalId = computed<string | null>(() => options.cardsStore.currentCard?.id ?? null);
-  const goalChildren = computed<CardRecord[]>(() => displayedGoalId.value ? selectChildrenOf([...options.cardsStore.cards], displayedGoalId.value) : []);
+  const goalChildren = computed<CardRecord[]>(() => displayedGoalId.value ? selectLinkedChildren([...options.cardsStore.cards], displayedGoalId.value) : []);
 
   const runtimeBannerMessage = computed(() => {
     if (options.runtimeRefs.unauthorized.value) return 'Runtime snapshot is unavailable because the API token was rejected.';

@@ -13,6 +13,11 @@ import dashboardSource from '../views/DashboardView.vue?raw';
 import timelineSource from '../views/TimelineView.vue?raw';
 import entityInspectorSource from '../components/layout/EntityInspectorShell.vue?raw';
 import cardDetailSource from '../components/cards/CardDetailView.vue?raw';
+import { cardView } from './card-view-fixtures';
+
+const FIRST_ID = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const SECOND_ID = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const DEEP_ID = `${FIRST_ID}-cccccccccccccccccccccccccccc`;
 
 const removedCardsFilterTokens = new RegExp([
   ['Search', ' cards'].join(''),
@@ -30,33 +35,17 @@ const removedCardsFilterTokens = new RegExp([
   ['apply', 'Filters'].join(''),
 ].join('|'));
 
-function projectCard(): CardRecord {
-  return {
-    id: 'project', type: 'project', parent: null, depth: 0, position: 0, children: [], title: 'Project', status: 'running',
-    tags: [], priority: 1, urgency: 'normal', created_by: 'user', created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [],
-    logical_path: 'Project',
-    operator_summary: {
-      lifecycleStatus: 'running', terminal: false, blocked: false, hasError: false, error: null,
-      completedAt: null, stale: false, actionCount: 0,
-    },
-    lifecycle: { status: 'running', result: null, error: null, completed_at: null },
-  };
+function projectCard(children: string[] = []): CardRecord {
+  return cardView('project', { children, status: 'running', priority: 1, created_by: 'user' });
 }
 
 function card(overrides: Partial<CardRecord>): CardRecord {
-  return {
-    ...projectCard(),
-    id: '11111111-1111-4111-8111-111111111111',
-    type: 'code',
-    parent: 'project',
-    depth: 1,
-    title: 'Card',
-    status: 'backlog',
-    logical_path: null,
-    ...overrides,
-    lifecycle: overrides.lifecycle ?? { status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null },
-  } as CardRecord;
+  const id = overrides.id ?? FIRST_ID;
+  const fixtureOverrides = { ...overrides };
+  delete fixtureOverrides.id;
+  delete fixtureOverrides.parent;
+  delete fixtureOverrides.depth;
+  return cardView(id, fixtureOverrides);
 }
 
 const CardDetailStub = defineComponent({
@@ -121,9 +110,9 @@ describe('CardsView read-only navigation contract', () => {
   });
 
   it('derives exact selection from direct routes, tree navigation, and history', async () => {
-    const first = card({ id: '11111111-1111-4111-8111-111111111111', title: 'First card', status: 'running' });
-    const second = card({ id: '22222222-2222-4222-8222-222222222222', title: 'Second card', status: 'done' });
-    const { wrapper, router, store } = await mountCards(`/cards/${first.id}`, [projectCard(), first, second]);
+    const first = card({ id: FIRST_ID, title: 'First card', status: 'running' });
+    const second = card({ id: SECOND_ID, title: 'Second card', status: 'done' });
+    const { wrapper, router, store } = await mountCards(`/cards/${first.id}`, [projectCard([FIRST_ID, SECOND_ID]), first, second]);
 
     expect(selectedTitle(wrapper)).toBe('First card');
     expect(wrapper.findAll('[aria-current="true"]')).toHaveLength(1);
@@ -149,11 +138,11 @@ describe('CardsView read-only navigation contract', () => {
   });
 
   it('keeps route selection across canonical card replacement without a route fetch', async () => {
-    const selected = card({ id: '11111111-1111-4111-8111-111111111111', title: 'Before refresh' });
-    const { wrapper, store } = await mountCards(`/cards/${selected.id}`, [projectCard(), selected]);
+    const selected = card({ id: FIRST_ID, title: 'Before refresh' });
+    const { wrapper, store } = await mountCards(`/cards/${selected.id}`, [projectCard([FIRST_ID]), selected]);
     const fetchCards = vi.spyOn(store, 'fetchCards');
 
-    store.cards = [projectCard(), card({ id: selected.id, title: 'After refresh', status: 'changed' })];
+    store.cards = [projectCard([FIRST_ID]), card({ id: selected.id, title: 'After refresh', status: 'changed' })];
     await nextTick();
 
     expect(selectedTitle(wrapper)).toBe('After refresh');
@@ -162,9 +151,9 @@ describe('CardsView read-only navigation contract', () => {
   });
 
   it('keeps the tree and expansion intent mounted while route-selected detail is pending or failed', async () => {
-    const first = card({ id: '11111111-1111-4111-8111-111111111111', title: 'First card', status: 'running' });
-    const second = card({ id: '22222222-2222-4222-8222-222222222222', title: 'Second card', status: 'done' });
-    const { wrapper, router, store } = await mountCards(`/cards/${first.id}`, [projectCard(), first, second]);
+    const first = card({ id: FIRST_ID, title: 'First card', status: 'running' });
+    const second = card({ id: SECOND_ID, title: 'Second card', status: 'done' });
+    const { wrapper, router, store } = await mountCards(`/cards/${first.id}`, [projectCard([FIRST_ID, SECOND_ID]), first, second]);
     const fetchCards = vi.spyOn(store, 'fetchCards');
     const tree = wrapper.findComponent(CardsTreeView);
 
@@ -191,9 +180,9 @@ describe('CardsView read-only navigation contract', () => {
   });
 
   it('records collapse intent while route reveal keeps deep selection visible, then reapplies it', async () => {
-    const goal = card({ id: '11111111-1111-4111-8111-111111111111', type: 'goal', title: 'Goal' });
-    const leaf = card({ id: '22222222-2222-4222-8222-222222222222', parent: goal.id, depth: 2, title: 'Deep leaf', status: 'blocked' });
-    const { wrapper, router } = await mountCards('/cards', [projectCard(), goal, leaf]);
+    const goal = card({ id: FIRST_ID, type: 'goal', title: 'Goal', children: [DEEP_ID] });
+    const leaf = card({ id: DEEP_ID, title: 'Deep leaf', status: 'blocked' });
+    const { wrapper, router } = await mountCards('/cards', [projectCard([FIRST_ID]), goal, leaf]);
 
     const projectToggle = wrapper.find('button.node-toggle');
     await projectToggle.trigger('click');

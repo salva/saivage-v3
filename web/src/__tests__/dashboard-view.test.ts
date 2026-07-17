@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { ref } from 'vue';
 import source from '../views/DashboardView.vue?raw';
+import { useDashboardReadModel } from '../composables/useDashboardReadModel';
+import { useCardStore } from '../stores/cards';
+import { cardView } from './card-view-fixtures';
 
 describe('DashboardView S06 read-only contract', () => {
   it('exposes a route-owned root for browser smoke assertions', () => {
@@ -32,5 +37,28 @@ describe('DashboardView S06 read-only contract', () => {
 
     const panelSource = source.slice(source.indexOf('data-testid="dashboard-child-of-goal-panel"'));
     expect(panelSource).not.toMatch(/@click|@submit|@drag|createCard|updateCard|deleteCard/);
+  });
+
+  it('projects dashboard goal children in committed parent order', () => {
+    setActivePinia(createPinia());
+    const cardsStore = useCardStore();
+    const goalId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const firstId = `${goalId}-bbbbbbbbbbbbbbbbbbbbbbbbbbbb`;
+    const secondId = `${goalId}-cccccccccccccccccccccccccccc`;
+    const goal = cardView(goalId, { type: 'goal', children: [secondId, firstId] });
+    cardsStore.cards = [cardView(firstId, { position: 1 }), goal, cardView(secondId, { position: 20 })];
+    cardsStore.currentCard = goal;
+
+    const model = useDashboardReadModel({
+      cardsStore,
+      runtimeRefs: {
+        statusLabel: ref('running'),
+        isStale: ref(false),
+        unauthorized: ref(false),
+        cardIndex: ref({ total: 3, byStatus: { running: 3 }, byType: { goal: 1, code: 2 } }),
+      },
+    });
+
+    expect(model.goalChildren.value.map((card) => card.id)).toEqual([secondId, firstId]);
   });
 });

@@ -56,27 +56,29 @@ export function errorMessage(err: unknown, fallback: string): string {
 
 export interface CardTreeNode { card: CardRecord; childNodes: CardTreeNode[] }
 
+function selectLinkedChildrenFromMap(cardsById: ReadonlyMap<string, CardRecord>, parent: CardRecord): CardRecord[] {
+  return parent.children.flatMap((childId) => {
+    const child = cardsById.get(childId);
+    return child ? [child] : [];
+  });
+}
+
 export function buildTree(cards: CardRecord[]): CardTreeNode[] {
-  const nodes = new Map(cards.map((card) => [card.id, { card, childNodes: [] as CardTreeNode[] }]));
-  const roots: CardTreeNode[] = [];
-  for (const card of cards) {
-    const node = nodes.get(card.id)!;
-    const parent = card.parent ? nodes.get(card.parent) : undefined;
-    if (parent) parent.childNodes.push(node);
-    else roots.push(node);
-  }
-  return roots;
+  const cardsById = new Map(cards.map((card) => [card.id, card]));
+  const project = cardsById.get('project');
+  if (!project) return [];
+
+  const buildNode = (card: CardRecord): CardTreeNode => ({
+    card,
+    childNodes: selectLinkedChildrenFromMap(cardsById, card).map(buildNode),
+  });
+  return [buildNode(project)];
 }
 
-export function sortCardsByParentPosition(a: CardRecord, b: CardRecord): number {
-  const pa = a.position ?? Number.POSITIVE_INFINITY;
-  const pb = b.position ?? Number.POSITIVE_INFINITY;
-  if (pa !== pb) return pa - pb;
-  return a.id.localeCompare(b.id);
-}
-
-export function selectChildrenOf(cards: CardRecord[], parentId: string): CardRecord[] {
-  return cards.filter((card) => card.parent === parentId).slice().sort(sortCardsByParentPosition);
+export function selectLinkedChildren(cards: CardRecord[], parentId: string): CardRecord[] {
+  const cardsById = new Map(cards.map((card) => [card.id, card]));
+  const parent = cardsById.get(parentId);
+  return parent ? selectLinkedChildrenFromMap(cardsById, parent) : [];
 }
 
 export function createFreshDetailState(nowIso: string): DetailFreshnessState {

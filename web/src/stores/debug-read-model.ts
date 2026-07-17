@@ -1,6 +1,6 @@
 import type { CardRecord, ContentReview, DebugError, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView, RuntimeState } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
-import { selectChildrenOf } from './cards';
+import { selectLinkedChildren } from './cards';
 import { selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel, selectRuntimeStatusTone as selectSharedRuntimeStatusTone } from './runtime-read-model';
 import { eventKindValues } from '@saivage/schemas/event-catalog';
 
@@ -130,7 +130,7 @@ export interface DebugCardChildrenProjection {
 }
 
 export function selectDebugCardChildren(cards: CardRecord[], debugCardIds: string[]): DebugCardChildrenProjection[] {
-  return debugCardIds.map((cardId) => ({ cardId, children: selectChildrenOf(cards, cardId) }));
+  return debugCardIds.map((cardId) => ({ cardId, children: selectLinkedChildren(cards, cardId) }));
 }
 
 export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {

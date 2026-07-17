@@ -1,29 +1,33 @@
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
-import type { CardRecord } from '../api/types';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
 import { buildTree } from '../stores/cards';
+import { cardView } from './card-view-fixtures';
 
-function card(overrides: Partial<CardRecord>): CardRecord {
-  const lifecycle = overrides.lifecycle ?? { status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle'];
-  return { id: 'project', type: 'code', parent: null, depth: 0, position: 0, children: [], title: 'Card', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [], ...overrides, logical_path: overrides.logical_path ?? null, lifecycle, operator_summary: overrides.operator_summary ?? { lifecycleStatus: lifecycle.status, terminal: false, blocked: lifecycle.status === 'blocked', hasError: Boolean(lifecycle.error), error: lifecycle.error ?? null, completedAt: lifecycle.completed_at ?? null, stale: lifecycle.status === 'changed', actionCount: 0 } };
-}
+const GOAL_ID = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const LEAF_ID = `${GOAL_ID}-bbbbbbbbbbbbbbbbbbbbbbbbbbbb`;
 
 describe('CardsTreeView', () => {
-  it('renders children in input/backend order without priority-title resorting', () => {
-    const root = card({ id: 'project', type: 'project', title: 'Project' });
-    const low = card({ id: '11111111-1111-4111-8111-111111111111', parent: 'project', title: 'Zulu low', priority: 1 });
-    const high = card({ id: '22222222-2222-4222-8222-222222222222', parent: 'project', title: 'Alpha high', priority: 99 });
-    const mid = card({ id: '33333333-3333-4333-8333-333333333333', parent: 'project', title: 'Middle', priority: 50 });
-    const wrapper = mount(CardsTreeView, { props: { cards: [root, low, high, mid], tree: buildTree([root, low, high, mid]), expandedIds: new Set(['project']), selectedCardId: null } });
+  it('renders children in committed parent children order from scrambled input', () => {
+    const childIds = [
+      'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      'card-cccccccccccccccccccccccccccc',
+    ];
+    const root = cardView('project', { children: childIds });
+    const low = cardView(childIds[0], { title: 'Zulu low', priority: 1, position: 30 });
+    const high = cardView(childIds[1], { title: 'Alpha high', priority: 99, position: 20 });
+    const mid = cardView(childIds[2], { title: 'Middle', priority: 50, position: 10 });
+    const cards = [mid, root, high, low];
+    const wrapper = mount(CardsTreeView, { props: { cards, tree: buildTree(cards), expandedIds: new Set(['project']), selectedCardId: null } });
 
     expect(wrapper.findAll('.node-title').map((node) => node.text())).toEqual(['Project', 'Zulu low', 'Alpha high', 'Middle']);
   });
 
   it('reveals selected ancestors while selecting only the exact row and preserving its status ball', async () => {
-    const root = card({ id: 'project', type: 'project', title: 'Project' });
-    const goal = card({ id: '11111111-1111-4111-8111-111111111111', parent: 'project', type: 'goal', title: 'Goal' });
-    const leaf = card({ id: '22222222-2222-4222-8222-222222222222', parent: goal.id, title: 'Selected leaf', status: 'blocked' });
+    const root = cardView('project', { children: [GOAL_ID] });
+    const goal = cardView(GOAL_ID, { type: 'goal', title: 'Goal', children: [LEAF_ID] });
+    const leaf = cardView(LEAF_ID, { title: 'Selected leaf', status: 'blocked' });
     const wrapper = mount(CardsTreeView, {
       props: { cards: [root, goal, leaf], tree: buildTree([root, goal, leaf]), expandedIds: new Set<string>(), selectedCardId: leaf.id },
     });
@@ -49,8 +53,8 @@ describe('CardsTreeView', () => {
   });
 
   it('uses explicit expansion for an actionable ancestor and resumes collapse when reveal ends', async () => {
-    const root = card({ id: 'project', type: 'project', title: 'Project' });
-    const leaf = card({ id: '11111111-1111-4111-8111-111111111111', parent: 'project', title: 'Leaf' });
+    const root = cardView('project', { children: [GOAL_ID] });
+    const leaf = cardView(GOAL_ID, { title: 'Leaf' });
     const wrapper = mount(CardsTreeView, {
       props: { cards: [root, leaf], tree: buildTree([root, leaf]), expandedIds: new Set(['project']), selectedCardId: leaf.id },
     });

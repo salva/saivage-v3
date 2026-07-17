@@ -5,6 +5,7 @@ import AnalystChatPanel from '../../components/chat/AnalystChatPanel.vue';
 import analystChatPanelSource from '../../components/chat/AnalystChatPanel.vue?raw';
 import { useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
+import { cardView } from '../card-view-fixtures';
 
 const listChatSessions = vi.fn();
 const getChatEntries = vi.fn();
@@ -17,26 +18,9 @@ vi.mock('../../api/client', () => ({
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
 
-function card(id: string, parent: string | null, position: number, title: string) {
-  return {
-    id,
-    parent,
-    position,
-    title,
-    status: 'backlog',
-    type: 'code',
-    tags: [],
-    priority: 0,
-    urgency: 'normal',
-    created_at: '2025-01-01T00:00:00Z',
-    updated_at: '2025-01-01T00:00:00Z',
-    created_by: 'analyst',
-    version_seq: 1,
-    depends_on: [],
-    related: [],
-    pending_notifications: [],
-  } as any;
-}
+const CHILD_ZERO_ID = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const CHILD_ONE_ID = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const CHILD_TWO_ID = 'card-cccccccccccccccccccccccccccc';
 
 describe('AnalystChatPanel on-screen children', () => {
   beforeEach(() => {
@@ -54,22 +38,26 @@ describe('AnalystChatPanel on-screen children', () => {
     expect(useCardStore).toBeDefined();
   });
 
-  it('renders children in card position order returned by childrenOf', async () => {
+  it('renders children in committed parent children order', async () => {
     const pinia = createPinia();
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
     const cards = useCardStore();
     cards.cards = [
-      card('parent', null, 0, 'Parent'),
-      card('child-2', 'parent', 2, 'Second'),
-      card('child-0', 'parent', 0, 'Zero'),
-      card('child-1', 'parent', 1, 'First'),
+      cardView(CHILD_TWO_ID, { position: 0, title: 'Second' }),
+      cardView('project', { children: [CHILD_ONE_ID, CHILD_TWO_ID, CHILD_ZERO_ID], title: 'Parent' }),
+      cardView(CHILD_ZERO_ID, { position: 1, title: 'Zero' }),
+      cardView(CHILD_ONE_ID, { position: 2, title: 'First' }),
     ];
     const workspaceRoute = useWorkspaceRouteStore();
     workspaceRoute.view = 'cards';
-    workspaceRoute.entityId = 'parent';
+    workspaceRoute.entityId = 'project';
     await flushPromises();
     const items = wrapper.findAll('.on-screen-children li').map((item) => item.text());
-    expect(items).toEqual(['child-0 — Zero', 'child-1 — First', 'child-2 — Second']);
+    expect(items).toEqual([
+      `${CHILD_ONE_ID} — First`,
+      `${CHILD_TWO_ID} — Second`,
+      `${CHILD_ZERO_ID} — Zero`,
+    ]);
     wrapper.unmount();
   });
 
@@ -77,10 +65,10 @@ describe('AnalystChatPanel on-screen children', () => {
     const pinia = createPinia();
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
     const cards = useCardStore();
-    cards.cards = [card('parent', null, 0, 'Parent'), card('child-0', 'parent', 0, 'Zero')];
+    cards.cards = [cardView('project', { children: [CHILD_ZERO_ID] }), cardView(CHILD_ZERO_ID, { title: 'Zero' })];
     const workspaceRoute = useWorkspaceRouteStore();
     workspaceRoute.view = 'dashboard';
-    workspaceRoute.entityId = 'parent';
+    workspaceRoute.entityId = 'project';
     await flushPromises();
     expect(wrapper.find('.on-screen-children').exists()).toBe(false);
     wrapper.unmount();

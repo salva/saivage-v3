@@ -73,8 +73,7 @@ import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { ActivityStatus, AgentConversationEntry } from '../../types/view-models';
 import { useAnalystChat } from '../../stores/analystChat';
-import { useCardStore } from '../../stores/cards';
-import { selectChildrenOf } from '../../stores/cards';
+import { selectLinkedChildren, useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { useLiveSyncStore } from '../../stores/liveSync';
 import { GLOBAL_ANALYST_SESSION_ID as ANALYST_SESSION_ID } from '../../api/contracts';
@@ -105,7 +104,7 @@ const idleActivityStatus = computed<ActivityStatus | null>(() => null);
 const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus);
 const childrenOnScreen = computed(() =>
   workspaceRoute.view === 'cards' && workspaceRoute.entityId
-    ? selectChildrenOf([...cards.cards], workspaceRoute.entityId)
+    ? selectLinkedChildren([...cards.cards], workspaceRoute.entityId)
     : [],
 );
 const READ_ONLY_TOOLTIP = 'Read-only — switch to analyst to send messages';
