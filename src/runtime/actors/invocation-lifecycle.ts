@@ -26,13 +26,13 @@ export class ActivationOperationTracker {
   readonly #operations = new Set<Promise<unknown>>();
   readonly #consumers = new Set<Promise<unknown>>();
   readonly #deliveryAcknowledgements: Array<() => void> = [];
-  #revoked = false;
+  #admissionOpen = true;
   #reason: unknown = new InvocationInterruptedError('Activation operation tracker was revoked.');
   readonly #abandonedRaw = new Set<Promise<unknown>>();
   #failure: unknown;
 
   run<T>(activationSignal: AbortSignal, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    if (this.#revoked) throw this.#reason;
+    if (!this.#admissionOpen) throw this.#reason;
     const signal = AbortSignal.any([activationSignal, this.#controller.signal]);
     let resolveWrapper!: (value: T) => void;
     let rejectWrapper!: (error: unknown) => void;
@@ -72,15 +72,19 @@ export class ActivationOperationTracker {
     return operation;
   }
 
-  revoke(reason: unknown): void {
-    if (this.#revoked) return;
-    this.#revoked = true;
+  closeAdmission(reason: unknown): void {
+    if (!this.#admissionOpen) return;
+    this.#admissionOpen = false;
     this.#reason = reason;
-    this.#controller.abort(reason);
+  }
+
+  revoke(reason: unknown): void {
+    this.closeAdmission(reason);
+    if (!this.#controller.signal.aborted) this.#controller.abort(this.#reason);
   }
 
   async join(): Promise<InvocationJoinOutcome> {
-    if (!this.#revoked) throw new Error('Activation operation tracker must be revoked before join.');
+    if (this.#admissionOpen) throw new Error('Activation operation tracker admission must be closed before join.');
     await Promise.all([...this.#operations, ...this.#consumers].map((operation) => operation.catch(() => undefined)));
     if (this.#failure !== undefined) throw this.#failure;
     await Promise.resolve();
@@ -208,16 +212,20 @@ export class InvocationLifecycle {
   }
 
   revoke(reason: unknown): void {
-    if (!this.#admissionOpen) return;
-    this.#admissionOpen = false;
-    this.#interruptionReason = reason;
-    this.#controller?.abort(reason);
+    this.closeAdmission(reason);
+    this.#controller?.abort(this.#interruptionReason);
     this.#current = null;
     this.#controller = null;
   }
 
+  closeAdmission(reason: unknown): void {
+    if (!this.#admissionOpen) return;
+    this.#admissionOpen = false;
+    this.#interruptionReason = reason;
+  }
+
   async join(): Promise<InvocationJoinOutcome> {
-    if (this.#admissionOpen) throw new Error('Invocation lifecycle must be revoked before join.');
+    if (this.#admissionOpen) throw new Error('Invocation lifecycle admission must be closed before join.');
     await Promise.all([...this.#wrappers, ...this.#consumers].map((operation) => operation.catch(() => undefined)));
     if (this.#failure !== undefined) throw this.#failure;
     await Promise.resolve();

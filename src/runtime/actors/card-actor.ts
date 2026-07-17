@@ -56,7 +56,7 @@ export interface CardProcessorActor {
   start?(): void;
   activate(input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
   disposeActivation(reason: unknown): void;
-  suppressContinuationAndPrepareJoin(): void;
+  suppressContinuationAndPrepareJoin(reason: unknown): void;
   joinActivation(): Promise<readonly InvocationJoinOutcome[]>;
   pendingJoinTaskCount(): number;
 }
@@ -260,7 +260,7 @@ export class CardActor extends BaseActor {
       if (this.state() === 'structural_wait') this.parkedSendEvent('settled');
       else if (this.state() === 'running') this.sendEvent('settled');
     } else if (this.#terminalClaim === 'claimed_result') {
-      this.processor?.suppressContinuationAndPrepareJoin();
+      this.processor?.suppressContinuationAndPrepareJoin(operation.interruption);
     }
     const settlement = this.#terminalClaim === 'claimed_cancel'
       ? this.settleClaimedCancellation()
@@ -303,15 +303,6 @@ export class CardActor extends BaseActor {
 
   enqueueNotification(notification: CardNotification): void {
     this.store.enqueueNotification(this.cardId, notification);
-  }
-
-  markChanged(): void {
-    const card = this.requireCard();
-    if (card.status === 'cancelled') return;
-    if (this.state() === 'running') {
-      return;
-    }
-    this.writeStoreStatus('changed');
   }
 
   hasPendingNotifications(): boolean {
@@ -422,40 +413,26 @@ export class CardActor extends BaseActor {
       if (this.state() === 'running') this.sendEvent('claim_cancel');
       return;
     }
-    if (this.#continuationSuppressed) {
-      if (this.#terminalClaim !== 'claimed_result' || !this.#result) return;
-      this.lastOutcome = outcome;
-      this.#activationId = null;
-      this.#activationAbort = null;
-      this.#result.resolve(outcome);
-      this.#result = null;
-      this.#activationCaller = null;
-      if (this.state() === 'running') this.sendEvent('settled');
-      return;
-    }
+    if (this.#continuationSuppressed && this.#terminalClaim !== 'claimed_result') return;
     if (this.#terminalClaim === 'open') this.#terminalClaim = 'claimed_result';
     if (this.#terminalClaim !== 'claimed_result') throw new Error(`Card '${this.cardId}' cannot commit from claim '${this.#terminalClaim}'.`);
+    const result = this.#result;
+    if (!result) throw new Error(`Card '${this.cardId}' result claim has no activation settlement.`);
+    this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(outcome, new Date().toISOString()));
     this.lastOutcome = outcome;
     this.#activationId = null;
     this.#activationAbort = null;
-    this.#result?.resolve(outcome);
-    this.#result = null;
     this.#activationCaller = null;
     this.sendEvent('settled');
     this.releaseSettledOwnership();
+    this.#result = null;
+    result.resolve(outcome);
   }
 
-  private writeStoreStatus(status: CardStatus, mutationStore: CardActorStorePort = this.store): void {
+  private writeStoreStatus(status: CardStatus): void {
     const card = this.requireCard();
     if (card.status === status) return;
-    if (status === 'changed' && (card.status === 'done' || card.status === 'failed' || card.status === 'blocked')) {
-      mutationStore.commitTerminalLifecyclePatch(this.cardId, {
-        status: 'changed',
-        lifecycle: { status: 'changed', result: card.lifecycle.result, error: card.lifecycle.error, completed_at: null },
-      });
-      return;
-    }
-    mutationStore.setStatus(this.cardId, status);
+    this.store.setStatus(this.cardId, status);
   }
 
   private claimResult(): void {

@@ -117,6 +117,6 @@ describe('accepted reviewer rework feedback', () => {
     expect(store.readRecord('project', 'status.md', 2).artifact.content).toBe('Revised remediation evidence addressing the review.');
     expect(store.readRecord('project', 'review.md', 1)).toMatchObject({ recordUrl: 'record:///review.md?card=project&v=1', artifact: { content: 'Rework required: add explicit remediation evidence.' } });
     expect(store.readRecord('project', 'review.md', 2)).toMatchObject({ recordUrl: 'record:///review.md?card=project&v=2', artifact: { content: 'Approved after remediation.' } });
-    expect(store.read('project')).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'Approved after remediation.' } } });
+    expect(store.read('project')).toMatchObject({ status: 'backlog', lifecycle: { result: null } });
   });
 });

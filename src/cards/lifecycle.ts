@@ -72,7 +72,6 @@ const TERMINAL_LIFECYCLE_FIELDS: ReadonlySet<string> = new Set([
 
 const EXPLICIT_LIFECYCLE_WRITE_REASONS: ReadonlySet<string> = new Set([
   'terminal lifecycle commit',
-  'terminal lifecycle repair',
 ]);
 
 const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
@@ -213,14 +212,14 @@ export function validateMutablePatch(
   if (changesLifecycleField && !explicitLifecycleWrite && !explicitStatusTransition) {
     const fields = changedKeys.filter((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
     throw new Error(
-      `Fields ${fields.join(', ')} are lifecycle-owned and can only be changed by terminal commit, explicit terminal repair, or setStatus transition paths.`,
+      `Fields ${fields.join(', ')} are lifecycle-owned and can only be changed by terminal commit or setStatus transition paths.`,
     );
   }
 
   if (LIFECYCLE_LOCKED_STATES.has(existing.status) && changesLifecycleField && !reopensLifecycle && !explicitLifecycleWrite && !explicitStatusTransition) {
     const fields = changedKeys.filter((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
     throw new Error(
-      `Card '${existing.id}' is in status '${existing.status}'. Fields ${fields.join(', ')} are lifecycle-owned and can only be changed by terminal commit or explicit admin repair paths. Reopen the card before ordinary edits.`,
+      `Card '${existing.id}' is in status '${existing.status}'. Fields ${fields.join(', ')} are lifecycle-owned and can only be changed by terminal commit or setStatus reopening paths. Reopen the card before ordinary edits.`,
     );
   }
 

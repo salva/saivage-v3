@@ -40,7 +40,7 @@ function delivery(store: CardService, cardId: string) {
 }
 
 describe('retained terminal ordering and notification arbitration', () => {
-  it('claims and terminalizes a childless planning card after record close and canonical success', async () => {
+  it('claims and returns a childless planning result after record close and canonical tool success', async () => {
     const projectRoot = root();
     const store = new TestCardService(projectRoot);
     const project = store.read('project')!;
@@ -57,10 +57,10 @@ describe('retained terminal ordering and notification arbitration', () => {
 
     await expect(actor.activate({ activationId: 'activation', card: project, caller: { kind: 'root' }, notificationDelivery: delivery(store, 'project'), claimResult }, new AbortController().signal)).resolves.toMatchObject({ status: 'done', result: { kind: 'done' } });
 
-    expect(order).toEqual(['claim', 'record', 'card']);
+    expect(order).toEqual(['claim', 'record']);
     expect(close).toHaveBeenCalledTimes(1);
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(store.read('project')).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'Complete.' } } });
+    expect(commit).not.toHaveBeenCalled();
+    expect(store.read('project')).toMatchObject({ status: 'backlog', lifecycle: { result: null } });
     const rows = readConversation(projectRoot, 'planner:project').physicalRows;
     expect(rows.at(-1)).toMatchObject({ kind: 'tool_result', tool_call_id: 'emit-done', content: JSON.stringify({ success: true, data: { accepted: true } }) });
   });
@@ -100,6 +100,6 @@ describe('retained terminal ordering and notification arbitration', () => {
     gate.open();
     await expect(pending).resolves.toMatchObject({ status: 'done', summary: 'Fresh.' });
     expect(provider.completeTurn).toHaveBeenCalledTimes(3);
-    expect(store.read(card.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'Fresh.' } } });
+    expect(store.read(card.id)).toMatchObject({ status: 'running', lifecycle: { result: null } });
   });
 });

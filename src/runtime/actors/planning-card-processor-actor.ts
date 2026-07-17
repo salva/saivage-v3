@@ -2,7 +2,7 @@ import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, CardStatus, DoneResult } from '../../schemas/index.js';
 import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
-import { cardActivationOutcomePatch, type CardActivationInput, type CardActivationOutcome, type CardActor, type CardCancellationResult, type CardActorStorePort, type CardProcessorActor } from './card-actor.js';
+import { type CardActivationInput, type CardActivationOutcome, type CardActor, type CardCancellationResult, type CardActorStorePort, type CardProcessorActor } from './card-actor.js';
 import type { CardNotification } from '../../schemas/index.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
@@ -117,12 +117,10 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         if (closeError) return control.done(this.plannerFailure(closeError));
         llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
         if (direct) {
-          this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(direct, new Date().toISOString()));
           return control.done(direct);
         }
         if (!hasReviewableChildren) {
           const accepted = { status: 'done' as const, summary: verifyTerminalToolOutcome(contract, terminalOutcome).result.result.summary, result: { kind: 'done' as const, summary: verifyTerminalToolOutcome(contract, terminalOutcome).result.result.summary } };
-          this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(accepted, new Date().toISOString()));
           return control.done(accepted);
         }
         const projected = await this.reviewPlannerDone(input, { kind: 'done', summary: verifyTerminalToolOutcome(contract, terminalOutcome).result.result.summary }, signal);
@@ -262,7 +260,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
             const appended = appendCanonicalUserText(this.conversations, plannerActorId(this.cardId), message);
             this.conversationPublisher?.entryAppended(appended);
           }
-          if (accepted.result.kind !== 'rework') this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(accepted, new Date().toISOString()));
           return control.done(accepted);
         },
         onNonTerminalTool: async (toolOutcome) => {

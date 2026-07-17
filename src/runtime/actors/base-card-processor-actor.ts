@@ -53,8 +53,8 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     this.#operationTracker?.revoke(reason);
   }
 
-  suppressContinuationAndPrepareJoin(): void {
-    // Base processor work is already tracked by the activation operation tracker.
+  suppressContinuationAndPrepareJoin(reason: unknown): void {
+    this.#operationTracker?.closeAdmission(reason);
   }
 
   async joinActivation(): Promise<readonly InvocationJoinOutcome[]> {

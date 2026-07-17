@@ -1,5 +1,5 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
-import { cardActivationOutcomePatch, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from './card-actor.js';
+import { type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from './card-actor.js';
 import type { CardService } from '../../cards/card-service.js';
 import { executorActorId } from './ids.js';
 import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
@@ -100,7 +100,6 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
           if (closeError) return control.done({ status: 'failed', summary: closeError, result: executorFailure(closeError) });
           const projected = projectTerminalExecutorOutcome(terminalOutcome, contract);
           llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
-          this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(projected, new Date().toISOString()));
           return control.done(projected);
         },
         onNonTerminalTool: async (toolOutcome) => {

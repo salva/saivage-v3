@@ -58,9 +58,10 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     super.disposeActivation(reason);
   }
 
-  override suppressContinuationAndPrepareJoin(): void {
+  override suppressContinuationAndPrepareJoin(reason: unknown): void {
     this.#joiningLlmActors ??= [...this.activeLlmActors.values()];
-    super.suppressContinuationAndPrepareJoin();
+    for (const llm of this.#joiningLlmActors) llm.closeInvocationAdmission(reason);
+    super.suppressContinuationAndPrepareJoin(reason);
   }
 
   override async joinActivation(): Promise<readonly InvocationJoinOutcome[]> {

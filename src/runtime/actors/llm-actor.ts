@@ -387,6 +387,10 @@ export class ConversationLLMActor extends BaseActor {
     this.#currentInvocation = null;
   }
 
+  closeInvocationAdmission(reason: unknown): void {
+    this.#invocations.closeAdmission(reason);
+  }
+
   async joinInvocationSettlement(): Promise<InvocationJoinOutcome> {
     const outcome = await this.#invocations.join();
     await this.awaitLifecycleSettlement();

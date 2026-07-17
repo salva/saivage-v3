@@ -15,7 +15,6 @@ import type { AppLogContext } from '../persistence/app-log.js';
 interface PlannerChildActor {
   activate(input: { kind: 'parent'; cardId: string; sessionId: string }, parentAdmit: () => void): Promise<CardActivationOutcome>;
   awaitSettlement(caller?: { kind: 'parent'; cardId: string; sessionId: string }): Promise<CardActivationOutcome>;
-  markChanged?(): void;
 }
 
 interface PlannerControlStore {
@@ -24,7 +23,6 @@ interface PlannerControlStore {
   mutateCard?(cardId: string, changes: Partial<CardRecord>, ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): CardRecord;
   setStatus(cardId: string, status: 'changed' | 'running'): CardRecord;
   reorderChildren?(parentId: string, orderedChildIds: string[], ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): ReorderChildrenResult;
-  commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
 }
 
 export interface PlannerControlProviderContext {
@@ -116,7 +114,6 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof edi
   const shouldMarkChanged = child.card.status === 'failed' || child.card.status === 'blocked';
   if (shouldMarkChanged) ctx.store.setStatus(record.card_id, 'changed');
   const updated = ctx.store.mutateCard(record.card_id, patch, { actor: 'planner', surface: 'runtime', reason: 'planner edit_card' });
-  if (shouldMarkChanged) ctx.children.get(record.card_id)?.markChanged?.();
   return { success: true, data: { card: compactPlannerToolCard(updated) } };
 }
 
