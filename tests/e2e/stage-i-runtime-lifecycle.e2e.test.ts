@@ -80,7 +80,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     await waitUntil(() => inputs.length === 3);
     expect(inputs[2]!.sessionId).toBe(`executor:${child.id}`);
     expect(inputs[2]!.inputId).not.toBe(inputs[1]!.inputId);
-    expect(inputs[2]!.genericContextMessages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'system', kind: 'model_recovered' })]));
+    expect(inputs[2]!.providerConversation.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'system', kind: 'model_recovered' })]));
     expect(readConversation(projectRoot, `executor:${child.id}`).physicalRows.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
     await expect(runtime.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });

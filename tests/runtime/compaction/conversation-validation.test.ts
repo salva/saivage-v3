@@ -2,12 +2,15 @@ import { describe, expect, it } from '@jest/globals';
 
 import { hashConversationRows, validateConversationRows } from '../../../src/contracts/conversation-compaction.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type ContextCompactionContent } from '../../../src/schemas/index.js';
+import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
+
+const SESSION_ID = 'planner:project';
 
 describe('conversation compaction validation', () => {
   it('derives one ordered summary-group identity and rendering', () => {
     const rows = sourceRound('one');
     const metadata = compaction('c1', payload([{ rows, complete: true }], 'round'));
-    const validated = validateConversationRows([...rows, metadata]);
+    const validated = validateConversationRows(SESSION_ID, [...rows, metadata]);
 
     expect(validated.sourceRows).toEqual(rows);
     expect(validated.latestCompaction).toMatchObject({ cutoffMessageId: 'one-text', cutoffSourceIndex: 1, boundary: 'round' });
@@ -19,10 +22,10 @@ describe('conversation compaction validation', () => {
     const first = sourceRound('one');
     const second = sourceRound('two', 1);
     const firstMetadata = compaction('c1', payload([{ rows: first, complete: true }], 'round'));
-    expect(() => validateConversationRows([...first, firstMetadata, ...second])).not.toThrow();
+    expect(() => validateConversationRows(SESSION_ID, [...first, firstMetadata, ...second])).not.toThrow();
 
     const laterReference = compaction('c2', payload([{ rows: second, complete: true }], 'round'));
-    expect(() => validateConversationRows([...first, laterReference, ...second])).toThrow(/physically preceding|canonical complete round/);
+    expect(() => validateConversationRows(SESSION_ID, [...first, laterReference, ...second])).toThrow(/physically preceding|canonical complete round/);
   });
 
   it('fails an invalid older metadata row even when a later row is valid', () => {
@@ -30,7 +33,7 @@ describe('conversation compaction validation', () => {
     const second = sourceRound('two', 1);
     const invalid = compaction('c1', { ...payload([{ rows: first, complete: true }], 'round'), summaries: [{ ...payload([{ rows: first, complete: true }], 'round').summaries[0]!, content_hash: '0'.repeat(64) }] });
     const valid = compaction('c2', payload([{ rows: first, complete: true }, { rows: second, complete: true }], 'round'));
-    expect(() => validateConversationRows([...first, invalid, ...second, valid])).toThrow(/hash mismatch/);
+    expect(() => validateConversationRows(SESSION_ID, [...first, invalid, ...second, valid])).toThrow(/hash mismatch/);
   });
 
   it.each([
@@ -43,16 +46,41 @@ describe('conversation compaction validation', () => {
   ] as Array<[string, (base: ContextCompactionContent) => ContextCompactionContent]>)('rejects %s through the same boundary', (_label, mutate) => {
     const rows = sourceRound('one');
     const base = payload([{ rows, complete: true }], 'round');
-    expect(() => validateConversationRows([...rows, compaction('c1', mutate(base))])).toThrow();
+    expect(() => validateConversationRows(SESSION_ID, [...rows, compaction('c1', mutate(base))])).toThrow();
   });
 
   it('rejects incorrect repair segmentation and derives repair anchors', () => {
     const rows = sourceRound('one', 0, true);
     const correct = payload([{ rows, complete: true, repairAt: 2 }], 'round');
-    const validated = validateConversationRows([...rows, compaction('c1', correct)]);
+    const validated = validateConversationRows(SESSION_ID, [...rows, compaction('c1', correct)]);
     expect(validated.latestCompaction!.groups[0]!.rounds[0]!.segments[1]!.repairAnchor!.id).toBe('one-repair');
     const wrong = { ...correct, summaries: [{ ...correct.summaries[0]!, rounds: [{ complete: true, segments: [{ kind: 'initial' as const, source_message_ids: rows.map((row) => row.id) }] }] }] };
-    expect(() => validateConversationRows([...rows, compaction('c2', wrong)])).toThrow(/segmentation/);
+    expect(() => validateConversationRows(SESSION_ID, [...rows, compaction('c2', wrong)])).toThrow(/segmentation/);
+  });
+
+  it('carries exact source identity and projects only latest compaction plus the uncovered suffix', () => {
+    const first = sourceRound('one');
+    const second = sourceRound('two', 1);
+    const firstMetadata = compaction('c1', payload([{ rows: first, complete: true }], 'round'));
+    const secondMetadata = compaction('c2', payload([{ rows: first, complete: true }, { rows: second, complete: true }], 'round'));
+    const suffix = message('suffix', 'text', 'suffix', '2026-07-16T00:02:00.000Z');
+    const sourceInputId = '00000000-0000-4000-8000-000000000001';
+    const privateRow = agentMessageSchema.parse({ ...message('private', 'provider_private', JSON.stringify({ transport: 'openai-responses', source_input_id: sourceInputId, projection_message_id: 'visible', provider: 'openai', model: 'gpt-5.6', output: [{ type: 'message', content: [{ type: 'output_text', text: 'private' }] }] }), '2026-07-16T00:02:00.000Z'), role: 'system' });
+    const visible = agentMessageSchema.parse({ ...message('visible', 'text', 'visible', '2026-07-16T00:02:00.000Z'), role: 'assistant', provider_projection: { kind: 'openai_responses', source_input_id: sourceInputId, private_message_id: 'private', projection_kind: 'assistant_message' } });
+    const validated = validateConversationRows(SESSION_ID, [...first, firstMetadata, ...second, secondMetadata, suffix, privateRow, visible]);
+    const projection = providerConversationProjection(validated);
+
+    expect(validated.physicalRows).toContain(firstMetadata);
+    expect(validated.physicalRows).toContain(secondMetadata);
+    expect(projection.sourceSessionId).toBe(SESSION_ID);
+    expect(projection.messages.map((row) => row.id)).toEqual(['c2:rendered', 'suffix', 'private', 'visible']);
+    expect(projection.messages[0]!.content).toContain('summary');
+  });
+
+  it('rejects a source row from another session without filtering or relabeling it', () => {
+    const wrong = { ...sourceRound('one')[0]!, session_id: 'planner:other' };
+    expect(() => validateConversationRows(SESSION_ID, [wrong])).toThrow(/planner:other.*planner:project/);
+    expect(wrong.session_id).toBe('planner:other');
   });
 
   it('rejects the superseded duplicate-identity payload shape', () => {

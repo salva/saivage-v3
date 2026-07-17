@@ -4,7 +4,6 @@ import {
   loggedToolCallKey,
   loggedToolResultIdentity,
 } from '../../schemas/message-identity.js';
-import { isModelVisibleConversationMessage } from './conversation-session.js';
 import { readConversationMessages } from './conversation-session.js';
 import { appendProviderVisibleSyntheticFailedToolResult } from './llm-delivery-log.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
@@ -155,7 +154,7 @@ function recoverySettlementKeys(messages: readonly AgentMessage[]): Set<string> 
 }
 
 function lastModelVisibleExchangeIsSettledTerminal(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>): boolean {
-  const modelVisible = messages.filter(isModelVisibleConversationMessage);
+  const modelVisible = messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'context_compaction' || message.kind === 'model_recovered');
   const last = modelVisible.at(-1);
   if (!last || last.kind !== 'tool_result') return false;
   const resultIdentity = toolResultIdentity(last);

@@ -4,9 +4,9 @@ import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type
 import { hashConversationRows, validateConversationRows, type ValidatedContextCompaction, type ValidatedConversation } from '../../../contracts/conversation-compaction.js';
 import { classifySourceSegments } from '../../../contracts/conversation-source-classification.js';
 import { generateRoundId } from '../../../schemas/round-id-server.js';
-import type { ToolDefinition } from '../../../agents/llm-contracts.js';
+import type { ProviderConversationProjection, ToolDefinition } from '../../../agents/llm-contracts.js';
 import type { LlmInvocationInput, PreparedCompaction } from '../llm-invocation.js';
-import { conversationMessagesForModel } from '../conversation-session.js';
+import { providerConversationProjection } from '../conversation-session.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type SlidingBandPartitions, type SnapPolicy } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConversation, type ClassifiedRound } from './round-classifier.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors } from './result-dropping.js';
@@ -63,7 +63,7 @@ export function estimateCanonicalStaticTokens(systemPrompt: string, tools: reado
 export function shouldCompact(input: LlmInvocationInput): boolean {
   const budget = input.preparedCompaction;
   if (!budget) return false;
-  const estimatedMessageTokens = (input.contextMessages as AgentMessage[]).reduce((sum, row) => sum + estimateMessageTokens(row), 0);
+  const estimatedMessageTokens = input.providerConversation.messages.reduce((sum, row) => sum + estimateMessageTokens(row), 0);
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
@@ -72,7 +72,7 @@ type Candidate = { payload: ContextCompactionContent; conversation: ValidatedCon
 type CandidateFit = { candidate: Candidate; fits: boolean };
 type CandidateFitFactory = (payload: ContextCompactionContent) => CandidateFit;
 
-export async function compact(args: CompactArgs): Promise<{ rows: AgentMessage[]; compactionMessage: AgentMessage }> {
+export async function compact(args: CompactArgs): Promise<{ providerConversation: ProviderConversationProjection; compactionMessage: AgentMessage }> {
   const projectRoot = args.conversations.projectRoot;
   const sessionId = args.input.sessionId;
   const budget = args.input.preparedCompaction;
@@ -88,7 +88,7 @@ export async function compact(args: CompactArgs): Promise<{ rows: AgentMessage[]
   const candidateFitFor: CandidateFitFactory = (payload) => {
     const parsed = contextCompactionContentSchema.parse(payload);
     const message = agentMessageSchema.parse({ ...metadataIdentity, role: 'system', kind: 'context_compaction', content: canonicalJson(parsed), message_index: 0, block_index: 0 });
-    const prospective = validateConversationRows([...conversation.physicalRows, message]);
+    const prospective = validateConversationRows(sessionId, [...conversation.physicalRows, message]);
     const compaction = prospective.latestCompaction;
     if (!compaction || compaction.metadataRow.id !== message.id) throw new Error('Prospective compaction validation did not derive the candidate metadata row.');
     const candidate = { payload: parsed, conversation: prospective, compaction, message };
@@ -116,7 +116,7 @@ export async function compact(args: CompactArgs): Promise<{ rows: AgentMessage[]
   args.signal.throwIfAborted();
   assertMonotonicCutoff(latest, candidate.compaction);
   appendConversationBatch(projectRoot, [candidate.message], args.conversations.changes);
-  return { rows: conversationMessagesForModel(candidate.conversation), compactionMessage: candidate.message };
+  return { providerConversation: providerConversationProjection(candidate.conversation), compactionMessage: candidate.message };
 }
 
 async function buildCandidate(args: CompactArgs, classified: ClassifiedConversation, partition: SlidingBandPartitions, budget: PreparedCompaction, band: 'normal' | 'escalated', latest: ValidatedContextCompaction | null, candidateFitFor: CandidateFitFactory): Promise<CandidateFit> {
@@ -171,7 +171,7 @@ async function fallbackFromScratch(args: CompactArgs, classified: ClassifiedConv
     const prefix = boundaryRows.slice(0, length);
     if (!safeFallbackBoundary(prefix, boundaryRows[length])) continue;
     const last = prefix[prefix.length - 1]!;
-    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, false)], content_hash: hashConversationRows(prefix), summary_text: await summarizeRound({ round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: budget.summarizerModel, signal: args.signal }), evidence: recoverableEvidenceDescriptors(prefix) };
+    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, false)], content_hash: hashConversationRows(prefix), summary_text: await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: budget.summarizerModel, signal: args.signal }), evidence: recoverableEvidenceDescriptors(prefix) };
     args.signal.throwIfAborted();
     const retainedStatic = preamble.filter((row) => row.role === 'system' && row.kind !== 'activity').map((row) => row.id);
     const modeBand = band;
@@ -199,7 +199,7 @@ async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], 
     if (latest && cutoffSourceIndex <= latest.cutoffSourceIndex) continue;
     const last = prefix[prefix.length - 1]!;
     const complete = length === boundaryRows.length;
-    const summaryText = await summarizeRound({ round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: budget.summarizerModel, signal: args.signal });
+    const summaryText = await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: budget.summarizerModel, signal: args.signal });
     args.signal.throwIfAborted();
     const group: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, complete)], content_hash: hashConversationRows(prefix), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(prefix) };
     const summaries = replacesPartial ? [...base.payload.summaries.slice(0, -1), group] : [...base.payload.summaries, group];
@@ -220,7 +220,7 @@ function payloadFor(preamble: AgentMessage[], merged: ContextCompactionContent['
 
 async function summarizeRawRound(args: CompactArgs, round: ClassifiedRound): Promise<ContextCompactionContent['summaries'][number]> {
   const rows = rawRoundRows(round);
-  const summaryText = await summarizeRound({ round_id: round.round_id, rows: dropRecoverableResultBodies(rows), summarizerProvider: args.summarizerProvider, modelSpec: args.input.preparedCompaction.summarizerModel, signal: args.signal });
+  const summaryText = await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: round.round_id, rows: dropRecoverableResultBodies(rows), summarizerProvider: args.summarizerProvider, modelSpec: args.input.preparedCompaction.summarizerModel, signal: args.signal });
   args.signal.throwIfAborted();
   return { kind: 'individual', rounds: [buildCoveredRound(rows, true)], content_hash: hashConversationRows(rows), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(rows) };
 }

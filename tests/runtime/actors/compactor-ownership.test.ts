@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -7,6 +7,7 @@ import { LLMActor, type CompactorPort, type LLMProviderPort } from '../../../src
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { prepareCompaction, type CompactionConfig } from '../../../src/runtime/actors/compaction/compactor.js';
 import { agentMessageSchema } from '../../../src/schemas/index.js';
+import { conversationFile } from '../../../src/runtime/actors/conversation-inventory.js';
 
 const compactionConfig: CompactionConfig = { enabled: true, input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler', summarizer_model: 'test/_/summary' };
 
@@ -16,7 +17,7 @@ describe('LLMActor compaction ownership', () => {
     const differentActorRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-decoy-'));
     try {
       const projection = [agentMessageSchema.parse({ id: 'projected', session_id: 'planner:project', role: 'system', kind: 'text', content: 'canonical compacted projection', round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' })];
-      const compact = jest.fn<CompactorPort['compact']>(async () => ({ rows: projection }));
+      const compact = jest.fn<CompactorPort['compact']>(async () => ({ providerConversation: { sourceSessionId: 'planner:project', messages: projection } }));
       const compactor: CompactorPort = { shouldCompact: () => true, compact };
       const providerInput = jest.fn(async (_input: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
       const provider: LLMProviderPort = { completeTurn: providerInput };
@@ -30,7 +31,7 @@ describe('LLMActor compaction ownership', () => {
       expect(Object.keys(compactArgs).sort()).toEqual(['conversations', 'input', 'signal', 'summarizerProvider']);
       expect(compactArgs.conversations.projectRoot).toBe(ownerRoot);
       expect(compactArgs.input.sessionId).toBe('planner:project');
-      expect(providerInput).toHaveBeenCalledWith(expect.objectContaining({ genericContextMessages: projection, contextMessages: projection }), expect.any(AbortSignal));
+      expect(providerInput).toHaveBeenCalledWith(expect.objectContaining({ providerConversation: { sourceSessionId: 'planner:project', messages: projection } }), expect.any(AbortSignal));
     } finally {
       rmSync(ownerRoot, { recursive: true, force: true });
       rmSync(differentActorRoot, { recursive: true, force: true });
@@ -63,8 +64,8 @@ describe('LLMActor compaction ownership', () => {
       expect(checked[1]!.systemPrompt).toBe(checked[0]!.systemPrompt);
       expect(checked[1]!.tools).toBe(checked[0]!.tools);
       expect(checked[1]!.inputId).not.toBe(checked[0]!.inputId);
-      expect(checked[1]!.contextMessages.length).toBeGreaterThan(checked[0]!.contextMessages.length);
-      expect(providerInputs[1]!.activeConversationReplay).not.toBe(providerInputs[0]!.activeConversationReplay);
+      expect(checked[1]!.providerConversation.messages.length).toBeGreaterThan(checked[0]!.providerConversation.messages.length);
+      expect(providerInputs[1]!.providerConversation).not.toBe(providerInputs[0]!.providerConversation);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -88,12 +89,45 @@ describe('LLMActor compaction ownership', () => {
       expect(checked[1]!.systemPrompt).toBe(checked[0]!.systemPrompt);
       expect(checked[1]!.tools).toBe(checked[0]!.tools);
       expect(checked[1]!.inputId).not.toBe(checked[0]!.inputId);
-      expect(checked[1]!.contextMessages.length).toBeGreaterThan(checked[0]!.contextMessages.length);
-      expect(checked[1]!.activeConversationReplay).not.toBe(checked[0]!.activeConversationReplay);
+      expect(checked[1]!.providerConversation.messages.length).toBeGreaterThan(checked[0]!.providerConversation.messages.length);
+      expect(checked[1]!.providerConversation).not.toBe(checked[0]!.providerConversation);
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('rejects invocation/source mismatch before compaction, append, or provider admission', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-owner-mismatch-'));
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const compact = jest.fn<CompactorPort['compact']>();
+      const providerCall = jest.fn<LLMProviderPort['completeTurn']>();
+      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall } });
+      actor.start();
+      const malformed = { ...input(), providerConversation: { sourceSessionId: 'planner:other', messages: [] } };
+
+      await expect(actor.turn(malformed)).rejects.toThrow(/does not match provider conversation source session/);
+      expect(compact).not.toHaveBeenCalled();
+      expect(providerCall).not.toHaveBeenCalled();
+      expect(existsSync(conversationFile(root, 'planner:project'))).toBe(false);
+      expect(malformed.providerConversation.sourceSessionId).toBe('planner:other');
+    } finally { consoleError.mockRestore(); rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('rejects a compactor replacement with another source identity before turn-start append or provider use', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-hook-mismatch-'));
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const compact = jest.fn<CompactorPort['compact']>(async () => ({ providerConversation: { sourceSessionId: 'planner:other', messages: [] } }));
+      const providerCall = jest.fn<LLMProviderPort['completeTurn']>();
+      const actor = new LLMActor({ projectRoot: root, agentId: 'planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall } });
+      actor.start();
+
+      await expect(actor.turn(input())).rejects.toThrow(/Compaction changed provider conversation source session/);
+      expect(providerCall).not.toHaveBeenCalled();
+      expect(existsSync(conversationFile(root, 'planner:project'))).toBe(false);
+    } finally { consoleError.mockRestore(); rmSync(root, { recursive: true, force: true }); }
   });
 });
 
 function input(): LlmInvocationInput {
-  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', genericContextMessages: [], contextMessages: [], activeConversationReplay: { sessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {}, episodeContext: {} };
+  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {}, episodeContext: {} };
 }

@@ -11,7 +11,7 @@ const TOOL: ToolDefinition = { type: 'function', function: { name: 'read_file', 
 describe('OpenAI Responses request shape', () => {
   it('sends stateless responses fields and non-strict flat tools', () => {
     const opts: LlmCompleteOptions = { inputId: 'input-1', phase: 'tools', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [TOOL], tool_choice: { kind: 'required_named', toolName: 'read_file' }, max_tokens: 1234 };
-    const body = buildOpenAIResponsesRequest(CANDIDATE, 'sys', { sessionId: 's1', messages: [MSG] }, opts, { responsesReasoning: { effort: 'medium' } }) as unknown as Record<string, unknown>;
+    const body = buildOpenAIResponsesRequest(CANDIDATE, 'sys', { sourceSessionId: 's1', messages: [MSG] }, opts, { responsesReasoning: { effort: 'medium' } }) as unknown as Record<string, unknown>;
 
     expect(body.model).toBe('gpt-5.6');
     expect(body.instructions).toBe('sys');
@@ -25,5 +25,17 @@ describe('OpenAI Responses request shape', () => {
     expect(body.tools).toEqual([{ type: 'function', name: 'read_file', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } } } }]);
     expect(JSON.stringify(body)).not.toContain('strict');
     expect(body.reasoning).toEqual({ effort: 'medium' });
+  });
+
+  it('uses only the latest rendered context and never serializes raw compaction metadata or covered history', () => {
+    const opts: LlmCompleteOptions = { inputId: 'input-2', phase: 'tools', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: { kind: 'auto' } };
+    const latest: AgentMessage = { ...MSG, id: 'c2:rendered', role: 'system', content: 'latest C2 rendered context' };
+    const suffix: AgentMessage = { ...MSG, id: 'suffix', content: 'uncovered suffix' };
+    const body = buildOpenAIResponsesRequest(CANDIDATE, 'role prompt', { sourceSessionId: 's1', messages: [latest, suffix] }, opts) as unknown as { instructions: string; input: unknown[] };
+
+    expect(body.instructions).toBe('role prompt\n\n--- system context ---\nlatest C2 rendered context');
+    expect(JSON.stringify(body)).not.toContain('older C1 rendered context');
+    expect(JSON.stringify(body)).not.toContain('context_compaction');
+    expect(JSON.stringify(body.input)).toContain('uncovered suffix');
   });
 });

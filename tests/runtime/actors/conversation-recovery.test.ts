@@ -71,9 +71,9 @@ describe('classifyConversation', () => {
     const source = agentMessageSchema.parse(message({ id: 'activation', kind: 'activity', content: JSON.stringify({ event: 'activation_open' }) }));
     const payload = contextCompactionContentSchema.parse({ boundary: 'round', retained_static_message_ids: [], summaries: [{ kind: 'individual', rounds: [{ complete: true, segments: [{ kind: 'initial', source_message_ids: [source.id] }] }], content_hash: hashConversationRows([source]), summary_text: 'summary', evidence: [] }], applied_policy: { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, snap: 'compact_straddler' } });
     const metadata = agentMessageSchema.parse(message({ id: 'compaction', kind: 'context_compaction', content: canonicalJson(payload), round_id: 'r-compacted-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }));
-    const validated = validateConversationRows([source, metadata]);
+    const validated = validateConversationRows(source.session_id, [source, metadata]);
     expect(classifyConversation(validated.physicalRows, terminalTools)).toBe('pending_provider');
-    expect(() => validateConversationRows([source, { ...metadata, content: canonicalJson({ ...payload, summaries: [{ ...payload.summaries[0]!, content_hash: '0'.repeat(64) }] }) }])).toThrow(/hash mismatch/);
+    expect(() => validateConversationRows(source.session_id, [source, { ...metadata, content: canonicalJson({ ...payload, summaries: [{ ...payload.summaries[0]!, content_hash: '0'.repeat(64) }] }) }])).toThrow(/hash mismatch/);
   });
 
   it('matches tool settlements by full session, source input, and tool call id', () => {

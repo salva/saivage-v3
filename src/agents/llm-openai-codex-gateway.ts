@@ -1,6 +1,6 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
-import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderConversationProjection, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/message-identity.js';
 import { LlmRequestError } from './llm-errors.js';
@@ -36,11 +36,11 @@ export class OpenAICodexGateway {
   async complete(
     candidate: Candidate,
     systemPrompt: string,
-    messages: AgentMessage[],
+    providerConversation: ProviderConversationProjection,
     _sessionId: string,
     opts: LlmCompleteOptions,
   ): Promise<ProviderTurnCompletion> {
-    const body = opts.builtCandidateRequest?.body ?? buildOpenAICodexRequest(candidate, systemPrompt, messages, opts);
+    const body = opts.builtCandidateRequest?.body ?? buildOpenAICodexRequest(candidate, systemPrompt, providerConversation, opts);
     const serializedBody = opts.builtCandidateRequest?.serializedBody ?? JSON.stringify(body);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -120,9 +120,10 @@ function providerFailure(error: unknown, recorder: LlmCompleteOptions['recorder'
 export function buildOpenAICodexRequest(
   candidate: Candidate,
   systemPrompt: string,
-  messages: AgentMessage[],
+  providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
 ): Record<string, unknown> {
+  const messages = providerConversation.messages.filter((message) => message.kind !== 'provider_private');
   const systemContext = messages.filter((message) => message.role === 'system').map((message) => message.content);
   const input = codexMessages(messages);
   if (input.length === 0) {

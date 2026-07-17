@@ -2,11 +2,10 @@ import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import type { AgentMessage } from '../../schemas/index.js';
-import { genericContextMessagesForInvocation, type LlmInvocationInput, type PreparedCompaction } from './llm-invocation.js';
+import type { LlmInvocationInput, PreparedCompaction } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
-import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
-import { appendUserContextMessage, readConversationMessages, conversationMessagesForModel, type ProviderVisibleUserContextMessage } from './conversation-session.js';
-import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
+import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
+import { appendUserContextMessage, readConversationMessages, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
@@ -28,7 +27,7 @@ export interface LLMProviderPort {
 
 export interface CompactorPort {
   shouldCompact(input: LlmInvocationInput): boolean;
-  compact(args: { conversations: ConversationFileContext; input: LlmInvocationInput & { preparedCompaction: PreparedCompaction }; summarizerProvider: LLMProviderPort; signal: AbortSignal }): Promise<{ rows: unknown[] }>;
+  compact(args: { conversations: ConversationFileContext; input: LlmInvocationInput & { preparedCompaction: PreparedCompaction }; summarizerProvider: LLMProviderPort; signal: AbortSignal }): Promise<{ providerConversation: LlmInvocationInput['providerConversation'] }>;
 }
 
 type PersistedProviderCompletion =
@@ -129,13 +128,11 @@ export class ConversationLLMActor extends BaseActor {
     });
     this.conversationPublisher?.entryAppended(delivery.message);
     const continuationInputId = randomUUID();
-    const contextMessages = this.continuationContextMessages(input, waiting, delivery, continuationInputId, continuationContextHook);
+    this.appendContinuationContext(input, continuationInputId, continuationContextHook);
     this.input = {
       ...input,
       inputId: continuationInputId,
-      genericContextMessages: contextMessages,
-      contextMessages,
-      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readConversationMessages(this.projectRoot, input.sessionId).physicalRows),
+      providerConversation: providerConversationProjection(readConversationMessages(this.projectRoot, input.sessionId)),
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, result } },
     };
     this.waitingToolCall = null;
@@ -184,9 +181,7 @@ export class ConversationLLMActor extends BaseActor {
     return this.startProviderTurn({
       ...input,
       inputId: repairInputId,
-      genericContextMessages: [...genericContextMessagesForInvocation(input), repairMessage, ...extraMessages],
-      contextMessages: [...input.contextMessages, { role: 'user', content: repairDirective }, ...extraMessages],
-      activeConversationReplay: buildResponsesReplayProjection(input.sessionId, readConversationMessages(this.projectRoot, input.sessionId).physicalRows),
+      providerConversation: providerConversationProjection(readConversationMessages(this.projectRoot, input.sessionId)),
       episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
     }, { resetDeliveredToolCalls: false, signal });
   }
@@ -216,9 +211,11 @@ export class ConversationLLMActor extends BaseActor {
         const invocationSignal = this.#invocations.signal(invocation);
         this.#currentInvocationSignal = invocationSignal;
         const persisted = await this.#invocations.runExternal(invocation, async (exactSignal) => {
+          this.assertPersistenceOwnership(input);
           const hookInput = await this.onBeforeProviderCall(input, exactSignal);
           this.#invocations.assertCurrent(invocation);
           const effectiveInput = hookInput ?? input;
+          this.assertPersistenceOwnership(effectiveInput);
           if (hookInput) this.input = effectiveInput;
           const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(effectiveInput.sessionId);
           for (const result of appendLlmTurnStarted(this.conversations, effectiveInput, { includeSystemPrompt })) this.conversationPublisher?.entryAppended(result);
@@ -301,7 +298,7 @@ export class ConversationLLMActor extends BaseActor {
     if (persisted.kind === 'message' && result.kind === 'message') {
       this.conversationPublisher?.entryAppended(persisted.appended);
       const activeConversation = readConversationMessages(this.projectRoot, input.sessionId);
-      this.input = { ...input, genericContextMessages: conversationMessagesForModel(activeConversation), contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }], activeConversationReplay: buildResponsesReplayProjection(input.sessionId, activeConversation.physicalRows) };
+      this.input = { ...input, providerConversation: providerConversationProjection(activeConversation) };
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.onTurnSettled();
       this.#activationSignal = null;
@@ -436,20 +433,17 @@ export class ConversationLLMActor extends BaseActor {
     this.deliveredToolCallIds.add(toolCallId);
   }
 
-  private continuationContextMessages(input: LlmInvocationInput, waiting: WaitingToolCall, delivery: ReturnType<typeof appendToolResult>, continuationInputId: string, continuationContextHook?: LLMToolContinuationContextHook): AgentMessage[] {
-    const toolCallMessage = toolCallAgentMessage(input, {
-      id: waiting.toolCallId,
-      type: 'function',
-      function: { name: waiting.toolName, arguments: waiting.toolCallArguments },
-    });
+  private appendContinuationContext(input: LlmInvocationInput, continuationInputId: string, continuationContextHook?: LLMToolContinuationContextHook): void {
     const continuation = continuationContextHook?.(continuationInputId);
-    const extraMessages = (continuation?.messages ?? []).map((message, index) => {
+    (continuation?.messages ?? []).forEach((message, index) => {
       const result = appendUserContextMessage(this.conversations, input.sessionId, continuationInputId, 'continuation_hook', index, message);
       this.conversationPublisher?.entryAppended(result);
-      return result;
     });
     continuation?.afterAppend?.();
-    return [...genericContextMessagesForInvocation(input), toolCallMessage, toolResultAgentMessage(delivery), ...extraMessages];
+  }
+
+  private assertPersistenceOwnership(input: LlmInvocationInput): void {
+    if (input.sessionId !== input.providerConversation.sourceSessionId) throw new Error(`Persisted LLM invocation '${input.inputId}' session '${input.sessionId}' does not match provider conversation source session '${input.providerConversation.sourceSessionId}'.`);
   }
 
   private consumeTurnMessages(input: LlmInvocationInput): LlmInvocationInput {
@@ -519,8 +513,8 @@ export class LLMActor extends ConversationLLMActor {
       this.#compacting = true;
       const compacted = await this.compactor.compact({ conversations: this.conversations, input, summarizerProvider: this.summarizerProvider, signal });
       signal.throwIfAborted();
-      const compactedRows = compacted.rows as AgentMessage[];
-      const compactedInput = { ...input, genericContextMessages: compactedRows, contextMessages: compactedRows, activeConversationReplay: buildResponsesReplayProjection(input.sessionId, compactedRows) } as LlmInvocationInput;
+      if (compacted.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compacted.providerConversation.sourceSessionId}'.`);
+      const compactedInput = { ...input, providerConversation: compacted.providerConversation } as LlmInvocationInput;
       this.#compacting = false;
       return compactedInput;
     } finally {

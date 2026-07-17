@@ -8,7 +8,6 @@ import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
-import { validateConversationRows } from '../../contracts/conversation-compaction.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
@@ -19,9 +18,8 @@ import type { NotifyCardResult } from '../runtime-api.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import type { RuntimeGate } from '../runtime-gate.js';
-import { appendActivationMarker, appendRecoveryNotice, appendUserContextMessage, conversationMessagesForModel } from './conversation-session.js';
+import { appendActivationMarker, appendRecoveryNotice, appendUserContextMessage, providerConversationProjection, readConversationMessages } from './conversation-session.js';
 import { stabilizeRoleSession } from './conversation-recovery.js';
-import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
 import { prepareCompaction, type CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
@@ -150,8 +148,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
     const preparedCompaction = this.compactionConfig?.enabled ? prepareCompaction(this.compactionConfig, systemPrompt, tools) : null;
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
-    const loadedRows = stabilized.messages;
-    const loaded = conversationMessagesForModel(validateConversationRows(loadedRows));
     const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
     const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
@@ -170,9 +166,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'planner',
       sessionId,
       systemPrompt,
-      genericContextMessages: [...loaded, ...(recovery ? [recovery] : []), ...notifications],
-      contextMessages: [...loaded, ...(recovery ? [recovery] : []), ...notifications],
-      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, ...(recovery ? [recovery] : []), ...notifications]),
+      providerConversation: providerConversationProjection(readConversationMessages(this.projectRoot, sessionId)),
       tools,
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
@@ -283,8 +277,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
     const preparedCompaction = this.compactionConfig?.enabled ? prepareCompaction(this.compactionConfig, systemPrompt, tools) : null;
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
-    const loadedRows = stabilized.messages;
-    const loaded = conversationMessagesForModel(validateConversationRows(loadedRows));
     const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
     const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
@@ -297,9 +289,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'reviewer',
       sessionId,
       systemPrompt,
-      genericContextMessages: [...loaded, ...(recovery ? [recovery] : []), descendantContext],
-      contextMessages: [...loaded, ...(recovery ? [recovery] : []), descendantContext],
-      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, ...(recovery ? [recovery] : []), descendantContext]),
+      providerConversation: providerConversationProjection(readConversationMessages(this.projectRoot, sessionId)),
       tools,
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

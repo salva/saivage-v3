@@ -6,7 +6,7 @@ import { estimateMessageTokens, type ClassifiedRound } from '../../src/runtime/a
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage } from '../../src/schemas/index.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { compact } from '../../src/runtime/actors/compaction/compactor.js';
-import { conversationMessagesForModel } from '../../src/runtime/actors/conversation-session.js';
+import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { hashConversationRows } from '../../src/contracts/conversation-compaction.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -41,9 +41,9 @@ describe('Stage-I compaction contracts', () => {
   it('estimates the already-projected invocation sequence without changing estimator input', () => {
     const contextMessages = [agentMessageSchema.parse({ id: 'visible', session_id: 'planner:project', role: 'user', kind: 'text', content: 'projected context', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' })];
     const preparedCompaction = prepareCompaction(config, 'system', []);
-    const invocation: LlmInvocationInput = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner' as const, sessionId: 'planner:project', systemPrompt: 'system', genericContextMessages: contextMessages, contextMessages, activeConversationReplay: { sessionId: 'planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
+    const invocation: LlmInvocationInput = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner' as const, sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
     expect(shouldCompact(invocation)).toBe(contextMessages.reduce((sum, row) => sum + estimateMessageTokens(row), 0) >= preparedCompaction.triggerMessageThreshold);
-    expect(invocation.contextMessages).toBe(contextMessages);
+    expect(invocation.providerConversation.messages).toBe(contextMessages);
   });
 
   it('partitions completed rounds newest-relative and asserts escalation suffixes', () => {
@@ -77,7 +77,7 @@ describe('Stage-I compaction contracts', () => {
       const first = readConversation(root, 'planner:project');
       const firstCutoff = first.latestCompaction!.cutoffMessageId;
       for (let ordinal = 5; ordinal <= 7; ordinal++) appendRawRound(root, ordinal);
-      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000002', genericContextMessages: conversationMessagesForModel(first), contextMessages: conversationMessagesForModel(first) }, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000002', providerConversation: providerConversationProjection(first) }, summarizerProvider: provider, signal: new AbortController().signal });
       const second = readConversation(root, 'planner:project');
       const metadata = second.physicalRows.filter((row) => row.kind === 'context_compaction');
       expect(metadata).toHaveLength(2);
@@ -85,18 +85,18 @@ describe('Stage-I compaction contracts', () => {
       const sourceIds = second.sourceRows.map((row) => row.id);
       expect(sourceIds.indexOf(second.latestCompaction!.cutoffMessageId)).toBeGreaterThan(sourceIds.indexOf(firstCutoff));
       expect(secondPayload.summaries.flatMap((group) => group.rounds.flatMap((round) => round.segments.flatMap((segment) => segment.source_message_ids))).every((id) => sourceIds.includes(id))).toBe(true);
-      const projected = conversationMessagesForModel(second);
+      const projected = providerConversationProjection(second).messages;
       expect(projected.filter((row) => row.id.endsWith(':rendered'))).toHaveLength(1);
       expect(projected.find((row) => row.id.endsWith(':rendered'))!.content).toBe(second.latestCompaction!.renderedContext);
       expect(projected.some((row) => row.kind === 'context_compaction')).toBe(false);
       for (let ordinal = 8; ordinal <= 10; ordinal++) appendRawRound(root, ordinal);
-      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000003', genericContextMessages: conversationMessagesForModel(second), contextMessages: conversationMessagesForModel(second) }, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000003', providerConversation: providerConversationProjection(second) }, summarizerProvider: provider, signal: new AbortController().signal });
       const third = readConversation(root, 'planner:project');
       const allMetadata = third.physicalRows.filter((row) => row.kind === 'context_compaction');
       expect(allMetadata).toHaveLength(3);
       const thirdPayload = third.latestCompaction!.payload;
       expect(sourceIds.indexOf(second.latestCompaction!.cutoffMessageId)).toBeLessThan(third.sourceRows.map((row) => row.id).indexOf(third.latestCompaction!.cutoffMessageId));
-      const thirdProjection = conversationMessagesForModel(third);
+      const thirdProjection = providerConversationProjection(third).messages;
       expect(thirdProjection.filter((row) => row.id.endsWith(':rendered'))).toHaveLength(1);
       expect(thirdProjection.some((row) => row.content === third.compactions[0]!.renderedContext)).toBe(false);
       expect(thirdProjection.some((row) => row.content === third.compactions[1]!.renderedContext)).toBe(false);
@@ -122,7 +122,7 @@ describe('Stage-I compaction contracts', () => {
       const payload = contextCompactionContentSchema.parse(JSON.parse(result.compactionMessage.content));
       expect(payload.applied_policy.mode).toBe('hard_limit_fallback');
       expect(payload.summaries.at(-1)?.rounds[0]?.complete).toBe(false);
-      const projected = conversationMessagesForModel(readConversation(root, session_id));
+      const projected = providerConversationProjection(readConversation(root, session_id)).messages;
       expect(projected.filter((row) => row.id.endsWith(':rendered'))).toHaveLength(1);
       expect(projected.some((row) => row.id === 'hard-message-9')).toBe(true);
       const first = readConversation(root, session_id);
@@ -130,7 +130,7 @@ describe('Stage-I compaction contracts', () => {
       expect(first.latestCompaction!.cutoffMessageId).not.toBe('hard-message-9');
       appendConversationBatch(root, [{ id: 'hard-message-10', session_id, role: 'user', kind: 'text', content: `10:${'x'.repeat(320)}`, round_id: 'r-user-99999999999999999999999999999999', message_index: 11, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' }]);
       const current = readConversation(root, session_id);
-      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000100', genericContextMessages: conversationMessagesForModel(current), contextMessages: conversationMessagesForModel(current) }, summarizerProvider: provider, signal: new AbortController().signal });
+      await compact({ conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000100', providerConversation: providerConversationProjection(current) }, summarizerProvider: provider, signal: new AbortController().signal });
       const second = readConversation(root, session_id).latestCompaction!;
       expect(second.cutoffSourceIndex).toBeGreaterThan(firstCutoff);
       expect(second.groups.filter((group) => !group.rounds[0]!.complete)).toHaveLength(second.groups.at(-1)!.rounds[0]!.complete ? 0 : 1);
@@ -173,8 +173,8 @@ describe('Stage-I compaction contracts', () => {
       inputs.length = 0;
       for (let round = 8; round <= 10; round++) appendRawRound(root, round);
       const current = readConversation(root, 'planner:project');
-      await compact({ conversations: { projectRoot: root }, input: invocationFor('planner:project', conversationMessagesForModel(current), integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
-      const mergeInputs = inputs.filter((input) => input.sessionId === 'summary:merge').flatMap((input) => input.contextMessages as AgentMessage[]);
+      await compact({ conversations: { projectRoot: root }, input: invocationFor('planner:project', providerConversationProjection(current).messages, integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
+      const mergeInputs = inputs.filter((input) => input.sessionId === 'summary:merge').flatMap((input) => input.providerConversation.messages);
       expect(mergeInputs.some((row) => row.content.includes(priorMerged!.payload.summary_text))).toBe(true);
       expect(priorMerged!.payload.content_hash).toBe(hashConversationRows(priorMerged!.sourceRows));
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -191,7 +191,7 @@ describe('Stage-I compaction contracts', () => {
         { id: 'protected-prefix', session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: 'x'.repeat(600), round_id: 'r-user-99999999999999999999999999999999', message_index: 1, block_index: 0, timestamp },
         { id: `${inputId}:tool-call:call-1`, session_id: sessionId, role: 'assistant' as const, kind: 'tool_call' as const, content: '{}', tool: 'read', tool_call_id: 'call-1', round_id: 'r-assistant-99999999999999999999999999999999', message_index: 2, block_index: 0, timestamp },
         { id: `${inputId}:tool-result:call-1`, session_id: sessionId, role: 'tool' as const, kind: 'tool_result' as const, content: JSON.stringify({ success: true }), tool: 'read', tool_call_id: 'call-1', round_id: 'r-user-99999999999999999999999999999999', message_index: 3, block_index: 0, timestamp },
-        { id: 'private-1', session_id: sessionId, role: 'system' as const, kind: 'provider_private' as const, content: 'private', round_id: 'r-user-99999999999999999999999999999999', message_index: 4, block_index: 0, timestamp },
+        { id: 'private-1', session_id: sessionId, role: 'system' as const, kind: 'provider_private' as const, content: JSON.stringify({ transport: 'openai-responses', source_input_id: inputId, projection_message_id: 'public-1', provider: 'openai', model: 'gpt-5.6', output: [{ type: 'message', content: [{ type: 'output_text', text: 'private' }] }] }), round_id: 'r-user-99999999999999999999999999999999', message_index: 4, block_index: 0, timestamp },
         { id: 'public-1', session_id: sessionId, role: 'assistant' as const, kind: 'text' as const, content: 'y'.repeat(600), round_id: 'r-assistant-99999999999999999999999999999999', message_index: 5, block_index: 0, timestamp, provider_projection: { kind: 'openai_responses' as const, source_input_id: inputId, private_message_id: 'private-1', projection_kind: 'assistant_message' as const } },
         { id: 'protected-tail', session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: 'z'.repeat(600), round_id: 'r-user-99999999999999999999999999999999', message_index: 6, block_index: 0, timestamp },
       ];
@@ -201,7 +201,7 @@ describe('Stage-I compaction contracts', () => {
       const cutoff = validated.cutoffMessageId;
       expect(cutoff).not.toBe(`${inputId}:tool-call:call-1`);
       expect(cutoff).not.toBe('private-1');
-      expect(result.rows.some((row) => row.id === 'protected-tail')).toBe(true);
+      expect(result.providerConversation.messages.some((row) => row.id === 'protected-tail')).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
@@ -219,7 +219,7 @@ function appendRawRound(root: string, ordinal: number, session_id = 'planner:pro
 
 function invocationFor(sessionId: string, contextMessages: AgentMessage[], compactionConfig: CompactionConfig): LlmInvocationInput & { preparedCompaction: NonNullable<LlmInvocationInput['preparedCompaction']> } {
   const role = sessionId.split(':')[0] as 'planner' | 'executor' | 'reviewer';
-  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, role, sessionId, systemPrompt: 'system', genericContextMessages: contextMessages, contextMessages, activeConversationReplay: { sessionId, messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {}, episodeContext: {} };
+  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, role, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {}, episodeContext: {} };
 }
 
 function summaryProvider() {

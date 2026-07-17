@@ -1,10 +1,10 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
-import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderTurnCompletion, type ResponsesReplayProjection, type ToolDefinition } from './llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderConversationProjection, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
 import { serializeToolsForResponses, type WireToolDefinitionResponses } from './tool-definition-serializer.js';
-import { responsesInputFromReplay } from './llm-openai-responses-mapper.js';
+import { responsesInputFromProviderConversation } from './llm-openai-responses-mapper.js';
 import { parseOpenAIResponsesJson, readOpenAIResponsesStream } from './llm-openai-responses-parser.js';
 import type { EffectiveProviderCapabilities } from './provider-capabilities.js';
 
@@ -41,9 +41,9 @@ export class OpenAIResponsesGateway {
     this.capabilities = config.capabilities;
   }
 
-  async complete(candidate: Candidate, systemPrompt: string, replay: ResponsesReplayProjection, _sessionId: string, opts: LlmCompleteOptions): Promise<ProviderTurnCompletion> {
+  async complete(candidate: Candidate, systemPrompt: string, providerConversation: ProviderConversationProjection, _sessionId: string, opts: LlmCompleteOptions): Promise<ProviderTurnCompletion> {
     if (!this.apiKey) throw new LlmRequestError({ kind: 'auth_permanent', provider: candidate.provider, status: 401, message: 'OpenAI Responses provider requires an API key' });
-    const requestBody = (opts.builtCandidateRequest?.body ?? buildOpenAIResponsesRequest(candidate, systemPrompt, replay, opts, this.capabilities)) as unknown as OpenAIResponsesRequest;
+    const requestBody = (opts.builtCandidateRequest?.body ?? buildOpenAIResponsesRequest(candidate, systemPrompt, providerConversation, opts, this.capabilities)) as unknown as OpenAIResponsesRequest;
     const serializedBody = opts.builtCandidateRequest?.serializedBody ?? JSON.stringify(requestBody);
     const endpoint = this.responsesUrl();
     const headers: Record<string, string> = { 'Content-Type': 'application/json', Connection: 'close', Authorization: `Bearer ${this.apiKey}` };
@@ -103,14 +103,14 @@ export class OpenAIResponsesGateway {
   }
 }
 
-export function buildOpenAIResponsesRequest(candidate: Candidate, systemPrompt: string, replay: ResponsesReplayProjection, opts: LlmCompleteOptions, capabilities?: Pick<EffectiveProviderCapabilities, 'responsesReasoning'>): OpenAIResponsesRequest {
-  const systemContext = replay.messages.filter((message) => message.role === 'system' && (message.kind === 'model_recovered' || message.kind === 'context_compaction' || message.kind === 'text')).map((message) => message.content);
+export function buildOpenAIResponsesRequest(candidate: Candidate, systemPrompt: string, providerConversation: ProviderConversationProjection, opts: LlmCompleteOptions, capabilities?: Pick<EffectiveProviderCapabilities, 'responsesReasoning'>): OpenAIResponsesRequest {
+  const systemContext = providerConversation.messages.filter((message) => message.role === 'system' && (message.kind === 'model_recovered' || message.kind === 'text')).map((message) => message.content);
   const tools: ToolDefinition[] = opts.phase === 'terminal' ? [opts.terminalToolDefinition] : opts.tools;
   const toolChoice: 'auto' | ResponsesToolChoiceNamed = opts.phase === 'terminal' ? { type: 'function', name: opts.terminalToolName } : opts.tool_choice.kind === 'required_named' ? { type: 'function', name: opts.tool_choice.toolName } : 'auto';
   const body: OpenAIResponsesRequest = {
     model: candidate.model,
     instructions: [systemPrompt, ...systemContext].join('\n\n--- system context ---\n'),
-    input: responsesInputFromReplay(replay),
+    input: responsesInputFromProviderConversation(providerConversation),
     store: false,
     include: ['reasoning.encrypted_content'],
     max_output_tokens: opts.max_tokens ?? 4096,

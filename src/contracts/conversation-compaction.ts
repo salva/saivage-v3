@@ -33,13 +33,16 @@ export type ValidatedContextCompaction = {
 };
 
 export type ValidatedConversation = {
+  sourceSessionId: string;
   physicalRows: AgentMessage[];
   sourceRows: AgentMessage[];
   compactions: ValidatedContextCompaction[];
   latestCompaction: ValidatedContextCompaction | null;
 };
 
-export function validateConversationRows(physicalRows: readonly AgentMessage[]): ValidatedConversation {
+export function validateConversationRows(sourceSessionId: string, physicalRows: readonly AgentMessage[]): ValidatedConversation {
+  const wrongSession = physicalRows.find((row) => row.session_id !== sourceSessionId);
+  if (wrongSession) throw new Error(`Conversation row '${wrongSession.id}' belongs to session '${wrongSession.session_id}', not source session '${sourceSessionId}'.`);
   if (new Set(physicalRows.map((row) => row.id)).size !== physicalRows.length) throw new Error('Conversation contains duplicate message ids.');
   const sourceRows: AgentMessage[] = [];
   const compactions: ValidatedContextCompaction[] = [];
@@ -50,7 +53,7 @@ export function validateConversationRows(physicalRows: readonly AgentMessage[]):
     }
     compactions.push(validateCompaction(row, sourceRows));
   }
-  return { physicalRows: [...physicalRows], sourceRows, compactions, latestCompaction: compactions.at(-1) ?? null };
+  return { sourceSessionId, physicalRows: [...physicalRows], sourceRows, compactions, latestCompaction: compactions.at(-1) ?? null };
 }
 
 function validateCompaction(metadataRow: AgentMessage, precedingSourceRows: readonly AgentMessage[]): ValidatedContextCompaction {

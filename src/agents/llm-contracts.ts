@@ -86,9 +86,14 @@ export interface OpenAIResponsesPrivateContext {
 
 export type ProviderPrivateContext = OpenAIResponsesPrivateContext;
 
-export interface ResponsesReplayProjection {
-  sessionId: string;
+export interface ProviderConversationProjection {
+  sourceSessionId: string;
   messages: AgentMessage[];
+}
+
+export function assertProviderConversationSourceRows(providerConversation: ProviderConversationProjection): void {
+  const wrongSession = providerConversation.messages.find((message) => message.session_id !== providerConversation.sourceSessionId);
+  if (wrongSession) throw new Error(`Provider conversation row '${wrongSession.id}' belongs to session '${wrongSession.session_id}', not source session '${providerConversation.sourceSessionId}'.`);
 }
 
 export interface ProviderTurnCompletion {
@@ -118,32 +123,16 @@ export interface LlmInvocationClient {
   complete(
     candidate: Candidate,
     systemPrompt: string,
-    genericContextMessages: AgentMessage[],
-    activeConversationReplayOrSessionId: ResponsesReplayProjection | string,
-    sessionIdOrOpts: string | LlmCompleteOptions,
-    opts?: LlmCompleteOptions,
+    providerConversation: ProviderConversationProjection,
+    sessionId: string,
+    opts: LlmCompleteOptions,
   ): Promise<ProviderTurnCompletion>;
 }
 
 export type LlmCallFn = (
   candidate: Candidate,
   systemPrompt: string,
-  genericContextMessages: AgentMessage[],
-  activeConversationReplayOrSessionId: ResponsesReplayProjection | string,
-  sessionIdOrOpts: string | LlmCompleteOptions,
-  opts: LlmCompleteOptions | undefined,
+  providerConversation: ProviderConversationProjection,
+  sessionId: string,
+  opts: LlmCompleteOptions,
 ) => Promise<ProviderTurnCompletion>;
-
-export function parseCompleteInvocationArgs(
-  messages: AgentMessage[],
-  activeConversationReplayOrSessionId: ResponsesReplayProjection | string,
-  sessionIdOrOpts: string | LlmCompleteOptions,
-  opts?: LlmCompleteOptions,
-): { genericContextMessages: AgentMessage[]; activeConversationReplay: ResponsesReplayProjection; sessionId: string; opts: LlmCompleteOptions } {
-  if (typeof activeConversationReplayOrSessionId === 'string') {
-    if (typeof sessionIdOrOpts === 'string' || opts !== undefined) throw new Error('Complete invocation has invalid generic-only argument shape.');
-    return { genericContextMessages: messages, activeConversationReplay: { sessionId: activeConversationReplayOrSessionId, messages }, sessionId: activeConversationReplayOrSessionId, opts: sessionIdOrOpts };
-  }
-  if (typeof sessionIdOrOpts !== 'string' || !opts) throw new Error('Complete invocation requires sessionId and options.');
-  return { genericContextMessages: messages, activeConversationReplay: activeConversationReplayOrSessionId, sessionId: sessionIdOrOpts, opts };
-}

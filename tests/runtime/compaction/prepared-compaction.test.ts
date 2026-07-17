@@ -28,6 +28,16 @@ describe('prepared compaction estimates', () => {
     expect(shouldCompact(invocation([hidden, unicode], { ...base, triggerMessageThreshold: visibleTokens + 1 }))).toBe(false);
   });
 
+  it('gives provider-private rows zero actor weight while their visible projection remains counted', () => {
+    const privateRow = message('private', 'system', 'provider_private', 'x'.repeat(100_000));
+    const visible = message('visible', 'assistant', 'text', 'visible');
+    expect(estimateMessageTokens(privateRow)).toBe(0);
+    expect(estimateMessageTokens(visible)).toBeGreaterThan(0);
+    const base = prepareCompaction(config, 'system', []);
+    expect(shouldCompact(invocation([privateRow], { ...base, triggerMessageThreshold: 1 }))).toBe(false);
+    expect(shouldCompact(invocation([privateRow, visible], { ...base, triggerMessageThreshold: estimateMessageTokens(visible) }))).toBe(true);
+  });
+
   it('classifies each source row with one estimate and stores only the consumed round aggregate', () => {
     const marker = message('marker', 'system', 'activity', JSON.stringify({ event: 'activation_open' }));
     const first = message('first', 'user', 'text', 'first');
@@ -53,9 +63,14 @@ describe('prepared compaction estimates', () => {
     const inputs: LlmInvocationInput[] = [];
     const summarizerProvider = { completeTurn: async (input: LlmInvocationInput) => { inputs.push(input); return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }; } };
     const signal = new AbortController().signal;
-    await summarizeRound({ round_id: 'round', rows: [message('source', 'user', 'text', 'source')], summarizerProvider, modelSpec: 'test/_/summary', signal });
+    await summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows: [message('source', 'user', 'text', 'source')], summarizerProvider, modelSpec: 'test/_/summary', signal });
     await summarizeMerge({ entries: [{ round_id: 'round', summary_text: 'summary' }], summarizerProvider, modelSpec: 'test/_/summary', signal });
     expect(inputs).toHaveLength(2);
+    expect(inputs[0]!.sessionId).toBe('summary:round');
+    expect(inputs[0]!.providerConversation.sourceSessionId).toBe('planner:project');
+    expect(inputs[0]!.providerConversation.messages[0]).toMatchObject({ id: 'source', session_id: 'planner:project' });
+    expect(inputs[0]!.inputId).not.toBe(inputs[0]!.providerConversation.messages[0]!.id);
+    expect(inputs[1]!.providerConversation.sourceSessionId).toBe('summary:merge');
     for (const input of inputs) {
       expect(input.preparedCompaction).toBeUndefined();
       expect(input.modelParams.maxTokens).toBe(2000);
@@ -64,7 +79,7 @@ describe('prepared compaction estimates', () => {
 });
 
 function invocation(contextMessages: AgentMessage[], preparedCompaction: PreparedCompaction): LlmInvocationInput {
-  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', contextMessages, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
+  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
 }
 
 function message(id: string, role: AgentMessage['role'], kind: AgentMessage['kind'], content: string): AgentMessage {

@@ -10,8 +10,7 @@ function input(overrides: Record<string, unknown> = {}): LlmInvocationInput {
     role: 'planner',
     sessionId: 'planner:project',
     systemPrompt: 'plan',
-    contextMessages: [],
-    activeConversationReplay: { sessionId: 'planner:project', messages: [] },
+    providerConversation: { sourceSessionId: 'planner:project', messages: [] },
     tools: [],
     terminalToolNames: ['report_done'],
     modelParams: { temperature: 0.2, maxTokens: 1000 },
@@ -37,24 +36,13 @@ describe('InvocationProviderTurnPort', () => {
       role: 'planner',
       sessionId: 'planner:project',
       systemPrompt: 'plan',
-      genericContextMessages: [],
-      activeConversationReplay: { sessionId: 'planner:project', messages: [] },
+      providerConversation: { sourceSessionId: 'planner:project', messages: [] },
       tools: [],
       terminalToolNames: ['report_done'],
       modelParams: { temperature: 0.2, maxTokens: 1000 },
       capabilityRequest: { requiresTools: true },
       abortSignal: signal,
     });
-  });
-
-  it('fails clearly on invalid context messages', async () => {
-    const service: InvocationTurnService = {
-      invokeWithRecovery: jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })),
-    };
-    const port = createInvocationProviderTurnPort(service);
-
-    await expect(port.completeTurn(input({ contextMessages: [{ role: 'user' }] }), new AbortController().signal)).rejects.toThrow("Invalid LLM context messages for 'turn-1'");
-    expect(service.invokeWithRecovery).not.toHaveBeenCalled();
   });
 
   it('forwards prepared compaction without adding an ordinary maxTokens authority', async () => {

@@ -1,7 +1,7 @@
 import type { AgentMessage } from '../schemas/index.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/message-identity.js';
-import type { ResponsesReplayProjection } from './llm-contracts.js';
+import type { ProviderConversationProjection } from './llm-contracts.js';
 
 export interface OpenAIResponsesPrivateRowContent {
   transport: 'openai-responses';
@@ -14,16 +14,11 @@ export interface OpenAIResponsesPrivateRowContent {
 
 type ResponsesInputItem = Record<string, unknown>;
 
-export function buildResponsesReplayProjection(sessionId: string, messages: AgentMessage[]): ResponsesReplayProjection {
-  validateResponsesPairs(sessionId, messages);
-  return { sessionId, messages: [...messages] };
-}
-
-export function responsesInputFromReplay(replay: ResponsesReplayProjection): ResponsesInputItem[] {
-  validateResponsesPairs(replay.sessionId, replay.messages);
+export function responsesInputFromProviderConversation(providerConversation: ProviderConversationProjection): ResponsesInputItem[] {
+  validateResponsesPairs(providerConversation.sourceSessionId, providerConversation.messages);
   const input: ResponsesInputItem[] = [];
   const privateByProjection = new Map<string, OpenAIResponsesPrivateRowContent>();
-  for (const message of replay.messages) {
+  for (const message of providerConversation.messages) {
     if (message.kind === 'provider_private') {
       const row = parsePrivateContent(message);
       privateByProjection.set(row.projection_message_id, row);
@@ -31,7 +26,7 @@ export function responsesInputFromReplay(replay: ResponsesReplayProjection): Res
   }
   const emittedFunctionCalls = new Map<string, { sourceInputId: string; callId: string }>();
   const settled = new Set<string>();
-  for (const message of replay.messages) {
+  for (const message of providerConversation.messages) {
     if (message.kind === 'system_prompt' || message.kind === 'activity' || message.kind === 'model_issue' || message.kind === 'model_recovered') continue;
     if (message.kind === 'provider_private') continue;
     if (message.provider_projection?.kind === 'openai_responses') {
@@ -61,7 +56,8 @@ export function responsesInputFromReplay(replay: ResponsesReplayProjection): Res
       input.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments });
       continue;
     }
-    if (message.kind === 'context_compaction' || (message.kind === 'text' && message.role === 'system')) continue;
+    if (message.kind === 'context_compaction') throw new Error(`Responses provider conversation contains compaction metadata row '${message.id}'.`);
+    if (message.kind === 'text' && message.role === 'system') continue;
     if (message.kind === 'text' || message.kind === 'model_repair') {
       input.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content: [{ type: message.role === 'assistant' ? 'output_text' : 'input_text', text: message.content }] });
       continue;
@@ -83,12 +79,12 @@ export function parsePrivateContent(message: AgentMessage): OpenAIResponsesPriva
   return parsed;
 }
 
-export function validateResponsesPairs(sessionId: string, messages: AgentMessage[]): void {
+export function validateResponsesPairs(sourceSessionId: string, messages: AgentMessage[]): void {
   const privateById = new Map<string, { message: AgentMessage; content: OpenAIResponsesPrivateRowContent }>();
   const visibleByInput = new Map<string, AgentMessage[]>();
   const privateByInput = new Map<string, AgentMessage[]>();
   for (const message of messages) {
-    if (message.session_id !== sessionId) continue;
+    if (message.session_id !== sourceSessionId) throw new Error(`Responses projection row '${message.id}' belongs to session '${message.session_id}', not source session '${sourceSessionId}'.`);
     if (message.kind === 'provider_private') {
       const content = parsePrivateContent(message);
       privateById.set(message.id, { message, content });

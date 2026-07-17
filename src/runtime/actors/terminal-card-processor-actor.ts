@@ -6,7 +6,6 @@ import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-acto
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
-import { validateConversationRows } from '../../contracts/conversation-compaction.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../../tools/invocation.js';
@@ -16,9 +15,8 @@ import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import type { RuntimeGate } from '../runtime-gate.js';
-import { appendActivationMarker, appendRecoveryNotice, appendUserContextMessage, conversationMessagesForModel } from './conversation-session.js';
+import { appendActivationMarker, appendRecoveryNotice, appendUserContextMessage, providerConversationProjection, readConversationMessages } from './conversation-session.js';
 import { stabilizeRoleSession } from './conversation-recovery.js';
-import { buildResponsesReplayProjection } from '../../agents/llm-openai-responses-mapper.js';
 import { prepareCompaction, type CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
@@ -137,8 +135,6 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
     const preparedCompaction = this.compactionConfig?.enabled ? prepareCompaction(this.compactionConfig, systemPrompt, tools) : null;
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
-    const loadedRows = stabilized.messages;
-    const loaded = conversationMessagesForModel(validateConversationRows(loadedRows));
     this.conversationPublisher?.entryAppended(appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId }));
     const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
     if (recovery) this.conversationPublisher?.entryAppended(recovery);
@@ -156,9 +152,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'executor',
       sessionId,
       systemPrompt,
-      genericContextMessages: [...loaded, ...(recovery ? [recovery] : []), ...notifications],
-      contextMessages: [...loaded, ...(recovery ? [recovery] : []), ...notifications],
-      activeConversationReplay: buildResponsesReplayProjection(sessionId, [...loadedRows, ...(recovery ? [recovery] : []), ...notifications]),
+      providerConversation: providerConversationProjection(readConversationMessages(this.projectRoot, sessionId)),
       tools,
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

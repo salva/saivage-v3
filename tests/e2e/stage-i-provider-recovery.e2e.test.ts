@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { stabilizeRoleSession } from '../../src/runtime/actors/conversation-recovery.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
-import { conversationMessagesForModel } from '../../src/runtime/actors/conversation-session.js';
-import { buildResponsesReplayProjection, responsesInputFromReplay } from '../../src/agents/llm-openai-responses-mapper.js';
+import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
 import { codexMessages } from '../../src/agents/llm-openai-codex-gateway.js';
 import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-gateway.js';
 
@@ -65,7 +65,8 @@ describe('stable same-session recovery', () => {
     stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     const notice: AgentMessage = { ...base, id: '22222222-2222-4222-8222-222222222222:model-recovered', role: 'system', kind: 'model_recovered', content: 'The previous runtime activation was interrupted.', block_index: 1 };
     appendConversationBatch(projectRoot, [notice]);
-    const generic = conversationMessagesForModel(readConversation(projectRoot, sessionId));
+    const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId));
+    const generic = providerConversation.messages;
     const failed = generic.find((row) => row.kind === 'tool_result')!;
     expect(failed.id).toBe(`${source}:tool-result:call-1`);
     expect(JSON.parse(failed.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
@@ -75,13 +76,13 @@ describe('stable same-session recovery', () => {
       expect.objectContaining({ type: 'function_call', call_id: 'call-1' }),
       expect.objectContaining({ type: 'function_call_output', call_id: 'call-1', output: failed.content }),
     ]));
-    expect(responsesInputFromReplay(buildResponsesReplayProjection(sessionId, generic))).toEqual(expect.arrayContaining([
+    expect(responsesInputFromProviderConversation(providerConversation)).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'function_call', call_id: 'call-1' }),
       expect.objectContaining({ type: 'function_call_output', call_id: 'call-1', output: failed.content }),
     ]));
     const chat = buildOpenAIChatRequest(
       { provider: 'openai', model: 'gpt-test', account: 'default', protocol: 'openai-chat' } as never,
-      'system', generic,
+      'system', providerConversation,
       { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, terminalToolOffered: [], temperature: 0, max_tokens: 10, stream: false } as never,
     );
     expect(chat.messages).toEqual(expect.arrayContaining([

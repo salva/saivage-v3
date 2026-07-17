@@ -11,7 +11,6 @@ import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
-import { activeConversationReplayForInvocation, genericContextMessagesForInvocation } from '../runtime/actors/llm-invocation.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 import type { ReadModelChanges } from './read-model-changes.js';
@@ -84,7 +83,7 @@ export function createInvocationServiceProvider(invocationService: InvocationSer
 function invocationRequest(input: LlmInvocationInput, signal: AbortSignal, candidateChain?: NonNullable<InvocationRequest['candidateChain']>): InvocationRequest {
   const common = {
     inputId: input.inputId, role: input.role, sessionId: input.sessionId, systemPrompt: input.systemPrompt,
-    genericContextMessages: genericContextMessagesForInvocation(input), activeConversationReplay: activeConversationReplayForInvocation(input),
+    providerConversation: input.providerConversation,
     tools: input.tools, terminalToolNames: input.terminalToolNames, capabilityRequest: input.capabilityRequest, abortSignal: signal,
     ...(candidateChain ? { candidateChain } : {}),
   };

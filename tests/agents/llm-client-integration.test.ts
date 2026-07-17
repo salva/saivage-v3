@@ -154,7 +154,7 @@ function sp() {
 }
 
 function msgs() {
-  return [
+  return { sourceSessionId: 'sess-1', messages: [
     {
       id: 'msg-1',
       session_id: 'sess-1',
@@ -166,7 +166,7 @@ function msgs() {
       block_index: 0,
       timestamp: new Date().toISOString(),
     },
-  ];
+  ] };
 }
 
 function cand(provider = 'test-provider', model = 'test-model') {
@@ -349,8 +349,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
         candidate,
         capabilities,
         systemPrompt: sp(),
-        messages: msgs(),
-        replay: { sessionId: 'sess-codex-built', messages: [] },
+        providerConversation: msgs(),
         options,
       });
       expect(Object.prototype.hasOwnProperty.call(JSON.parse(builtCandidateRequest.serializedBody), 'max_output_tokens')).toBe(false);
@@ -460,7 +459,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
       await client.complete(
-        cand('openai-codex', 'gpt-5.4'), sp(), [], 'sess-codex-empty',
+        cand('openai-codex', 'gpt-5.4'), sp(), { sourceSessionId: 'sess-codex-empty', messages: [] }, 'sess-codex-empty',
       toolsOpts(),
       );
 
@@ -839,7 +838,7 @@ describe('LlmClient Edge Cases', () => {
         { id: '2', session_id: 's', role: 'assistant' as const, kind: 'text' as const, content: 'asst msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: new Date().toISOString() },
         { id: '3', session_id: 's', role: 'tool' as const, kind: 'text' as const, content: 'tool msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 2, block_index: 2, timestamp: new Date().toISOString() },
       ];
-      await client.complete(cand(), sp(), multiMsgs, 'sess-roles', toolsOpts());
+      await client.complete(cand(), sp(), { sourceSessionId: 's', messages: multiMsgs }, 'sess-roles', toolsOpts());
       const body = JSON.parse(cap.body);
       expect(body.messages).toHaveLength(4); // system prompt + 3
       expect(body.messages[1].role).toBe('system');

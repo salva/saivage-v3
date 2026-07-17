@@ -21,8 +21,8 @@ describe('singular invocation completion authority', () => {
     { transportProtocol: 'openai-responses' as const, outputField: 'max_output_tokens' as const },
     { transportProtocol: 'openai-codex-backend' as const, outputField: null },
   ])('uses prepared completion for $transportProtocol admission and transport', async ({ transportProtocol, outputField }) => {
-    let observedOptions: Parameters<LlmCallFn>[5] | undefined;
-    const observed: LlmCallFn = async (_candidate, _prompt, _messages, _replay, _session, options) => { observedOptions = options; return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [] }; };
+    let observedOptions: Parameters<LlmCallFn>[4] | undefined;
+    const observed: LlmCallFn = async (_candidate, _prompt, _providerConversation, _session, options) => { observedOptions = options; return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [] }; };
     const service = invocationService(capabilities(transportProtocol), observed);
     const request = preparedRequest();
 
@@ -47,10 +47,10 @@ describe('singular invocation completion authority', () => {
     { label: 'summarizer', maxTokens: 2000 },
     { label: 'disabled autonomous', maxTokens: undefined },
   ])('keeps $label on ordinary maxTokens without compacted admission', async ({ maxTokens }) => {
-    let observedOptions: Parameters<LlmCallFn>[5] | undefined;
-    const observed: LlmCallFn = async (_candidate, _prompt, _messages, _replay, _session, options) => { observedOptions = options; return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [] }; };
+    let observedOptions: Parameters<LlmCallFn>[4] | undefined;
+    const observed: LlmCallFn = async (_candidate, _prompt, _providerConversation, _session, options) => { observedOptions = options; return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [] }; };
     const service = invocationService({ ...capabilities('openai-responses'), contextWindowTokens: undefined, maxOutputTokens: undefined }, observed);
-    const request: InvocationRequest = { inputId: '00000000-0000-4000-8000-000000000001', role: 'analyst', sessionId: 'analyst:test', systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: maxTokens === undefined ? {} : { maxTokens }, capabilityRequest: {} };
+    const request: InvocationRequest = { inputId: '00000000-0000-4000-8000-000000000001', role: 'analyst', sessionId: 'analyst:test', systemPrompt: 'system', providerConversation: { sourceSessionId: 'analyst:test', messages: [] }, tools: [], terminalToolNames: [], modelParams: maxTokens === undefined ? {} : { maxTokens }, capabilityRequest: {} };
     await service.invokeCall(request, candidate);
     const options = observedOptions!;
     expect(options.max_tokens).toBe(maxTokens);
@@ -59,7 +59,7 @@ describe('singular invocation completion authority', () => {
 });
 
 function preparedRequest(): InvocationRequest {
-  return { inputId: '00000000-0000-4000-8000-000000000001', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(config, 'system', []), capabilityRequest: {} };
+  return { inputId: '00000000-0000-4000-8000-000000000001', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(config, 'system', []), capabilityRequest: {} };
 }
 
 function capabilities(transportProtocol: EffectiveProviderCapabilities['transportProtocol']): EffectiveProviderCapabilities {

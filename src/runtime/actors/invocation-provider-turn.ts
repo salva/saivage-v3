@@ -1,15 +1,10 @@
-import { z } from 'zod';
-import { agentMessageSchema } from '../../schemas/index.js';
-import type { AgentMessage } from '../../schemas/index.js';
 import type { InvocationRequest } from '../../agents/invocation-service.js';
 import type { ProviderTurnCompletion } from '../../agents/llm-contracts.js';
-import { activeConversationReplayForInvocation, genericContextMessagesForInvocation, type LlmInvocationInput, type ProviderTurnPort } from './llm-invocation.js';
+import type { LlmInvocationInput, ProviderTurnPort } from './llm-invocation.js';
 
 export interface InvocationTurnService {
   invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion>;
 }
-
-const agentMessageArraySchema = z.array(agentMessageSchema);
 
 export class InvocationProviderTurnPort implements ProviderTurnPort {
   constructor(private readonly invocationService: InvocationTurnService) {}
@@ -20,8 +15,7 @@ export class InvocationProviderTurnPort implements ProviderTurnPort {
       role: input.role,
       sessionId: input.sessionId,
       systemPrompt: input.systemPrompt,
-      genericContextMessages: parseContextMessages(genericContextMessagesForInvocation(input), input.inputId),
-      activeConversationReplay: activeConversationReplayForInvocation(input),
+      providerConversation: input.providerConversation,
       tools: input.tools,
       terminalToolNames: input.terminalToolNames,
       capabilityRequest: input.capabilityRequest,
@@ -35,10 +29,4 @@ export class InvocationProviderTurnPort implements ProviderTurnPort {
 
 export function createInvocationProviderTurnPort(invocationService: InvocationTurnService): ProviderTurnPort {
   return new InvocationProviderTurnPort(invocationService);
-}
-
-function parseContextMessages(messages: unknown[], inputId: string): AgentMessage[] {
-  const parsed = agentMessageArraySchema.safeParse(messages);
-  if (!parsed.success) throw new Error(`Invalid LLM context messages for '${inputId}': ${parsed.error.message}`);
-  return parsed.data;
 }

@@ -7,6 +7,7 @@ import type {
   ToolCall,
   ToolDefinition,
   LlmUsage,
+  ProviderConversationProjection,
 } from './llm-contracts.js';
 import { ProviderTurnFailure } from './llm-contracts.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
@@ -76,11 +77,11 @@ export class OpenAIChatGateway {
   async complete(
     candidate: Candidate,
     systemPrompt: string,
-    messages: AgentMessage[],
+    providerConversation: ProviderConversationProjection,
     _sessionId: string,
     opts: LlmCompleteOptions,
   ): Promise<ProviderTurnCompletion> {
-    const requestBody = (opts.builtCandidateRequest?.body ?? buildOpenAIChatRequest(candidate, systemPrompt, messages, opts)) as unknown as ChatCompletionRequest;
+    const requestBody = (opts.builtCandidateRequest?.body ?? buildOpenAIChatRequest(candidate, systemPrompt, providerConversation, opts)) as unknown as ChatCompletionRequest;
     const serializedBody = opts.builtCandidateRequest?.serializedBody ?? JSON.stringify(requestBody);
     const url = this.chatCompletionsUrl();
     const headers: Record<string, string> = {
@@ -255,12 +256,12 @@ function providerFailure(error: unknown, recorder: LlmCompleteOptions['recorder'
 export function buildOpenAIChatRequest(
   candidate: Candidate,
   systemPrompt: string,
-  messages: AgentMessage[],
+  providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
 ): ChatCompletionRequest {
   const apiMessages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
-    ...messages.map((m): ChatMessage => {
+    ...providerConversation.messages.filter((message) => message.kind !== 'provider_private').map((m): ChatMessage => {
       if (m.role === 'assistant' && m.kind === 'tool_call') {
         const call = parseToolCallMessageForModel(JSON.parse(m.content));
         return {

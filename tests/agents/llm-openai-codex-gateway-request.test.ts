@@ -53,7 +53,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
       terminalToolName: 'emit_result',
       terminalToolDefinition: PLANNER_TERMINAL_TOOL,
     };
-    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, MESSAGES, opts);
+    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 's1', messages: MESSAGES }, opts);
 
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
@@ -76,7 +76,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
 
   it('omits the configured completion quantity and universally projects system context into instructions', () => {
     const opts: LlmCompleteOptions = { inputId: 'test:input:1', phase: 'tools', contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: { kind: 'auto' }, max_tokens: 777 };
-    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }], opts);
+    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 's1', messages: [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }] }, opts);
     expect(Object.prototype.hasOwnProperty.call(body, 'max_output_tokens')).toBe(false);
     expect(body.instructions).toContain('compacted context');
     expect(body.input).toEqual([{ role: 'user', content: [{ type: 'input_text', text: 'Proceed with the task described in the instructions.' }] }]);
@@ -92,7 +92,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
       tools: [SAMPLE_TOOL],
       tool_choice: { kind: 'auto' },
     };
-    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, MESSAGES, opts);
+    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 's1', messages: MESSAGES }, opts);
 
     expect(body.tool_choice).toBe('auto');
     expect(body.parallel_tool_calls).toBe(false);
@@ -109,7 +109,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
       tools: [],
       tool_choice: { kind: 'auto' },
     };
-    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, MESSAGES, opts);
+    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 's1', messages: MESSAGES }, opts);
 
     expect(Object.prototype.hasOwnProperty.call(body, 'tools')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(body, 'tool_choice')).toBe(false);

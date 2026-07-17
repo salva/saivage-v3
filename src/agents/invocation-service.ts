@@ -1,4 +1,4 @@
-import type { AgentMessage, OperationalAgentRole } from '../schemas/index.js';
+import type { OperationalAgentRole } from '../schemas/index.js';
 import type { EventLog } from '../observability/index.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
@@ -7,7 +7,7 @@ import type { ModelRouter } from './model-router.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
-import { ProviderTurnFailure, type BuiltCandidateRequest, type LlmCallFn, type ProviderTurnCompletion, type ResponsesReplayProjection, type ToolDefinition } from './llm-contracts.js';
+import { assertProviderConversationSourceRows, ProviderTurnFailure, type BuiltCandidateRequest, type LlmCallFn, type ProviderConversationProjection, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
 import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { providerExchangeAppLogEntry } from '../persistence/provider-exchange-log.js';
@@ -35,9 +35,7 @@ interface InvocationRequestBase {
   role: OperationalAgentRole;
   sessionId: string;
   systemPrompt: string;
-  genericContextMessages?: AgentMessage[];
-  activeConversationReplay?: ResponsesReplayProjection;
-  contextMessages?: AgentMessage[];
+  providerConversation: ProviderConversationProjection;
   tools: ToolDefinition[];
   terminalToolNames: string[];
   capabilityRequest: CapabilityRequest;
@@ -94,6 +92,7 @@ export class InvocationService {
   }
 
   async invokeCall(request: InvocationRequest, candidate: Candidate, builtRequests?: Map<string, BuiltCandidateRequest>): Promise<ProviderTurnCompletion> {
+    assertProviderConversationSourceRows(request.providerConversation);
     const call = this.llmCallFn ?? this.llmGateway.createLlmCallFn();
     const outputTokens = request.preparedCompaction?.requestedCompletionTokens ?? request.modelParams.maxTokens;
     const options = buildLlmOptions(
@@ -105,7 +104,7 @@ export class InvocationService {
       const requestedCompletionTokens = request.preparedCompaction.requestedCompletionTokens;
       const capabilities = this.registry.getEffectiveCapabilities(candidate);
       const key = candidateKey(candidate);
-      const built = builtRequests?.get(key) ?? buildCandidateRequest({ candidate, capabilities, systemPrompt: request.systemPrompt, messages: genericContextMessagesForRequest(request), replay: activeConversationReplayForRequest(request), options });
+      const built = builtRequests?.get(key) ?? buildCandidateRequest({ candidate, capabilities, systemPrompt: request.systemPrompt, providerConversation: request.providerConversation, options });
       const reason = candidateAdmissionFailure(capabilities, built.estimatedWireInputTokens, requestedCompletionTokens);
       if (reason) throw new CandidateAdmissionError(candidate, capabilities.transportProtocol, built.estimatedWireInputTokens, requestedCompletionTokens, capabilities.contextWindowTokens, capabilities.maxOutputTokens, reason);
       builtRequests?.set(key, built);
@@ -114,8 +113,7 @@ export class InvocationService {
     const completion = await call(
       candidate,
       request.systemPrompt,
-      genericContextMessagesForRequest(request),
-      activeConversationReplayForRequest(request),
+      request.providerConversation,
       request.sessionId,
       options,
     );
@@ -334,16 +332,4 @@ function isAbortFromSignal(error: unknown, signal?: AbortSignal): boolean {
 
 function indexProviderExchangeAttempts(sourceInputId: string, offset: number, attempts: ProviderExchangeAttempt[]): ProviderExchangeAttempt[] {
   return attempts.map((attempt, index) => ({ ...attempt, source_input_id: sourceInputId, attempt_index: offset + index }));
-}
-
-function genericContextMessagesForRequest(request: InvocationRequest): AgentMessage[] {
-  const messages = request.genericContextMessages ?? request.contextMessages;
-  if (!messages) throw new Error(`Invocation '${request.inputId}' is missing genericContextMessages.`);
-  return messages;
-}
-
-function activeConversationReplayForRequest(request: InvocationRequest): ResponsesReplayProjection {
-  if (request.activeConversationReplay) return request.activeConversationReplay;
-  const messages = genericContextMessagesForRequest(request);
-  return { sessionId: request.sessionId, messages };
 }

@@ -40,6 +40,15 @@ describe('conversation compaction file persistence', () => {
     expect(() => readConversation(root, 'planner:project')).toThrow(/unrecognized key|malformed|invalid/i);
   }));
 
+  it('rejects a durable row whose session disagrees with the requested canonical filename', () => withRoot((root) => {
+    const path = conversationFile(root, 'planner:project');
+    mkdirSync(dirname(path), { recursive: true });
+    const wrongSession = { ...activation(), session_id: 'planner:other' };
+    writeFileSync(path, `${JSON.stringify({ version: 1, type: 'rows', rows: [wrongSession] })}\n`);
+    expect(() => readConversation(root, 'planner:project')).toThrow(/planner:other.*planner:project/);
+    expect(wrongSession.session_id).toBe('planner:other');
+  }));
+
   it('keeps the existing identifiable unterminated-final-suffix handling', () => withRoot((root) => {
     appendConversationBatch(root, [activation()]);
     const path = conversationFile(root, 'planner:project');

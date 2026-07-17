@@ -19,7 +19,7 @@ function request(chain: Candidate[] = [candidate], signal?: AbortSignal): Invoca
     role: 'planner',
     sessionId: 'planner:card',
     systemPrompt: 'system',
-    contextMessages: [],
+    providerConversation: { sourceSessionId: 'planner:card', messages: [] },
     tools: [],
     terminalToolNames: [],
     modelParams: {},
