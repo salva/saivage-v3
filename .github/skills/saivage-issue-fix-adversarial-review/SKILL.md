@@ -1,192 +1,240 @@
 ---
 name: saivage-issue-fix-adversarial-review
-description: 'Mandatory Saivage v3 issue-fixing workflow. Use when fixing bugs, regressions, review findings, design flaws, architectural issues, or behavior gaps: create a docs/working design+plan, run adversarial subagent review, critically validate findings, then implement via the dedicated issue-fix subagents.'
+description: 'Mandatory Saivage v3 workflow for single or batched issue fixes. Use for bugs, regressions, review findings, design flaws, architectural issues, behavior gaps, or issue-fix workflow changes: coordinate parallel planning, require per-issue design and adversarial review, then serialize complete implementation through the implementation-manager lock.'
 ---
 
 # Saivage Issue Fix Adversarial Review
 
 Use this workflow before fixing any concrete issue in Saivage v3, including bugs, regressions, review findings, architectural flaws, behavior gaps, failed validation findings, and operator-reported problems. Also use it when creating or changing operational workflow rules or skills that govern how issues are fixed.
 
-This skill is mandatory for issue fixes and issue-fixing workflow changes. It is not required for trivial non-issue edits such as typo fixes or formatting-only changes unless the user frames the work as fixing an issue or changing the required issue-fix workflow.
+This skill is mandatory for issue fixes and issue-fixing workflow changes. It is not required for trivial non-issue edits such as typo fixes or formatting-only changes unless the user frames the work as fixing an issue or changing this workflow.
 
-When the change creates or revises a skill, also follow `opencode-skill-authoring` for OpenCode skill layout, frontmatter, descriptions, and validation.
+When the change creates or revises a skill, also follow `opencode-skill-authoring`. Apply `AGENTS.md` throughout; it remains authoritative for architecture, scope, documentation, commit, validation, and safety rules.
 
-Apply the project rules in `AGENTS.md` throughout design, review, implementation, validation, and reporting. Do not duplicate them here; `AGENTS.md` is the single source of truth for clean-architecture, no-compatibility-code, no-over-engineering, fail-fast, documentation-sync, and safety rules.
+## Ownership Model
 
-## Roles
+- **Batch coordinator (primary agent):** accepts the issue batch, assigns one unique `docs/working/<date>-<issue-slug>/` path per issue, launches and tracks one `fixer` Task per issue, records each exact Task-returned ID and disposition in its own session context, and decides when a waiting fixer may resume. It never takes over an issue's design, review, or implementation.
+- **Issue fixer (`fixer`):** owns one issue end to end: designer/reviewer delegation, finding triage, approved-plan freshness decisions, implementation-manager delegation, and read-only reconciliation and reporting after manager return. It may write ignored planning/review artifacts, but it never performs implementation edits, validation, artifact generation, staging, or commits.
+- **Designer (`designer`):** writes and revises the issue's design/plan, including revisions prompted by review or implementation learning.
+- **Reviewer (`reviewer`):** adversarially reviews every current design/plan revision.
+- **Implementation manager (`implementation-manager`):** is the sole issue implementation orchestrator and the only agent that invokes `developer`. Its one lock covers all implementation mutation, required validation, generated artifacts, staging, commits, and stabilization.
+- **Developer (`developer`):** is the leaf implementer for manager-assigned plan tasks.
 
-The primary agent owns this workflow and does not design, review, or implement directly. It drives the specialist subagents:
-
-- **`designer`** (`openai/gpt-5.6-sol`) — writes and revises the design/plan, including revisions driven by implementation feedback.
-- **`reviewer`** (`openai/gpt-5.6-sol`) — adversarial review of the design/plan.
-- **`implementation-manager`** (`openai/gpt-5.6-sol`) — decomposes the approved plan into tasks, drives them to completion, and reports divergences and learnings; the only agent that spawns the `developer`.
-- **`developer`** (`openai/gpt-5.6-sol`) — leaf implementer of individual plan tasks.
+Each issue must complete its own design/review loop. Potentially colliding issues may plan and review concurrently; plan approval reserves no file or contract. Issue-level implementation remains serialized regardless of apparent independence. For a one-issue batch, the primary is the one-item coordinator and drives the same specialist workflow.
 
 ## Objectives
 
-- Prevent local band-aids by designing the fix before editing implementation code.
-- Force a skeptical second pass before implementation.
-- Treat adversarial findings as hypotheses, not truth: confirm each finding is sound and real before changing the design.
-- Repeat review and revision until no confirmed material finding remains.
-- Keep working artifacts out of Git while keeping main docs synchronized with implemented behavior.
+- Design root-cause fixes before implementation and force a skeptical second pass.
+- Treat review findings as hypotheses and repeat revision/review until no confirmed material finding remains.
+- Permit concurrent issue investigation and review without permitting overlapping issue implementations.
+- Keep working artifacts out of Git while updating tracked documentation required by the fix.
 
 ## Required Working Files
 
-Create a working directory under `docs/working/` for the issue, for example `docs/working/<date>-<issue-slug>/`, holding the current design/plan and one file per adversarial review round.
+Create a unique working directory for each issue, such as `docs/working/<date>-<issue-slug>/`, containing the current design/plan and one file per adversarial review round.
 
-Rules:
-
-- `docs/working/` is ignored and must not be committed. Its files are temporary working documents only, not main documentation and not a substitute for updating the canonical main docs: `docs/spec/system-specification.md`, `docs/spec/operator-ui.md`, `docs/architecture/system-architecture.md`, and `README.md`.
-- Keep each revised design/plan self-contained. Do not require readers to diff prior rounds to understand the current plan.
-- Keep review files factual and actionable. Do not preserve weak or speculative critiques as required work.
+- `docs/working/` is ignored and must not be committed. It is not a substitute for canonical documentation.
+- Keep every revised plan self-contained; readers must not need prior revisions.
+- Keep reviews factual and actionable; do not preserve weak critiques as required work.
 
 ## Design And Plan Requirements
 
 The first design/plan must include:
 
 - Problem statement with evidence and affected user/runtime behavior.
-- Root-cause analysis, or the best current hypothesis if the root cause is still being investigated.
-- Scope and non-scope. Non-essential robustness and rare edge-case handling (e.g. corrupted-file recovery) must be listed as deferred follow-ups, not bundled into the fix; expand scope only when a deferred item would block the core change or leave the system unsafe (see Changeset Scope Discipline in `AGENTS.md`).
-- Proposed design, including affected modules, data contracts, APIs, and UI/runtime surfaces as applicable.
-- Alternatives considered, including at least one broader/root-cause alternative when reasonable.
-- Implementation plan with ordered steps split into three explicit sections:
+- Root-cause analysis, or the best current hypothesis.
+- Scope and non-scope. List non-essential robustness and rare edge cases as deferred follow-ups unless deferral blocks the core fix or leaves the system unsafe.
+- Proposed design, including affected modules, contracts, APIs, and UI/runtime surfaces as applicable.
+- Alternatives, including a broader/root-cause alternative when reasonable.
+- An ordered implementation plan with three explicit sections:
   - Main work tasks.
-  - Cleanup tasks: obsolete/dead code, obsolete tests, stale fixtures, and superseded docs or scripts to remove or update as part of the fix.
-  - Documentation-update tasks: the specific main docs to update as part of the implementation, and the changes each needs. Documentation updates are implementation work, executed alongside the code changes by the `developer`, not a separate phase. Do not count the working design/plan itself as a documentation update. Canonical main docs:
-    - `docs/spec/system-specification.md` — functional behavior.
-    - `docs/spec/operator-ui.md` — operator UI behavior.
-    - `docs/architecture/system-architecture.md` — architecture and runtime contracts.
-    - `README.md` — validation profiles and documentation authority status.
-- If current main docs are already stale or inconsistent with the implementation for the area being changed, document that finding and include tasks to correct those docs as part of the same change. Keep the correction scoped to the parts related to the issue/fix; do not expand into an unrelated documentation rewrite.
-- Validation plan with focused checks and broader gates appropriate to the risk.
+  - Cleanup tasks for obsolete code, tests, fixtures, docs, and scripts.
+  - Documentation-update tasks naming each main document to update and how. Documentation is implementation work, not a later phase. Consider `docs/spec/system-specification.md`, `docs/spec/operator-ui.md`, `docs/architecture/system-architecture.md`, and `README.md`; do not count the working plan itself.
+- Related stale main documentation and scoped tasks to correct it.
+- Focused and broader validation appropriate to risk.
 - Risks, rollback considerations, and unresolved questions.
 
 ## Adversarial Review And Revision Loop
 
-Enter this loop, using the `designer` subagent for all plan authoring and the `reviewer` subagent for all review:
+The issue fixer must use `designer` for all plan authoring and `reviewer` for every plan review:
 
-1. Have the `designer` subagent write or revise the self-contained design/plan under `docs/working/` (see Designer Subagent below). For revisions, pass the designer the material findings to address.
-2. Launch the `reviewer` subagent on the current design/plan (see Reviewer Subagent below).
-3. Triage every finding per Finding Triage.
-4. Decide whether to run another round: if any finding was material, loop back to step 1; if every finding was false or minor, stop and implement. Before looping back, check Reassessment On Repeated Review Loops below.
+1. Ask `designer` to write or revise the self-contained plan at the issue's unique path. For revisions, provide all confirmed material findings.
+2. Invoke `reviewer` on the complete current plan.
+3. Triage every finding.
+4. If any finding is material, revise and repeat. Implement only when every finding is false, minor, or explicitly deferred and no confirmed material finding remains.
 
 ### Reassessment On Repeated Review Loops
 
-The review loop can keep surfacing new material findings without converging when the
-issue is aimed at the wrong level/layer/component, the root cause is not being solved
-at the right place, or the plan is over-complicated. Repeated rounds are a signal to
-step back, not just to keep revising the same plan.
+The issue fixer, not the designer or reviewer, reassesses the approach when roughly three rounds find material issues, findings recur, or revisions repeatedly widen or shift scope. Re-evaluate layer/component fit, root-cause placement, complexity, scope, and issue framing. Then do exactly one of: simplify, re-scope, move the fix, or ask the user. Reassessment never skips review; send the revised framing through the full loop again.
 
-The primary agent — not the `designer` or `reviewer` — runs this reassessment, because
-only the primary synthesizes findings across rounds. Trigger it when any of these is
-true:
+### Designer And Reviewer Calls
 
-- Roughly three or more review rounds have returned material findings.
-- The same or closely related findings recur across rounds after being addressed.
-- Each revision keeps widening scope or shifting the fix rather than converging it.
-
-When triggered, pause the loop and re-evaluate the overall approach along these axes:
-
-- **Layer/component fit**: is the fix applied at the layer or component where the
-  root cause actually lives, or is it patching a symptom one level away?
-- **Root-cause placement**: does the plan solve the root cause directly, or does it
-  add compensating logic that a deeper fix would remove?
-- **Complexity and scope**: is the plan over-complicated, over-scoped, or bundling
-  deferred concerns that should be split out (see Changeset Scope Discipline in
-  `AGENTS.md`)?
-- **Issue framing**: is the issue itself stated at the wrong level, so that no plan
-  at this layer can satisfy review?
-
-Act on the reassessment with exactly one of:
-
-- **Simplify** the plan: cut complexity and deferred concerns; re-aim at the minimal
-  coherent fix.
-- **Re-scope** the issue: narrow or shift the stated scope to match where the real
-  problem is.
-- **Move the fix**: relocate the design to the correct component/layer and update the
-  affected modules, contracts, and call sites accordingly.
-- **Ask the user**: when the tradeoff between the options above is unclear or the
-  issue framing itself is in question (this overlaps with Escalation And Blockers
-  below).
-
-Reassessment is not an exit from the loop. After re-aiming the design (or receiving
-user direction), hand the revised framing to the `designer`, resume the Adversarial
-Review And Revision Loop, and proceed to implementation only once findings are false
-or minor. Reassessment must not be used to skip review or to push through material
-findings.
-
-### Designer Subagent
-
-Use the project's `designer` subagent (`.opencode/agents/designer.md`, pinned to `openai/gpt-5.6-sol`) for all design/plan authoring. It applies the `AGENTS.md` rules and writes plans that satisfy the Design And Plan Requirements above.
-
-Invoke it via the Task tool with `subagent_type: "designer"`, passing the issue/context and the absolute path of the working file to write. For revisions, also pass the material findings to address. Example:
-
-```text
-Write the Saivage v3 issue-fix design/plan for: <issue description>.
-Write the self-contained plan to <absolute-path>, satisfying the
-Design And Plan Requirements in this skill.
-```
-
-### Reviewer Subagent
-
-Use the project's read-only `reviewer` subagent (`.opencode/agents/reviewer.md`, pinned to `openai/gpt-5.6-sol`) for adversarial review. It applies the `AGENTS.md` rules, review checklist, evidence requirements, and verdict format.
-
-Invoke it via the Task tool with `subagent_type: "reviewer"` and a prompt containing the absolute path to the current design/plan, for example:
-
-```text
-Review the Saivage v3 issue-fix design/plan at <absolute-path>.
-Read it fully, verify its claims against current code and docs, and return
-your findings plus your verdict.
-```
-
-Save or summarize each reviewer output in the working directory.
+Invoke the designer with `subagent_type: "designer"`, the issue context, and absolute plan path. Invoke the reviewer with `subagent_type: "reviewer"` and the absolute current plan path. Save or summarize each review in the issue working directory.
 
 ### Finding Triage
 
-Do not blindly accept adversarial findings. Classify every reported finding:
-
-- **False**: speculative, preference-only, contradicted by current project rules, or outside the agreed scope. Reject it.
-- **Minor**: factually correct but too small to affect the design or plan (e.g. wording, a clarifying note, a low-impact cleanup). Note it and proceed; it does not force another review round and need not block implementation.
-- **Material**: real and significant enough to change the design or plan. Revise the design/plan to address it directly.
-- **Deferred**: real but should not be fixed in this issue. Record why it is deferred and whether it needs a follow-up. Non-core robustness and rare edge-case handling that would expand the fix beyond its minimal coherent unit belong here, with a recorded follow-up.
+- **False:** speculative, preference-only, contradicted by current rules, or outside scope; reject it.
+- **Minor:** correct but too small to affect the plan; note it without forcing another round.
+- **Material:** real and significant enough to change the design or plan; revise directly.
+- **Deferred:** real but outside the minimal coherent fix; record why and whether follow-up is needed.
 
 ### Escalation And Blockers
 
-- Stop and ask the user if the loop reaches repeated disagreement, unclear scope, or a tradeoff that needs operator choice. Run Reassessment On Repeated Review Loops first; escalate here only when re-aiming cannot resolve the tradeoff.
-- If the subagent tooling is unavailable, report that blocker explicitly, do not claim that adversarial review passed, and proceed only when the user has directed you to continue despite the blocker, or the change is needed to repair the review workflow itself.
+- Ask the user when reassessment cannot resolve unclear scope, repeated disagreement, or a required tradeoff.
+- If required subagent tooling is unavailable, report `BLOCKED`; never claim review or implementation passed. Proceed only if the user explicitly changes the workflow or the change repairs the unavailable workflow itself.
 
-## Implementation
+## Batch Launch And Tracking
 
-Only after the design/plan has passed the review loop, hand it to the `implementation-manager` subagent, which decomposes the plan into ordered tasks and drives them to completion via the `developer` subagent (see Implementation Manager Subagent below). The `designer` and `reviewer` subagents are for planning and review only; the primary agent does not implement directly.
+For a batch, the coordinator must:
 
-### Implementation Manager Subagent
+1. Give each fixer a complete issue statement and unique absolute working-plan path.
+2. Launch independent initial Task calls concurrently, in the same orchestration turn/tool batch when supported, with `subagent_type: "fixer"`. Do not serialize design/review merely because issues may touch the same files.
+3. Record in coordinator session context, never a repository file or registry: issue identity/summary, exact returned fixer task ID, plan path, latest disposition, and known implementation-lock ownership.
+4. Handle returns independently. One issue failure or cancellation does not cancel others unless explicitly requested.
 
-Use the project's `implementation-manager` subagent (`.opencode/agents/implementation-manager.md`, pinned to `openai/gpt-5.6-sol`) to run an approved plan to completion. It breaks the plan into ordered tasks, delegates each to the `developer` subagent, tracks progress, runs integration validation, and is scoped to spawn only the `developer` subagent.
+Sequentially awaiting each initial fixer defeats the batch contract. If concurrent Task launch or exact returned-ID observation is unavailable, report the batch workflow blocked rather than silently weakening it.
 
-Invoke it via the Task tool with `subagent_type: "implementation-manager"`, passing the absolute path of the approved design/plan. Example:
+## Approval And Freshness Gate
+
+When review closes, the fixer records the examined `HEAD` in its approval report. Immediately before every implementation-manager attempt, including every attempt after lock waiting, it performs a read-only semantic freshness check against current `HEAD`, commits since its last approval/check, and current shared-worktree changes.
+
+Compare the plan's assumptions, named files, contracts, call sites, cleanup, documentation, and validation:
+
+- **`PLAN_STILL_VALID`:** intervening changes do not materially affect root cause, intended contract, affected components/call sites, ordered tasks, or validation. Record the evidence and invoke the manager.
+- **`PLAN_REVIEW_REQUIRED`:** a contract or assumption changed, a target was removed/substantially rewritten, planned changes conflict, scope changed, or validation/docs no longer establish correctness. Do not invoke the manager. Send current evidence to `designer` and repeat the complete review/triage loop.
+- **`BLOCKED`:** the shared workspace is broken, unclassified, or unsafe for a reliable check. Do not mutate or improvise.
+
+A successful check does not reserve implementation. The manager must still acquire the sole lock; if it loses contention, the fixer waits and repeats freshness after its verified resume.
+
+## Singular Complete Implementation Boundary
+
+Every approved fixer invokes Task with `subagent_type: "implementation-manager"` and the absolute approved-plan path; no primary or fixer inspects the lock and implements around it. The existing `.opencode/locks/implementation-manager-working.md` is the only serialization boundary.
+
+The manager must:
+
+1. Atomically acquire the lock before reading the implementation plan or making/delegating implementation mutation. On contention it edits and delegates nothing and returns the existing lock description.
+2. Capture pre-existing Git status/diff sufficiently to preserve unrelated work and avoid staging or removing it.
+3. Decompose the approved plan into developer assignments. Assign sequentially when work overlaps or has ordering dependencies. It may launch a concurrent developer group only after positively determining that the assignments do not conflict in files, contracts, generated outputs, validation side effects, or required order.
+4. Await every developer in a concurrent group and reconcile each result plus the combined repository state against assigned scopes and the approved plan. No shared/integration validation, staging, or commit may start while any developer remains active.
+5. Run all validation required by the plan, including focused and broad checks; handle generated artifacts; selectively stage only intended paths; and commit coherent stable units under `AGENTS.md`. Developer checks may inform progress but do not replace manager-run required validation.
+6. Prepare its final report with command results and commit hashes. Before normal release, ensure completed issue work is stable and committed and no issue-owned uncommitted mutation remains.
+7. For partial completion or redesign-worthy learning after edits, validate and commit only coherent completed units, then finish or remove only this run's incomplete uncommittable changes while preserving pre-existing/unrelated work. If safe stabilization is impossible, retain the lock and escalate; do not expose an unsafe worktree to another run.
+8. Remove only the lock created by this run as the final mutation, then return the prepared report. Abnormal termination may leave the lock; no other agent removes or takes it over.
+
+The lock spans tracked/main-document edits, generated outputs, mutating build/test/docs commands, staging, commit hooks, commits, and final issue cleanup. Concurrent developers remain inside one lock holder's one issue and do not permit another issue implementation to overlap.
+
+## Lock Contention And Event-Driven Resume
+
+An acquisition contender that returns without edits or delegation maps exactly to `WAITING_FOR_IMPLEMENTATION_LOCK`. This is not failure, partial implementation, divergence, or evidence requiring redesign. The fixer retains issue ownership and must not poll, sleep, retry in the same turn, inspect/remove/classify the lock as stale, or launch another manager.
+
+The coordinator may resume waiting fixers only after the known holder has returned, released its lock, and reported a stable committed state. Several waiting fixers may be resumed optimistically; one manager wins and the others wait again. This creates no queue, scheduler, fairness promise, timer, watcher, or additional lock.
+
+### Waiting Nonce
+
+On each waiting return, the fixer generates a fresh opaque continuity nonce, retains it in its existing session context, and reports it. The coordinator records it with the exact returned task ID and replaces any prior nonce for that issue. It is session correlation state, not a credential or durable state. Successful authorization consumes it; repeated waiting requires a new nonce. Cancellation or terminal failure discards it.
+
+### Mandatory Two-Call Resume Handshake
+
+Both calls use:
 
 ```text
-Run the approved Saivage v3 issue-fix design/plan at <absolute-path> to completion.
+subagent_type: "fixer"
+task_id: "<exact recorded task ID>"
 ```
 
-### Handling Every Manager Return
+**Call 1 — challenge:** The coordinator does not include the expected nonce. Its prompt unconditionally forbids tools, edits, commands, and every mutation and asks for only the issue identity, plan path, prior `WAITING_FOR_IMPLEMENTATION_LOCK` disposition, and nonce retained in session context. If any value is unavailable, the fixer returns `BLOCKED` without tools. The coordinator independently verifies the Task result's returned task ID is byte-for-byte identical and all retained values exactly match its record.
 
-The `implementation-manager` reports on every return: completion status (fully done vs partial), tasks completed and remaining, validation results, any divergences from the plan, and anything learned during implementation that might warrant a redesign. Every time it returns, act on that report:
+Any missing/mismatched value, task-ID mismatch, or tool/mutation makes the issue `BLOCKED`; make no Call 2. An invalid ID may create a new session, but that session cannot know the undisclosed nonce and its output is never adopted.
 
-1. If the report shows the plan fully executed with no divergences and no redesign-worthy learnings, proceed to Validation And Reporting.
-2. Otherwise — work remains, the run was partial, the implementation diverged from or contradicted the plan, or implementation surfaced something that warrants a redesign — have the `designer` revise or partially redesign the plan based on the report, run another full Adversarial Review And Revision Loop until no material findings remain, then call the `implementation-manager` again with the revised plan. Repeat from step 1.
+**Call 2 — authorization:** Only after Call 1 passes, invoke the same exact task ID again. Authorize the read-only freshness gate and, only if still approved, manager delegation. Before using any tool, the fixer confirms from its own context that the immediately preceding handshake succeeded for the retained waiting episode; absent context means `BLOCKED` without tools. The coordinator again verifies the exact returned task ID. Successful authorization consumes the nonce.
 
-## Validation And Reporting
+## Handling Manager Returns
 
-Run validation appropriate to the change, using `saivage-development-validation` when the change touches TypeScript runtime code, Vue UI, API contracts, docs, or deployment behavior.
+### Contention-Only Return
 
-Final report should include:
+Map a manager return that acquired no lock, edited nothing, and delegated nothing to `WAITING_FOR_IMPLEMENTATION_LOCK`. Do not revise or re-review solely because of contention. Return control to the coordinator with a fresh nonce and wait for event-driven resume.
 
-- The issue fixed and the core design choice.
-- Confirmation that adversarial review was completed and the final verdict, or a clear blocker if review could not run.
-- Confirmed findings that changed the plan, if any.
-- Main docs updated.
-- Validation commands run and their results.
-- Any residual risks or follow-ups.
+### Acquired-Lock Return
 
-Do not commit `docs/working/` artifacts. Commit only source, tests, main docs, and configuration changes that belong in Git.
+The fixer performs read-only reconciliation only: inspect the manager report, commit hashes, `HEAD`, status/diff, and manager-supplied validation evidence. It must not run commands that can mutate files, regenerate artifacts, stage, commit, or finish implementation.
+
+- If the approved plan is fully executed with no divergence or redesign-worthy learning and the repository is stable, report issue completion.
+- If work remains, the run is partial, implementation diverged, or learning changes the design, return the issue to `designer` and the complete adversarial review loop. Planning-file edits remain allowed. A later implementation attempt requires a new freshness check and manager lock.
+- If the manager cannot stabilize and retains the lock, report `BLOCKED`; no issue implementation resumes until explicit owner/operator verification and repair.
+
+## Structured Fixer Dispositions
+
+Every fixer return to a coordinator starts with exactly one disposition:
+
+- `COMPLETED`
+- `WAITING_FOR_IMPLEMENTATION_LOCK`
+- `BLOCKED`
+- `FAILED`
+- `CANCELLED`
+
+A waiting return includes:
+
+```text
+Disposition: WAITING_FOR_IMPLEMENTATION_LOCK
+Issue: <identifier and summary>
+Plan: <absolute path>
+Plan approval: <review verdict and examined HEAD>
+Implementation attempt: <number>
+Lock holder: <verbatim or concise faithful existing lock description>
+Continuity nonce: <fresh opaque value retained in this fixer session>
+Work performed in this attempt: none
+Resume condition: known lock-holder run has returned and released its lock
+Coordinator action: retain this nonce with the exact fixer task ID, then use the two-call handshake; do not launch a replacement
+```
+
+The coordinator records each Call 1 result as:
+
+```text
+Requested task ID: <exact recorded ID>
+Returned task ID: <Task result ID>
+Continuity: CONFIRMED | BLOCKED
+Prior issue from session context: <identifier or unavailable>
+Prior plan from session context: <path or unavailable>
+Prior disposition from session context: <WAITING_FOR_IMPLEMENTATION_LOCK or unavailable>
+Retained nonce from session context: <opaque value or unavailable>
+```
+
+`CONFIRMED` requires no tool/mutation, all four retained values matching, and identical requested/returned IDs. It only makes Call 2 eligible; it does not authorize freshness work itself.
+
+Before manager delegation after Call 2, record:
+
+```text
+Resume check: PLAN_STILL_VALID | PLAN_REVIEW_REQUIRED | BLOCKED
+Previously examined HEAD: <commit>
+Current HEAD: <commit>
+Relevant intervening changes: <summary or none>
+Decision and evidence: <reason>
+```
+
+Completion/failure reports include issue identity, plan path, review result, files changed, manager-supplied validation results, commit hashes, remaining work/divergence, and repository stability. The fixer generates no new implementation evidence after manager return.
+
+## Cancellation And Error Handling
+
+- **Waiting fixer cancelled:** mark `CANCELLED`, discard its nonce, make no handshake call, and do not touch the lock. Other issues continue unless directed otherwise.
+- **Call 1 mismatch/absence/tool use:** mark `BLOCKED`, discard the nonce, and make no Call 2. Never adopt a replacement session.
+- **Cancellation between calls:** discard authorization and make no Call 2. Never reuse the nonce; later continuation requires a fresh waiting disposition from the original session.
+- **Call 2 ID/context mismatch:** mark `BLOCKED` before freshness/implementation tools and never delegate from replacement-session output.
+- **Design/review/Task problem before implementation:** use `BLOCKED` for unavailable required tooling and `FAILED` for an actual issue-local failure. Other fixers may continue if the shared worktree is safe.
+- **Acquired-lock error/partial/divergence:** the manager stabilizes coherent work before normal release; the fixer reconciles read-only and returns to design/review or reports failure. Resume other issues only when report, lock, and repository state are safe.
+- **Manager cannot stabilize or terminates abnormally:** leave the lock in place. No contender removes or takes it over; report a batch-level blocker requiring explicit owner/operator action.
+- **Coordinator cancellation:** stop launches/resumes; cancel children only when explicitly requested/supported; report all last dispositions and any active holder. Never remove another session's lock.
+- **Unresumable task ID:** a Task error or failed challenge is `BLOCKED`; do not automatically launch a replacement fixer.
+
+## Post-Batch Aggregate Validation
+
+Only after every fixer implementation is `COMPLETED`, no fixer has pending implementation work, and the implementation lock is absent may the coordinator run one final read-only-or-harmless aggregate validation required to test batch coordination. It never stages or commits. Any unexpected tracked/generated diff fails the aggregate check and is reported rather than repaired outside the manager boundary.
+
+For workflow changes that require Task continuity validation, run the plan's harmless live smoke exactly as written: concurrent synthetic fixer sessions, exact-ID recording, nonce-free/tool-free Call 1, verified same-ID Call 2, and safe mismatch detection. If Task concurrency, IDs, resume, nonce retention, or tool-free evidence is unavailable, report workflow validation `BLOCKED`; do not substitute a sequential, one-call, or text-only imitation.
+
+## Prohibited Mechanisms
+
+Do not introduce parallel issue-level implementation, multiple lock-holding managers, direct primary/fixer implementation, extra locks, lock takeover/stale classification, polling, sleeps, retry timers, watchers, queues, schedulers, registries, replacement fixers, branches/worktrees/clones, or merge orchestration. Do not run concurrent developer assignments that overlap in files, contracts, outputs, validation side effects, or ordering.
+
+## Final Reporting
+
+Report the issue(s), core design choice, plan path(s), adversarial-review outcome and material findings, main docs/files changed, manager-run validation commands/results, commit hashes, repository stability, residual risks/follow-ups, and any blocked/cancelled issues. Do not commit `docs/working/` artifacts. After changes to skills or agent prompts, tell the operator to restart OpenCode before relying on them.

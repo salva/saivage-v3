@@ -22,6 +22,7 @@ See historical: docs under `docs-old/` and stale design docs are provenance, not
 ## Operational Workflow
 
 - When fixing any issue, first create a design and implementation plan under `docs/working/`, then have the `reviewer` subagent review the current plan revision. Critically evaluate its findings, fix confirmed issues, and repeat the adversarial review/fix cycle until no confirmed material finding remains. If the cycle keeps surfacing new material findings without converging, step back and re-aim the overall approach before looping further; see Reassessment On Repeated Review Loops in the `saivage-issue-fix-adversarial-review` skill. Follow the detailed `saivage-issue-fix-adversarial-review` skill for the full procedure.
+- For batched issues, planning and review may run concurrently, but the sole implementation-manager lock serializes each issue's complete mutating phase through required validation, generated artifacts, staging, commits, and stabilization. Post-manager fixer reconciliation is read-only; a deferred fixer must resume its original Task and revalidate plan freshness under the detailed `saivage-issue-fix-adversarial-review` skill before another implementation attempt.
 
 ## Commit Policy
 
