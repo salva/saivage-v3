@@ -5,9 +5,9 @@ import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim
 
 const token = 'synthetic-cards-scroll-token';
 const now = '2026-07-17T12:00:00.000Z';
-const sourceId = '11111111-1111-4111-8111-111111111111';
-const goalId = '22222222-2222-4222-8222-222222222222';
-const targetId = '33333333-3333-4333-8333-333333333333';
+const sourceId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const goalId = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const targetId = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb-cccccccccccccccccccccccccccc';
 
 function card(overrides: Record<string, unknown>) {
   const status = String(overrides.status ?? 'backlog');
@@ -25,11 +25,12 @@ function card(overrides: Record<string, unknown>) {
     parent: 'project',
     depth: 1,
     position: 1,
+    children: [],
     title: 'Source card with canonical record link',
     description: 'Deterministic Cards browser fixture.',
     status,
     lifecycle,
-    display_path: '1',
+    logical_path: '1',
     operator_summary: {
       lifecycleStatus: status,
       terminal,
@@ -54,27 +55,37 @@ function card(overrides: Record<string, unknown>) {
   };
 }
 
+const source = card({ status: 'running' });
+const goal = card({ id: goalId, type: 'goal', position: 2, children: [targetId], title: 'Collapsed ancestor goal', status: 'backlog', logical_path: '2' });
+const target = card({ id: targetId, parent: goalId, depth: 2, position: 1, title: 'Deep linked target', status: 'blocked', logical_path: '2.1' });
+function segment(value: number): string {
+  const letters = Array<string>(28).fill('a');
+  let remaining = value;
+  for (let index = letters.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    letters[index] = String.fromCharCode(97 + (remaining % 26));
+    remaining = Math.floor(remaining / 26);
+  }
+  return letters.join('');
+}
+const overflowCards = Array.from({ length: 32 }, (_, index) => card({
+  id: `card-${segment(index + 3)}`,
+  position: index + 3,
+  title: `Overflow tree card ${String(index + 1).padStart(2, '0')}`,
+  logical_path: String(index + 3),
+}));
 const project = card({
   id: 'project',
   type: 'project',
   parent: null,
   depth: 0,
   position: 0,
+  children: [sourceId, goalId, ...overflowCards.map((entry) => entry.id)],
   title: 'Cards fixture project',
   status: 'running',
   lifecycle: { status: 'running', result: null, error: null, completed_at: null },
-  display_path: null,
+  logical_path: null,
   operator_summary: { lifecycleStatus: 'running', terminal: false, blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
 });
-const source = card({ status: 'running' });
-const goal = card({ id: goalId, type: 'goal', position: 2, title: 'Collapsed ancestor goal', status: 'backlog', display_path: '2' });
-const target = card({ id: targetId, parent: goalId, depth: 2, position: 1, title: 'Deep linked target', status: 'blocked', display_path: '2.1' });
-const overflowCards = Array.from({ length: 32 }, (_, index) => card({
-  id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index + 1).padStart(12, '0')}`,
-  position: index + 3,
-  title: `Overflow tree card ${String(index + 1).padStart(2, '0')}`,
-  display_path: String(index + 3),
-}));
 const initialCards = [project, source, goal, target, ...overflowCards];
 const replacementTarget = card({
   ...target,

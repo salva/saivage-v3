@@ -5,7 +5,7 @@ import { entriesToTimeline } from './timeline';
 function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
   return {
     id: 'msg-x',
-    session_id: 's1',
+    session_id: 'analyst:global',
     role: 'assistant',
     kind: 'text',
     content: '',

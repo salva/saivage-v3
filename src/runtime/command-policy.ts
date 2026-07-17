@@ -8,7 +8,6 @@ const SECRET_ENV_PATTERNS = [
   /^ANTHROPIC_/,
   /^GOOGLE_/,
   /^AZURE_/,
-  /^TELEGRAM_/,
   /_TOKEN$/,
   /_KEY$/,
   /_SECRET$/,

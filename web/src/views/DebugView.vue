@@ -361,6 +361,7 @@ import { useLiveSyncStore } from '../stores/liveSync';
 import { useCardStore } from '../stores/cards';
 import { useRuntimeStore } from '../stores/runtime';
 import { useAgentStore } from '../stores/agents';
+import type { ConversationSessionId } from '../api/contracts';
 import { useDebugReadModel } from '../composables/useDebugReadModel';
 import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
 import { redactObservabilityValue } from '../utils/observabilityRedaction';
@@ -429,7 +430,7 @@ const agentDebugKinds: Array<{ id: AgentDebugKind; label: string }> = [
   { id: 'conversation', label: 'Conversation' },
   { id: 'llmExchange', label: 'Raw LLM Exchange' },
 ];
-const explicitAgentSessionId = ref<string | null>(null);
+const explicitAgentSessionId = ref<ConversationSessionId | null>(null);
 const selectedAgentDebugKind = ref<AgentDebugKind>('conversation');
 const validExplicitAgentSessionId = computed(() =>
   explicitAgentSessionId.value && sessions.value.some((session) => session.id === explicitAgentSessionId.value)

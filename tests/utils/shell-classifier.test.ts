@@ -55,7 +55,7 @@ describe('shell classifier', () => {
     process.env.ANTHROPIC_API_KEY = 'secret';
     process.env.GOOGLE_API_KEY = 'secret';
     process.env.AZURE_OPENAI_KEY = 'secret';
-    process.env.TELEGRAM_BOT_TOKEN = 'secret';
+    process.env.EXAMPLE_API_TOKEN = 'secret';
     process.env.CUSTOM_TOKEN = 'secret';
     process.env.CUSTOM_KEY = 'secret';
     process.env.CUSTOM_SECRET = 'secret';
@@ -75,7 +75,7 @@ describe('shell classifier', () => {
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(env.GOOGLE_API_KEY).toBeUndefined();
     expect(env.AZURE_OPENAI_KEY).toBeUndefined();
-    expect(env.TELEGRAM_BOT_TOKEN).toBeUndefined();
+    expect(env.EXAMPLE_API_TOKEN).toBeUndefined();
     expect(env.CUSTOM_TOKEN).toBeUndefined();
     expect(env.CUSTOM_KEY).toBeUndefined();
     expect(env.CUSTOM_SECRET).toBeUndefined();

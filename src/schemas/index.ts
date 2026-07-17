@@ -16,6 +16,23 @@ export {
   toPublicCardActorState,
 } from './actor-vocabulary.js';
 export { canonicalJson, contextCompactionContentSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
+export {
+  GLOBAL_ANALYST_SESSION_ID,
+  AnalystConversationSessionIdSchema,
+  PlannerConversationSessionIdSchema,
+  ReviewerConversationSessionIdSchema,
+  ExecutorConversationSessionIdSchema,
+  ConversationSessionIdSchema,
+  parseConversationSessionId,
+  conversationSessionIdentity,
+  type AnalystConversationSessionId,
+  type PlannerConversationSessionId,
+  type ReviewerConversationSessionId,
+  type ExecutorConversationSessionId,
+  type CardConversationSessionId,
+  type ConversationSessionId,
+  type ConversationRole,
+} from './conversation-session-id.js';
 export type {
   ActorKind,
   ActorPauseMode,

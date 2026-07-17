@@ -1,8 +1,10 @@
+import type { ConversationSessionId } from '../schemas/index.js';
+
 export interface ReadModelChangeListener {
   runtimeChanged(): void;
   cardStateChanged(): void;
   agentsChanged(): void;
-  conversationChanged(sessionId: string): void;
+  conversationChanged(sessionId: ConversationSessionId): void;
 }
 
 export interface ReadModelChangeSubscription {
@@ -31,7 +33,7 @@ export class ReadModelChangeBroadcaster implements ReadModelChanges {
   runtimeChanged(): void { this.publish((listener) => listener.runtimeChanged()); }
   cardStateChanged(): void { this.publish((listener) => listener.cardStateChanged()); }
   agentsChanged(): void { this.publish((listener) => listener.agentsChanged()); }
-  conversationChanged(sessionId: string): void { this.publish((listener) => listener.conversationChanged(sessionId)); }
+  conversationChanged(sessionId: ConversationSessionId): void { this.publish((listener) => listener.conversationChanged(sessionId)); }
 
   private publish(notify: (listener: ReadModelChangeListener) => void): void {
     for (const listener of [...this.listeners]) {

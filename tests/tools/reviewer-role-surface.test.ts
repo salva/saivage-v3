@@ -8,7 +8,8 @@ import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
-const CHILD = '11111111-1111-4111-8111-111111111111';
+const CHILD_SEGMENT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const CHILD = `card-${CHILD_SEGMENT}`;
 const roots: string[] = [];
 
 afterEach(() => {
@@ -26,8 +27,8 @@ describe('reviewer role surface record access', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-role-surface-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const store = new CardService(projectRoot, undefined, undefined, () => CHILD);
-    store.create({ type: 'code', parent: 'project', depth: 1, title: 'Reviewed child', brief: 'Produce review evidence.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const store = new CardService(projectRoot, undefined, undefined, () => CHILD_SEGMENT);
+    store.create({ type: 'code', parent: 'project', title: 'Reviewed child', brief: 'Produce review evidence.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     closeRecord(store, CHILD, 'status.md', 'First closed descendant status.', 'executor');
     closeRecord(store, CHILD, 'status.md', 'Latest closed descendant status.', 'executor');
 

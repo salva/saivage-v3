@@ -13,7 +13,7 @@ const SYSTEM = 'system-prompt';
 const MESSAGES: AgentMessage[] = [
   {
     id: 'm1',
-    session_id: 's1',
+    session_id: 'analyst:global',
     role: 'user',
     kind: 'text',
     content: 'hi',
@@ -53,7 +53,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
       terminalToolName: 'emit_result',
       terminalToolDefinition: PLANNER_TERMINAL_TOOL,
     };
-    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 's1', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
+    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
 
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
@@ -84,7 +84,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
       tools: [SAMPLE_TOOL],
       tool_choice: { kind: 'auto' },
     };
-    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 's1', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
+    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
 
     expect(body.tool_choice).toBe('auto');
     expect(body.parallel_tool_calls).toBe(false);
@@ -101,7 +101,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
       tools: [],
       tool_choice: { kind: 'auto' },
     };
-    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 's1', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
+    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
 
     expect(Object.prototype.hasOwnProperty.call(body, 'tools')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(body, 'tool_choice')).toBe(false);

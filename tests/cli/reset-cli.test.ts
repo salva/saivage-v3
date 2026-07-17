@@ -9,7 +9,7 @@ import { createProjectIdentity } from '../../src/persistence/project-identity.js
 import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 
 const generatedDescendants = [
-  'cards/project/card/versions/marker.bin',
+  'cards/project/marker.bin',
   'cards/.orphan-random/nested/marker.bin',
   'agents/conversations/session/marker.bin',
   'agents/.orphan-random/nested/marker.bin',
@@ -80,7 +80,8 @@ describe('CLI reset generated-root boundary', () => {
     expect(readCard(root, 'project')).toMatchObject({ id: 'project', type: 'project', parent: null, version_seq: 1 });
     for (const [path, bytes] of preserved) expect(readFileSync(join(root, path), 'utf8')).toBe(bytes);
     expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
-    for (const name of ['agents', 'logs', 'work']) expect(existsSync(join(root, '.saivage', name))).toBe(false);
+    expect(existsSync(join(root, '.saivage', 'agents', 'conversations'))).toBe(true);
+    for (const name of ['logs', 'work']) expect(existsSync(join(root, '.saivage', name))).toBe(false);
   });
 
   it('does not delete generated state when a live exact lifecycle lock blocks acquisition', async () => {

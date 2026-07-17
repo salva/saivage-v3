@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { join } from 'node:path';
 import { cardIdSchema } from '../schemas/card-id.js';
 
 import type { ReadModelChanges } from '../application/read-model-changes.js';
@@ -74,6 +75,14 @@ export function appendAppLogEntry(projectRoot: string, entry: AppLogEntry, chang
       appendEnvelope(path, bytes);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      for (const owner of [join(projectRoot, '.saivage'), join(projectRoot, '.saivage', 'logs')]) {
+        try { mkdirSync(owner); }
+        catch (mkdirError) {
+          if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirError;
+          const stat = lstatSync(owner);
+          if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`App-log owner '${owner}' must be a real directory.`);
+        }
+      }
       publishFirstEnvelope(path, bytes, publicationTemporaryId);
     }
   } else appendEnvelope(path, bytes);

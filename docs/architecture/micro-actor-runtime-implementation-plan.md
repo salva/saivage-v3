@@ -28,11 +28,11 @@ Each stable role session is its sole conversation writer. Source input is a fres
 
 ## Persistence Boundary
 
-Actors call `CardService` and named direct file functions. They do not own repositories, stores, snapshots, runtime files, summary caches, availability files, health latches, or recovery coordinators. Card identity, publication-temp identity, and invocation identity are separate UUID scopes.
+Actors call `CardService` and named direct file functions. They do not own repositories, stores, snapshots, runtime files, summary caches, availability files, health latches, or recovery coordinators. Hierarchical card-segment identity, publication-temp UUID identity, and invocation UUID identity are separate scopes.
 
 ## Validation Focus
 
-Current validation protects exact live-owner cancellation, Stop→Run same-session behavior, notification terminal races, local interruption settlement, two-stage progressive compaction, opaque UUID card identity, direct file I/O, and lifecycle-lock-only CLI delegation.
+Current validation protects exact live-owner cancellation, Stop→Run same-session behavior, notification terminal races, local interruption settlement, two-stage progressive compaction, opaque hierarchical card identity, direct file I/O, and lifecycle-lock-only CLI delegation.
 
 ## Completed Remediation R1-R4
 

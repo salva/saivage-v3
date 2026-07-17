@@ -1,3 +1,5 @@
+import type { ConversationSessionId } from './conversation-session-id.js';
+
 export const cardTypeValues = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
 export type CardType = typeof cardTypeValues[number];
 
@@ -39,14 +41,14 @@ export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'ca
 export type CardAction = typeof cardActionValues[number];
 export type RuntimeDispatchOwnership =
   | { kind: 'direct'; source: 'project_root' | 'operator' | 'startup_repair' }
-  | { kind: 'activation'; parent_card_id: string; parent_tool_call: { session_id: string; source_input_id: string; tool_call_id: string } };
+  | { kind: 'activation'; parent_card_id: string; parent_tool_call: { session_id: ConversationSessionId; source_input_id: string; tool_call_id: string } };
 export interface ActionableErrorEnvelope { code: string; message: string; acceptedValues?: string[]; currentState?: Record<string, unknown>; nextAction: string; docsRef?: string; runId?: string | null; sessionId?: string | null; cardId?: string | null; parentCardId?: string | null; childCardId?: string | null; }
 
 export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
 export type Urgency = typeof urgencyValues[number];
 export type CreatedBy = 'user' | 'analyst' | 'planner';
 export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
-export type ControlActionSurface = 'web-chat' | 'telegram' | 'rest' | 'cli' | 'runtime' | 'web-ui';
+export type ControlActionSurface = 'web-chat' | 'rest' | 'cli' | 'runtime' | 'web-ui';
 
 export interface CardMetadata { [key: string]: unknown; }
 import type { CardLifecycleState } from './lifecycle.js';
@@ -60,6 +62,7 @@ export interface CardNotification {
 
 export interface CardRecord {
   id: string; type: CardType; parent: string | null; depth: number; position: number; title: string; status: CardStatus;
+  children: string[];
   subtype?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; related: string[];
   lifecycle: CardLifecycleState; metrics?: Record<string, number | string | boolean | null> | null;
@@ -78,9 +81,9 @@ export interface CardOperatorSummary {
   stale: boolean;
   actionCount: number;
 }
-export interface CardView extends CardRecord { display_path: string | null; operator_summary: CardOperatorSummary; }
-export interface CardRefView { id: string; display_path: string | null; title: string | null; missing?: boolean; }
-export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
+export interface CardView extends CardRecord { logical_path: string | null; operator_summary: CardOperatorSummary; }
+export interface CardRefView { id: string; logical_path: string | null; title: string | null; missing?: boolean; }
+export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive' | 'child_link';
 export interface CardHistoryEntry { entry_id: string; kind: CardHistoryKind; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export type CardHistoryHeader = Omit<CardHistoryEntry, 'snapshot'>;
 export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment'; outcome: 'ok' | 'error' | 'denied'; outcome_summary: string; error?: string; created_at: string; }
@@ -101,16 +104,16 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'model_issue' | 'model_repair' | 'context_compaction' | 'model_recovered' | 'system_prompt' | 'provider_private';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
 export interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; source_input_id: string; private_message_id: string; projection_kind: 'assistant_message' | 'assistant_tool_call'; }
-export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
+export interface AgentMessage { id: string; session_id: ConversationSessionId; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
 export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
 export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
 export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
 export type RuntimeRunStatus = RuntimeStatus | 'stopped' | 'cancelled';
 export type ActiveCardRunRuntimeStatus = 'starting' | 'running' | 'pausing' | 'paused' | 'closing';
 export type ActiveCardRunPhase = 'planner' | 'executor' | 'reviewer';
-export interface ActiveCardRun { card_id: string; card_type: CardType; ownership: RuntimeDispatchOwnership; runtime_status: ActiveCardRunRuntimeStatus; phase: ActiveCardRunPhase; caller_session_id: string | null; caller_tool_call_id: string | null; planner_session_id?: string | null; executor_session_id?: string | null; reviewer_session_id?: string | null; started_at: string; last_turn_at: string; }
+export interface ActiveCardRun { card_id: string; card_type: CardType; ownership: RuntimeDispatchOwnership; runtime_status: ActiveCardRunRuntimeStatus; phase: ActiveCardRunPhase; caller_session_id: ConversationSessionId | null; caller_tool_call_id: string | null; planner_session_id?: ConversationSessionId | null; executor_session_id?: ConversationSessionId | null; reviewer_session_id?: ConversationSessionId | null; started_at: string; last_turn_at: string; }
 export interface ProjectRunCompletedPayload { project_card_id: string; result: 'done' | 'failed' | 'blocked'; summary: string; failure_kind?: string; blocked_reason?: string; }
-export interface HandoffSummary { session_id: string; role: AgentRole; last_action: string; next_action: string; context_summary: string; }
+export interface HandoffSummary { session_id: ConversationSessionId; role: AgentRole; last_action: string; next_action: string; context_summary: string; }
 export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; active_card_run: ActiveCardRun | null; updated_at: string; last_tick_at?: string | null; }
 export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
 export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
@@ -137,7 +140,7 @@ export interface SubscriberErrorEvent extends BaseEvent { kind: 'subscriber_erro
 export interface CardHistoryAppendedEvent extends BaseEvent { kind: 'card_history_appended'; entry_id: string; entry_kind: CardHistoryKind; card_id: string; version_seq: number; changed_fields: string[]; changed_at: string; }
 export interface NotificationAddedEvent extends Omit<BaseEvent, 'session_id'> { kind: 'notification_added'; session_id: string | null; notification_kind: string; }
 export interface ControlActionRecordedEvent extends BaseEvent { kind: 'control_action_recorded'; id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; created_at: string; actor?: string; surface?: string; }
-export interface AnalystToolInvokedEvent extends BaseEvent { kind: 'analyst_tool_invoked'; sessionId: string; tool: string; success: boolean; summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; }
+export interface AnalystToolInvokedEvent extends BaseEvent { kind: 'analyst_tool_invoked'; sessionId: 'analyst:global'; tool: string; success: boolean; summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; }
 export interface McpToolInvocationEvent extends BaseEvent { kind: 'mcp_tool_invocation'; server: string; tool: string; success: boolean; duration_ms: number; error?: string; }
 export type LoggedEvent = RuntimeDiagnosticEvent | RuntimeActionableErrorEvent | SubscriberErrorEvent | CardHistoryAppendedEvent | NotificationAddedEvent | ControlActionRecordedEvent | AnalystToolInvokedEvent | McpToolInvocationEvent;
 

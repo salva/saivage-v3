@@ -1,10 +1,10 @@
-import type { AgentMessage } from '../schemas/index.js';
+import { conversationSessionIdentity, type AgentMessage, type ConversationSessionId } from '../schemas/index.js';
 
 export type SourceSegment = { kind: 'initial' | 'repair'; rows: AgentMessage[] };
 export type SourceRound = { label: string; activationMarker: AgentMessage; rows: AgentMessage[]; segments: SourceSegment[] };
 export type SourceConversationClassification = { preamble: AgentMessage[]; rounds: SourceRound[] };
 
-export function classifyConversationSourceRows(sourceSessionId: string, rows: readonly AgentMessage[]): SourceConversationClassification {
+export function classifyConversationSourceRows(sourceSessionId: ConversationSessionId, rows: readonly AgentMessage[]): SourceConversationClassification {
   const preamble: AgentMessage[] = [];
   const rounds: SourceRound[] = [];
   let current: AgentMessage[] | null = null;
@@ -21,7 +21,7 @@ export function classifyConversationSourceRows(sourceSessionId: string, rows: re
     }
   }
   if (current) rounds.push(buildSourceRound(current));
-  if (sourceSessionId.startsWith('analyst:') && preamble.length > 0) {
+  if (sourceSessionId === 'analyst:global' && preamble.length > 0) {
     throw new Error(`Analyst conversation '${sourceSessionId}' must start with an exact analyst activation_open marker and have an empty preamble.`);
   }
   return { preamble, rounds };
@@ -41,20 +41,12 @@ export function classifySourceSegments(rows: readonly AgentMessage[]): SourceSeg
   return segments;
 }
 
-function isActivationOpenMarker(sourceSessionId: string, message: AgentMessage): boolean {
+function isActivationOpenMarker(sourceSessionId: ConversationSessionId, message: AgentMessage): boolean {
   if (message.kind !== 'activity') return false;
   const payload = parseJsonObject(message.content);
   if (payload.event !== 'activation_open') return false;
-  const expectedRole = sourceSessionId.startsWith('analyst:')
-    ? 'analyst'
-    : sourceSessionId.startsWith('planner:')
-      ? 'planner'
-      : sourceSessionId.startsWith('reviewer:')
-        ? 'reviewer'
-        : sourceSessionId.startsWith('executor:')
-          ? 'executor'
-          : null;
-  if (!expectedRole) throw new Error(`Conversation '${sourceSessionId}' has an activation_open marker but is not a persisted LLM source session.`);
+  const identity = conversationSessionIdentity(sourceSessionId);
+  const expectedRole = identity.role;
   const expectedKeys = expectedRole === 'analyst'
     ? ['event', 'input_id', 'role', 'timestamp']
     : ['card_id', 'event', 'input_id', 'role', 'timestamp'];
@@ -64,7 +56,7 @@ function isActivationOpenMarker(sourceSessionId: string, message: AgentMessage):
   if (payload.role !== expectedRole || payload.timestamp !== message.timestamp || !isCanonicalUuid(payload.input_id)) {
     throw new Error(`Conversation '${sourceSessionId}' has a malformed ${expectedRole} activation_open marker.`);
   }
-  if (expectedRole !== 'analyst' && payload.card_id !== sourceSessionId.slice(expectedRole.length + 1)) {
+  if (expectedRole !== 'analyst' && payload.card_id !== identity.cardId) {
     throw new Error(`Conversation '${sourceSessionId}' has a malformed ${expectedRole} activation_open marker.`);
   }
   return true;

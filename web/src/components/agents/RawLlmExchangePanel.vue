@@ -91,7 +91,8 @@ import { useAgentStore } from '../../stores/agents';
 import { formatJson } from '../../utils/format-json';
 import CodeBlock from '../content/CodeBlock.vue';
 
-const props = defineProps<{ sessionId: string }>();
+import type { ConversationSessionId } from '../../api/contracts';
+const props = defineProps<{ sessionId: ConversationSessionId }>();
 
 const agentStore = useAgentStore();
 const {

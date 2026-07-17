@@ -1,7 +1,8 @@
 import type { AgentMessage } from './types.js';
+import type { ConversationSessionId } from './conversation-session-id.js';
 
 export interface LoggedToolMessageIdentity {
-  session_id: string;
+  session_id: ConversationSessionId;
   source_input_id: string;
   tool_call_id: string;
 }

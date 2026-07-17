@@ -8,12 +8,14 @@ import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../sr
 import { prepareCompaction, type AutonomousCompactionPolicy } from '../../../src/runtime/actors/compaction/compactor.js';
 import { agentMessageSchema } from '../../../src/schemas/index.js';
 import { conversationFile } from '../../../src/runtime/actors/conversation-inventory.js';
+import { initProjectTree } from '../../helpers/canonical-project.js';
 
 const compactionConfig: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
 
 describe('ConversationLLMActor compaction ownership', () => {
   it('passes no root/session aliases and sends compact returned projection directly to the provider', async () => {
     const ownerRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-owner-'));
+    initProjectTree(ownerRoot);
     const differentActorRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-decoy-'));
     try {
       const projection = [agentMessageSchema.parse({ id: 'projected', session_id: 'planner:project', role: 'system', kind: 'text', content: 'canonical compacted projection', round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' })];
@@ -41,6 +43,7 @@ describe('ConversationLLMActor compaction ownership', () => {
 
   it('preserves prepared compaction through a fresh tool-result continuation and rechecks refreshed context', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-tool-continuation-'));
+    initProjectTree(root);
     try {
       const first = input();
       const prepared = first.preparedCompaction!;
@@ -72,6 +75,7 @@ describe('ConversationLLMActor compaction ownership', () => {
 
   it('preserves prepared compaction through a fresh plain-text repair and rechecks refreshed context', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-plain-repair-'));
+    initProjectTree(root);
     try {
       const first = input();
       const prepared = first.preparedCompaction!;
@@ -97,27 +101,29 @@ describe('ConversationLLMActor compaction ownership', () => {
 
   it('rejects invocation/source mismatch before compaction, append, or provider admission', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-owner-mismatch-'));
+    initProjectTree(root);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const compact = jest.fn<CompactorPort['compact']>();
       const providerCall = jest.fn<LLMProviderPort['completeTurn']>();
       const actor = new ConversationLLMActor({ projectRoot: root, agentId: 'planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
       actor.start();
-      const malformed = { ...input(), providerConversation: { sourceSessionId: 'planner:other', messages: [] } };
+      const malformed = { ...input(), providerConversation: { sourceSessionId: 'reviewer:project' as const, messages: [] } };
 
       await expect(actor.turn(malformed)).rejects.toThrow(/does not match provider conversation source session/);
       expect(compact).not.toHaveBeenCalled();
       expect(providerCall).not.toHaveBeenCalled();
       expect(existsSync(conversationFile(root, 'planner:project'))).toBe(false);
-      expect(malformed.providerConversation.sourceSessionId).toBe('planner:other');
+      expect(malformed.providerConversation.sourceSessionId).toBe('reviewer:project');
     } finally { consoleError.mockRestore(); rmSync(root, { recursive: true, force: true }); }
   });
 
   it('rejects a compactor replacement with another source identity before turn-start append or provider use', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-hook-mismatch-'));
+    initProjectTree(root);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
-      const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'planner:other', messages: [] }, compactionMessage: agentMessageSchema.parse({ id: 'compaction', session_id: 'planner:other', role: 'system', kind: 'text', content: 'x', round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' }), estimatedProviderMessageTokens: 1 }));
+      const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'reviewer:project', messages: [] }, compactionMessage: agentMessageSchema.parse({ id: 'compaction', session_id: 'reviewer:project', role: 'system', kind: 'text', content: 'x', round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' }), estimatedProviderMessageTokens: 1 }));
       const providerCall = jest.fn<LLMProviderPort['completeTurn']>();
       const actor = new ConversationLLMActor({ projectRoot: root, agentId: 'planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
       actor.start();

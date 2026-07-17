@@ -1,7 +1,7 @@
 import { readonly, ref } from 'vue';
 import { getWsConnection, type WsConnectionManager } from '../api/websocket';
 import type { LiveSyncInvalidateFrame, LiveSyncSubscribedFrame, LiveSyncUnscopedResource, WsConnectionState } from '../api/types';
-import { isAnalystActivityContent, parseAnalystTurnAcknowledgedStatusContent } from '../api/contracts';
+import { isAnalystActivityContent, parseAnalystTurnAcknowledgedStatusContent, type ConversationSessionId } from '../api/contracts';
 import { useAnalystChat } from '../stores/analystChat';
 import { createLogger } from '../utils/logger';
 
@@ -25,7 +25,7 @@ const log = createLogger('sync');
 export class SyncClient {
   private readonly conn: WsConnectionManager;
   private readonly resources = new Map<SyncResourceKey, SyncResourceRegistration>();
-  private readonly conversations = new Map<string, { callbacks: Set<() => Promise<void>>; lease: string | null }>();
+  private readonly conversations = new Map<ConversationSessionId, { callbacks: Set<() => Promise<void>>; lease: string | null }>();
   private readonly flights = new Map<string, FlightState>();
   private started = false;
 
@@ -63,7 +63,7 @@ export class SyncClient {
       this.lastEventAtRef.value = new Date().toISOString();
       const restartAcknowledgement = parseAnalystTurnAcknowledgedStatusContent(envelope.content);
       if (restartAcknowledgement) {
-        useAnalystChat().ingestRestartAcknowledgement(restartAcknowledgement.sessionId, restartAcknowledgement.restart);
+        useAnalystChat().ingestRestartAcknowledgement(restartAcknowledgement.restart);
         return;
       }
       if (isAnalystActivityContent(envelope.content)) useAnalystChat().ingestWsEvent(envelope.content);
@@ -90,7 +90,7 @@ export class SyncClient {
     };
   }
 
-  openConversation(sessionId: string, refetch: () => Promise<void>): () => void {
+  openConversation(sessionId: ConversationSessionId, refetch: () => Promise<void>): () => void {
     const entry = this.conversations.get(sessionId) ?? { callbacks: new Set(), lease: null };
     entry.callbacks.add(refetch);
     this.conversations.set(sessionId, entry);
@@ -98,7 +98,7 @@ export class SyncClient {
     return () => this.closeConversation(sessionId, refetch);
   }
 
-  closeConversation(sessionId: string, refetch?: () => Promise<void>): void {
+  closeConversation(sessionId: ConversationSessionId, refetch?: () => Promise<void>): void {
     const entry = this.conversations.get(sessionId);
     if (!entry) return;
     if (refetch) entry.callbacks.delete(refetch); else entry.callbacks.clear();
@@ -140,7 +140,7 @@ export class SyncClient {
     this.runSingleFlight(resource, registration.refetch, invalidatedAt, registration.onRefetch);
   }
 
-  private refetchConversation(sessionId: string): void {
+  private refetchConversation(sessionId: ConversationSessionId): void {
     const entry = this.conversations.get(sessionId);
     if (!entry) return;
     this.runSingleFlight(`conversation:${sessionId}`, async () => {

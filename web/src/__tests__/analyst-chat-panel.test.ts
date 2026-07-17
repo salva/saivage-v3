@@ -55,7 +55,7 @@ describe('AnalystChatPanel', () => {
 
     getChatEntries.mockClear();
     await openConversation.mock.calls[0][1]();
-    expect(getChatEntries).toHaveBeenCalledWith('analyst:global', expect.any(AbortSignal));
+    expect(getChatEntries).toHaveBeenCalledWith(expect.any(AbortSignal));
 
     wrapper.unmount();
     expect(closeConversation).toHaveBeenCalledTimes(1);
@@ -156,7 +156,7 @@ describe('AnalystChatPanel', () => {
     await textarea.trigger('keydown', { key: 'Enter', shiftKey: false });
     await flushPromises();
 
-    expect(sendChatMessage).toHaveBeenCalledWith('analyst:global', 'please inspect', { view: null, entityId: null, refinement: null });
+    expect(sendChatMessage).toHaveBeenCalledWith('please inspect', { view: null, entityId: null, refinement: null });
     expect(document.activeElement).toBe(textarea.element);
     wrapper.unmount();
   });

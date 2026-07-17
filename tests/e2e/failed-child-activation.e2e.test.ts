@@ -60,13 +60,13 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot, undefined, undefined, (() => {
-      const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'];
+      const ids = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'cccccccccccccccccccccccccccc'];
       let index = 0;
       return () => ids[index++]!;
     })());
-    const parent = cards.create({ type: 'goal', parent: 'project', depth: 1, title: 'Parent', brief: 'Plan children', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const failedChild = cards.create({ type: 'code', parent: parent.id, depth: 2, title: 'A', brief: 'Fail once', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const sibling = cards.create({ type: 'code', parent: parent.id, depth: 2, title: 'B', brief: 'Run second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Plan children', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const failedChild = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Fail once', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const sibling = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Run second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(parent.id, 'running');
 
@@ -165,8 +165,8 @@ describe('failed child activation lifecycle E2E', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-cleanup-failure-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const cards = new CardService(projectRoot, undefined, undefined, () => '11111111-1111-4111-8111-111111111111');
-    const child = cards.create({ type: 'code', parent: 'project', depth: 1, title: 'Cleanup', brief: 'Fail cleanup', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const cards = new CardService(projectRoot, undefined, undefined, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', brief: 'Fail cleanup', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(child.id, 'running');
     const runningVersion = cards.read(child.id)!.version_seq;

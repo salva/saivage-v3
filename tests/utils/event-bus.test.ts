@@ -25,7 +25,7 @@ describe('typed EventBus', () => {
     const bus = new EventBus();
     const seen: string[] = [];
     bus.subscribeMany(['runtime_diagnostic'], (event) => { seen.push(event.kind); });
-    bus.emit('card_history_appended', { entry_id: '11111111-1111-4111-8111-111111111111', entry_kind: 'update', card_id: '22222222-2222-4222-8222-222222222222', version_seq: 1, changed_fields: [], changed_at: '2026-01-01T00:00:00.000Z' });
+    bus.emit('card_history_appended', { entry_id: '11111111-1111-4111-8111-111111111111', entry_kind: 'update', card_id: 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb', version_seq: 1, changed_fields: [], changed_at: '2026-01-01T00:00:00.000Z' });
     bus.emit('runtime_diagnostic', { error_message: 'boom' });
     expect(seen).toEqual(['runtime_diagnostic']);
   });
@@ -76,8 +76,8 @@ describe('typed EventBus', () => {
     const bus = new EventBus();
     let logged: Record<string, unknown> | null = null;
     bus.subscribe('runtime_diagnostic', (event) => { logged = toEventLogRecord(event); });
-    bus.emit('runtime_diagnostic', { error_message: 'boom', goal_id: '11111111-1111-4111-8111-111111111111' });
-    expect(logged).toMatchObject({ kind: 'runtime_diagnostic', goal_id: '11111111-1111-4111-8111-111111111111', error_message: 'boom' });
+    bus.emit('runtime_diagnostic', { error_message: 'boom', goal_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' });
+    expect(logged).toMatchObject({ kind: 'runtime_diagnostic', goal_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', error_message: 'boom' });
   });
 
   it('dispose unsubscribes and rejects later emits', () => {

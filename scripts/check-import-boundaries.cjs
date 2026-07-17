@@ -7,12 +7,12 @@ const SRC = path.join(root, 'src');
 const PACKAGES = new Set([
   'agents', 'auth', 'boot', 'cards', 'config', 'contracts', 'events',
   'mcp', 'notifications', 'observability', 'permissions', 'persistence', 'projections',
-  'redaction', 'runtime', 'schemas', 'server', 'telegram', 'tools', 'utils', 'workspace'
+  'redaction', 'runtime', 'schemas', 'server', 'tools', 'utils', 'workspace'
 ]);
 const DOMAIN_PACKAGES = new Set([
   'agents', 'cards', 'contracts', 'events', 'mcp', 'notifications',
   'observability', 'permissions', 'persistence', 'projections', 'redaction', 'runtime',
-  'schemas', 'telegram', 'tools', 'utils', 'workspace'
+  'schemas', 'tools', 'utils', 'workspace'
 ]);
 const CONTRACT_FORBIDDEN = new Set(['server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
 const AGENT_RUNTIME_RESTRICTED = new Set(['runtime']);

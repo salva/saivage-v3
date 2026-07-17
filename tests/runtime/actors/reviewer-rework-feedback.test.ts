@@ -15,7 +15,7 @@ import { initProjectTree } from '../../helpers/canonical-project.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 
-const CHILD = '11111111-1111-4111-8111-111111111111';
+const CHILD = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
 const FEEDBACK = 'Reviewer requested rework at record:///review.md?card=project&v=1. Read it for required changes, update or create the necessary child cards, activate the rework, write record:///status.md?v=next, then call emit_result again when ready for review. Reviewer summary: Add explicit remediation evidence before approval.';
 const roots: string[] = [];
@@ -37,8 +37,8 @@ describe('accepted reviewer rework feedback', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-rework-feedback-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const store = new CardService(projectRoot, undefined, undefined, () => CHILD);
-    const child = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Completed child', brief: 'Complete the child.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const store = new CardService(projectRoot, undefined, undefined, () => CHILD.slice('card-'.length));
+    const child = store.create({ type: 'code', parent: 'project', title: 'Completed child', brief: 'Complete the child.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     store.setStatus(child.id, 'running');
     store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'Child complete.' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } });
 

@@ -70,7 +70,7 @@ describe('singular invocation completion authority', () => {
     let observedOptions: Parameters<LlmCallFn>[4] | undefined;
     const observed: LlmCallFn = async (_candidate, _prompt, _providerConversation, _session, options) => { observedOptions = options; return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [] }; };
     const service = invocationService({ ...capabilities('openai-responses'), contextWindowTokens: undefined, maxOutputTokens: undefined }, observed);
-    const request: InvocationRequest = { inputId: '00000000-0000-4000-8000-000000000001', role: 'analyst', sessionId: 'analyst:test', systemPrompt: 'system', providerConversation: { sourceSessionId: 'analyst:test', messages: [] }, tools: [], terminalToolNames: [], modelParams: maxTokens === undefined ? {} : { maxTokens }, capabilityRequest: {} };
+    const request: InvocationRequest = { inputId: '00000000-0000-4000-8000-000000000001', role: 'analyst', sessionId: 'analyst:global', systemPrompt: 'system', providerConversation: { sourceSessionId: 'analyst:global', messages: [] }, tools: [], terminalToolNames: [], modelParams: maxTokens === undefined ? {} : { maxTokens }, capabilityRequest: {} };
     await service.invokeCall(request, candidate);
     const options = observedOptions!;
     expect(options.max_tokens).toBe(maxTokens);
@@ -113,8 +113,8 @@ describe('singular invocation completion authority', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-role-builders-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const store = new CardService(projectRoot, undefined, undefined, () => '11111111-1111-4111-8111-111111111111');
-    const child = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const store = new CardService(projectRoot, undefined, undefined, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const child = store.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const reviewerFixture = compactedConversationFixture('reviewer:project');
     const executorFixture = compactedConversationFixture(`executor:${child.id}`);
     appendConversationBatch(projectRoot, reviewerFixture.rows);

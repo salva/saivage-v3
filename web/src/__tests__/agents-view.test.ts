@@ -6,7 +6,8 @@ import AgentsView from '../views/AgentsView.vue';
 import agentsViewSource from '../views/AgentsView.vue?raw';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
 import { useAgentStore } from '../stores/agents';
-import type { AgentSession, AgentRole } from '../api/types';
+import type { AgentSession } from '../api/types';
+import { AgentSessionSummarySchema } from '../api/contracts';
 const apiMockState = vi.hoisted(() => ({
   sessions: [] as AgentSession[],
   conversation: {
@@ -15,6 +16,7 @@ const apiMockState = vi.hoisted(() => ({
   },
   listError: null as Error | null,
 }));
+const liveSyncMock = vi.hoisted(() => ({ openConversation: vi.fn(() => vi.fn()) }));
 
 function resetTestState() {
   apiMockState.listError = null;
@@ -22,7 +24,7 @@ function resetTestState() {
 
 vi.mock('../stores/liveSync', () => ({
   useLiveSyncStore: () => ({
-    openConversation: vi.fn(() => vi.fn()),
+    openConversation: liveSyncMock.openConversation,
   }),
 }));
 
@@ -49,7 +51,7 @@ vi.mock('../api/client', () => {
       entries: [
         {
           id: 'tc1',
-          session_id: 'planner-1',
+          session_id: 'planner:project',
           role: 'assistant',
           kind: 'tool_call',
           tool_call_id: 'tc1',
@@ -58,7 +60,7 @@ vi.mock('../api/client', () => {
         },
         {
           id: 'tr1',
-          session_id: 'planner-1',
+          session_id: 'planner:project',
           role: 'tool',
           kind: 'tool_result',
           tool: 'activate_card',
@@ -69,12 +71,12 @@ vi.mock('../api/client', () => {
       ],
     };
     const router = makeRouter();
-    await router.push('/agents/planner-1');
+    await router.push('/agents/planner:project');
     await router.isReady();
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'planner-1' },
+      props: { sessionId: 'planner:project' },
       global: { plugins: [router, pinia] },
     });
     await flushPromises();
@@ -97,22 +99,24 @@ vi.mock('../api/client', () => {
 });
 
 function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
-  const id = overrides.id || `sess-${Math.random().toString(36).slice(2, 6)}`;
-  return {
+  const role = overrides.role ?? 'planner';
+  const id = overrides.id ?? (role === 'analyst' ? 'analyst:global' : role === 'reviewer' ? 'reviewer:project' : role === 'executor' ? 'executor:project' : 'planner:project');
+  const cardId = role === 'analyst' ? null : id.slice(id.indexOf(':') + 1);
+  return AgentSessionSummarySchema.parse({
     id,
-    role: 'planner' as AgentRole,
+    role,
     goal_card_id: '11111111-1111-4111-8111-111111111111',
-    card_id: '11111111-1111-4111-8111-111111111111',
+    card_id: cardId,
     status: 'active' as const,
     started_at: '2025-06-01T08:00:00Z',
     completed_at: null,
     model: 'claude-sonnet-4',
     ...overrides,
-  };
+  });
 }
 
-const plannerSession = makeSession({ id: 'planner-1', role: 'planner', status: 'active' });
-const executorSession = makeSession({ id: 'executor-1', role: 'executor', status: 'failed', model: 'deepseek-v4-pro' });
+const plannerSession = makeSession({ id: 'planner:project', role: 'planner', status: 'active' });
+const executorSession = makeSession({ id: 'executor:project', role: 'executor', status: 'failed', model: 'deepseek-v4-pro' });
 const allSessions = [plannerSession, executorSession];
 
 function makeRouter() {
@@ -141,7 +145,7 @@ async function mountAgentsView(opts?: {
     entries: [
       {
         id: 'm1',
-        session_id: 'planner-1',
+        session_id: 'planner:project',
         role: 'assistant',
           kind: 'text',
           content: 'Inspect linked evidence.',
@@ -203,6 +207,20 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('valid API token');
   });
 
+  it.each(['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'])('rejects invalid direct route %s without detail, API, selection, or live sync work', async (id) => {
+    const api = await import('../api/client');
+    const conversation = vi.mocked(api.getAgentConversation);
+    conversation.mockClear();
+    liveSyncMock.openConversation.mockClear();
+    const { wrapper, router } = await mountAgentsView({ sessions: allSessions, initialRoute: `/agents/${encodeURIComponent(id)}` });
+    expect(router.currentRoute.value.params.id).toBe(id);
+    expect(wrapper.text()).toContain('Invalid agent session');
+    expect(wrapper.findComponent(AgentConversationView).exists()).toBe(false);
+    expect(useAgentStore().selectedConversationSessionId).toBeNull();
+    expect(conversation).not.toHaveBeenCalled();
+    expect(liveSyncMock.openConversation).not.toHaveBeenCalled();
+  });
+
   it('shows stale messaging when the agents store is stale', async () => {
     const { wrapper } = await mountAgentsView({ sessions: allSessions });
     const store = useAgentStore();
@@ -220,11 +238,11 @@ describe('AgentsView', () => {
   });
 
   it('agent conversation links navigate to supported entities', async () => {
-    const { router } = await mountAgentsView({ sessions: allSessions, initialRoute: '/agents/planner-1' });
+    const { router } = await mountAgentsView({ sessions: allSessions, initialRoute: '/agents/planner:project' });
     const pushSpy = vi.spyOn(router, 'push');
 
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'planner-1' },
+      props: { sessionId: 'planner:project' },
       global: { plugins: [router, createPinia()] },
     });
     await flushPromises();
@@ -245,7 +263,7 @@ describe('AgentsView', () => {
       entries: [
         {
           id: 'tc1',
-          session_id: 'planner-1',
+          session_id: 'planner:project',
           role: 'assistant',
           kind: 'tool_call',
           tool_call_id: 'tc1',
@@ -257,7 +275,7 @@ describe('AgentsView', () => {
         },
         {
           id: 'tr1',
-          session_id: 'planner-1',
+          session_id: 'planner:project',
           role: 'tool',
           kind: 'tool_result',
           tool: 'activate_card',
@@ -271,12 +289,12 @@ describe('AgentsView', () => {
       ],
     };
     const router = makeRouter();
-    await router.push('/agents/planner-1');
+    await router.push('/agents/planner:project');
     await router.isReady();
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'planner-1' },
+      props: { sessionId: 'planner:project' },
       global: { plugins: [router, pinia] },
     });
     await flushPromises();
@@ -300,12 +318,12 @@ describe('AgentsView', () => {
   it('toolbar exposes a raw LLM exchange toggle that mounts and unmounts the panel', async () => {
     apiMockState.conversation = { session: plannerSession, entries: [] };
     const router = makeRouter();
-    await router.push('/agents/planner-1');
+    await router.push('/agents/planner:project');
     await router.isReady();
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'planner-1' },
+      props: { sessionId: 'planner:project' },
       global: { plugins: [router, pinia] },
     });
     await flushPromises();

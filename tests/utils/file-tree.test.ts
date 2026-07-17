@@ -15,7 +15,7 @@ describe('current project initialization', () => {
     expect(isInitialized(root)).toBe(false);
     initProjectTree(root);
     expect(isInitialized(root)).toBe(true);
-    expect(existsSync(join(root, '.saivage', 'cards', 'project', 'card', 'versions', '1.json'))).toBe(true);
+    expect(existsSync(join(root, '.saivage', 'cards', 'project', 'card.jsonl'))).toBe(true);
     expect(existsSync(join(root, '.saivage', 'cards', 'index.json'))).toBe(false);
   });
 });

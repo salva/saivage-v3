@@ -31,7 +31,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } }).runtime).toEqual(runtimeState);
     const status = parseOperatorResponse('runtime.status', {
       runtime: 'running',
-      currentCardId: '11111111-1111-4111-8111-111111111111',
+      currentCardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       goalCount: 1,
       lastTickAt: null,
       restart_server_available: false,

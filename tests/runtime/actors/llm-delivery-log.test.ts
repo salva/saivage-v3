@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 import { appendToolResult } from '../../../src/runtime/actors/llm-delivery-log.js';
+import { initProjectTree } from '../../helpers/canonical-project.js';
 
 const roots: string[] = [];
 
@@ -15,6 +16,7 @@ afterEach(() => {
 describe('LLM delivery log', () => {
   it('persists a failed tool result under the original identity with unchanged content', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-delivery-log-'));
+    initProjectTree(projectRoot);
     roots.push(projectRoot);
     const sessionId = 'planner:project';
     const sourceInputId = '11111111-1111-4111-8111-111111111111';

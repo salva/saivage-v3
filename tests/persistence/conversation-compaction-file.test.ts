@@ -7,6 +7,7 @@ import { hashConversationRows } from '../../src/contracts/conversation-compactio
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage } from '../../src/schemas/index.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
 
 describe('conversation compaction file persistence', () => {
   it('round-trips one strict current-format envelope and validates prospective appends', () => withRoot((root) => {
@@ -43,10 +44,10 @@ describe('conversation compaction file persistence', () => {
   it('rejects a durable row whose session disagrees with the requested canonical filename', () => withRoot((root) => {
     const path = conversationFile(root, 'planner:project');
     mkdirSync(dirname(path), { recursive: true });
-    const wrongSession = { ...activation(), session_id: 'planner:other' };
+    const wrongSession = { ...activation(), session_id: 'reviewer:project' };
     writeFileSync(path, `${JSON.stringify({ version: 1, type: 'rows', rows: [wrongSession] })}\n`);
-    expect(() => readConversation(root, 'planner:project')).toThrow(/planner:other.*planner:project/);
-    expect(wrongSession.session_id).toBe('planner:other');
+    expect(() => readConversation(root, 'planner:project')).toThrow(/reviewer:project.*planner:project/);
+    expect(wrongSession.session_id).toBe('reviewer:project');
   }));
 
   it('keeps the existing identifiable unterminated-final-suffix handling', () => withRoot((root) => {
@@ -74,5 +75,6 @@ function policy() {
 
 function withRoot(run: (root: string) => void): void {
   const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-file-'));
+  initProjectTree(root);
   try { run(root); } finally { rmSync(root, { recursive: true, force: true }); }
 }

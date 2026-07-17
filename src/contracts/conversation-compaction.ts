@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { canonicalJson, parseCanonicalContextCompaction, type AgentMessage, type ContextCompactionContent } from '../schemas/index.js';
+import { canonicalJson, parseCanonicalContextCompaction, type AgentMessage, type ContextCompactionContent, type ConversationSessionId } from '../schemas/index.js';
 import { classifyConversationSourceRows, type SourceRound } from './conversation-source-classification.js';
 
 export type ValidatedCompactionSegment = {
@@ -33,14 +33,14 @@ export type ValidatedContextCompaction = {
 };
 
 export type ValidatedConversation = {
-  sourceSessionId: string;
+  sourceSessionId: ConversationSessionId;
   physicalRows: AgentMessage[];
   sourceRows: AgentMessage[];
   compactions: ValidatedContextCompaction[];
   latestCompaction: ValidatedContextCompaction | null;
 };
 
-export function validateConversationRows(sourceSessionId: string, physicalRows: readonly AgentMessage[]): ValidatedConversation {
+export function validateConversationRows(sourceSessionId: ConversationSessionId, physicalRows: readonly AgentMessage[]): ValidatedConversation {
   const wrongSession = physicalRows.find((row) => row.session_id !== sourceSessionId);
   if (wrongSession) throw new Error(`Conversation row '${wrongSession.id}' belongs to session '${wrongSession.session_id}', not source session '${sourceSessionId}'.`);
   if (new Set(physicalRows.map((row) => row.id)).size !== physicalRows.length) throw new Error('Conversation contains duplicate message ids.');

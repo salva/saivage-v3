@@ -1,5 +1,5 @@
-import { llmActorRoles } from '../../schemas/actor-vocabulary.js';
 import type { ActorKind, LlmActorRole } from '../../schemas/actor-vocabulary.js';
+import { conversationSessionIdentity, parseConversationSessionId, type ConversationSessionId } from '../../schemas/index.js';
 
 export { actorKindSchema, actorKinds, llmActorRoleSchema, llmActorRoles } from '../../schemas/actor-vocabulary.js';
 export type { ActorKind, LlmActorRole } from '../../schemas/actor-vocabulary.js';
@@ -8,16 +8,16 @@ export function cardActorId(cardId: string): string {
   return `card:${cardId}`;
 }
 
-export function plannerActorId(cardId: string): string {
-  return `planner:${cardId}`;
+export function plannerActorId(cardId: string): ConversationSessionId {
+  return parseConversationSessionId(`planner:${cardId}`);
 }
 
-export function reviewerActorId(cardId: string): string {
-  return `reviewer:${cardId}`;
+export function reviewerActorId(cardId: string): ConversationSessionId {
+  return parseConversationSessionId(`reviewer:${cardId}`);
 }
 
-export function executorActorId(cardId: string): string {
-  return `executor:${cardId}`;
+export function executorActorId(cardId: string): ConversationSessionId {
+  return parseConversationSessionId(`executor:${cardId}`);
 }
 
 export function processorActorId(cardId: string): string {
@@ -26,7 +26,7 @@ export function processorActorId(cardId: string): string {
 
 export function actorKindFromId(actorId: string): ActorKind {
   if (actorId.startsWith('card:')) return 'card';
-  if (actorId.startsWith('planner:') || actorId.startsWith('reviewer:') || actorId.startsWith('executor:') || actorId.startsWith('analyst:')) return 'llm';
+  try { parseConversationSessionId(actorId); return 'llm'; } catch { /* continue */ }
   if (actorId.startsWith('processor:')) return 'processor';
   throw new Error(`Unknown actor id: ${actorId}`);
 }
@@ -39,21 +39,17 @@ export function parseCardActorId(actorId: string): string {
 }
 
 export function parseLlmActorId(actorId: string): { role: LlmActorRole; cardId: string | null } {
-  for (const role of llmActorRoles) {
-    const prefix = `${role}:`;
-    if (actorId.startsWith(prefix)) return { role, cardId: role === 'analyst' ? null : actorId.slice(prefix.length) };
-  }
-  throw new Error(`Expected LLM actor id, received '${actorId}'.`);
+  const identity = conversationSessionIdentity(parseConversationSessionId(actorId));
+  return { role: identity.role, cardId: identity.cardId };
 }
 
-export function cardIdFromSessionId(sessionId: string): string | undefined {
-  if (!sessionId.startsWith('planner:') && !sessionId.startsWith('reviewer:') && !sessionId.startsWith('executor:') && !sessionId.startsWith('analyst:')) return undefined;
+export function cardIdFromSessionId(sessionId: ConversationSessionId): string | undefined {
   const parsed = parseLlmActorId(sessionId);
   return parsed.cardId ?? undefined;
 }
 
-export function agentIdFromSessionId(sessionId: string): string {
-  if (sessionId.startsWith('reviewer:')) {
+export function agentIdFromSessionId(sessionId: ConversationSessionId): string {
+  if (conversationSessionIdentity(sessionId).role === 'reviewer') {
     const cardId = cardIdFromSessionId(sessionId);
     if (!cardId) throw new Error(`Reviewer session '${sessionId}' is missing a card id.`);
     return reviewerActorId(cardId);
@@ -61,7 +57,7 @@ export function agentIdFromSessionId(sessionId: string): string {
   return sessionId;
 }
 
-export function isAutonomousLlmSession(sessionId: string): boolean {
+export function isAutonomousLlmSession(sessionId: ConversationSessionId): boolean {
   const { role } = parseLlmActorId(agentIdFromSessionId(sessionId));
   return role === 'planner' || role === 'reviewer' || role === 'executor';
 }

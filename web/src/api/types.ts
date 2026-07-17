@@ -179,7 +179,7 @@ export interface FreshnessState {
 
 
 
-export type CardRecord = ContractCardView & { notes?: NoteRecord[]; children?: CardRecord[] };
+export type CardRecord = ContractCardView & { notes?: NoteRecord[] };
 export type CardListResponse = OperatorApiSuccess<'cards.list'>;
 export type CardDetailResponse = OperatorApiSuccess<'cards.get'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;

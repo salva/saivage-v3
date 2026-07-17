@@ -1,4 +1,4 @@
-import type { AgentMessage } from '../schemas/index.js';
+import type { AgentMessage, ConversationSessionId } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import type { ProviderExchangeRecorder } from './provider-exchange-recorder.js';
@@ -86,12 +86,12 @@ export interface OpenAIResponsesPrivateContext {
 
 export type ProviderPrivateContext = OpenAIResponsesPrivateContext;
 
-export interface ProviderConversationProjection {
-  sourceSessionId: string;
-  messages: AgentMessage[];
-}
+export type ProviderConversationProjection =
+  | { sourceSessionId: ConversationSessionId; messages: AgentMessage[] }
+  | { sourceSessionId: null; messages: [] };
 
 export function assertProviderConversationSourceRows(providerConversation: ProviderConversationProjection): void {
+  if (providerConversation.sourceSessionId === null) return;
   const wrongSession = providerConversation.messages.find((message) => message.session_id !== providerConversation.sourceSessionId);
   if (wrongSession) throw new Error(`Provider conversation row '${wrongSession.id}' belongs to session '${wrongSession.session_id}', not source session '${providerConversation.sourceSessionId}'.`);
 }

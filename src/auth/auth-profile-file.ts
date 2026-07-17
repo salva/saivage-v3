@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 
@@ -53,5 +53,7 @@ export function readAuthProfile(projectRoot: string, name: string): AuthProfile 
 
 export function replaceAuthProfiles(projectRoot: string, file: AuthProfilesFile, publicationTemporaryId?: PublicationTemporaryIdFactory): void {
     const parsed = rawAuthProfilesSchema.parse(file);
+    const owner = join(projectRoot, '.saivage');
+    try { mkdirSync(owner); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; const stat = lstatSync(owner); if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Auth-profile owner '${owner}' must be a real directory.`); }
     replaceFile(authProfilePath(projectRoot), Buffer.from(serializeAuthProfiles(parsed)), publicationTemporaryId);
 }

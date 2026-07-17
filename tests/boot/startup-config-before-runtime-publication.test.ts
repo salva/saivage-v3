@@ -48,7 +48,7 @@ function argv(root: string): string[] {
 function publishExistingRootCard(root: string): void {
   const stamp = '2026-07-17T00:00:00.000Z';
   const card: CardRecord = {
-    id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'existing', status: 'backlog', subtype: null,
+    id: 'project', type: 'project', parent: null, depth: 0, position: 0, children: [], title: 'existing', status: 'backlog', subtype: null,
     tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: stamp, updated_at: stamp,
     assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null,
@@ -83,15 +83,15 @@ describe('startup configuration validation before runtime publication', () => {
     expect(publishInitialProjectCard).not.toHaveBeenCalled();
     expect(startServer).not.toHaveBeenCalled();
     expect(existsSync(join(root, '.saivage', 'cards'))).toBe(false);
-    expect(existsSync(join(root, '.saivage', 'cards', 'project', 'card', 'versions', '1.json'))).toBe(false);
-    expect(existsSync(join(root, '.saivage', 'cards', 'project', 'brief', 'versions', '1.json'))).toBe(false);
+    expect(existsSync(join(root, '.saivage', 'cards', 'project', 'card.jsonl'))).toBe(false);
+    expect(existsSync(join(root, '.saivage', 'cards', 'project', 'brief.jsonl'))).toBe(false);
   });
 
   it('leaves pre-existing exact root-card artifacts byte-for-byte unchanged', async () => {
     const root = projectRoot();
     writeConfig(root, 201);
-    const cardPath = join(root, '.saivage', 'cards', 'project', 'card', 'versions', '1.json');
-    const briefPath = join(root, '.saivage', 'cards', 'project', 'brief', 'versions', '1.json');
+    const cardPath = join(root, '.saivage', 'cards', 'project', 'card.jsonl');
+    const briefPath = join(root, '.saivage', 'cards', 'project', 'brief.jsonl');
     publishExistingRootCard(root);
     const cardBytes = readFileSync(cardPath);
     const briefBytes = readFileSync(briefPath);

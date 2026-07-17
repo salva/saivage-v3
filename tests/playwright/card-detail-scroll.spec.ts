@@ -15,7 +15,7 @@ const card = {
   title: 'Synthetic dashboard smoke card',
   status: 'done',
   lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
-  display_path: '1',
+  logical_path: '1',
   operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
   tags: ['smoke'],
   priority: 90,
@@ -58,7 +58,7 @@ const children = Array.from({ length: 40 }, (_, index) => ({
   id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
   position: index + 1,
   title: `Synthetic child card ${index + 1} for hierarchy overflow`,
-  display_path: `1.${index + 1}`,
+  logical_path: `1.${index + 1}`,
 }));
 
 test('desktop card detail keeps all content reachable inside the bounded detail scroller', async ({ page }) => {

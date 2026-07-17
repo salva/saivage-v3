@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,6 +12,7 @@ describe('fresh-exclusive direct file replacement', () => {
 
   it('asks once for one same-directory temporary and publishes the canonical target', () => {
     const target = join(root, 'nested', 'state.json');
+    mkdirSync(join(root, 'nested'));
     const factory = jest.fn<() => string>(() => '11111111-1111-4111-8111-111111111111');
     replaceFile(target, Buffer.from('current\n'), factory);
     expect(factory).toHaveBeenCalledTimes(1);
@@ -42,6 +43,7 @@ describe('fresh-exclusive direct file replacement', () => {
 
   it('uses ordinary Node defaults filtered by the current umask', () => {
     const target = join(root, 'nested', 'state.json');
+    mkdirSync(join(root, 'nested'));
     replaceFile(target, Buffer.from('published'), () => '55555555-5555-4555-8555-555555555555');
     const mask = process.umask();
     expect(statSync(target).mode & 0o777).toBe(0o666 & ~mask);

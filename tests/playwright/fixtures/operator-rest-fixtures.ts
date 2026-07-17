@@ -2,7 +2,7 @@ import type { Page, Route } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 
 const now = '2026-05-19T12:00:00.000Z';
-export const smokeCardId = '11111111-1111-4111-8111-111111111111';
+export const smokeCardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 const runtimeRunning = {
   status: 'running',
@@ -19,11 +19,12 @@ const card = {
   parent: 'project',
   depth: 1,
   position: 1,
+  children: [],
   title: 'Synthetic dashboard smoke card',
   description: 'Exercise operator dashboard surfaces without provider calls.',
   status: 'done',
   lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
-  display_path: '1',
+  logical_path: '1',
   operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
   tags: ['smoke'],
   priority: 90,
@@ -46,11 +47,12 @@ const projectCard = {
   parent: null,
   depth: 0,
   position: 0,
+  children: [smokeCardId],
   title: 'Synthetic Project',
   priority: 50,
   status: 'running',
   lifecycle: { status: 'running', result: null, error: null, completed_at: null },
-  display_path: null,
+  logical_path: null,
   operator_summary: { lifecycleStatus: 'running', terminal: false, blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
   result: null,
   version_seq: 1,
@@ -82,10 +84,10 @@ const cardDetail = parseOperatorResponse('cards.get', {
 });
 
 const sessions = [
-  { id: 'analyst-smoke', role: 'analyst', status: 'active', started_at: now, completed_at: null, model: 'synthetic-model' },
-  { id: 'planner-smoke', role: 'planner', status: 'inactive', goal_card_id: 'project', card_id: smokeCardId, started_at: now, completed_at: null, model: 'synthetic-model' },
-  { id: 'reviewer-smoke', role: 'reviewer', status: 'inactive', goal_card_id: 'project', card_id: smokeCardId, started_at: now, completed_at: now, model: 'synthetic-model' },
-  { id: 'executor-smoke', role: 'executor', status: 'inactive', goal_card_id: 'project', card_id: smokeCardId, started_at: now, completed_at: now, model: 'synthetic-model' },
+  { id: 'analyst:global', role: 'analyst', status: 'active', started_at: now, completed_at: null, model: 'synthetic-model' },
+  { id: 'planner:project', role: 'planner', status: 'inactive', goal_card_id: 'project', card_id: 'project', started_at: now, completed_at: null, model: 'synthetic-model' },
+  { id: 'reviewer:project', role: 'reviewer', status: 'inactive', goal_card_id: 'project', card_id: 'project', started_at: now, completed_at: now, model: 'synthetic-model' },
+  { id: `executor:${smokeCardId}`, role: 'executor', status: 'inactive', goal_card_id: 'project', card_id: smokeCardId, started_at: now, completed_at: now, model: 'synthetic-model' },
 ];
 
 const metaRoot = {
@@ -179,7 +181,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/diff`) return json(route, { diff: [], from: 1, to: 3, card_id: smokeCardId });
     if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, { sessions });
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/conversation')) {
-      const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
+      const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst:global');
       return json(route, parseOperatorResponse('agents.conversation', {
         session: sessions.find((session) => session.id === sessionId) ?? sessions[0],
         entries: [stampedText(sessionId, `msg-${sessionId}-1`, 'Synthetic agent transcript.')],
@@ -301,14 +303,14 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/control-actions') return json(route, { control_actions: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/chats') return json(route, { sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', title: 'Synthetic analyst chat', started_at: now, completed_at: null, updated_at: now }] });
     if (request.method() === 'GET' && url.pathname.startsWith('/api/chats/')) {
-      const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
+      const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst:global');
       return json(route, parseOperatorResponse('chats.get', {
         sessionId,
         entries: chatEntries.get(sessionId) ?? [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')],
       }));
     }
     if (request.method() === 'POST' && url.pathname.startsWith('/api/chats/')) {
-      const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
+      const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst:global');
       let body: Record<string, unknown> = {};
       try {
         body = request.postDataJSON() as Record<string, unknown>;

@@ -18,7 +18,7 @@ import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-reg
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
-const CHILD = '11111111-1111-4111-8111-111111111111';
+const CHILD = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 afterEach(() => { jest.restoreAllMocks(); while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { result, provider_exchanges: [] }; }
@@ -29,8 +29,8 @@ function setup(reviewStatus: 'done' | 'blocked' | 'failed' | 'rework') {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-review-prefix-race-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
-  const cards = new CardService(projectRoot, undefined, undefined, () => CHILD);
-  const child = cards.create({ type: 'code', parent: 'project', depth: 1, title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+  const cards = new CardService(projectRoot, undefined, undefined, () => CHILD.slice('card-'.length));
+  const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
   cards.setStatus(child.id, 'running');
   cards.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'child done' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' } });
   const gate = new RuntimeGate();

@@ -12,6 +12,7 @@ function card(overrides: Partial<CardRecord>): CardRecord {
     parent: null,
     depth: 0,
     position: 0,
+    children: [],
     title: 'Card',
     status: 'running',
     tags: [],
@@ -24,6 +25,7 @@ function card(overrides: Partial<CardRecord>): CardRecord {
     depends_on: [],
     related: [],
     pending_notifications: [],
+    logical_path: null,
     ...overrides,
     lifecycle: (overrides.lifecycle ?? { status: overrides.status ?? 'running', result: null, error: null, completed_at: null }) as CardRecord['lifecycle'],
   } as CardRecord;
@@ -37,7 +39,7 @@ describe('card selectors', () => {
       card({ id: '11111111-1111-4111-8111-111111111111', parent: 'project', position: 1 }),
     ];
 
-    expect((buildTree(cards)[0].children ?? []).map((entry) => entry.id)).toEqual(['22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111']);
+    expect(buildTree(cards).map((entry) => entry.card.id)).toEqual(['project']);
     expect(selectChildrenOf(cards, 'project').map((entry) => entry.id)).toEqual(['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']);
   });
 

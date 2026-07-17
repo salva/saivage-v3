@@ -14,9 +14,10 @@ import {
   type AutonomousCompactionPolicy,
 } from '../../../src/runtime/actors/compaction/compactor.js';
 import { SummarizerExchangeProjectionError, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
-import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
+import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import type { AgentMessage } from '../../../src/schemas/index.js';
 import { estimateMessageTokens } from '../../../src/runtime/actors/compaction/round-classifier.js';
+import { initProjectTree } from '../../helpers/canonical-project.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -157,7 +158,7 @@ function compactArgs(root: string, providerConversation: LlmInvocationInput['pro
   return { strategy: 'authoritative_context_recovery' as const, conversations: { projectRoot: root }, input: invocation(providerConversation), summarizerProvider, signal: new AbortController().signal };
 }
 
-function invocation(providerConversation: LlmInvocationInput['providerConversation']): LlmInvocationInput & { preparedCompaction: NonNullable<LlmInvocationInput['preparedCompaction']> } {
+function invocation(providerConversation: LlmInvocationInput['providerConversation']): PreparedLlmInvocationInput {
   return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(config, 'system', []), capabilityRequest: {}, episodeContext: {} };
 }
 
@@ -205,6 +206,7 @@ function message(id: string, role: AgentMessage['role'], kind: AgentMessage['kin
 
 function tempRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'saivage-authoritative-compactor-'));
+  initProjectTree(root);
   roots.push(root);
   return root;
 }

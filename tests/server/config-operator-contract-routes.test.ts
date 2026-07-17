@@ -114,7 +114,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         surface: 'rest',
         action: 'card.update',
         target_kind: 'card',
-        target_id: '11111111-1111-4111-8111-111111111111',
+        target_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         params_summary: 'token=should-redact',
         outcome: 'ok',
         outcome_summary: 'updated',
@@ -126,7 +126,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         surface: 'rest',
         action: 'card.update',
         target_kind: 'card',
-        target_id: '11111111-1111-4111-8111-111111111111',
+        target_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         params_summary: 'safe params',
         outcome: 'ok',
         outcome_summary: 'updated',
@@ -138,18 +138,18 @@ describe('contract-backed config/providers/control-actions routes', () => {
         surface: 'rest',
         action: 'card.update',
         target_kind: 'card',
-        target_id: '22222222-2222-4222-8222-222222222222',
+        target_id: 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         params_summary: 'safe params',
         outcome: 'ok',
         outcome_summary: 'updated',
       });
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
-      const response = await fastify.inject({ method: 'GET', url: '/api/control-actions?card_id=11111111-1111-4111-8111-111111111111&since=2026-01-01T12:00:00.000Z' });
+      const response = await fastify.inject({ method: 'GET', url: '/api/control-actions?card_id=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&since=2026-01-01T12:00:00.000Z' });
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({
-        control_actions: [expect.objectContaining({ id: 'newer-action', target_id: '11111111-1111-4111-8111-111111111111' })],
+        control_actions: [expect.objectContaining({ id: 'newer-action', target_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' })],
         total: 1,
       });
     } finally {

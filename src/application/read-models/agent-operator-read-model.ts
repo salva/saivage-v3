@@ -1,11 +1,6 @@
-import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from '../../agents/session-ids.js';
 import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
 import { listConversationSessionIds, readConversation } from '../../persistence/conversation-file.js';
-import { parseConversationSessionId } from '../../runtime/actors/conversation-inventory.js';
-import type { AgentMessage, AgentRole, SessionStatus } from '../../schemas/index.js';
-
-export const GLOBAL_OPERATOR_AGENT_SESSION_ID = GLOBAL_ANALYST_SESSION_ID;
-export const SAFE_AGENT_ID_RE = SAFE_AGENT_SESSION_ID_RE;
+import { conversationSessionIdentity, parseConversationSessionId, type AgentMessage, type AgentRole, type SessionStatus, type ConversationSessionId } from '../../schemas/index.js';
 
 export type ListedAgentStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
 export type AgentOperatorSessionSummary = Record<string, unknown> & {
@@ -33,31 +28,32 @@ export class AgentOperatorReadModelService {
   }
 
   getSession(sessionId: string): { statusCode?: number; body: { session?: Record<string, unknown>; error?: string; sessionId?: string } } {
-    if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const messages = readConversation(this.projectRoot, sessionId).physicalRows;
+    const parsedId = this.parseSessionId(sessionId);
+    if (!parsedId) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
+    const messages = readConversation(this.projectRoot, parsedId.sessionId).physicalRows;
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const base = this.buildSessionSummary(sessionId, messages);
+    const base = this.buildSessionSummary(parsedId.sessionId, messages);
     if (!base) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const lastActivity = this.lastMessageTimestamp(messages) ?? base.started_at;
     return { body: { session: { ...base, message_count: messages.length, last_activity_at: lastActivity } } };
   }
 
   getConversation(sessionId: string): { statusCode?: number; body: AgentOperatorConversationResponse | { error: string; sessionId?: string } } {
-    if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    if (!this.parseSessionId(sessionId)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const messages = readConversation(this.projectRoot, sessionId).physicalRows;
+    const parsedId = this.parseSessionId(sessionId);
+    if (!parsedId) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
+    const messages = readConversation(this.projectRoot, parsedId.sessionId).physicalRows;
     if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const session = this.buildSessionSummary(sessionId, messages);
+    const session = this.buildSessionSummary(parsedId.sessionId, messages);
     if (!session) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const activity_status = this.deriveActivityStatus(messages);
     return { body: { session, entries: messages.filter((message) => message.kind !== 'provider_private').map(stripPrivateProjectionMarker), activity_status } };
   }
 
-  private parseSessionId(sessionId: string): { role: Extract<AgentRole, 'analyst' | 'planner' | 'executor' | 'reviewer'>; card_id: string | null } | null {
+  private parseSessionId(sessionId: string): { sessionId: ConversationSessionId; role: Extract<AgentRole, 'analyst' | 'planner' | 'executor' | 'reviewer'>; card_id: string | null } | null {
     try {
       const parsed = parseConversationSessionId(sessionId);
-      return { role: parsed.role, card_id: parsed.cardId };
+      const identity = conversationSessionIdentity(parsed);
+      return { sessionId: parsed, role: identity.role, card_id: identity.cardId };
     } catch {
       return null;
     }
@@ -86,12 +82,11 @@ export class AgentOperatorReadModelService {
     return 'inactive';
   }
 
-  private readLatestModel(sessionId: string): string | null {
+  private readLatestModel(sessionId: ConversationSessionId): string | null {
     return readLatestProviderExchangePayload(this.projectRoot, sessionId)?.model ?? null;
   }
 
-  private buildSessionSummary(sessionId: string, messages: AgentMessage[]): AgentOperatorSessionSummary | null {
-    if (!isSafeAgentSessionId(sessionId)) return null;
+  private buildSessionSummary(sessionId: ConversationSessionId, messages: AgentMessage[]): AgentOperatorSessionSummary | null {
     const parsed = this.parseSessionId(sessionId);
     if (!parsed) return null;
     const model = this.readLatestModel(sessionId);
@@ -112,5 +107,3 @@ function stripPrivateProjectionMarker(message: AgentMessage): AgentMessage {
   delete publicMessage.provider_projection;
   return publicMessage;
 }
-
-export { isSafeAgentSessionId };

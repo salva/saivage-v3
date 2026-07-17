@@ -18,20 +18,13 @@ function functionBody(source: string, signature: string): string {
 }
 
 describe('card activation admission projection call graph', () => {
-  it('uses one direct canonical card scan without general CardService read detours', () => {
+  it('uses exact target and dependency reads without list or tree projection', () => {
     const serviceSource = readFileSync(join(root, 'src/cards/card-service.ts'), 'utf8');
-    const cardFilesSource = readFileSync(join(root, 'src/persistence/card-files.ts'), 'utf8');
-
     const admission = functionBody(serviceSource, 'readActivationAdmission(cardId: string)');
-    expect(admission.match(/listCards\(this\.projectRoot\)/g)).toHaveLength(1);
-    for (const forbidden of [/this\.state\s*\(/, /this\.read\s*\(/, /this\.list\s*\(/, /readCardIndex\s*\(/]) {
+    expect(admission).toMatch(/this\.read\(cardId\)/);
+    expect(admission).toMatch(/child\.depends_on\.map/);
+    for (const forbidden of [/this\.state\s*\(/, /this\.list\s*\(/, /listCards\s*\(/]) {
       expect(admission).not.toMatch(forbidden);
     }
-
-    const list = functionBody(cardFilesSource, 'export function listCards(projectRoot: string)');
-    expect(list.match(/readCardIndex\(projectRoot\)/g)).toHaveLength(1);
-
-    const index = functionBody(cardFilesSource, 'export function readCardIndex(projectRoot: string)');
-    expect(index.match(/scanCardIndex\(cardsRoot\(projectRoot\)\)/g)).toHaveLength(1);
   });
 });

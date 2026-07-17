@@ -1,6 +1,7 @@
 import { computed } from 'vue';
 import { defineStore } from 'pinia';
 import { syncClient, type SyncResourceRegistration } from '../sync/client';
+import type { ConversationSessionId } from '../api/contracts';
 
 export const useSyncStore = defineStore('sync', () => {
   const connectionState = computed(() => syncClient.connectionState.value);
@@ -20,7 +21,7 @@ export const useSyncStore = defineStore('sync', () => {
     return syncClient.register(registration);
   }
 
-  function openConversation(sessionId: string, refetch: () => Promise<void>): () => void {
+  function openConversation(sessionId: ConversationSessionId, refetch: () => Promise<void>): () => void {
     return syncClient.openConversation(sessionId, refetch);
   }
 

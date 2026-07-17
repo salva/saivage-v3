@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as client from '../api/client';
-import type { OperatorApiSuccess } from '../api/contracts';
+import type { ConversationSessionId, OperatorApiSuccess } from '../api/contracts';
 import type { CardListResponse, ChatResponse, McpToolsResponse, RuntimeStateResponse } from '../api/types';
 
 const removedMutationExports = [
@@ -59,5 +59,14 @@ describe('operator API client contracts after S06 mutation removal', () => {
     expect(runtimeContract).toBeNull();
     expect(mcpContract).toBeNull();
     expect(chatContract).toBeNull();
+  });
+
+  it('retains exact Agent identities and identity-free Analyst method signatures', () => {
+    const agentId: Parameters<typeof client.getAgentConversation>[0] = 'planner:project';
+    const llmId: Parameters<typeof client.getAgentLlmExchange>[0] = agentId;
+    const exact: ConversationSessionId = llmId;
+    const chatSignal: Parameters<typeof client.getChatEntries>[0] = undefined;
+    const chatContent: Parameters<typeof client.sendChatMessage>[0] = 'hello';
+    expect({ exact, chatSignal, chatContent }).toEqual({ exact: 'planner:project', chatSignal: undefined, chatContent: 'hello' });
   });
 });

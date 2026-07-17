@@ -1,4 +1,4 @@
-import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../../agents/session-ids.js';
+import { GLOBAL_ANALYST_SESSION_ID } from '../../schemas/index.js';
 import { AgentOperatorReadModelService } from '../../application/read-models/index.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import type {
@@ -40,12 +40,11 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
 
   return {
     'chats.list': () => {
-      const sessions = agentReadModel().listSessions().sessions.filter((session) => session.role === 'analyst' && session.id.startsWith('analyst:'));
+      const sessions = agentReadModel().listSessions().sessions.filter((session) => session.id === GLOBAL_ANALYST_SESSION_ID);
       return { body: { sessions } };
     },
     'chats.get': ({ params }) => {
       const sessionId = (params as unknown as { sessionId: string }).sessionId;
-      if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid session ID format.', sessionId } };
       if (sessionId !== GLOBAL_ANALYST_SESSION_ID) return { statusCode: 404, body: { error: 'Only the canonical analyst chat is available.', sessionId } };
       const response = agentReadModel().getConversation(sessionId);
       if (response.statusCode === 404) return { body: { sessionId: GLOBAL_ANALYST_SESSION_ID, entries: [] } };
@@ -56,7 +55,6 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
     'chats.send': async ({ params, body, reply }) => {
       const sessionId = (params as unknown as { sessionId: string }).sessionId;
       const requestBody = body as { content?: string; workspaceContext?: unknown };
-      if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid session ID format.', sessionId } };
       if (sessionId !== GLOBAL_ANALYST_SESSION_ID) return { statusCode: 404, body: { error: 'Only the canonical analyst chat is available.', sessionId } };
       if (!requestBody.content) return { statusCode: 400, body: { error: 'Message content is required' } };
       let workspaceContext: ChatWorkspaceContext | undefined;
@@ -68,7 +66,7 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
       try {
         if (!options.runtimeApplication) return { statusCode: 503, body: { error: 'Runtime application unavailable.' } };
         if (!options.saivageConfig) return { statusCode: 503, body: { error: 'Runtime configuration unavailable.' } };
-        const response = await options.runtimeApplication.analystRuntime.submit(GLOBAL_ANALYST_SESSION_ID, { userContent: requestBody.content, workspaceContext, actor: 'analyst', surface: 'web-chat' });
+        const response = await options.runtimeApplication.analystRuntime.submit({ userContent: requestBody.content, workspaceContext, actor: 'analyst', surface: 'web-chat' });
         const result = {
           body: {
             sessionId: response.sessionId,

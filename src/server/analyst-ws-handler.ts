@@ -1,6 +1,7 @@
 import type { WebSocket } from 'ws';
 import type { SaivageConfig } from '../agents/config-api.js';
-import { resolveAnalystSessionId, sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
+import { sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
+import { GLOBAL_ANALYST_SESSION_ID } from '../schemas/index.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
 import type { WsEnvelope } from '../contracts/index.js';
@@ -21,14 +22,11 @@ export interface AnalystWsHandlerOptions {
 
 export class AnalystWsHandler {
   private readonly turnQueues = new WeakMap<WebSocket, Promise<void>>();
-  private readonly sessions = new WeakMap<WebSocket, string>();
 
   constructor(private readonly options: AnalystWsHandlerOptions) {}
 
   initialize(ws: WebSocket): string {
-    const sessionId = resolveAnalystSessionId();
-    this.sessions.set(ws, sessionId);
-    return sessionId;
+    return GLOBAL_ANALYST_SESSION_ID;
   }
 
   handleRawMessage(ws: WebSocket, raw: Buffer | ArrayBuffer | Buffer[]): Promise<void> {
@@ -39,8 +37,7 @@ export class AnalystWsHandler {
         const parsed = InboundAnalystMessageEnvelopeSchema.safeParse(rawParsed);
         if (!parsed.success) throw new Error('Invalid analyst websocket message');
 
-        const currentSessionId = resolveAnalystSessionId();
-        const response = await this.options.runtimeApplication.analystRuntime.submit(currentSessionId, { userContent: parsed.data.content.text, actor: 'analyst', surface: 'web-chat' }, (activity) => {
+        const response = await this.options.runtimeApplication.analystRuntime.submit({ userContent: parsed.data.content.text, actor: 'analyst', surface: 'web-chat' }, (activity) => {
             this.options.broadcast({
               type: 'activity',
               content: sanitizeAnalystPayload(activity) as Record<string, unknown>,
@@ -76,7 +73,6 @@ export class AnalystWsHandler {
 
   cleanup(ws: WebSocket): void {
     this.turnQueues.delete(ws);
-    this.sessions.delete(ws);
   }
 
   private queueTurn(ws: WebSocket, turn: () => Promise<void>): Promise<void> {

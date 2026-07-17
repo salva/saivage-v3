@@ -40,7 +40,7 @@ describe('raw-authoritative compaction primitives', () => {
     const provider: SummarizerProviderPort = { completeTurn, projectProviderExchanges: jest.fn() };
     const common = { round_id: 'round', summarizerProvider: provider, signal: new AbortController().signal };
     await expect(summarizeRound({ ...common, sourceSessionId: 'planner:project', rows: [msg({ id: 'metadata', role: 'system', kind: 'context_compaction', content: '{}' })] })).rejects.toThrow(/immutable non-metadata/);
-    await expect(summarizeRound({ ...common, sourceSessionId: 'planner:other', rows: [msg({ id: 'raw', role: 'user', kind: 'text', content: 'raw' })] })).rejects.toThrow(/not source session/);
+    await expect(summarizeRound({ ...common, sourceSessionId: 'reviewer:project', rows: [msg({ id: 'raw', role: 'user', kind: 'text', content: 'raw' })] })).rejects.toThrow(/not source session/);
     expect(completeTurn).not.toHaveBeenCalled();
   });
 });

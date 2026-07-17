@@ -10,7 +10,7 @@ function callContent(name: string, args: Record<string, unknown>): string {
 function entry(id: string, kind: AgentConversationEntry['kind'], content: string, tool?: string): AgentConversationEntry {
   return {
     id,
-    session_id: 's',
+    session_id: 'analyst:global',
     role: kind === 'tool_result' ? 'tool' : 'assistant',
     kind,
     content,

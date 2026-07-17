@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { cardIdSchema } from '../schemas/index.js';
+import { AnalystConversationSessionIdSchema, ConversationSessionIdSchema, GLOBAL_ANALYST_SESSION_ID, cardIdSchema } from '../schemas/index.js';
 import { RestartChatAcknowledgementSchema } from './operator-api-chats.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
@@ -11,11 +11,11 @@ export const WsEnvelopeSchema = z.object({
 export const LiveSyncUnscopedResourceSchema = z.enum(['runtime', 'cards', 'agents', 'timeline', 'processes', 'files']);
 export const LiveSyncInvalidateFrameSchema = z.union([
   z.object({ t: z.literal('invalidate'), resource: LiveSyncUnscopedResourceSchema }).strict(),
-  z.object({ t: z.literal('invalidate'), resource: z.literal('conversation'), id: z.string().min(1) }).strict(),
+  z.object({ t: z.literal('invalidate'), resource: z.literal('conversation'), id: ConversationSessionIdSchema }).strict(),
 ]);
-export const LiveSyncSubscribedFrameSchema = z.object({ t: z.literal('subscribed'), resource: z.literal('conversation'), id: z.string().min(1), lease: z.string().min(1) }).strict();
-export const LiveSyncSubscribeFrameSchema = z.object({ t: z.literal('subscribe'), resource: z.literal('conversation'), id: z.string().min(1), lease: z.string().min(1) }).strict();
-export const LiveSyncUnsubscribeFrameSchema = z.object({ t: z.literal('unsubscribe'), resource: z.literal('conversation'), id: z.string().min(1), lease: z.string().min(1) }).strict();
+export const LiveSyncSubscribedFrameSchema = z.object({ t: z.literal('subscribed'), resource: z.literal('conversation'), id: ConversationSessionIdSchema, lease: z.string().min(1) }).strict();
+export const LiveSyncSubscribeFrameSchema = z.object({ t: z.literal('subscribe'), resource: z.literal('conversation'), id: ConversationSessionIdSchema, lease: z.string().min(1) }).strict();
+export const LiveSyncUnsubscribeFrameSchema = z.object({ t: z.literal('unsubscribe'), resource: z.literal('conversation'), id: ConversationSessionIdSchema, lease: z.string().min(1) }).strict();
 export const LiveSyncClientFrameSchema = z.union([LiveSyncSubscribeFrameSchema, LiveSyncUnsubscribeFrameSchema]);
 
 export type LiveSyncUnscopedResource = z.infer<typeof LiveSyncUnscopedResourceSchema>;
@@ -37,7 +37,7 @@ const stringOrNullSchema = z.string().nullable();
 const optionalStringSchema = z.string().optional();
 export const ConnectedStatusContentSchema = z.object({
   event: z.literal('connected'),
-  sessionId: z.string().min(1),
+  sessionId: AnalystConversationSessionIdSchema,
   timestamp: z.string().datetime(),
   clientCount: z.number().int().nonnegative(),
 }).passthrough();
@@ -49,7 +49,7 @@ export const ConnectedStatusEnvelopeSchema = z.object({
 
 export const AnalystTurnAcknowledgedStatusContentSchema = z.object({
   event: z.literal('analyst_turn_acknowledged'),
-  sessionId: z.string().min(1),
+  sessionId: AnalystConversationSessionIdSchema,
   restart: RestartChatAcknowledgementSchema.nullable(),
 }).strict();
 
@@ -95,7 +95,7 @@ export const ControlActionRecordedContentSchema = z.object({
 
 export const AnalystToolInvokedContentSchema = z.object({
   event: z.literal('analyst_tool_invoked'),
-  sessionId: z.string().min(1),
+  sessionId: AnalystConversationSessionIdSchema,
   tool: z.string().min(1),
   success: z.boolean(),
   summary: z.string(),
@@ -107,6 +107,7 @@ export const AnalystToolInvokedContentSchema = z.object({
 
 export const ToolInvocationContentSchema = z.object({
   event: z.literal('tool_invocation'),
+  sessionId: AnalystConversationSessionIdSchema,
   tool: z.string().min(1),
   params: z.unknown().optional(),
   result: z.unknown().optional(),
@@ -227,12 +228,12 @@ export function isConnectedEnvelope(envelope: unknown): envelope is z.infer<type
   return ConnectedStatusEnvelopeSchema.safeParse(envelope).success;
 }
 
-export function buildConnectedEnvelope(input: { sessionId: string; timestamp?: string; clientCount?: number }): z.infer<typeof ConnectedStatusEnvelopeSchema> {
+export function buildConnectedEnvelope(input: { timestamp?: string; clientCount?: number } = {}): z.infer<typeof ConnectedStatusEnvelopeSchema> {
   return ConnectedStatusEnvelopeSchema.parse({
     type: 'status',
     content: {
       event: 'connected',
-      sessionId: input.sessionId,
+      sessionId: GLOBAL_ANALYST_SESSION_ID,
       timestamp: input.timestamp ?? new Date(0).toISOString(),
       clientCount: input.clientCount ?? 1,
     },
@@ -244,7 +245,7 @@ export function buildInboundAnalystMessageEnvelope(text: string): InboundAnalyst
 }
 
 export const wsContractFixtures = {
-  connected: buildConnectedEnvelope({ sessionId: 'session-fixture' }),
+  connected: buildConnectedEnvelope(),
   inboundAnalystMessage: buildInboundAnalystMessageEnvelope('hello analyst'),
   unknownBaseValid: { type: 'activity', content: { event: 'future_event', value: true } } satisfies WsEnvelopeContract,
   malformedKnown: { type: 'activity', content: { event: 'card_history_appended' } } satisfies WsEnvelopeContract,

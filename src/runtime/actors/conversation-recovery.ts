@@ -1,4 +1,4 @@
-import type { AgentMessage, MessageKind } from '../../schemas/index.js';
+import { conversationSessionIdentity, type AgentMessage, type MessageKind, type ConversationSessionId } from '../../schemas/index.js';
 import {
   loggedToolCallIdentity,
   loggedToolCallKey,
@@ -57,7 +57,7 @@ export function classifyConversation(messages: readonly AgentMessage[], terminal
 
 export function stabilizeRoleSession(args: {
   projectRoot: string;
-  sessionId: string;
+  sessionId: ConversationSessionId;
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
 }): { interrupted: boolean; messages: AgentMessage[] } {
@@ -68,7 +68,7 @@ export function stabilizeRoleSession(args: {
     return { interrupted: false, messages };
   }
   const latestActivationIndex = activationIndexes.at(-1)!;
-  const interrupted = !latestRoundCleanlyClosed(messages.slice(latestActivationIndex), args.terminalToolNames, args.sessionId.startsWith('reviewer:'));
+  const interrupted = !latestRoundCleanlyClosed(messages.slice(latestActivationIndex), args.terminalToolNames, conversationSessionIdentity(args.sessionId).role === 'reviewer');
   const unmatched = validateCallSettlementPairs(messages, latestActivationIndex, interrupted, args.terminalToolNames);
   if (unmatched) {
     appendProviderVisibleSyntheticFailedToolResult(args.conversations, {

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import type { ActivityStatus, AgentConversationEntry, AgentRole, AgentSession, FreshnessState, SessionStatus } from '../api/types';
 import { ApiError, getAgentConversation, getAgentLlmExchange, listAgentSessions } from '../api/client';
 import type { ProviderExchangePayload } from '../api/contracts';
+import type { ConversationSessionId } from '../api/contracts';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:agents');
@@ -29,7 +30,7 @@ export const useAgentStore = defineStore('agents', () => {
   const lastWsEventAt = ref<string | null>(null);
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
 
-  const selectedConversationSessionId = ref<string | null>(null);
+  const selectedConversationSessionId = ref<ConversationSessionId | null>(null);
   const currentSession = ref<AgentSession | null>(null);
   const entries = ref<AgentConversationEntry[]>([]);
   const activityStatus = ref<ActivityStatus>(idleActivity());
@@ -40,7 +41,7 @@ export const useAgentStore = defineStore('agents', () => {
   const conversationRefreshError = ref<string | null>(null);
   const conversationUnauthorized = ref(false);
 
-  const llmExchangeSessionId = ref<string | null>(null);
+  const llmExchangeSessionId = ref<ConversationSessionId | null>(null);
   const currentLlmExchange = ref<ProviderExchangePayload | null>(null);
   const llmExchangeLoaded = ref(false);
   const llmExchangeLoading = ref(false);
@@ -53,11 +54,11 @@ export const useAgentStore = defineStore('agents', () => {
   let conversationEpoch = 0;
   let conversationController: AbortController | null = null;
   let activeConversationToken: ConversationSelectionToken | null = null;
-  const conversationTokenSessions = new WeakMap<ConversationSelectionToken, string>();
+  const conversationTokenSessions = new WeakMap<ConversationSelectionToken, ConversationSessionId>();
   let llmExchangeEpoch = 0;
   let llmExchangeController: AbortController | null = null;
   let activeLlmExchangeToken: LlmExchangeSelectionToken | null = null;
-  const llmExchangeTokenSessions = new WeakMap<LlmExchangeSelectionToken, string>();
+  const llmExchangeTokenSessions = new WeakMap<LlmExchangeSelectionToken, ConversationSessionId>();
 
   const isStale = computed(() => {
     const latest = lastWsEventAt.value ?? lastFetchedAt.value;
@@ -127,7 +128,7 @@ export const useAgentStore = defineStore('agents', () => {
     conversationWarning.value = null;
   }
 
-  function beginConversationSelection(sessionId: string): ConversationSelectionToken {
+  function beginConversationSelection(sessionId: ConversationSessionId): ConversationSelectionToken {
     conversationController?.abort();
     conversationController = null;
     ++conversationEpoch;
@@ -147,7 +148,7 @@ export const useAgentStore = defineStore('agents', () => {
     return token;
   }
 
-  function conversationRequestIsCurrent(token: ConversationSelectionToken, epoch: number, sessionId: string): boolean {
+  function conversationRequestIsCurrent(token: ConversationSelectionToken, epoch: number, sessionId: ConversationSessionId): boolean {
     return activeConversationToken === token
       && conversationEpoch === epoch
       && selectedConversationSessionId.value === sessionId;
@@ -222,7 +223,7 @@ export const useAgentStore = defineStore('agents', () => {
     llmExchangeLoaded.value = false;
   }
 
-  function beginLlmExchangeSelection(sessionId: string): LlmExchangeSelectionToken {
+  function beginLlmExchangeSelection(sessionId: ConversationSessionId): LlmExchangeSelectionToken {
     llmExchangeController?.abort();
     llmExchangeController = null;
     ++llmExchangeEpoch;
@@ -241,7 +242,7 @@ export const useAgentStore = defineStore('agents', () => {
     return token;
   }
 
-  function llmExchangeRequestIsCurrent(token: LlmExchangeSelectionToken, epoch: number, sessionId: string): boolean {
+  function llmExchangeRequestIsCurrent(token: LlmExchangeSelectionToken, epoch: number, sessionId: ConversationSessionId): boolean {
     return activeLlmExchangeToken === token
       && llmExchangeEpoch === epoch
       && llmExchangeSessionId.value === sessionId;
@@ -261,9 +262,10 @@ export const useAgentStore = defineStore('agents', () => {
     if (refreshing) llmExchangeRefreshError.value = null;
     else llmExchangeError.value = null;
     try {
-      const { exchange } = await getAgentLlmExchange(sessionId, controller.signal);
+      const response = await getAgentLlmExchange(sessionId, controller.signal);
       if (!llmExchangeRequestIsCurrent(token, epoch, sessionId)) return;
-      currentLlmExchange.value = exchange;
+      if (response.sessionId !== sessionId) throw new Error(`LLM exchange response session ${response.sessionId} does not match selected session ${sessionId}`);
+      currentLlmExchange.value = response.exchange;
       llmExchangeLoaded.value = true;
       llmExchangeError.value = null;
       llmExchangeRefreshError.value = null;

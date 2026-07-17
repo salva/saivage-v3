@@ -8,6 +8,7 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { AgentConversationEntrySchema } from './operator-api-agents.js';
+import { AnalystConversationSessionIdSchema } from '../schemas/index.js';
 
 export const ChatSessionParamsSchema = z.object({ sessionId: z.string().min(1) });
 export const ChatWorkspaceContextSchema = z.object({
@@ -21,22 +22,22 @@ export const ChatSendRequestSchema = z.object({
 });
 export const ChatListResponseSchema = z.object({
   sessions: z.array(z.object({
-    id: z.string(),
-    role: z.string(),
+    id: AnalystConversationSessionIdSchema,
+    role: z.literal('analyst'),
     status: z.string(),
     started_at: z.string(),
   }).catchall(z.unknown())),
 });
 export const ChatEntriesResponseSchema = z.object({
-  sessionId: z.string(),
+  sessionId: AnalystConversationSessionIdSchema,
   entries: z.array(AgentConversationEntrySchema),
-});
+}).superRefine((value, ctx) => { for (const [index, entry] of value.entries.entries()) if (entry.session_id !== value.sessionId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entries', index, 'session_id'], message: 'Chat entry session must match the enclosing session.' }); });
 export const RestartChatAcknowledgementSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('confirmation_required'), confirmationMessage: z.literal('RESTART SERVER') }).strict(),
   z.object({ status: z.literal('scheduled') }).strict(),
 ]);
 export const ChatSendResponseSchema = z.object({
-  sessionId: z.string(),
+  sessionId: AnalystConversationSessionIdSchema,
   toolInvocations: z.array(z.unknown()),
   restart: RestartChatAcknowledgementSchema.nullable(),
 }).strict();

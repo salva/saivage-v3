@@ -4,6 +4,7 @@ import type { LiveSyncInvalidateTarget } from '../contracts/index.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { LiveSyncSocket } from './live-sync-socket.js';
 import type { ReadModelChangeListener } from '../application/read-model-changes.js';
+import type { ConversationSessionId } from '../schemas/index.js';
 
 export const liveSyncEventKinds = [
   'mcp_tool_invocation',
@@ -92,7 +93,7 @@ export class SyncHub implements ReadModelChangeListener {
   runtimeChanged(): void { this.markDirty({ resource: 'runtime' }); }
   cardStateChanged(): void { this.markDirty({ resource: 'cards' }); }
   agentsChanged(): void { this.markDirty({ resource: 'agents' }); }
-  conversationChanged(id: string): void { this.markDirty({ resource: 'conversation', id }); }
+  conversationChanged(id: ConversationSessionId): void { this.markDirty({ resource: 'conversation', id }); }
 
   private markDirty(target: LiveSyncInvalidateTarget): void {
     this.pending.set(targetKey(target), target);

@@ -3,10 +3,10 @@ export type { RuntimeStatusInputs, RuntimeStatusReadModel } from './runtime-stat
 export { buildCardRunsResponse } from './runtime-card-runs-read-model.js';
 export type { CardBreadcrumbNode, CardRunsResponse, DormantPlannerRow, PendingCorrectionRow } from './runtime-card-runs-read-model.js';
 export { CardsReadModelService } from './cards-read-model.js';
-export { computeCardDisplayPath, toCardView } from './card-view.js';
+export { computeCardLogicalPath, toCardView } from './card-view.js';
 export { WorkspaceFileReadModelService } from './workspace-file-read-model.js';
 export { DebugReadModelService } from './debug-read-model.js';
-export { AgentOperatorReadModelService, isSafeAgentSessionId } from './agent-operator-read-model.js';
+export { AgentOperatorReadModelService } from './agent-operator-read-model.js';
 export type { AgentOperatorConversationResponse, AgentOperatorSessionSummary, ListedAgentStatus } from './agent-operator-read-model.js';
 export { EventsReadModelService } from './events-read-model.js';
 export type { EventsListResponse, EventsQuery } from '../../contracts/index.js';

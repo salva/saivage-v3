@@ -87,11 +87,11 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
       readModelChanges,
     });
 
-    await application.analystRuntime.submit('global', {
+    await application.analystRuntime.submit({
       userContent: `baseline history ${'x'.repeat(5000)}`,
     });
     const currentUserContent = 'List the current cards once, then answer from that harmless read.';
-    const response = await application.analystRuntime.submit('global', {
+    const response = await application.analystRuntime.submit({
       userContent: currentUserContent,
       workspaceContext: { view: 'cards', entityId: 'project', refinement: { tab: 'tree' } },
     });

@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { redactTextForOutbound } from '../redaction/index.js';
 import { isReadBlocked } from '../workspace/index.js';
-import { parseCardVersionArtifact } from './canonical-card-artifacts.js';
+import { readCard } from './card-files.js';
 import { saivageCardsRoot } from './layout.js';
 import { readProjectIdentity } from './project-identity.js';
 
@@ -34,6 +34,5 @@ export function isInitialized(projectRoot: string): boolean {
   for (const dir of [saivageCardsRoot(projectRoot)]) {
     try { if (!statSync(dir).isDirectory()) return false; } catch { return false; }
   }
-  const rootPath = join(saivageCardsRoot(projectRoot), 'project', 'card', 'versions', '1.json');
-  try { parseCardVersionArtifact(JSON.parse(readFileSync(rootPath, 'utf8')), rootPath, { cardId: 'project', version: 1 }); return true; } catch { return false; }
+  try { return readCard(projectRoot, 'project') !== null; } catch { return false; }
 }

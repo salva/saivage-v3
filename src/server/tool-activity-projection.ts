@@ -1,4 +1,5 @@
 import { sanitizeAnalystPayload } from '../agents/analyst-api.js';
+import { GLOBAL_ANALYST_SESSION_ID } from '../schemas/index.js';
 
 export interface AnalystToolInvocationActivityInput {
   tool: string;
@@ -14,6 +15,7 @@ export function projectAnalystToolInvocationActivity(invocation: AnalystToolInvo
   const data = invocation.result.data as Record<string, unknown> | undefined;
   return {
     event: 'tool_invocation',
+    sessionId: GLOBAL_ANALYST_SESSION_ID,
     tool: invocation.tool,
     params: sanitizeAnalystPayload(invocation.params),
     result: sanitizeAnalystPayload({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type MessageKind, type MessageRole } from '../../../src/schemas/index.js';
+import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type MessageKind, type MessageRole, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { classifyConversation } from '../../../src/runtime/actors/conversation-recovery.js';
 import { hashConversationRows, validateConversationRows } from '../../../src/contracts/conversation-compaction.js';
 
@@ -8,7 +8,7 @@ const terminalTools = new Set(['emit_result']);
 function message(overrides: Partial<AgentMessage> & { kind: MessageKind; id?: string; role?: MessageRole }): AgentMessage {
   return {
     id: overrides.id ?? `${overrides.kind}-1`,
-    session_id: overrides.session_id ?? 'planner:G-1',
+    session_id: overrides.session_id ?? 'planner:project',
     role: overrides.role ?? 'system',
     kind: overrides.kind,
     content: overrides.content ?? '',
@@ -21,7 +21,7 @@ function message(overrides: Partial<AgentMessage> & { kind: MessageKind; id?: st
   };
 }
 
-function toolCall(sourceInputId: string, toolCallId: string, sessionId = 'planner:G-1', tool = 'emit_result'): AgentMessage {
+function toolCall(sourceInputId: string, toolCallId: string, sessionId: ConversationSessionId = 'planner:project', tool = 'emit_result'): AgentMessage {
   return message({
     id: `${sourceInputId}:tool-call:${toolCallId}`,
     session_id: sessionId,
@@ -33,7 +33,7 @@ function toolCall(sourceInputId: string, toolCallId: string, sessionId = 'planne
   });
 }
 
-function toolResult(sourceInputId: string, toolCallId: string, sessionId = 'planner:G-1', tool = 'emit_result', result: unknown = { success: true }): AgentMessage {
+function toolResult(sourceInputId: string, toolCallId: string, sessionId: ConversationSessionId = 'planner:project', tool = 'emit_result', result: unknown = { success: true }): AgentMessage {
   return message({
     id: `${sourceInputId}:tool-result:${toolCallId}`,
     session_id: sessionId,
@@ -68,7 +68,7 @@ describe('classifyConversation', () => {
   });
 
   it('classifies a strictly validated current-format compaction row as pending_provider', () => {
-    const source = agentMessageSchema.parse(message({ id: 'activation', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'G-1', input_id: '00000000-0000-4000-8000-000000000001', timestamp: '2026-07-08T00:00:00.000Z' }) }));
+    const source = agentMessageSchema.parse(message({ id: 'activation', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp: '2026-07-08T00:00:00.000Z' }) }));
     const payload = contextCompactionContentSchema.parse({ boundary: 'round', retained_static_message_ids: [], summaries: [{ kind: 'individual', rounds: [{ complete: true, segments: [{ kind: 'initial', source_message_ids: [source.id] }] }], content_hash: hashConversationRows([source]), summary_text: 'summary', evidence: [] }], applied_policy: { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, snap: 'compact_straddler' } });
     const metadata = agentMessageSchema.parse(message({ id: 'compaction', kind: 'context_compaction', content: canonicalJson(payload), round_id: 'r-compacted-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }));
     const validated = validateConversationRows(source.session_id, [source, metadata]);
@@ -79,8 +79,8 @@ describe('classifyConversation', () => {
   it('matches tool settlements by full session, source input, and tool call id', () => {
     expect(classifyConversation([
       toolCall('planner:G-1:1', 'call-dup'),
-      toolCall('planner:G-1:2', 'call-dup', 'planner:G-1', 'read_file'),
-      toolResult('planner:G-1:2', 'call-dup', 'planner:G-1', 'read_file'),
+      toolCall('planner:G-1:2', 'call-dup', 'planner:project', 'read_file'),
+      toolResult('planner:G-1:2', 'call-dup', 'planner:project', 'read_file'),
     ], terminalTools)).toBe('pending_provider');
 
     expect(classifyConversation([
@@ -89,13 +89,13 @@ describe('classifyConversation', () => {
     ], terminalTools)).toBe('awaiting_tool_result');
 
     expect(classifyConversation([
-      toolCall('planner:G-1:1', 'call-1', 'planner:G-1'),
-      toolResult('planner:G-1:1', 'call-1', 'reviewer:G-1'),
+      toolCall('planner:G-1:1', 'call-1', 'planner:project'),
+      toolResult('planner:G-1:1', 'call-1', 'reviewer:project'),
     ], terminalTools)).toBe('awaiting_tool_result');
   });
 
   it('treats a failed tool_result as a settlement without changing its payload', () => {
-    const result = toolResult('planner:G-1:1', 'call-1', 'planner:G-1', 'emit_result', { success: false, error: 'tool failed' });
+    const result = toolResult('planner:G-1:1', 'call-1', 'planner:project', 'emit_result', { success: false, error: 'tool failed' });
     expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), result], terminalTools)).toBe('settled_terminal');
     expect(result.content).toBe('{"success":false,"error":"tool failed"}');
   });
@@ -112,7 +112,7 @@ describe('classifyConversation', () => {
   });
 
   it('requires a terminal-named tool_call plus matching model-visible tool_result for settled_terminal', () => {
-    expect(classifyConversation([toolCall('planner:G-1:1', 'call-1', 'planner:G-1', 'read_file'), toolResult('planner:G-1:1', 'call-1', 'planner:G-1', 'read_file')], terminalTools)).toBe('pending_provider');
+    expect(classifyConversation([toolCall('planner:G-1:1', 'call-1', 'planner:project', 'read_file'), toolResult('planner:G-1:1', 'call-1', 'planner:project', 'read_file')], terminalTools)).toBe('pending_provider');
     expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), toolResult('planner:G-1:2', 'call-1')], terminalTools)).toBe('awaiting_tool_result');
   });
 });

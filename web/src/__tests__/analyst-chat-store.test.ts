@@ -63,7 +63,7 @@ describe('analyst chat store', () => {
 
   it('does not refresh transcript from analyst tool activity frames', async () => {
     const store = useAnalystChat();
-    await store.selectSession('analyst:global');
+    await store.selectSession();
     apiMocks.getChatEntries.mockClear();
 
     store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst:global', tool: 'list_cards', summary: 'listed cards', success: true });
@@ -71,16 +71,16 @@ describe('analyst chat store', () => {
     expect(apiMocks.getChatEntries).not.toHaveBeenCalled();
   });
 
-  it('canonicalizes requested fetch session ids to the single analyst chat', async () => {
+  it('fetches the fixed singleton Analyst chat without a session argument', async () => {
     const store = useAnalystChat();
 
     apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst:global',
       entries: [] satisfies AgentConversationEntry[],
     });
-    await store.fetchMessages('chat-2');
+    await store.fetchMessages();
 
-    expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith('analyst:global', expect.any(AbortSignal));
+    expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith(expect.any(AbortSignal));
     expect(store.activeSessionId).toBe('analyst:global');
   });
 
@@ -102,14 +102,14 @@ describe('analyst chat store', () => {
     });
 
     const store = useAnalystChat();
-    await store.fetchMessages('analyst:global');
+    await store.fetchMessages();
 
     expect(store.messages.map((message) => message.id)).toEqual([first.id, second.id]);
   });
 
   it('does not refresh transcript from card or control activity frames', async () => {
     const store = useAnalystChat();
-    await store.selectSession('analyst:global');
+    await store.selectSession();
     apiMocks.getChatEntries.mockClear();
 
     store.ingestWsEvent({ event: 'card_history_appended', sessionId: 'analyst:global' });
@@ -138,7 +138,7 @@ describe('analyst chat store', () => {
     ['abort', new DOMException('Aborted', 'AbortError')],
   ])('retains confirmation acknowledgement on a response-less %s', async (_name, error) => {
     const store = useAnalystChat();
-    store.ingestRestartAcknowledgement('analyst:global', { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    store.ingestRestartAcknowledgement({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
     store.setDraft('RESTART SERVER');
     apiMocks.sendChatMessage.mockRejectedValueOnce(error);
 
@@ -151,7 +151,7 @@ describe('analyst chat store', () => {
 
   it('updates confirmation state only after a successful response consumes the next turn', async () => {
     const store = useAnalystChat();
-    store.ingestRestartAcknowledgement('analyst:global', { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    store.ingestRestartAcknowledgement({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
     apiMocks.sendChatMessage.mockResolvedValueOnce({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
     store.setDraft('not the phrase');
 
@@ -162,7 +162,7 @@ describe('analyst chat store', () => {
 
   it('preserves the scheduled acknowledgement and optimistic confirmation when shutdown interrupts refetch', async () => {
     const store = useAnalystChat();
-    store.ingestRestartAcknowledgement('analyst:global', { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    store.ingestRestartAcknowledgement({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
     apiMocks.sendChatMessage.mockResolvedValueOnce({ sessionId: 'analyst:global', toolInvocations: [], restart: { status: 'scheduled' } });
     apiMocks.getChatEntries.mockRejectedValueOnce(new Error('server shutting down'));
     store.setDraft('RESTART SERVER');
@@ -232,7 +232,7 @@ describe('analyst chat store', () => {
     expect(firstSessionSignal.aborted).toBe(true);
 
     void store.fetchMessages();
-    const firstMessageSignal = apiMocks.getChatEntries.mock.calls[0][1] as AbortSignal;
+    const firstMessageSignal = apiMocks.getChatEntries.mock.calls[0][0] as AbortSignal;
     void store.fetchMessages();
     expect(firstMessageSignal.aborted).toBe(true);
   });

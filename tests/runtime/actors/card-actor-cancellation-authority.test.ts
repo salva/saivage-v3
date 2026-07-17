@@ -14,13 +14,13 @@ import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-
 import { EventBus } from '../../../src/events/index.js';
 
 const IDS = [
-  '11111111-1111-4111-8111-111111111111',
-  '22222222-2222-4222-8222-222222222222',
-  '33333333-3333-4333-8333-333333333333',
+  'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  'card-cccccccccccccccccccccccccccc',
 ];
 
-function child(parent: string, title: string, depth = 1, type: NewCardInput['type'] = 'code'): NewCardInput {
-  return { type, parent, depth, title, brief: title, status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] };
+function child(parent: string, title: string, type: NewCardInput['type'] = 'code'): NewCardInput {
+  return { type, parent, title, brief: title, status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] };
 }
 
 function deferred<T>() {
@@ -68,7 +68,7 @@ describe('CardActor authoritative cancellation', () => {
     initProjectTree(root);
     identityIndex = 0;
     const changes = new ReadModelChangeBroadcaster();
-    cards = new CardService(root, undefined, changes, () => IDS[identityIndex++]!);
+    cards = new CardService(root, undefined, changes, () => IDS[identityIndex++]!.slice('card-'.length));
     cardRuntimeSnapshots = [];
     changes.subscribe({ runtimeChanged: () => cardRuntimeSnapshots.push(Object.fromEntries(cards.list().map((card) => [card.id, card.status]))), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     lookup = new Map();
@@ -232,7 +232,7 @@ describe('CardActor authoritative cancellation', () => {
 
   it('fails in place when a propagating post-publication callback throws', async () => {
     const bus = new EventBus();
-    cards = new CardService(root, bus, new ReadModelChangeBroadcaster(), () => IDS[identityIndex++]!);
+    cards = new CardService(root, bus, new ReadModelChangeBroadcaster(), () => IDS[identityIndex++]!.slice('card-'.length));
     const callbackFailure = new Error('post-publication callback failed');
     const owned = actor('project');
     const activation = owned.actor.activate({ kind: 'root' });
@@ -430,8 +430,8 @@ describe('CardActor authoritative cancellation', () => {
   });
 
   it('wakes only the immediate structural parent through a three-level chain', async () => {
-    const goal = cards.create(child('project', 'goal', 1, 'goal'));
-    const leaf = cards.create(child(goal.id, 'leaf', 2));
+    const goal = cards.create(child('project', 'goal', 'goal'));
+    const leaf = cards.create(child(goal.id, 'leaf'));
     for (const id of ['project', goal.id, leaf.id]) cards.setStatus(id, 'running');
     const rootOwner = actor('project');
     const goalOwner = actor(goal.id);
@@ -458,7 +458,7 @@ describe('CardActor authoritative cancellation', () => {
 
   it('publishes dynamic admission before child entry, then release before parent resumption', async () => {
     const changes = new ReadModelChangeBroadcaster();
-    const store = new CardService(root, undefined, changes, () => IDS[0]!);
+    const store = new CardService(root, undefined, changes, () => IDS[0]!.slice('card-'.length));
     const retained = new Map<string, CardActor>();
     const live = new Map<string, CardActor>();
     const snapshots: Array<{ source: 'card' | 'actor'; current: string | null; childStatus: string | null; retained: string[] }> = [];

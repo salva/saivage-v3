@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { redactAnalystSecretValue } from '../workspace/file-access-security.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
-import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../agents/session-ids.js';
+import { GLOBAL_ANALYST_SESSION_ID, parseConversationSessionId } from '../schemas/index.js';
 import { AgentOperatorReadModelService } from '../application/read-models/index.js';
 import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
@@ -48,9 +48,11 @@ export async function list_agent_sessions(ctx: ToolContext, _params: Record<stri
 export async function read_agent_session(ctx: ToolContext, params: { sessionId: string; lastN?: number }): Promise<ToolResult> {
   try {
     if (typeof params.sessionId !== 'string' || params.sessionId.length === 0) return toolFailure('sessionId is required.', { field: 'sessionId' });
-    if (!isSafeAgentSessionId(params.sessionId)) return toolFailure('sessionId contains invalid characters.', { field: 'sessionId' });
+    let sessionId;
+    try { sessionId = parseConversationSessionId(params.sessionId); }
+    catch { return toolFailure('sessionId is not canonical.', { field: 'sessionId' }); }
     const limit = Math.min(Math.max(1, params.lastN ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX);
-    const response = new AgentOperatorReadModelService(ctx.projectRoot, ctx.store).getConversation(params.sessionId);
+    const response = new AgentOperatorReadModelService(ctx.projectRoot, ctx.store).getConversation(sessionId);
     if (response.statusCode === 404) return toolFailure(`Agent session '${params.sessionId}' was not found.`, { sessionId: params.sessionId });
     if (response.statusCode) return toolFailure('Invalid agent session request.', { sessionId: params.sessionId, statusCode: response.statusCode });
     if (!('entries' in response.body)) return toolFailure('Invalid agent session request.', { sessionId: params.sessionId });

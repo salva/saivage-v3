@@ -105,9 +105,10 @@ import Dialog from '../ui/Dialog.vue';
 import { useRuntimeStore } from '../../stores/runtime';
 import { useAuthStore } from '../../stores/auth';
 import { useAnalystChat } from '../../stores/analystChat';
-import { ANALYST_SESSION_ID } from '../../stores/analyst-chat-context';
+import { GLOBAL_ANALYST_SESSION_ID as ANALYST_SESSION_ID } from '../../api/contracts';
 import type { WsConnectionState } from '../../types/view-models';
 import { API_AUTH_REQUIRED_EVENT, dismissAuthBannerForSession, isAuthBannerDismissedForSession } from '../../utils/auth-events';
+import { parseAgentDetailRouteParam } from '../../router/agent-session-route';
 
 const runtimeStore = useRuntimeStore();
 const authStore = useAuthStore();
@@ -144,8 +145,8 @@ const mobileActivePane = ref<'workspace' | 'analyst'>('workspace');
 const showShortcutHelp = ref(false);
 const analystActivityDot = computed(() => analystChat.sending);
 const routeAgentId = computed(() => {
-  const id = route.params.id;
-  return Array.isArray(id) ? id[0] : id;
+  const parsed = parseAgentDetailRouteParam(route.params.id);
+  return parsed.kind === 'valid' ? parsed.sessionId : null;
 });
 const suppressAnalystPane = computed(() => route.name === 'agent-detail' && routeAgentId.value === ANALYST_SESSION_ID);
 const effectiveMobileActivePane = computed(() => suppressAnalystPane.value ? 'workspace' : mobileActivePane.value);

@@ -32,10 +32,10 @@ const removedCardsFilterTokens = new RegExp([
 
 function projectCard(): CardRecord {
   return {
-    id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'Project', status: 'running',
+    id: 'project', type: 'project', parent: null, depth: 0, position: 0, children: [], title: 'Project', status: 'running',
     tags: [], priority: 1, urgency: 'normal', created_by: 'user', created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [],
-    display_path: 'Project',
+    logical_path: 'Project',
     operator_summary: {
       lifecycleStatus: 'running', terminal: false, blocked: false, hasError: false, error: null,
       completedAt: null, stale: false, actionCount: 0,
@@ -53,7 +53,7 @@ function card(overrides: Partial<CardRecord>): CardRecord {
     depth: 1,
     title: 'Card',
     status: 'backlog',
-    display_path: null,
+    logical_path: null,
     ...overrides,
     lifecycle: overrides.lifecycle ?? { status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null },
   } as CardRecord;

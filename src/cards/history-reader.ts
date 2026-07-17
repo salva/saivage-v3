@@ -10,7 +10,6 @@ export interface CardDiffEntry {
 
 export interface CardHistoryReaderConfig {
   projectRoot: string;
-  read: (id: string) => CardRecord | null;
 }
 
 function deepClone<T>(value: T): T {
@@ -21,13 +20,11 @@ export class CardHistoryReader {
   constructor(private readonly config: CardHistoryReaderConfig) {}
 
   listCardHistory(id: string): CardHistoryEntry[] {
-    if (!this.config.read(id)) return [];
     const card = readCardArtifacts(this.config.projectRoot, id);
-    return card.artifacts.flatMap((artifact) => artifact.history ? [artifact.history] : []).reverse();
+    return [...card.artifacts.flatMap((artifact) => artifact.history ? [artifact.history] : []), ...(card.tombstone ? [card.tombstone.deletion_history] : [])].reverse();
   }
 
   getCardAt(id: string, versionSeq: number): CardRecord {
-    if (!this.config.read(id)) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
     const artifact = readCardArtifacts(this.config.projectRoot, id).artifacts.find((candidate) => candidate.version === versionSeq);
     if (!artifact) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
     return deepClone(artifact.card);

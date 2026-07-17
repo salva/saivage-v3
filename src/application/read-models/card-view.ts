@@ -2,7 +2,7 @@ import { PROJECT_CARD_ID, type CardService } from '../../cards/card-api.js';
 import { TERMINAL_STATUSES } from '../../permissions/index.js';
 import type { CardOperatorSummary, CardRecord, CardRefView, CardView } from '../../schemas/index.js';
 
-export function computeCardDisplayPath(store: CardService, card: CardRecord): string | null {
+export function computeCardLogicalPath(store: CardService, card: CardRecord): string | null {
   if (card.parent === null || card.id === PROJECT_CARD_ID) return null;
   const segments = [String(siblingDisplayRank(store, card))];
   let parentId: string | null = card.parent;
@@ -50,13 +50,13 @@ export function orderedCardsForTree(store: CardService): CardRecord[] {
 }
 
 export function toCardView(store: CardService, card: CardRecord): CardView {
-  return { ...card, display_path: computeCardDisplayPath(store, card), operator_summary: toCardOperatorSummary(card) };
+  return { ...card, logical_path: computeCardLogicalPath(store, card), operator_summary: toCardOperatorSummary(card) };
 }
 
 export function toCardRefView(store: CardService, id: string): CardRefView {
   const card = store.read(id);
-  if (!card) return { id, display_path: null, title: null, missing: true };
-  return { id, display_path: computeCardDisplayPath(store, card), title: card.title };
+  if (!card) return { id, logical_path: null, title: null, missing: true };
+  return { id, logical_path: computeCardLogicalPath(store, card), title: card.title };
 }
 
 export function toCardOperatorSummary(card: CardRecord): CardOperatorSummary {

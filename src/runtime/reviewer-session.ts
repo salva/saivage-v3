@@ -1,3 +1,5 @@
-export function reviewerSessionId(goalId: string): string {
-  return `reviewer:${goalId}`;
+import { ReviewerConversationSessionIdSchema, type ReviewerConversationSessionId } from '../schemas/index.js';
+
+export function reviewerSessionId(goalId: string): ReviewerConversationSessionId {
+  return ReviewerConversationSessionIdSchema.parse(`reviewer:${goalId}`);
 }

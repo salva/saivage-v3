@@ -37,7 +37,7 @@ describe('autonomous compaction preparation ordering', () => {
 
   it('fails executor preparation before conversation I/O', () => {
     const { projectRoot, store } = project();
-    const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Code', brief: 'Implement', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const card = store.create({ type: 'code', parent: 'project', title: 'Code', brief: 'Implement', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const actor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, store, provider: { completeTurn: jest.fn() as never }, processRunner: createTestProcessRunner(projectRoot), conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, compactionConfig: tooSmall, compactor: testCompactor, summarizerProvider: unusedSummarizerProvider });
     const internal = actor as unknown as { buildLlmInput(input: CardActivationInput, surface: InvocationSurface): unknown };
 

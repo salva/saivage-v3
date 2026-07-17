@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
-import { computeCardDisplayPath } from '../application/read-models/card-view.js';
+import { computeCardLogicalPath } from '../application/read-models/card-view.js';
 import type { CardRecord, CardType } from '../schemas/index.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-definition.js';
 import type { SafeToolData, ToolContext, ToolResult } from './analyst-tool-types.js';
@@ -16,7 +16,7 @@ export function getStore(ctx: ToolContext): CardService {
 }
 
 export function cardSummary(card: CardRecord, store?: CardService) {
-  return { id: card.id, display_path: store ? computeCardDisplayPath(store, card) : null, title: card.title, type: card.type, status: card.status };
+  return { id: card.id, logical_path: store ? computeCardLogicalPath(store, card) : null, title: card.title, type: card.type, status: card.status };
 }
 
 export function normalizeParentValue(value: unknown): string | null | undefined {

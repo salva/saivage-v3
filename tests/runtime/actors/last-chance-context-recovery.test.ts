@@ -4,15 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
+import { CardService } from '../../../src/cards/card-service.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
 import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
-import { agentMessageSchema, type AgentMessage, type OperationalAgentRole } from '../../../src/schemas/index.js';
+import { agentMessageSchema, parseConversationSessionId, type AgentMessage, type OperationalAgentRole, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { CompactionAppendError, CompactionSummaryConstructionError, prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
 import { SummarizerExchangeProjectionError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { appendAnalystIngressBatch } from '../../../src/runtime/actors/conversation-session.js';
+import { initProjectTree } from '../../helpers/canonical-project.js';
 
 const roots: string[] = [];
 const INITIAL_INPUT_ID = '00000000-0000-4000-8000-000000000001';
@@ -22,9 +24,9 @@ describe('ConversationLLMActor last-chance context recovery', () => {
   it.each([
     ['planner', 'planner:project'],
     ['reviewer', 'reviewer:project'],
-    ['executor', 'executor:project'],
+    ['executor', 'executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
     ['analyst', 'analyst:global'],
-  ] as Array<[OperationalAgentRole, string]>)('recovers one %s logical input with one compacted retry and singular persistence', async (role, agentId) => {
+  ] as Array<[OperationalAgentRole, ConversationSessionId]>)('recovers one %s logical input with one compacted retry and singular persistence', async (role, agentId) => {
     const source = message(agentId, 'source', 'user', 'original source');
     const trigger = message(agentId, 'trigger', 'user', 'logical input');
     const firstProjection = { sourceSessionId: agentId, messages: [source, trigger] };
@@ -43,7 +45,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     };
     const compact = jest.fn<CompactorPort['compact']>(async () => { ordering.push('compact'); return compacted(compactedProjection, 17); });
     const { actor, root } = actorHarness(role, agentId, provider, compact);
-    if (role === 'analyst') appendAnalystIngressBatch({ projectRoot: root }, agentId, INITIAL_INPUT_ID, source.content, trigger.content);
+    if (role === 'analyst') appendAnalystIngressBatch({ projectRoot: root }, INITIAL_INPUT_ID, source.content, trigger.content);
     else appendConversationBatch(root, [source, trigger]);
     const initial = input(role, agentId, firstProjection);
 
@@ -233,7 +235,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
   it('fails fatally on a returned compaction source-identity invariant without provider retry or model issue', async () => {
     const agentId = 'planner:project';
     const provider = contextOnlyProvider();
-    const compact = jest.fn<CompactorPort['compact']>(async () => compacted({ sourceSessionId: 'planner:other', messages: [] }, 10));
+    const compact = jest.fn<CompactorPort['compact']>(async () => compacted({ sourceSessionId: 'reviewer:project', messages: [] }, 10));
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { actor, root } = actorHarness('planner', agentId, provider, compact);
 
@@ -293,8 +295,25 @@ describe('ConversationLLMActor last-chance context recovery', () => {
   });
 });
 
-function actorHarness(role: OperationalAgentRole, agentId: string, provider: LLMProviderPort, compact: CompactorPort['compact']) {
+function actorHarness(role: OperationalAgentRole, agentId: ConversationSessionId, provider: LLMProviderPort, compact: CompactorPort['compact']) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-last-chance-'));
+  initProjectTree(root);
+  if (role === 'executor') {
+    const card = new CardService(root, undefined, undefined, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa').create({
+      type: 'code',
+      parent: 'project',
+      title: 'Executor card',
+      brief: 'Execute the test.',
+      status: 'backlog',
+      tags: [],
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+      related: [],
+    });
+    expect(agentId).toBe(`executor:${card.id}`);
+  }
   roots.push(root);
   const actor = new ConversationLLMActor({
     projectRoot: root,
@@ -310,7 +329,7 @@ function actorHarness(role: OperationalAgentRole, agentId: string, provider: LLM
   return { actor, root };
 }
 
-function input(role: OperationalAgentRole, agentId: string, providerConversation: LlmInvocationInput['providerConversation']): PreparedLlmInvocationInput {
+function input(role: OperationalAgentRole, agentId: ConversationSessionId, providerConversation: LlmInvocationInput['providerConversation']): PreparedLlmInvocationInput {
   return {
     inputId: INITIAL_INPUT_ID, agentId, role, sessionId: agentId, systemPrompt: 'system', providerConversation,
     tools: [], terminalToolNames: [], modelParams: {},
@@ -348,11 +367,11 @@ function compacted(providerConversation: LlmInvocationInput['providerConversatio
   return {
     kind: 'compacted' as const,
     providerConversation,
-    compactionMessage: message(providerConversation.sourceSessionId, 'compaction', 'system', '{}'),
+    compactionMessage: message(parseConversationSessionId(providerConversation.sourceSessionId), 'compaction', 'system', '{}'),
     estimatedProviderMessageTokens,
   };
 }
 
-function message(sessionId: string, id: string, role: AgentMessage['role'], content: string): AgentMessage {
+function message(sessionId: ConversationSessionId, id: string, role: AgentMessage['role'], content: string): AgentMessage {
   return agentMessageSchema.parse({ id, session_id: sessionId, role, kind: 'text', content, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' });
 }

@@ -19,11 +19,12 @@ const slotRegistry = Object.freeze({
 
 export const recordVersionArtifactSchema = z
   .object({
-    kind: z.literal('record-version'),
+    kind: z.literal('record-revision'),
     format_version: z.literal(1),
     card_id: cardIdSchema,
     slot: authoredRecordSlotSchema,
     version: z.number().int().safe().positive(),
+    revision_seq: z.number().int().safe().positive(),
     state: recordStateSchema,
     opened_at: z.string().datetime(),
     committed_at: nullableTimestampSchema,
@@ -86,11 +87,30 @@ function parseWithPath<T>(schema: z.ZodType<T>, raw: unknown, path: string, kind
 export function parseRecordVersionArtifact(
   raw: unknown,
   path: string,
-  expected?: { cardId: string; slot: AuthoredRecordSlot; version: number },
+  expected?: { cardId: string; slot: AuthoredRecordSlot; version?: number },
 ): RecordVersionArtifact {
   const artifact = parseWithPath(recordVersionArtifactSchema, raw, path, 'Record version artifact');
-  if (expected && (artifact.card_id !== expected.cardId || artifact.slot !== expected.slot || artifact.version !== expected.version)) {
+  if (expected && (artifact.card_id !== expected.cardId || artifact.slot !== expected.slot || (expected.version !== undefined && artifact.version !== expected.version))) {
     throw new Error(`Record version artifact at '${path}' does not match its card, slot, and version path.`);
   }
   return artifact;
+}
+
+export function validateRecordStream(rows: readonly RecordVersionArtifact[], path: string, cardId: string, slot: AuthoredRecordSlot): RecordVersionArtifact[] {
+  if (rows.length === 0) throw new Error(`Record stream '${path}' is empty.`);
+  for (const [index, row] of rows.entries()) {
+    parseRecordVersionArtifact(row, path, { cardId, slot });
+    if (row.revision_seq !== index + 1) throw new Error(`Record stream '${path}' has a revision sequence gap.`);
+    const prior = rows[index - 1];
+    if (!prior) {
+      if (row.version !== 1 || (slot === 'brief' ? row.state !== 'closed' : row.state !== 'open')) throw new Error(`Record stream '${path}' has an invalid first revision.`);
+      continue;
+    }
+    if (prior.state === 'open') {
+      if (row.version !== prior.version || row.opened_at !== prior.opened_at || row.format !== prior.format || row.schema !== prior.schema) throw new Error(`Record stream '${path}' has an invalid open revision.`);
+      if (row.state === 'open' && row.content === prior.content) throw new Error(`Record stream '${path}' edit revision must change content.`);
+      if (row.state !== 'open' && row.content !== prior.content) throw new Error(`Record stream '${path}' terminal revision must preserve open content.`);
+    } else if (row.version !== prior.version + 1 || row.state !== 'open') throw new Error(`Record stream '${path}' has an invalid logical-version transition.`);
+  }
+  return [...rows];
 }

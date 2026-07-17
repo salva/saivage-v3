@@ -54,7 +54,8 @@ import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 
-const props = defineProps<{ sessionId: string; kind: 'conversation' | 'llmExchange' }>();
+import type { ConversationSessionId } from '../../api/contracts';
+const props = defineProps<{ sessionId: ConversationSessionId; kind: 'conversation' | 'llmExchange' }>();
 const agentStore = useAgentStore();
 const liveSyncStore = useLiveSyncStore();
 const {

@@ -18,12 +18,6 @@ export const AUTHZ_RULES: AuthzRule[] = [
   { actor: 'user', surface: 'web-chat', safety_class: 'destructive', verdict: 'allow' },
   { actor: 'user', surface: 'web-chat', safety_class: 'deployment', verdict: 'allow' },
 
-  { actor: 'user', surface: 'telegram', safety_class: 'read_only', verdict: 'allow' },
-  { actor: 'user', surface: 'telegram', safety_class: 'low', verdict: 'allow' },
-  { actor: 'user', surface: 'telegram', safety_class: 'high', verdict: 'allow' },
-  { actor: 'user', surface: 'telegram', safety_class: 'destructive', verdict: 'allow' },
-  { actor: 'user', surface: 'telegram', safety_class: 'deployment', verdict: 'deny' },
-
   { actor: 'user', surface: 'rest', safety_class: 'read_only', verdict: 'allow' },
   { actor: 'user', surface: 'rest', safety_class: 'low', verdict: 'allow' },
   { actor: 'user', surface: 'rest', safety_class: 'high', verdict: 'allow' },
@@ -41,12 +35,6 @@ export const AUTHZ_RULES: AuthzRule[] = [
   { actor: 'analyst', surface: 'web-chat', safety_class: 'high', verdict: 'allow' },
   { actor: 'analyst', surface: 'web-chat', safety_class: 'destructive', verdict: 'allow' },
   { actor: 'analyst', surface: 'web-chat', safety_class: 'deployment', verdict: 'deny' },
-
-  { actor: 'analyst', surface: 'telegram', safety_class: 'read_only', verdict: 'allow' },
-  { actor: 'analyst', surface: 'telegram', safety_class: 'low', verdict: 'allow' },
-  { actor: 'analyst', surface: 'telegram', safety_class: 'high', verdict: 'allow' },
-  { actor: 'analyst', surface: 'telegram', safety_class: 'destructive', verdict: 'deny' },
-  { actor: 'analyst', surface: 'telegram', safety_class: 'deployment', verdict: 'deny' },
 
   { actor: 'analyst', surface: 'rest', safety_class: 'read_only', verdict: 'allow' },
   { actor: 'analyst', surface: 'rest', safety_class: 'low', verdict: 'allow' },

@@ -15,7 +15,7 @@ const activePairs = activePromptPairs;
 
 function variables(role: AgentRoleKey, overrides: PromptTemplateVariables = {}): PromptTemplateVariables {
   const common = {
-    cardId: '11111111-1111-4111-8111-111111111111',
+    cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     cardTitle: 'Implement a feature',
     cardBrief: 'Brief text',
     contractDescription: 'Contract text',
@@ -99,8 +99,8 @@ describe('PromptTemplateRegistry', () => {
     try {
       writePrompt(overrideRoot, 'goal', 'planner', 'override {{cardId}}');
       const registry = createPromptTemplateRegistry({ defaultRoot, overrideRoot });
-      expect(registry.render('goal', 'planner', variables('planner'))).toBe('override 11111111-1111-4111-8111-111111111111');
-      expect(registry.render('project', 'planner', variables('planner'))).toContain('project planner 11111111-1111-4111-8111-111111111111');
+      expect(registry.render('goal', 'planner', variables('planner'))).toBe('override card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+      expect(registry.render('project', 'planner', variables('planner'))).toContain('project planner card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     } finally {
       rmSync(defaultRoot, { recursive: true, force: true });
       rmSync(overrideRoot, { recursive: true, force: true });
@@ -144,7 +144,7 @@ describe('PromptTemplateRegistry', () => {
     try {
       const registry = createPromptTemplateRegistry({ defaultRoot });
       expect(registry.render('goal', 'planner', variables('planner', { cardBrief: 'literal {{unknownKey}} and }}' }))).toBe('brief: literal {{unknownKey}} and }}');
-      expect(() => registry.render('goal', 'planner', { cardId: '11111111-1111-4111-8111-111111111111' })).toThrow(PromptTemplateRenderError);
+      expect(() => registry.render('goal', 'planner', { cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' })).toThrow(PromptTemplateRenderError);
     } finally {
       rmSync(defaultRoot, { recursive: true, force: true });
     }

@@ -12,13 +12,14 @@ import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAppLogs } from '../helpers/app-logs.js';
+import { parseConversationSessionId } from '../../src/schemas/index.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 
 const roots: string[] = [];
-const CARD = '11111111-1111-4111-8111-111111111111';
+const CARD = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
@@ -47,10 +48,10 @@ describe('planner/executor notification crash prefixes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), `saivage-${role}-notification-prefix-`));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const cards = new CardService(projectRoot, undefined, undefined, () => CARD);
+    const cards = new CardService(projectRoot, undefined, undefined, () => CARD.slice('card-'.length));
     const card = role === 'planner'
       ? cards.read('project')!
-      : cards.create({ type: 'code', parent: 'project', depth: 1, title: 'Code', brief: 'Implement.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+      : cards.create({ type: 'code', parent: 'project', title: 'Code', brief: 'Implement.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     if (role === 'executor') cards.setStatus(card.id, 'running');
 
     let releaseTerminal!: () => void;
@@ -97,7 +98,7 @@ describe('planner/executor notification crash prefixes', () => {
     if (prefix === 'after_exact_removal') gate.requestPause(() => undefined);
     releaseTerminal();
     await waitUntil(() => continuationSelection);
-    const sessionId = `${role}:${card.id}`;
+    const sessionId = parseConversationSessionId(`${role}:${card.id}`);
     await waitUntil(() => readConversation(projectRoot, sessionId).physicalRows.some((row) => row.tool_call_id === 'emit-stale' && row.kind === 'tool_result'));
     if (prefix === 'after_exact_removal') await waitUntil(() => cards.read(card.id)!.pending_notifications.length === 0);
     else await activation.catch(() => undefined);

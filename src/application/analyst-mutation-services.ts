@@ -136,32 +136,16 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
     const permission = decide({ role: 'analyst', action: 'card.create', targetState: parentCard.status });
     if (!permission.allowed) return failure(`create_card denied for parent '${parentCard.id}' in status '${parentCard.status}' (${permission.reason}).`, { parent: parentCard.id, status: parentCard.status });
     if (input.status !== undefined && input.status !== 'backlog') return failure('Analyst create_card can only create backlog child cards. Card creation does not dispatch work or set lifecycle state.', { status: input.status });
-    const card = this.store.create({ type: input.type, parent, depth: 0, title: input.title, brief: input.brief, status: input.status ?? 'backlog', tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: 'analyst', depends_on: input.depends_on ?? [], related: input.related ?? [] });
+    const card = this.store.create({ type: input.type, parent, title: input.title, brief: input.brief, status: input.status ?? 'backlog', tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: 'analyst', depends_on: input.depends_on ?? [], related: input.related ?? [] });
     try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch { /* notification is best effort */ }
     return { success: true, data: toCardView(this.store, card) };
   }
 
   delete(ids: readonly string[]): ToolResult {
-    const deletedTopLevel: string[] = [];
-    const deletedAll: string[] = [];
-    const failures: Array<{ id: string; reason: string }> = [];
-    for (const targetId of ids) {
-      const card = this.store.read(targetId);
-      if (!card) { failures.push({ id: targetId, reason: `Card '${targetId}' not found.` }); continue; }
-      if (card.id === PROJECT_CARD_ID) { failures.push({ id: targetId, reason: 'delete_card cannot delete the root project card.' }); continue; }
-      const cards = subtree(this.store, targetId).sort((a, b) => b.depth - a.depth);
-      if (cards.some((candidate) => !decide({ role: 'analyst', action: 'card.delete', targetState: candidate.status }).allowed)) {
-        failures.push({ id: targetId, reason: 'delete_card denied by permission matrix' });
-        continue;
-      }
-      this.store.archiveAndDeleteSubtree(cards.map((candidate) => candidate.id));
-      deletedAll.push(...cards.map((candidate) => candidate.id));
-      if (card.parent) try { propagateChange(this.store, card.parent, { kind: 'analyst_edit', summary: `analyst deleted card subtree ${targetId}` }, this.notifyCard); } catch { /* notification is best effort */ }
-      deletedTopLevel.push(targetId);
-    }
-    if (deletedTopLevel.length > 0 && failures.length > 0) return { success: true, data: { partial: true, total: ids.length, succeeded: deletedTopLevel.length, failures } };
-    if (failures.length > 0) return failure(failures.map((entry) => `${entry.id}: ${entry.reason}`).join('; '), { failures });
-    return { success: true, data: { deleted: deletedAll, top_level_deleted: deletedTopLevel } };
+    try {
+      const result = this.store.deleteSubtrees(ids, { actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' }, (card) => decide({ role: 'analyst', action: 'card.delete', targetState: card.status }).allowed);
+      return { success: true, data: { deleted: result.deleted, top_level_deleted: result.requested } };
+    } catch (error) { return failure((error as Error).message); }
   }
 
   async cancel(cardId: string, reason?: string): Promise<ToolResult> {

@@ -42,7 +42,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', depth: 1, title: 'Child', brief: 'Execute', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Execute', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(child.id, 'running');
     const inputs: LlmInvocationInput[] = [];
@@ -92,8 +92,8 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const active = cards.create({ type: 'code', parent: 'project', depth: 1, title: 'Active', brief: 'Execute', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const done = cards.create({ type: 'test', parent: 'project', depth: 1, title: 'Done', brief: 'Done', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const active = cards.create({ type: 'code', parent: 'project', title: 'Active', brief: 'Execute', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const done = cards.create({ type: 'test', parent: 'project', title: 'Done', brief: 'Done', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(done.id, 'running');
     cards.commitTerminalLifecyclePatch(done.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'kept' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' } });
     cards.setStatus('project', 'running');

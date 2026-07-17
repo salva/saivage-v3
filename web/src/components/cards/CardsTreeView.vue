@@ -25,7 +25,7 @@
           <span v-else class="node-toggle placeholder"></span>
 
           <span class="state-ball" :class="`card-status-${node.card.status}`" aria-hidden="true"></span>
-          <span v-if="node.card.display_path" class="node-path">{{ node.card.display_path }}</span>
+          <span v-if="node.card.logical_path" class="node-path">{{ node.card.logical_path }}</span>
           <span class="node-title">{{ node.card.title }}</span>
           <span class="node-kind">{{ labelForCardType(node.card.type) }}</span>
         </SelectableRow>
@@ -37,12 +37,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { CardRecord } from '../../types/view-models';
+import type { CardTreeNode } from '../../stores/cards';
 import { labelForCardType } from '../../utils/status';
 import SelectableRow from '../ui/SelectableRow.vue';
 
 const props = defineProps<{
   cards: CardRecord[];
-  tree: CardRecord[];
+  tree: CardTreeNode[];
   expandedIds: Set<string>;
   selectedCardId: string | null;
 }>();
@@ -88,23 +89,14 @@ function toggleLabel(node: TreeNode): string {
 
 const renderedTree = computed<TreeNode[]>(() => {
   const flat: TreeNode[] = [];
-  const childrenMap = new Map<string, CardRecord[]>();
-
-  for (const card of props.cards) {
-    if (card.parent) {
-      const existing = childrenMap.get(card.parent) || [];
-      existing.push(card);
-      childrenMap.set(card.parent, existing);
-    }
-  }
-  function walk(nodes: CardRecord[], depth: number): void {
-    for (const card of nodes) {
-      const children = childrenMap.get(card.id) || [];
-      const hasChildren = children.length > 0;
+  function walk(nodes: CardTreeNode[], depth: number): void {
+    for (const node of nodes) {
+      const { card, childNodes } = node;
+      const hasChildren = childNodes.length > 0;
       flat.push({ card, depth, hasChildren });
 
       if (hasChildren && isEffectivelyExpanded(card.id)) {
-        walk(children, depth + 1);
+        walk(childNodes, depth + 1);
       }
     }
   }

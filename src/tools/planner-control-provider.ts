@@ -90,7 +90,6 @@ function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof c
   const input: NewCardInput = {
     type: type.type,
     parent: ctx.parentCardId,
-    depth: parent.depth + 1,
     title: requireNonEmptyString(record.title, 'title'),
     brief: requireNonEmptyString(record.brief, 'brief'),
     status: 'backlog',

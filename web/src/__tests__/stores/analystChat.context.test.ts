@@ -34,7 +34,7 @@ describe('analyst chat workspace context', () => {
     });
   });
 
-  it('sends a third API arg mirroring the workspace route snapshot', async () => {
+  it('sends workspace context beside content without an Analyst identity argument', async () => {
     const workspaceRoute = useWorkspaceRouteStore();
     workspaceRoute.view = 'cards';
     workspaceRoute.entityId = '11111111-1111-4111-8111-111111111111';
@@ -43,7 +43,7 @@ describe('analyst chat workspace context', () => {
     chat.activeSessionId = 'analyst:global';
     chat.setDraft('what is this?');
     await chat.sendMessage();
-    expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('analyst:global', 'what is this?', { view: 'cards', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' } });
+    expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('what is this?', { view: 'cards', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' } });
   });
 
   it('sends the deterministic null workspace context at the default route state', async () => {
@@ -51,7 +51,7 @@ describe('analyst chat workspace context', () => {
     chat.activeSessionId = 'analyst:global';
     chat.setDraft('hello');
     await chat.sendMessage();
-    expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('analyst:global', 'hello', { view: null, entityId: null, refinement: null });
+    expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('hello', { view: null, entityId: null, refinement: null });
   });
 
   it('dispatches a successful navigate_workspace invocation with the full data payload', async () => {

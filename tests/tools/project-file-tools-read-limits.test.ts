@@ -13,7 +13,7 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function ctx(projectRoot: string) {
-  return { projectRoot, cardId: '11111111-1111-4111-8111-111111111111', agentRole: 'executor' as const };
+  return { projectRoot, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentRole: 'executor' as const };
 }
 
 describe('project file tool read limits', () => {
@@ -67,17 +67,17 @@ describe('project file tool read limits', () => {
   }));
 
   it('matches tmp directory metadata count to normal listing', async () => withTempProject(async (projectRoot) => {
-    const tmpDir = join(projectRoot, '.saivage/work', 'cards', '11111111-1111-4111-8111-111111111111', 'tmp', 'folder');
+    const tmpDir = join(projectRoot, '.saivage/work', 'cards', 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'tmp', 'folder');
     mkdirSync(tmpDir, { recursive: true });
     writeFileSync(join(tmpDir, 'a.txt'), 'a', 'utf8');
     writeFileSync(join(tmpDir, 'b.txt'), 'b', 'utf8');
 
-    const listing = await readProject(ctx(projectRoot), { path: 'tmp:///11111111-1111-4111-8111-111111111111/folder' }) as { entries: Array<{ name: string }>; total_entries: number };
-    const metadata = await readProject(ctx(projectRoot), { path: 'tmp:///11111111-1111-4111-8111-111111111111/folder', metadata_only: true });
+    const listing = await readProject(ctx(projectRoot), { path: 'tmp:///card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/folder' }) as { entries: Array<{ name: string }>; total_entries: number };
+    const metadata = await readProject(ctx(projectRoot), { path: 'tmp:///card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/folder', metadata_only: true });
 
     expect(listing.total_entries).toBe(2);
     expect(listing.entries.map((entry) => entry.name)).toEqual(['a.txt', 'b.txt']);
-    expect(metadata).toEqual({ path: '.saivage/work/cards/11111111-1111-4111-8111-111111111111/tmp/folder', metadata_only: true, is_directory: true, size: expect.any(Number), mtime: expect.any(String), entries_count: listing.total_entries });
+    expect(metadata).toEqual({ path: '.saivage/work/cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/tmp/folder', metadata_only: true, is_directory: true, size: expect.any(Number), mtime: expect.any(String), entries_count: listing.total_entries });
   }));
 
   it('returns metadata for a file larger than the inline read limit', async () => withTempProject(async (projectRoot) => {

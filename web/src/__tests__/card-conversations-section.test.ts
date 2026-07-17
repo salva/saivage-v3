@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentSession } from '../api/types';
 import CardConversationsSection from '../components/cards/CardConversationsSection.vue';
 import { useAgentStore } from '../stores/agents';
+import type { ExecutorConversationSessionId } from '@saivage/schemas';
 
 const api = vi.hoisted(() => ({ listAgentSessions: vi.fn() }));
 
@@ -18,7 +19,7 @@ vi.mock('../api/client', () => ({
   },
 }));
 
-function session(id: string, cardId: string): AgentSession {
+function session(id: ExecutorConversationSessionId, cardId: string): AgentSession {
   return {
     id,
     role: 'executor',
@@ -40,7 +41,7 @@ describe('CardConversationsSection canonical list consumption', () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useAgentStore();
-    store.sessions = [session('session-a', 'card-a'), session('session-b', 'card-b')];
+    store.sessions = [session('executor:project', 'card-a'), session('executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'card-b')];
     store.sessionsLoaded = true;
     const router = createRouter({
       history: createMemoryHistory(),
@@ -57,19 +58,19 @@ describe('CardConversationsSection canonical list consumption', () => {
     await flushPromises();
 
     expect(api.listAgentSessions).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain('session-a');
-    expect(wrapper.text()).not.toContain('session-b');
+    expect(wrapper.text()).toContain('executor:project');
+    expect(wrapper.text()).not.toContain('executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 
     await wrapper.setProps({ cardId: 'card-b' });
     expect(api.listAgentSessions).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain('session-b');
-    expect(wrapper.text()).not.toContain('session-a');
+    expect(wrapper.text()).toContain('executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(wrapper.text()).not.toContain('executor:project');
 
     api.listAgentSessions.mockRejectedValueOnce(new Error('refresh failed'));
     await wrapper.get('.conv-refresh').trigger('click');
     await flushPromises();
     expect(api.listAgentSessions).toHaveBeenCalledTimes(1);
-    expect(wrapper.text()).toContain('session-b');
+    expect(wrapper.text()).toContain('executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     expect(wrapper.text()).toContain('Failed to fetch agent sessions');
   });
 });

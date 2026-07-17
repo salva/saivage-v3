@@ -10,7 +10,7 @@ const userRound = 'r-user-00000000000000000000000000000003';
 function textEntry(id: string, round_id = assistantRound): AgentConversationEntry {
   return {
     id,
-    session_id: 's1',
+    session_id: 'analyst:global',
     role: round_id.startsWith('r-user-') ? 'user' : 'assistant',
     kind: 'text',
     content: `message ${id}`,

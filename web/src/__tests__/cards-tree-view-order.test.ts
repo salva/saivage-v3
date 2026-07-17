@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import type { CardRecord } from '../api/types';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
+import { buildTree } from '../stores/cards';
 
 function card(overrides: Partial<CardRecord>): CardRecord {
   const lifecycle = overrides.lifecycle ?? { status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle'];
-  return { id: '11111111-1111-4111-8111-111111111111', type: 'code', parent: null, depth: 0, position: 0, title: 'Card', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [], ...overrides, display_path: overrides.display_path ?? null, lifecycle, operator_summary: overrides.operator_summary ?? { lifecycleStatus: lifecycle.status, terminal: false, blocked: lifecycle.status === 'blocked', hasError: Boolean(lifecycle.error), error: lifecycle.error ?? null, completedAt: lifecycle.completed_at ?? null, stale: lifecycle.status === 'changed', actionCount: 0 } };
+  return { id: 'project', type: 'code', parent: null, depth: 0, position: 0, children: [], title: 'Card', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [], ...overrides, logical_path: overrides.logical_path ?? null, lifecycle, operator_summary: overrides.operator_summary ?? { lifecycleStatus: lifecycle.status, terminal: false, blocked: lifecycle.status === 'blocked', hasError: Boolean(lifecycle.error), error: lifecycle.error ?? null, completedAt: lifecycle.completed_at ?? null, stale: lifecycle.status === 'changed', actionCount: 0 } };
 }
 
 describe('CardsTreeView', () => {
@@ -14,7 +15,7 @@ describe('CardsTreeView', () => {
     const low = card({ id: '11111111-1111-4111-8111-111111111111', parent: 'project', title: 'Zulu low', priority: 1 });
     const high = card({ id: '22222222-2222-4222-8222-222222222222', parent: 'project', title: 'Alpha high', priority: 99 });
     const mid = card({ id: '33333333-3333-4333-8333-333333333333', parent: 'project', title: 'Middle', priority: 50 });
-    const wrapper = mount(CardsTreeView, { props: { cards: [root, low, high, mid], tree: [root], expandedIds: new Set(['project']), selectedCardId: null } });
+    const wrapper = mount(CardsTreeView, { props: { cards: [root, low, high, mid], tree: buildTree([root, low, high, mid]), expandedIds: new Set(['project']), selectedCardId: null } });
 
     expect(wrapper.findAll('.node-title').map((node) => node.text())).toEqual(['Project', 'Zulu low', 'Alpha high', 'Middle']);
   });
@@ -24,7 +25,7 @@ describe('CardsTreeView', () => {
     const goal = card({ id: '11111111-1111-4111-8111-111111111111', parent: 'project', type: 'goal', title: 'Goal' });
     const leaf = card({ id: '22222222-2222-4222-8222-222222222222', parent: goal.id, title: 'Selected leaf', status: 'blocked' });
     const wrapper = mount(CardsTreeView, {
-      props: { cards: [root, goal, leaf], tree: [root], expandedIds: new Set<string>(), selectedCardId: leaf.id },
+      props: { cards: [root, goal, leaf], tree: buildTree([root, goal, leaf]), expandedIds: new Set<string>(), selectedCardId: leaf.id },
     });
 
     expect(wrapper.findAll('.node-title').map((node) => node.text())).toEqual(['Project', 'Goal', 'Selected leaf']);
@@ -51,7 +52,7 @@ describe('CardsTreeView', () => {
     const root = card({ id: 'project', type: 'project', title: 'Project' });
     const leaf = card({ id: '11111111-1111-4111-8111-111111111111', parent: 'project', title: 'Leaf' });
     const wrapper = mount(CardsTreeView, {
-      props: { cards: [root, leaf], tree: [root], expandedIds: new Set(['project']), selectedCardId: leaf.id },
+      props: { cards: [root, leaf], tree: buildTree([root, leaf]), expandedIds: new Set(['project']), selectedCardId: leaf.id },
     });
 
     const toggle = wrapper.find('button.node-toggle');

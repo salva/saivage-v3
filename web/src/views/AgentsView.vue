@@ -1,7 +1,7 @@
 <template>
   <div data-testid="route-agents">
     <EntityInspectorShell
-      :selected="!!selectedSessionId"
+      :selected="routeSession.kind !== 'none'"
       list-label="Agent sessions"
       detail-label="Agent conversation"
       empty-title="Select an agent session to inspect"
@@ -53,7 +53,8 @@
       </template>
 
       <template #detail>
-        <AgentConversationView v-if="selectedSessionId" :key="selectedSessionId" :session-id="selectedSessionId" />
+        <ViewState v-if="routeSession.kind === 'invalid'" state="error" title="Invalid agent session" message="The route does not contain a canonical agent session identity." />
+        <AgentConversationView v-else-if="selectedSessionId" :key="selectedSessionId" :session-id="selectedSessionId" />
       </template>
     </EntityInspectorShell>
   </div>
@@ -66,6 +67,8 @@ import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../stores/agents';
 import { useCardStore } from '../stores/cards';
 import type { AgentRole, AgentSession } from '../types/view-models';
+import type { ConversationSessionId } from '../api/contracts';
+import { parseAgentDetailRouteParam } from '../router/agent-session-route';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { statusForAgentSession } from '../utils/status';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
@@ -82,7 +85,8 @@ const cardStore = useCardStore();
 const { sessionsByRole, sessionsLoading, sessionsError, sessionsRefreshError, sessionsUnauthorized, isStale } = storeToRefs(agentStore);
 const errorMsg = computed(() => sessionsError.value);
 
-const selectedSessionId = computed(() => typeof route.params.id === 'string' ? route.params.id : null);
+const routeSession = computed(() => parseAgentDetailRouteParam(route.params.id));
+const selectedSessionId = computed(() => routeSession.value.kind === 'valid' ? routeSession.value.sessionId : null);
 
 interface RoleEntry { role: AgentRole; sessions: AgentSession[] }
 const roleEntries = computed<RoleEntry[]>(() => {
@@ -100,7 +104,7 @@ const ROLE_ICONS: Record<string, string> = {
 function roleIcon(role: AgentRole): string { return ROLE_ICONS[role] || '(?)'; }
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 
-function selectSession(id: string): void { void router.push({ name: 'agent-detail', params: { id } }); }
+function selectSession(id: ConversationSessionId): void { void router.push({ name: 'agent-detail', params: { id } }); }
 function backToAgents(): void { void router.push({ name: 'agents' }); }
 function goToCard(id: string): void { void router.push({ name: 'card-detail', params: { id } }); }
 function cardTitle(id: string | null | undefined): string {

@@ -1,19 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { agentMessageSchema } from '../../schemas/index.js';
-import type { AgentMessage, MessageRole } from '../../schemas/index.js';
+import { GLOBAL_ANALYST_SESSION_ID, type AgentMessage, type MessageRole, type ConversationSessionId } from '../../schemas/index.js';
 import type { ValidatedConversation } from '../../contracts/conversation-compaction.js';
 import type { ProviderConversationProjection } from '../../agents/llm-contracts.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
 import { appendConversationBatch, listConversationSessionIds as listDirectConversationSessionIds, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 
-export { conversationDir } from './conversation-inventory.js';
-
-export function readConversationMessages(projectRoot: string, sessionId: string): ValidatedConversation {
+export function readConversationMessages(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation {
   return readConversation(projectRoot, sessionId);
 }
 
-export function listConversationSessionIds(projectRoot: string): string[] {
+export function listConversationSessionIds(projectRoot: string): ConversationSessionId[] {
   return listDirectConversationSessionIds(projectRoot);
 }
 
@@ -23,7 +21,7 @@ export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content
 
 export function appendUserContextMessage(
   conversations: ConversationFileContext,
-  sessionId: string,
+  sessionId: ConversationSessionId,
   inputId: string,
   category: UserContextMessageCategory,
   ordinal: number,
@@ -47,7 +45,7 @@ export function appendUserContextMessage(
   return message;
 }
 
-export function appendActivationMarker(conversations: ConversationFileContext, sessionId: string, payload: { event: 'activation_open'; role: 'planner' | 'reviewer' | 'executor'; card_id: string; input_id: string }): AgentMessage {
+export function appendActivationMarker(conversations: ConversationFileContext, sessionId: ConversationSessionId, payload: { event: 'activation_open'; role: 'planner' | 'reviewer' | 'executor'; card_id: string; input_id: string }): AgentMessage {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
   const message = agentMessageSchema.parse({
@@ -67,14 +65,13 @@ export function appendActivationMarker(conversations: ConversationFileContext, s
 
 export function appendAnalystIngressBatch(
   conversations: ConversationFileContext,
-  sessionId: string,
   inputId: string,
   workspaceContent: string,
   userContent: string,
 ): readonly [AgentMessage, AgentMessage, AgentMessage] {
-  const marker = buildAnalystActivationMarker(sessionId, inputId);
-  const workspace = buildContextTextMessage(sessionId, 'system', workspaceContent);
-  const user = buildContextTextMessage(sessionId, 'user', userContent);
+  const marker = buildAnalystActivationMarker(inputId);
+  const workspace = buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'system', workspaceContent);
+  const user = buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent);
   const rows = [marker, workspace, user] as const;
   appendConversationBatch(conversations.projectRoot, rows, conversations.changes);
   return rows;
@@ -82,17 +79,16 @@ export function appendAnalystIngressBatch(
 
 export function appendAnalystRestartBatch(
   conversations: ConversationFileContext,
-  sessionId: string,
   inputId: string,
   userContent: string,
 ): readonly [AgentMessage, AgentMessage] {
-  const rows = [buildAnalystActivationMarker(sessionId, inputId), buildContextTextMessage(sessionId, 'user', userContent)] as const;
+  const rows = [buildAnalystActivationMarker(inputId), buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent)] as const;
   appendConversationBatch(conversations.projectRoot, rows, conversations.changes);
   return rows;
 }
 
-function buildAnalystActivationMarker(sessionId: string, inputId: string): AgentMessage {
-  if (!sessionId.startsWith('analyst:')) throw new Error(`Analyst activation marker requires an analyst source session, received '${sessionId}'.`);
+function buildAnalystActivationMarker(inputId: string): AgentMessage {
+  const sessionId = GLOBAL_ANALYST_SESSION_ID;
   const timestamp = new Date().toISOString();
   return agentMessageSchema.parse({
     id: `${sessionId}:activation:${randomUUID()}`,
@@ -107,7 +103,7 @@ function buildAnalystActivationMarker(sessionId: string, inputId: string): Agent
   });
 }
 
-export function appendRecoveryNotice(conversations: ConversationFileContext, sessionId: string, inputId: string): AgentMessage {
+export function appendRecoveryNotice(conversations: ConversationFileContext, sessionId: ConversationSessionId, inputId: string): AgentMessage {
   const message = agentMessageSchema.parse({
     id: `${inputId}:model-recovered`,
     session_id: sessionId,
@@ -123,7 +119,7 @@ export function appendRecoveryNotice(conversations: ConversationFileContext, ses
   return message;
 }
 
-export function buildContextTextMessage(sessionId: string, role: Extract<MessageRole, 'user' | 'system'>, content: string): AgentMessage {
+export function buildContextTextMessage(sessionId: ConversationSessionId, role: Extract<MessageRole, 'user' | 'system'>, content: string): AgentMessage {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${role}:${timestamp}:${content}`;
   return agentMessageSchema.parse({
@@ -139,7 +135,7 @@ export function buildContextTextMessage(sessionId: string, role: Extract<Message
   });
 }
 
-export function appendCanonicalUserText(conversations: ConversationFileContext, sessionId: string, content: string): AgentMessage {
+export function appendCanonicalUserText(conversations: ConversationFileContext, sessionId: ConversationSessionId, content: string): AgentMessage {
   const message = buildContextTextMessage(sessionId, 'user', content);
   appendConversationBatch(conversations.projectRoot, [message], conversations.changes);
   return message;

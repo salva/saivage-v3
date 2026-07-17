@@ -65,10 +65,10 @@ describe('runtime compaction composition', () => {
     expect(app.analystDeps.compactor).toEqual({ shouldCompact: expect.any(Function), compact: expect.any(Function) });
     expect(deps).not.toHaveProperty('config');
     expect(deps).not.toHaveProperty('summarizer_candidate');
-    await app.analystRuntime.submit('global', { userContent: 'route through the ordinary analyst role' });
+    await app.analystRuntime.submit({ userContent: 'route through the ordinary analyst role' });
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ role: 'analyst', sessionId: 'analyst:global', preparedCompaction: expect.any(Object) }));
     expect(invoke.mock.calls[0]![0]).not.toHaveProperty('candidateChain');
-    const input: LlmInvocationInput = { inputId: 'id', agentId: 'llm:compaction-summarizer', role: 'analyst', sessionId: 'summary:test', systemPrompt: 'summarize', providerConversation: { sourceSessionId: 'summary:test', messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 2000 }, capabilityRequest: {}, episodeContext: { compaction: true } };
+    const input: LlmInvocationInput = { inputId: 'id', agentId: 'llm:compaction-summarizer', role: 'analyst', sessionId: 'summary:test', systemPrompt: 'summarize', providerConversation: { sourceSessionId: null, messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 2000 }, capabilityRequest: {}, episodeContext: { compaction: true } };
     await deps.summarizerProvider.completeTurn(input, new AbortController().signal);
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ candidateChain: [{ provider: 'test', account: null, model: 'org/summary/model' }] }));
     deps.summarizerProvider.projectProviderExchanges('summary:test', 'id', [], []);

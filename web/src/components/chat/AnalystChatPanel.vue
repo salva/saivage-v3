@@ -77,7 +77,7 @@ import { useCardStore } from '../../stores/cards';
 import { selectChildrenOf } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { useLiveSyncStore } from '../../stores/liveSync';
-import { ANALYST_SESSION_ID } from '../../stores/analyst-chat-context';
+import { GLOBAL_ANALYST_SESSION_ID as ANALYST_SESSION_ID } from '../../api/contracts';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 
@@ -154,7 +154,7 @@ onMounted(() => {
   chat.fetchSessions()
     .then(() => {
       closeAnalystConversation = liveSync.openConversation(ANALYST_SESSION_ID, async () => {
-        await chat.fetchMessages(ANALYST_SESSION_ID);
+        await chat.fetchMessages();
         await nextTick();
         timelineControls.scrollToLatest();
       });

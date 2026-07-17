@@ -20,4 +20,25 @@ describe('LiveSyncSocket conversation leases', () => {
       t: 'invalidate', resource: 'conversation', id: 'planner:project',
     });
   });
+
+  it.each(['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'])('retains no invalid subscription and sends no acknowledgement for %s', (id) => {
+    const live = new LiveSyncSocket();
+    const ws = socket();
+    live.add(ws);
+    expect(live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id, lease: 'bad' })).toBe(false);
+    expect(ws.send).not.toHaveBeenCalled();
+    live.invalidate({ resource: 'conversation', id } as never);
+    expect(ws.send).not.toHaveBeenCalled();
+  });
+
+  it.each(['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'])('invalid unsubscribe %s cannot remove a valid lease', (id) => {
+    const live = new LiveSyncSocket();
+    const ws = socket();
+    live.add(ws);
+    live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'planner:project', lease: 'valid' });
+    jest.mocked(ws.send).mockClear();
+    expect(live.handleClientFrame(ws, { t: 'unsubscribe', resource: 'conversation', id, lease: 'valid' })).toBe(false);
+    live.invalidate({ resource: 'conversation', id: 'planner:project' });
+    expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'planner:project' }]);
+  });
 });

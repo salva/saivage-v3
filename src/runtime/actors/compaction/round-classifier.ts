@@ -1,4 +1,4 @@
-import type { AgentMessage } from '../../../schemas/index.js';
+import type { AgentMessage, ConversationSessionId } from '../../../schemas/index.js';
 import { classifyConversationSourceRows, classifySourceSegments } from '../../../contracts/conversation-source-classification.js';
 import { isConversationBudgetVisible } from '../conversation-session.js';
 
@@ -29,7 +29,7 @@ export type ClassifiedConversation = {
   rounds: ClassifiedRound[];
 };
 
-export function classifyConversationRounds(sourceSessionId: string, messages: AgentMessage[]): ClassifiedConversation {
+export function classifyConversationRounds(sourceSessionId: ConversationSessionId, messages: AgentMessage[]): ClassifiedConversation {
   const sourceRows = messages.filter((message) => message.kind !== 'context_compaction');
   const classifiedRows = sourceRows.map((message) => ({ message, estimated_tokens: estimateMessageTokens(message) }));
   const byId = new Map(classifiedRows.map((row) => [row.message.id, row]));

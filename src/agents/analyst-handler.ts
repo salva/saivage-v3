@@ -1,4 +1,4 @@
-import type { ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
+import { GLOBAL_ANALYST_SESSION_ID, type AnalystConversationSessionId, type ControlActionSurface, type ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import {
@@ -26,7 +26,6 @@ import { createConversationChangePublisher } from '../runtime/actors/conversatio
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
-import { resolveAnalystSessionId } from './session-ids.js';
 import { invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
 import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
@@ -74,7 +73,7 @@ export interface ActivityCallback {
 }
 
 export interface AnalystResponse {
-  sessionId: string;
+  sessionId: AnalystConversationSessionId;
   restart: RestartChatAcknowledgement | null;
   cancelled?: boolean;
   toolInvocations?: Array<{
@@ -116,7 +115,7 @@ export type AnalystTurnResult = AnalystResponse;
 type AnalystToolInvocations = NonNullable<AnalystResponse['toolInvocations']>;
 
 export interface AnalystSessionReadModel {
-  sessionId: string;
+  sessionId: AnalystConversationSessionId;
   phase: 'idle' | 'conversing';
   toolInFlight: string | null;
   lastOutcome: 'completed' | 'failed' | 'cancelled' | null;
@@ -156,7 +155,7 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
 
 
 
-function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, tool: string, result: ToolResult): void {
+function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: AnalystConversationSessionId, tool: string, result: ToolResult): void {
   const payload = summarizeForBroadcast(tool, result);
   deps.emitAnalystToolInvoked({ sessionId, tool, success: result.success, ...payload });
 }
@@ -198,7 +197,7 @@ export class AnalystSessionActor extends BaseActor {
   private operationTracker: ActivationOperationTracker | null = null;
   private readonly retiredOperationTrackers: ActivationOperationTracker[] = [];
 
-  constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
+  constructor(private readonly args: { projectRoot: string; sessionId: AnalystConversationSessionId; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
     super();
     this.processScope = args.runtimeDeps.processRunner.createDirectScope(args.runtimeDeps.analystProcessRootScope, `analyst-session:${args.sessionId}`, 'operator_session');
     this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, compactor: args.runtimeDeps.compactor, summarizerProvider: args.runtimeDeps.summarizerProvider, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
@@ -210,7 +209,7 @@ export class AnalystSessionActor extends BaseActor {
     this.started = true;
   }
 
-  get sessionId(): string {
+  get sessionId(): AnalystConversationSessionId {
     return this.args.sessionId;
   }
 
@@ -403,7 +402,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private scheduleConfirmedRestart(input: AnalystTurnInput): AnalystResponse {
     if (!this.args.restartServerAvailable || !this.args.restartPort) throw new Error('Restart confirmation is unavailable without authenticated operator restart capability.');
-    const rows = appendAnalystRestartBatch(this.args.runtimeDeps.conversations, this.sessionId, randomUUID(), input.userContent);
+    const rows = appendAnalystRestartBatch(this.args.runtimeDeps.conversations, randomUUID(), input.userContent);
     for (const row of rows) this.llm.conversationPublisher?.entryAppended(row);
     this.args.restartPort.schedule();
     return this.response(undefined, { status: 'scheduled' });
@@ -438,7 +437,7 @@ export class AnalystSessionActor extends BaseActor {
       projectContext: this.buildProjectContext(),
     });
     const preparedCompaction = prepareCompaction(this.args.runtimeDeps.compactionPolicy, systemPrompt, tools, modelParams.maxTokens);
-    const newMessages = appendAnalystIngressBatch(this.args.runtimeDeps.conversations, this.sessionId, inputId, buildWorkspaceContextNote(turn.workspaceContext), turn.userContent);
+    const newMessages = appendAnalystIngressBatch(this.args.runtimeDeps.conversations, inputId, buildWorkspaceContextNote(turn.workspaceContext), turn.userContent);
     for (const message of newMessages) this.llm.conversationPublisher?.entryAppended(message);
     return {
       inputId,
@@ -564,22 +563,22 @@ export class AnalystSessionActor extends BaseActor {
 }
 
 export class AnalystRuntime {
-  private readonly sessions = new Map<string, AnalystSessionActor>();
+  private session: AnalystSessionActor | null = null;
   private admissionOpen = true;
 
   constructor(private readonly args: { projectRoot: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; restartServerAvailable?: boolean; restartPort?: RestartPort }) {}
 
-  submit(sessionId: string, input: AnalystTurnInput, onActivity?: ActivityCallback): Promise<AnalystTurnResult> {
+  submit(input: AnalystTurnInput, onActivity?: ActivityCallback): Promise<AnalystTurnResult> {
     if (!this.admissionOpen) return Promise.reject(new Error('Analyst admission is closed.'));
-    return this.getOrCreateSession(sessionId, input).submit(input, onActivity);
+    return this.getOrCreateSession(input).submit(input, onActivity);
   }
 
-  cancel(sessionId: string, reason: string): boolean {
-    return this.sessions.get(resolveAnalystSessionId(sessionId))?.cancel(reason) ?? false;
+  cancel(reason: string): boolean {
+    return this.session?.cancel(reason) ?? false;
   }
 
   listSessions(): AnalystSessionReadModel[] {
-    return [...this.sessions.values()].map((session) => session.readModel());
+    return this.session ? [this.session.readModel()] : [];
   }
 
   getAvailableToolNames(actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat'): string[] {
@@ -595,7 +594,7 @@ export class AnalystRuntime {
 
   closeAdmission(): void {
     this.admissionOpen = false;
-    for (const session of this.sessions.values()) session.disposeSession(new Error('Application stopping.'));
+    this.session?.disposeSession(new Error('Application stopping.'));
   }
 
   async cleanupForApplicationStop(): Promise<void> {
@@ -603,27 +602,19 @@ export class AnalystRuntime {
     let termination: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
     try { termination = this.args.runtimeDeps.processRunner.terminateOwnedRoot('analyst', this.args.runtimeDeps.analystProcessRootScope, 'application stopping'); }
     catch (error) { termination = Promise.reject(error); }
-    const joins = [...this.sessions.values()].map((session) => session.joinSession());
+    const joins = this.session ? [this.session.joinSession()] : [];
     const settlements = await Promise.allSettled([termination, ...joins]);
     const terminationSettlement = settlements[0]!;
     if (terminationSettlement.status === 'rejected') throw terminationSettlement.reason;
     if (settlements.some((settlement) => settlement.status === 'rejected') || terminationSettlement.value.failed.length !== 0) throw new Error('Analyst application cleanup failed.');
   }
 
-  async shutdownSessionProcesses(sessionId: string): Promise<void> {
-    const session = this.sessions.get(resolveAnalystSessionId(sessionId));
-    if (session) await session.shutdownProcesses();
-  }
-
-  private getOrCreateSession(sessionId: string, input?: AnalystTurnInput): AnalystSessionActor {
-    const resolvedSessionId = resolveAnalystSessionId(sessionId);
-    let actor = this.sessions.get(resolvedSessionId);
-    if (!actor) {
-      actor = new AnalystSessionActor({ ...this.args, restartServerAvailable: this.args.restartServerAvailable ?? false, sessionId: resolvedSessionId, actor: input?.actor, surface: input?.surface });
-      actor.start();
-      this.sessions.set(resolvedSessionId, actor);
+  private getOrCreateSession(input?: AnalystTurnInput): AnalystSessionActor {
+    if (!this.session) {
+      this.session = new AnalystSessionActor({ ...this.args, restartServerAvailable: this.args.restartServerAvailable ?? false, sessionId: GLOBAL_ANALYST_SESSION_ID, actor: input?.actor, surface: input?.surface });
+      this.session.start();
     }
-    return actor;
+    return this.session;
   }
 }
 import { randomUUID } from 'node:crypto';

@@ -40,7 +40,7 @@ describe('EventRegistry', () => {
     expect(() => payloadSchemaByKind.card_history_appended.parse({
       entry_id: '11111111-1111-4111-8111-111111111111',
       entry_kind: 'update',
-      card_id: '11111111-1111-4111-8111-111111111111',
+      card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       version_seq: 1,
       changed_fields: [],
       changed_at: '2026-01-01T00:00:00.000Z',
@@ -65,5 +65,20 @@ describe('EventRegistry', () => {
       session_id: null,
       notification_kind: 'runtime_state',
     })).toThrow();
+  });
+
+  it('uses the exact shared identity for conversation payloads and logged envelopes', () => {
+    const payload = payloadSchemaByKind.conversation_changed;
+    const logged = buildLoggedEventSchema('conversation_changed');
+    for (const session_id of ['analyst:global', 'planner:project', 'reviewer:project', 'executor:project']) {
+      const fields = { session_id, mutation: 'entry_appended', message_id: 'm1', message_kind: 'text', role: 'user', message_timestamp: '2026-01-01T00:00:00.000Z' };
+      expect(() => payload.parse(fields)).not.toThrow();
+      expect(() => logged.parse({ id: 'event-1', kind: 'conversation_changed', timestamp: '2026-01-01T00:00:00.000Z', ...fields })).not.toThrow();
+    }
+    for (const session_id of ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other']) {
+      const fields = { session_id, mutation: 'entry_appended', message_id: 'm1', message_kind: 'text', role: 'user', message_timestamp: '2026-01-01T00:00:00.000Z' };
+      expect(() => payload.parse(fields)).toThrow();
+      expect(() => logged.parse({ id: 'event-1', kind: 'conversation_changed', timestamp: '2026-01-01T00:00:00.000Z', ...fields })).toThrow();
+    }
   });
 });

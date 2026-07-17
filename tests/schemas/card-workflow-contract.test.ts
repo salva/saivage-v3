@@ -2,7 +2,7 @@ import { cardRecordSchema } from '../../src/schemas/index.js';
 import { enqueueCardNotification, removeCardNotifications } from '../../src/cards/lifecycle.js';
 
 const base = {
-  id: '11111111-1111-4111-8111-111111111111', type: 'code', parent: 'project', depth: 1, position: 0,
+  id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', type: 'code', parent: 'project', depth: 1, position: 0, children: [],
   title: 'work', status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null },
   tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-15T00:00:00.000Z',
   updated_at: '2026-07-15T00:00:00.000Z', version_seq: 1, depends_on: [], related: [],
@@ -10,7 +10,7 @@ const base = {
 };
 
 describe('card workflow contract', () => {
-  test('requires strict pending notifications and canonical UUID identity', () => {
+  test('requires strict pending notifications and hierarchical identity', () => {
     expect(cardRecordSchema.parse(base).pending_notifications).toHaveLength(1);
     expect(cardRecordSchema.safeParse({ ...base, id: 'card-1' }).success).toBe(false);
     const { pending_notifications: _pending, ...missing } = base;

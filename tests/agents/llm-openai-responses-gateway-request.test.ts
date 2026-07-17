@@ -10,7 +10,7 @@ import { providerConversationProjection } from '../../src/runtime/actors/convers
 import { compactedConversationFixture } from '../helpers/compacted-conversation-fixture.js';
 
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
-const MSG: AgentMessage = { id: 'm1', session_id: 's1', role: 'user', kind: 'text', content: 'hi', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
+const MSG: AgentMessage = { id: 'm1', session_id: 'analyst:global', role: 'user', kind: 'text', content: 'hi', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
 const TOOL: ToolDefinition = { type: 'function', function: { name: 'read_file', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } } } } };
 
 afterEach(() => { jest.restoreAllMocks(); });
@@ -18,7 +18,7 @@ afterEach(() => { jest.restoreAllMocks(); });
 describe('OpenAI Responses request shape', () => {
   it('sends stateless responses fields and non-strict flat tools', () => {
     const opts: LlmCompleteOptions = { inputId: 'input-1', phase: 'tools', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [TOOL], tool_choice: { kind: 'required_named', toolName: 'read_file' }, max_tokens: 1234 };
-    const body = buildOpenAIResponsesRequest(CANDIDATE, 'sys', { sourceSessionId: 's1', messages: [MSG] }, opts, { responsesReasoning: { effort: 'medium' } }) as unknown as Record<string, unknown>;
+    const body = buildOpenAIResponsesRequest(CANDIDATE, 'sys', { sourceSessionId: 'analyst:global', messages: [MSG] }, opts, { responsesReasoning: { effort: 'medium' } }) as unknown as Record<string, unknown>;
 
     expect(body.model).toBe('gpt-5.6');
     expect(body.instructions).toBe('sys');
@@ -38,7 +38,7 @@ describe('OpenAI Responses request shape', () => {
     const opts: LlmCompleteOptions = { inputId: 'input-2', phase: 'tools', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: { kind: 'auto' } };
     const latest: AgentMessage = { ...MSG, id: 'c2:rendered', role: 'system', content: 'latest C2 rendered context' };
     const suffix: AgentMessage = { ...MSG, id: 'suffix', content: 'uncovered suffix' };
-    const body = buildOpenAIResponsesRequest(CANDIDATE, 'role prompt', { sourceSessionId: 's1', messages: [latest, suffix] }, opts) as unknown as { instructions: string; input: unknown[] };
+    const body = buildOpenAIResponsesRequest(CANDIDATE, 'role prompt', { sourceSessionId: 'analyst:global', messages: [latest, suffix] }, opts) as unknown as { instructions: string; input: unknown[] };
 
     expect(body.instructions).toBe('role prompt\n\n--- system context ---\nlatest C2 rendered context');
     expect(JSON.stringify(body)).not.toContain('older C1 rendered context');

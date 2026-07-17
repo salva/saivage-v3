@@ -7,10 +7,10 @@ import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.j
 import { createPlannerControlProvider, type PlannerControlProviderContext } from '../../src/tools/planner-control-provider.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 
-const PARENT = '11111111-1111-4111-8111-111111111111';
-const CHILD = '22222222-2222-4222-8222-222222222222';
-const DEPENDENCY_A = '33333333-3333-4333-8333-333333333333';
-const DEPENDENCY_B = '44444444-4444-4444-8444-444444444444';
+const PARENT = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const CHILD = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const DEPENDENCY_A = 'card-cccccccccccccccccccccccccccc';
+const DEPENDENCY_B = 'card-dddddddddddddddddddddddddddd';
 
 const doneOutcome: CardActivationOutcome = { status: 'done', summary: 'complete', result: { kind: 'done', summary: 'complete' } };
 

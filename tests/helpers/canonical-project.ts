@@ -14,7 +14,7 @@ import { createProjectIdentity, readProjectIdentity } from '../../src/persistenc
 export function initProjectTree(projectRoot: string): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });
   if (readProjectIdentity(projectRoot) === null) createProjectIdentity(projectRoot, projectRoot.split('/').at(-1) || 'saivage-project');
-  if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card', 'versions', '1.json'))) {
+  if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card.jsonl'))) {
     mkdirSync(join(projectRoot, '.saivage', 'cards'), { recursive: true });
     const root = newProjectRootInput(projectRoot);
     publishInitialProjectCard(projectRoot, root.card, root.brief, 'analyst');

@@ -154,10 +154,10 @@ function sp() {
 }
 
 function msgs() {
-  return { sourceSessionId: 'sess-1', messages: [
+  return { sourceSessionId: 'analyst:global' as const, messages: [
     {
       id: 'msg-1',
-      session_id: 'sess-1',
+      session_id: 'analyst:global' as const,
       role: 'user' as const,
       kind: 'text' as const,
       content: 'Hello, how are you?',
@@ -459,7 +459,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
       await client.complete(
-        cand('openai-codex', 'gpt-5.4'), sp(), { sourceSessionId: 'sess-codex-empty', messages: [] }, 'sess-codex-empty',
+        cand('openai-codex', 'gpt-5.4'), sp(), { sourceSessionId: 'analyst:global', messages: [] }, 'analyst:global',
       toolsOpts(),
       );
 
@@ -834,11 +834,11 @@ describe('LlmClient Edge Cases', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       const multiMsgs = [
-        { id: '1', session_id: 's', role: 'system' as const, kind: 'text' as const, content: 'sys msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() },
-        { id: '2', session_id: 's', role: 'assistant' as const, kind: 'text' as const, content: 'asst msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: new Date().toISOString() },
-        { id: '3', session_id: 's', role: 'tool' as const, kind: 'text' as const, content: 'tool msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 2, block_index: 2, timestamp: new Date().toISOString() },
+        { id: '1', session_id: 'analyst:global' as const, role: 'system' as const, kind: 'text' as const, content: 'sys msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() },
+        { id: '2', session_id: 'analyst:global' as const, role: 'assistant' as const, kind: 'text' as const, content: 'asst msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: new Date().toISOString() },
+        { id: '3', session_id: 'analyst:global' as const, role: 'tool' as const, kind: 'text' as const, content: 'tool msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 2, block_index: 2, timestamp: new Date().toISOString() },
       ];
-      await client.complete(cand(), sp(), { sourceSessionId: 's', messages: multiMsgs }, 'sess-roles', toolsOpts());
+      await client.complete(cand(), sp(), { sourceSessionId: 'analyst:global', messages: multiMsgs }, 'analyst:global', toolsOpts());
       const body = JSON.parse(cap.body);
       expect(body.messages).toHaveLength(4); // system prompt + 3
       expect(body.messages[1].role).toBe('system');

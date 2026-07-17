@@ -10,12 +10,10 @@ import { EventBus } from '../../events/index.js';
 import { McpManager } from '../../mcp/manager-api.js';
 import { createEventLog, createErrorLog, type ErrorLog, type EventLog } from '../../observability/index.js';
 import type { AppLogContext } from '../../persistence/app-log.js';
-import { TelegramBot } from '../../telegram/index.js';
 import { AuthPolicy } from '../auth-policy.js';
 import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
-import { startTelegramNotifications } from './telegram-lifecycle.js';
 
 export interface ServerServices {
   projectRoot: string;
@@ -33,7 +31,6 @@ export interface ServerServices {
   readModelChanges: ReadModelChangeBroadcaster;
   readModelChangeSubscription: ReadModelChangeSubscription | null;
   authPolicy: AuthPolicy;
-  telegramBot?: TelegramBot;
 }
 
 export async function createServerServices(input: {
@@ -82,11 +79,6 @@ export async function createServerServices(input: {
   fastify.log.info('MCP manager started');
   runtimeApplication.setMcpManager(mcpManager);
 
-  const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig: config, fastify, runtimeApplication });
-  if (telegramBot) {
-    terminal.registerAdmissionCloser('telegram', () => telegramBot.closeAdmission());
-    terminal.registerCleanupLeaf('telegram', () => telegramBot.stop());
-  }
   syncHub.wire(runtimeApplication.runtimeApi);
   let readModelChangeSubscription: ReadModelChangeSubscription | null = readModelChanges.subscribe(syncHub);
   terminal.registerCleanupLeaf('subscriptions', () => {
@@ -96,5 +88,5 @@ export async function createServerServices(input: {
   });
   terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
 
-  return { projectRoot, config, fastify, eventBus, eventLogger, errorLogger, appLogs, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, readModelChanges, readModelChangeSubscription, authPolicy, telegramBot };
+  return { projectRoot, config, fastify, eventBus, eventLogger, errorLogger, appLogs, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, readModelChanges, readModelChangeSubscription, authPolicy };
 }

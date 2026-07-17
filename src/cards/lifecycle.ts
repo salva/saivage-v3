@@ -11,8 +11,7 @@ export interface CardMutationContext {
 
 export interface NewCardInput {
   type: CardType;
-  parent: string | null;
-  depth: number;
+  parent: string;
   title: string;
   brief: string;
   status: CardStatus;
@@ -43,6 +42,7 @@ const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'depth',
   'id',
   'created_at',
+  'children',
   'position',
 ]);
 
@@ -325,6 +325,7 @@ export function buildNewCard({ input, id, depth, position, timestamp }: BuildNew
     parent: input.parent,
     depth,
     position,
+    children: [],
     title: input.title,
     status: input.status,
     subtype: input.subtype ?? null,

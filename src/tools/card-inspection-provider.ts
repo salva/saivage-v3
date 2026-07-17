@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
 import { cardStatusValues, cardTypeValues, type AgentRole, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
-import { computeCardDisplayPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
+import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
 import { recordSlotDefinitions } from '../runtime/records/record-slots.js';
 
 interface CardInspectionStore {
@@ -85,7 +85,7 @@ function getCard(projectRoot: string, store: CardInspectionStore, cardId: string
     .map((id) => store.read(id))
     .filter((child): child is CardRecord => child !== null)
     .map((child) => cardSummary(store, child));
-  if (!isFullStore(store)) return { success: true, data: { ...card, display_path: displayPath(store, card), children } };
+  if (!isFullStore(store)) return { success: true, data: { ...card, logical_path: logicalPath(store, card), children } };
   const records = cardRecordSummaries(store, cardId);
   return { success: true, data: { ...toCardView(store, card), effective_updated_at: effectiveUpdatedAt(store, cardId), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
 }
@@ -114,7 +114,7 @@ function childIds(store: CardInspectionStore, cardId: string): string[] {
 }
 
 function cardSummary(store: CardInspectionStore, card: CardRecord): Record<string, unknown> {
-  return { id: card.id, display_path: displayPath(store, card), type: card.type, title: card.title, status: card.status, priority: card.priority, parent: card.parent, tags: card.tags };
+  return { id: card.id, logical_path: logicalPath(store, card), type: card.type, title: card.title, status: card.status, priority: card.priority, parent: card.parent, tags: card.tags };
 }
 
 function treeNode(store: CardInspectionStore, cardId: string): Record<string, unknown> | null {
@@ -123,8 +123,8 @@ function treeNode(store: CardInspectionStore, cardId: string): Record<string, un
   return { ...cardSummary(store, card), children: childIds(store, cardId).map((childId) => treeNode(store, childId)).filter((node): node is Record<string, unknown> => node !== null) };
 }
 
-function displayPath(store: CardInspectionStore, card: CardRecord): string | null {
-  if (isFullStore(store)) return computeCardDisplayPath(store, card);
+function logicalPath(store: CardInspectionStore, card: CardRecord): string | null {
+  if (isFullStore(store)) return computeCardLogicalPath(store, card);
   const segments = [card.title || card.id];
   let parentId = card.parent;
   while (parentId) {

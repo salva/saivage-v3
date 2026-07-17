@@ -1,9 +1,6 @@
 import type { WebSocket } from 'ws';
 import { parseLiveSyncClientFrame, type LiveSyncInvalidateTarget } from '../contracts/index.js';
-
-function scopedKey(target: Extract<LiveSyncInvalidateTarget, { resource: 'conversation' }>): string {
-  return `${target.resource}\u0000${target.id}`;
-}
+import type { ConversationSessionId } from '../schemas/index.js';
 
 function isOpen(ws: WebSocket): boolean {
   return ws.readyState === ws.OPEN;
@@ -11,7 +8,7 @@ function isOpen(ws: WebSocket): boolean {
 
 export class LiveSyncSocket {
   private readonly clients = new Set<WebSocket>();
-  private readonly conversationSubscriptions = new WeakMap<WebSocket, Map<string, string>>();
+  private readonly conversationSubscriptions = new WeakMap<WebSocket, Map<ConversationSessionId, string>>();
   private admissionOpen = true;
 
   add(ws: WebSocket): void {
@@ -50,12 +47,11 @@ export class LiveSyncSocket {
   handleClientFrame(ws: WebSocket, input: unknown): boolean {
     const frame = parseLiveSyncClientFrame(input);
     if (!frame) return false;
-    const set = this.conversationSubscriptions.get(ws) ?? new Map<string, string>();
-    const key = scopedKey({ resource: 'conversation', id: frame.id });
+    const set = this.conversationSubscriptions.get(ws) ?? new Map<ConversationSessionId, string>();
     if (frame.t === 'subscribe') {
-      set.set(key, frame.lease);
+      set.set(frame.id, frame.lease);
       this.sendRaw(ws, JSON.stringify({ t: 'subscribed', resource: 'conversation', id: frame.id, lease: frame.lease }));
-    } else if (set.get(key) === frame.lease) set.delete(key);
+    } else if (set.get(frame.id) === frame.lease) set.delete(frame.id);
     if (set.size > 0) this.conversationSubscriptions.set(ws, set);
     else this.conversationSubscriptions.delete(ws);
     return true;
@@ -64,10 +60,9 @@ export class LiveSyncSocket {
   invalidate(target: LiveSyncInvalidateTarget): void {
     const payload = JSON.stringify({ t: 'invalidate', ...target });
     if (target.resource === 'conversation') {
-      const key = scopedKey(target);
       for (const ws of this.clients) {
         const subscriptions = this.conversationSubscriptions.get(ws);
-        if (subscriptions?.has(key)) this.sendRaw(ws, payload);
+        if (subscriptions?.has(target.id)) this.sendRaw(ws, payload);
       }
       return;
     }

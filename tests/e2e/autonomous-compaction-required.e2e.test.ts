@@ -67,8 +67,8 @@ function appendLongPlannerHistory(projectRoot: string): void {
     const inputId = `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`;
     const timestamp = `2026-07-17T00:00:${String(ordinal).padStart(2, '0')}.000Z`;
     return [
-      { id: `activation-${ordinal}`, session_id: 'planner:project', role: 'system' as const, kind: 'activity' as const, content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp },
-      { id: `history-${ordinal}`, session_id: 'planner:project', role: 'user' as const, kind: 'text' as const, content: `${ordinal}:${'x'.repeat(4000)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp },
+      { id: `activation-${ordinal}`, session_id: 'planner:project' as const, role: 'system' as const, kind: 'activity' as const, content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp },
+      { id: `history-${ordinal}`, session_id: 'planner:project' as const, role: 'user' as const, kind: 'text' as const, content: `${ordinal}:${'x'.repeat(4000)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp },
     ];
   }).flat();
   appendConversationBatch(projectRoot, rows);

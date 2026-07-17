@@ -9,7 +9,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 
 function executorProvider(root: string, processRunner: ProcessRunner, ownerId = 'activation-1') {
-  return createProcessProvider({ projectRoot: root, processRunner, directScope: processRunner.createDirectScope(processRunner.runtimeRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: '11111111-1111-4111-8111-111111111111', agentRole: 'executor', ownerKind: 'agent' });
+  return createProcessProvider({ projectRoot: root, processRunner, directScope: processRunner.createDirectScope(processRunner.runtimeRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentRole: 'executor', ownerKind: 'agent' });
 }
 
 function analystProvider(root: string, processRunner: ProcessRunner) {
@@ -187,7 +187,7 @@ describe('process provider', () => {
     if (!result.success) return;
     const processId = (result.data as { process_id: string }).process_id;
     expect(processRunner.get(processId)).toEqual(expect.objectContaining({
-      card_id: '11111111-1111-4111-8111-111111111111',
+      card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       owner_id: 'activation-1',
       agent_session_id: 'activation-1',
       owner_kind: 'agent',

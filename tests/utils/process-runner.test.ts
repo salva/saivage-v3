@@ -29,7 +29,7 @@ describe('ProcessRunner managed process groups', () => {
   }
 
   function launch(command: string, scope = direct('runtime_card'), category: ProcessCategory = 'runtime_card') {
-    return runner.spawn({ command, directScope: scope, category, cardId: category === 'runtime_card' ? '11111111-1111-4111-8111-111111111111' : null, ownerId: 'same-owner', ownerKind: category === 'operator_session' ? 'operator' : 'agent' });
+    return runner.spawn({ command, directScope: scope, category, cardId: category === 'runtime_card' ? 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' : null, ownerId: 'same-owner', ownerKind: category === 'operator_session' ? 'operator' : 'agent' });
   }
 
   it('records output and keeps the registry instance-local and memory-only', async () => {

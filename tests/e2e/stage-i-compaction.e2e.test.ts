@@ -3,19 +3,26 @@ import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import { prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands } from '../../src/runtime/actors/compaction/bands.js';
 import { estimateMessageTokens, type ClassifiedRound } from '../../src/runtime/actors/compaction/round-classifier.js';
-import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage } from '../../src/schemas/index.js';
+import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { compact } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
-import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
+import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { hashConversationRows } from '../../src/contracts/conversation-compaction.js';
 import { buildOpenAIResponsesRequest } from '../../src/agents/llm-openai-responses-gateway.js';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { initProjectTree } from '../helpers/canonical-project.js';
+import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 
 const config: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
 const schemaCompaction = { ...config, enabled: true, summarizer_candidate: { provider: 'test', account: null, model: 'org/summary/model' } } as const;
+
+function prepareSessionRoot(root: string, sessionId: ConversationSessionId): void {
+  initProjectTree(root);
+  mkdirSync(dirname(conversationFile(root, sessionId)), { recursive: true });
+}
 
 describe('Stage-I compaction contracts', () => {
   it('requires route-independent budget and derives one completion authority', () => {
@@ -43,7 +50,7 @@ describe('Stage-I compaction contracts', () => {
   it('estimates the already-projected invocation sequence without changing estimator input', () => {
     const contextMessages = [agentMessageSchema.parse({ id: 'visible', session_id: 'planner:project', role: 'user', kind: 'text', content: 'projected context', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' })];
     const preparedCompaction = prepareCompaction(config, 'system', []);
-    const invocation: LlmInvocationInput = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner' as const, sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
+    const invocation: PreparedLlmInvocationInput = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner' as const, sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
     expect(shouldCompact(invocation)).toBe(contextMessages.reduce((sum, row) => sum + estimateMessageTokens(row), 0) >= preparedCompaction.triggerMessageThreshold);
     expect(invocation.providerConversation.messages).toBe(contextMessages);
   });
@@ -70,6 +77,7 @@ describe('Stage-I compaction contracts', () => {
 
   it.each(['compact_straddler', 'keep_straddler_verbatim'] as const)('appends C1/C2/C3 latest-only raw-authoritative projections with a monotonic cutoff (%s)', async (snap) => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-stage-i-'));
+    initProjectTree(root);
     try {
       for (let ordinal = 1; ordinal <= 4; ordinal++) appendRawRound(root, ordinal);
       const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
@@ -108,8 +116,9 @@ describe('Stage-I compaction contracts', () => {
 
   it('uses hard-limit fallback for an oversized open round while preserving a safe verbatim suffix', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-hard-limit-'));
+    initProjectTree(root);
     try {
-      const session_id = 'planner:project';
+      const session_id: ConversationSessionId = 'planner:project';
       const source_input_id = '00000000-0000-4000-8000-000000000099';
       const rows = [
         { id: 'hard-activation', session_id, role: 'system' as const, kind: 'activity' as const, content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source_input_id, timestamp: '2026-07-15T00:01:00.000Z' }), round_id: 'r-pre-99999999999999999999999999999999', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' },
@@ -140,10 +149,11 @@ describe('Stage-I compaction contracts', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it.each(['planner:project', 'executor:project', 'reviewer:project'])('derives owner root and stable session only from conversations/input for %s', async (sessionId) => {
+  it.each<ConversationSessionId>(['planner:project', 'executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'reviewer:project'])('derives owner root and stable session only from conversations/input for %s', async (sessionId) => {
     const ownerRoot = mkdtempSync(join(tmpdir(), 'saivage-compaction-owner-'));
     const decoyRoot = mkdtempSync(join(tmpdir(), 'saivage-compaction-decoy-'));
     try {
+      prepareSessionRoot(ownerRoot, sessionId); prepareSessionRoot(decoyRoot, sessionId);
       for (let ordinal = 1; ordinal <= 4; ordinal++) appendRawRound(ownerRoot, ordinal, sessionId);
       appendRawRound(decoyRoot, 1, sessionId);
       const changes = { conversationChanged: jest.fn(), agentsChanged: jest.fn(), runtimeChanged: jest.fn(), cardStateChanged: jest.fn(), subscribe: jest.fn(() => ({ unsubscribe() {} })) };
@@ -163,6 +173,7 @@ describe('Stage-I compaction contracts', () => {
 
   it('reuses a prior merged summary only as an exact validated source prefix/hash input', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-reuse-'));
+    initProjectTree(root);
     try {
       for (let ordinal = 1; ordinal <= 7; ordinal++) appendRawRound(root, ordinal);
       const inputs: LlmInvocationInput[] = [];
@@ -177,16 +188,18 @@ describe('Stage-I compaction contracts', () => {
       for (let round = 8; round <= 10; round++) appendRawRound(root, round);
       const current = readConversation(root, 'planner:project');
       await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor('planner:project', providerConversationProjection(current).messages, integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
-      const mergeInputs = inputs.filter((input) => input.sessionId === 'summary:merge').flatMap((input) => input.providerConversation.messages);
-      expect(mergeInputs.some((row) => row.content.includes(priorMerged!.payload.summary_text))).toBe(true);
+      const mergeInputs = inputs.filter((input) => input.sessionId === 'summary:merge');
+      expect(mergeInputs.some((input) => input.systemPrompt.includes(priorMerged!.payload.summary_text))).toBe(true);
+      expect(mergeInputs.every((input) => input.providerConversation.messages.length === 0)).toBe(true);
       expect(priorMerged!.payload.content_hash).toBe(hashConversationRows(priorMerged!.sourceRows));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('never places a hard-fallback cutoff inside tool or provider-private bundles', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-protected-'));
+    initProjectTree(root);
     try {
-      const sessionId = 'planner:project';
+      const sessionId: ConversationSessionId = 'planner:project';
       const inputId = '00000000-0000-4000-8000-000000000099';
       const timestamp = '2026-07-15T00:01:00.000Z';
       const rows = [
@@ -220,20 +233,20 @@ describe('Stage-I compaction contracts', () => {
 });
 
 function round(id: string, tokens: number): ClassifiedRound {
-  const message = { id: `${id}-m`, session_id: 'planner:project', role: 'user' as const, kind: 'text' as const, content: 'x', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
+  const message: AgentMessage = { id: `${id}-m`, session_id: 'planner:project', role: 'user', kind: 'text', content: 'x', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
   const positioned = { message, estimated_tokens: tokens };
   return { round_id: id, activation_marker: positioned, rows: [positioned], sub_rounds: [], estimated_tokens: tokens };
 }
 
-function appendRawRound(root: string, ordinal: number, session_id = 'planner:project'): void {
+function appendRawRound(root: string, ordinal: number, session_id: ConversationSessionId = 'planner:project'): void {
   const timestamp = `2026-07-15T00:00:${String(ordinal).padStart(2, '0')}.000Z`;
   const role = session_id.slice(0, session_id.indexOf(':'));
   const cardId = session_id.slice(session_id.indexOf(':') + 1);
   appendConversationBatch(root, [{ id: `activation-${ordinal}`, session_id, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role, card_id: cardId, input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id, role: 'user', kind: 'text', content: `${ordinal}:${'x'.repeat(400)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]);
 }
 
-function invocationFor(sessionId: string, contextMessages: AgentMessage[], compactionConfig: AutonomousCompactionPolicy): LlmInvocationInput & { preparedCompaction: NonNullable<LlmInvocationInput['preparedCompaction']> } {
-  const role = sessionId.split(':')[0] as 'planner' | 'executor' | 'reviewer';
+function invocationFor(sessionId: ConversationSessionId, contextMessages: AgentMessage[], compactionConfig: AutonomousCompactionPolicy): PreparedLlmInvocationInput {
+  const role = sessionId.startsWith('planner:') ? 'planner' : sessionId.startsWith('reviewer:') ? 'reviewer' : 'executor';
   return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, role, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {}, episodeContext: {} };
 }
 

@@ -5,7 +5,6 @@ export class CardIndex {
   private readonly _cards = new Map<string, CardRecord>();
   private readonly _childrenByParent = new Map<string, string[]>();
   private readonly _blocksInverse = new Map<string, string[]>();
-  private readonly __RESERVED_IDS = new Set<string>();
   readonly maxDepth: number;
 
   constructor(maxDepth: number) {
@@ -100,21 +99,6 @@ export class CardIndex {
     this.removeBlocksEdges(id, prior.depends_on);
     this._cards.delete(id);
     this._blocksInverse.delete(id);
-    this.__RESERVED_IDS.add(id);
-  }
-
-  allKnownIds(): string[] {
-    const ids = new Set(this.__RESERVED_IDS);
-    for (const card of this._cards.values()) ids.add(card.id);
-    return [...ids].sort();
-  }
-
-  addReservedId(id: string): void {
-    this.__RESERVED_IDS.add(id);
-  }
-
-  isReservedId(id: string): boolean {
-    return this.__RESERVED_IDS.has(id) && !this._cards.has(id);
   }
 
   private sortChildEdges(parent: string): void {

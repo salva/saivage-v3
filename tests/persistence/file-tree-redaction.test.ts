@@ -11,8 +11,8 @@ afterEach(() => { for (const r of roots.splice(0)) rmSync(r, { recursive: true, 
 describe('project config file-tree redaction and obsolete blocking', () => {
   it('redacts canonical YAML and blocks obsolete JSON', () => {
     const r = root();
-    writeFileSync(join(r, '.saivage', 'saivage.yaml'), 'telegram:\n  botToken: secret-token\n', 'utf-8');
-    writeFileSync(join(r, '.saivage', 'saivage.json'), '{"telegram":{"botToken":"secret-token"}}', 'utf-8');
+    writeFileSync(join(r, '.saivage', 'saivage.yaml'), 'provider:\n  apiKey: secret-token\n', 'utf-8');
+    writeFileSync(join(r, '.saivage', 'saivage.json'), '{"provider":{"apiKey":"secret-token"}}', 'utf-8');
 
     const yaml = readProjectFileAtomic(r, '.saivage/saivage.yaml', { redactSecrets: true });
     expect(yaml).toContain('[REDACTED]');

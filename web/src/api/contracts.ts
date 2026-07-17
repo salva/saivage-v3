@@ -8,8 +8,12 @@ export {
   ProcessLogRefsSchema,
   ProcessNotFoundErrorSchema,
   ProcessViewSchema,
+  AgentSessionSummarySchema,
   processesOperatorApiContracts,
 } from '@saivage/contracts/operator-api';
+
+export { GLOBAL_ANALYST_SESSION_ID, ConversationSessionIdSchema, parseConversationSessionId } from '@saivage/schemas';
+export type { ConversationSessionId, AnalystConversationSessionId } from '@saivage/schemas';
 
 export type {
   OperatorApiOperationId,

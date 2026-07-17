@@ -6,7 +6,7 @@ import type { ProcessRecord } from '../../src/schemas/index.js';
 function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
   return {
     id: 'proc-1',
-    card_id: '11111111-1111-4111-8111-111111111111',
+    card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     owner_id: 'agent-1',
     command: 'echo token=super-secret-value',
     command_hash: 'a'.repeat(64),
@@ -21,9 +21,9 @@ function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
     signal: null,
     terminal_reason: null,
     required_for_card_completion: true,
-    output_dir: '/workspace/project/.saivage/work/cards/11111111-1111-4111-8111-111111111111/processes/proc-1',
-    stdout_path: '/workspace/project/.saivage/work/cards/11111111-1111-4111-8111-111111111111/processes/proc-1/stdout.log',
-    stderr_path: '/workspace/project/.saivage/work/cards/11111111-1111-4111-8111-111111111111/processes/proc-1/stderr.log',
+    output_dir: '/workspace/project/.saivage/work/cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/proc-1',
+    stdout_path: '/workspace/project/.saivage/work/cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/proc-1/stdout.log',
+    stderr_path: '/workspace/project/.saivage/work/cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/proc-1/stderr.log',
     agent_session_id: 'agent-1',
     goal_id: null,
     launch_reason: null,
@@ -50,12 +50,12 @@ describe('process operator view projection', () => {
       owner_id: 'agent-1',
       owner_kind: 'agent',
       session_id: 'agent-1',
-      card_id: '11111111-1111-4111-8111-111111111111',
+      card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       command: expect.any(String),
       cwd: 'subdir',
       logs: {
-        stdout: 'work:///cards/11111111-1111-4111-8111-111111111111/processes/proc-1/stdout.log',
-        stderr: 'work:///cards/11111111-1111-4111-8111-111111111111/processes/proc-1/stderr.log',
+        stdout: 'work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/proc-1/stdout.log',
+        stderr: 'work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/proc-1/stderr.log',
       },
     });
   });

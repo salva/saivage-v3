@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import type { RouteLocationNormalizedLoaded, RouteLocationRaw, Router } from 'vue-router';
+import { parseAgentDetailRouteParam } from '../router/agent-session-route';
 
 const BACK_STACK_LIMIT = 16;
 
@@ -74,7 +75,10 @@ function snapshotFromRoute(route: RouteLocationNormalizedLoaded): WorkspaceConte
     case 'agents':
       return { view: 'agents', entityId: null, refinement };
     case 'agent-detail':
-      return { view: 'agents', entityId: id, refinement };
+      {
+        const parsed = parseAgentDetailRouteParam(route.params.id);
+        return { view: 'agents', entityId: parsed.kind === 'valid' ? parsed.sessionId : null, refinement };
+      }
     case 'files':
       return { view: 'files', entityId: typeof route.query.path === 'string' ? route.query.path : null, refinement };
     case 'debug':
@@ -96,9 +100,8 @@ function routeForSnapshot(snapshot: WorkspaceContext): RouteLocationRaw {
       : { name: 'cards', query };
   }
   if (snapshot.view === 'agents') {
-    return snapshot.entityId
-      ? { name: 'agent-detail', params: { id: snapshot.entityId }, query }
-      : { name: 'agents', query };
+    const parsed = parseAgentDetailRouteParam(snapshot.entityId ?? undefined);
+    return parsed.kind === 'valid' ? { name: 'agent-detail', params: { id: parsed.sessionId }, query } : { name: 'agents', query };
   }
   if (snapshot.view === 'files') {
     return snapshot.entityId
@@ -114,12 +117,15 @@ function routeForSnapshot(snapshot: WorkspaceContext): RouteLocationRaw {
   return { name: 'dashboard', query };
 }
 
-function routeForTarget(target: NavigateTarget): RouteLocationRaw {
+function routeForTarget(target: NavigateTarget): RouteLocationRaw | null {
   switch (target.kind) {
     case 'card':
       return { name: 'card-detail', params: { id: target.id ?? '' }, query: refinementStringToQuery(target.refinement) };
     case 'transcript':
-      return { name: 'agent-detail', params: { id: target.id ?? '' }, query: refinementStringToQuery(target.refinement) };
+      {
+        const parsed = parseAgentDetailRouteParam(target.id);
+        return parsed.kind === 'valid' ? { name: 'agent-detail', params: { id: parsed.sessionId }, query: refinementStringToQuery(target.refinement) } : null;
+      }
     case 'process':
       return { name: 'process-detail', params: { id: target.id ?? '' }, query: refinementStringToQuery(target.refinement) };
     case 'process_list':
@@ -176,7 +182,8 @@ export const useWorkspaceRouteStore = defineStore('workspace-route', () => {
     const router = currentRouter.value;
     if (!router) return;
     if (intent.intent === 'navigate_workspace') {
-      void router.push(routeForTarget(intent.target));
+      const target = routeForTarget(intent.target);
+      if (target) void router.push(target);
       return;
     }
     const previous = backStack.value[backStack.value.length - 1];

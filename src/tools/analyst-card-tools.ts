@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { PROJECT_CARD_ID } from '../cards/card-api.js';
 import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
-import { orderedCardsForTree, toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
+import { orderedCardsForTree, toCardView, computeCardLogicalPath } from '../application/read-models/card-view.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import {
@@ -71,7 +71,7 @@ export async function list_cards(ctx: ToolContext, params: { status?: CardStatus
     if (params.type) { const types = Array.isArray(params.type) ? params.type : [params.type]; cards = cards.filter((c) => types.includes(c.type)); }
     if (params.parent !== undefined) cards = params.parent === null ? cards.filter((c) => c.parent === null) : cards.filter((c) => store.listChildren(params.parent!).includes(c.id));
     if (params.tag) cards = cards.filter((c) => c.tags.includes(params.tag!));
-    return { success: true, data: cards.map((c) => ({ id: c.id, display_path: computeCardDisplayPath(store, c), type: c.type, title: c.title, status: c.status, priority: c.priority, parent: c.parent, tags: c.tags })) };
+    return { success: true, data: cards.map((c) => ({ id: c.id, logical_path: computeCardLogicalPath(store, c), type: c.type, title: c.title, status: c.status, priority: c.priority, parent: c.parent, tags: c.tags })) };
   } catch (err) { return toolFailureFromError(err); }
 }
 
@@ -101,10 +101,10 @@ function cardRecordSummaries(store: ReturnType<typeof getStore>, cardId: string)
     });
 }
 
-interface TreeNode { id: string; type: string; title: string; status: string; display_path: string | null; children: TreeNode[]; }
+interface TreeNode { id: string; type: string; title: string; status: string; logical_path: string | null; children: TreeNode[]; }
 function buildNode(store: import('../cards/card-api.js').CardService, id: string): TreeNode | null {
   const card = store.read(id); if (!card) return null;
-  return { id: card.id, display_path: computeCardDisplayPath(store, card), type: card.type, title: card.title, status: card.status, children: store.listChildren(id).map((cid) => buildNode(store, cid)).filter((n): n is TreeNode => n !== null) };
+  return { id: card.id, logical_path: computeCardLogicalPath(store, card), type: card.type, title: card.title, status: card.status, children: store.listChildren(id).map((cid) => buildNode(store, cid)).filter((n): n is TreeNode => n !== null) };
 }
 
 export async function get_tree(ctx: ToolContext, params: { rootId?: string }): Promise<ToolResult> {

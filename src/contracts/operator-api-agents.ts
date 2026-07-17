@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { providerExchangePayloadSchema } from './provider-exchange.js';
-import { agentMessageSchema, agentSessionSchema } from '../schemas/index.js';
+import { agentMessageSchema, AnalystConversationSessionIdSchema, ConversationSessionIdSchema, PlannerConversationSessionIdSchema, ReviewerConversationSessionIdSchema, ExecutorConversationSessionIdSchema } from '../schemas/index.js';
 import {
   ApiErrorSchema,
   ForbiddenErrorSchema,
@@ -10,10 +10,21 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 
-export const AgentSessionParamsSchema = z.object({ id: z.string().min(1) });
+export const AgentSessionParamsSchema = z.object({ id: ConversationSessionIdSchema });
 export const AgentConversationParamsSchema = AgentSessionParamsSchema;
 export const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
-export const AgentSessionSummarySchema = agentSessionSchema;
+const sessionFields = { status: z.enum(['active', 'waiting', 'inactive', 'done', 'blocked', 'failed']), started_at: z.string().datetime(), completed_at: z.string().datetime().nullable().optional(), model: z.string().optional() };
+const analystSessionSchema = z.object({ id: AnalystConversationSessionIdSchema, role: z.literal('analyst'), goal_card_id: z.null().optional(), card_id: z.null().optional(), ...sessionFields });
+const plannerSessionSchema = z.object({ id: PlannerConversationSessionIdSchema, role: z.literal('planner'), goal_card_id: z.string().nullable().optional(), card_id: z.string().nullable().optional(), ...sessionFields });
+const reviewerSessionSchema = z.object({ id: ReviewerConversationSessionIdSchema, role: z.literal('reviewer'), goal_card_id: z.string().nullable().optional(), card_id: z.string().nullable().optional(), ...sessionFields });
+const executorSessionSchema = z.object({ id: ExecutorConversationSessionIdSchema, role: z.literal('executor'), goal_card_id: z.string().nullable().optional(), card_id: z.string().nullable().optional(), ...sessionFields });
+function requireMatchingCard(value: { id: string; role: string; card_id?: string | null }, ctx: z.RefinementCtx): void {
+  if (value.role === 'analyst') return;
+  const cardId = value.id.slice(value.id.indexOf(':') + 1);
+  if (value.card_id !== cardId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['card_id'], message: 'Agent card ownership must match its session identity.' });
+}
+const agentSessionSummaryUnion = z.discriminatedUnion('role', [analystSessionSchema, plannerSessionSchema, reviewerSessionSchema, executorSessionSchema]);
+export const AgentSessionSummarySchema = agentSessionSummaryUnion.superRefine(requireMatchingCard);
 export const AgentConversationEntrySchema = agentMessageSchema;
 export const AgentActivityStatusSchema = z.object({
   status: z.enum(['idle', 'thinking', 'tool_calling', 'responding', 'compacting']),
@@ -23,10 +34,8 @@ export const AgentActivityStatusSchema = z.object({
 export const AgentListResponseSchema = z.object({
   sessions: z.array(AgentSessionSummarySchema),
 });
-export const AgentSessionDetailSchema = AgentSessionSummarySchema.extend({
-  message_count: z.number().int().nonnegative(),
-  last_activity_at: z.string().nullable(),
-});
+const detailFields = { message_count: z.number().int().nonnegative(), last_activity_at: z.string().nullable() };
+export const AgentSessionDetailSchema = z.discriminatedUnion('role', [analystSessionSchema.extend(detailFields), plannerSessionSchema.extend(detailFields), reviewerSessionSchema.extend(detailFields), executorSessionSchema.extend(detailFields)]).superRefine(requireMatchingCard);
 export const AgentDetailResponseSchema = z.object({
   session: AgentSessionDetailSchema,
 });
@@ -34,8 +43,9 @@ export const AgentConversationResponseSchema = z.object({
   session: AgentSessionSummarySchema,
   entries: z.array(AgentConversationEntrySchema),
   activity_status: AgentActivityStatusSchema,
-});
+}).superRefine((value, ctx) => { for (const [index, entry] of value.entries.entries()) if (entry.session_id !== value.session.id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entries', index, 'session_id'], message: 'Conversation entry session must match the enclosing session.' }); });
 export const AgentLlmExchangeResponseSchema = z.object({
+  sessionId: ConversationSessionIdSchema,
   exchange: providerExchangePayloadSchema,
 });
 

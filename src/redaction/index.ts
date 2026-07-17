@@ -14,7 +14,6 @@ export type RedactionPolicyName =
   | 'operator.websocket'
   | 'operator.api'
   | 'notification.transport'
-  | 'telegram.diagnostic'
   | 'model.issue'
   | `event:${string}`;
 
@@ -59,7 +58,6 @@ const CREDENTIAL_LITERAL_RE = /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|r
 const BEARER_CREDENTIAL_RE = /\b(Bearer\s+)([^\s"\\]+)/gi;
 const URL_SECRET_QUERY_PARAM_RE =
   /([?&][^=&#\s]*(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[^=&#\s]*=)([^&#\s]+)/gi;
-const TELEGRAM_BOT_PATH_RE = /(\/bot)([^/\s?#]+)(?=\/)/gi;
 
 const CONVERSION_FAILURE = '[unserializable dynamic value]';
 const DEFAULT_SNIPPET_LENGTH = 500;
@@ -74,7 +72,6 @@ const POLICIES: ReadonlyMap<RedactionPolicyName, RedactionPolicy> = new Map<Reda
   ['operator.websocket', { name: 'operator.websocket' }],
   ['operator.api', { name: 'operator.api' }],
   ['notification.transport', { name: 'notification.transport' }],
-  ['telegram.diagnostic', { name: 'telegram.diagnostic' }],
   ['model.issue', { name: 'model.issue' }],
 ]);
 
@@ -124,7 +121,7 @@ function redactSecrets(content: string): string {
 
 function redactProviderLikeText(content: string): string {
   if (!content) return content;
-  return redactTelegramBotTokenPath(redactInlineSecretAssignments(redactEscapedJsonSecretValues(redactSecrets(content))));
+  return redactInlineSecretAssignments(redactEscapedJsonSecretValues(redactSecrets(content)));
 }
 
 function redactJsonSecretValues(content: string): string {
@@ -174,11 +171,6 @@ function redactInlineSecretAssignments(content: string): string {
       return `${key}=${SECRET_REDACTION_PLACEHOLDER}`;
     })
     .replace(URL_SECRET_QUERY_PARAM_RE, (_match, prefix: string) => `${prefix}${SECRET_REDACTION_PLACEHOLDER}`);
-}
-
-function redactTelegramBotTokenPath(content: string): string {
-  if (!content) return content;
-  return content.replace(TELEGRAM_BOT_PATH_RE, (_match, prefix: string) => `${prefix}${SECRET_REDACTION_PLACEHOLDER}`);
 }
 
 function rawDynamicText(value: unknown, seen = new WeakSet<object>()): string {

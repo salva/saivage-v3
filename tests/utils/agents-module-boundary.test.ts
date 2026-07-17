@@ -8,7 +8,7 @@ describe('agents module ownership boundary', () => {
   it('publishes explicit API modules for analyst, tool, and config consumers', () => {
     expect(configApi.saivageConfigSchema).toBeDefined();
     expect(analystApi.AnalystRuntime).toBeDefined();
-    expect(analystApi.GLOBAL_ANALYST_SESSION_ID).toBe('analyst:global');
+    expect('resolveAnalystSessionId' in analystApi).toBe(false);
     expect(toolApi.evaluateAuthz).toBeDefined();
   });
 });

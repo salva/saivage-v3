@@ -1,5 +1,5 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { CardRecord, CardStatus, DoneResult } from '../../schemas/index.js';
+import type { CardRecord, CardStatus, DoneResult, ConversationSessionId } from '../../schemas/index.js';
 import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
 import { type CardActivationInput, type CardActivationOutcome, type CardActor, type CardCancellationResult, type CardActorStorePort, type CardProcessorActor } from './card-actor.js';
@@ -274,7 +274,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private buildReviewerLlmInput(input: CardActivationInput, sessionId: string, currentness: ReviewerCurrentnessSnapshot, surface: InvocationSurface, contract = createReviewerContract()): PreparedLlmInvocationInput {
+  private buildReviewerLlmInput(input: CardActivationInput, sessionId: ConversationSessionId, currentness: ReviewerCurrentnessSnapshot, surface: InvocationSurface, contract = createReviewerContract()): PreparedLlmInvocationInput {
     const inputId = this.freshSourceInputId();
     const systemPrompt = this.reviewerPrompt(input.card, surface, contract);
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
@@ -453,12 +453,12 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     });
   }
 
-  private async handleReviewerToolCall(workspaceSurface: InvocationSurface, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
+  private async handleReviewerToolCall(workspaceSurface: InvocationSurface, sessionId: ConversationSessionId, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
     if (workspaceSurface.tools.has(outcome.toolName)) return invokeToolForLlm(workspaceSurface, outcome.toolName, outcome.args, signal);
     return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };
   }
 
-  private reviewerInvocationSurface(cardId: string, sessionId: string) {
+  private reviewerInvocationSurface(cardId: string, sessionId: ConversationSessionId) {
     return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, store: this.store, mcpManagerProvider: this.mcpManagerProvider });
   }
 

@@ -14,7 +14,6 @@ export type ShutdownComponent =
   | 'websocket-admission'
   | 'fastify'
   | 'live-sync'
-  | 'telegram'
   | 'runtime'
   | 'process-admission'
   | 'analyst'
@@ -109,7 +108,7 @@ export function newProjectRootInput(projectRoot: string): NewProjectRootInput {
   const stamp = new Date().toISOString();
   const title = basename(projectRoot) || 'saivage-project';
   const card: CardRecord = {
-    id: 'project', type: 'project', parent: null, depth: 0, position: 0, title, status: 'backlog', subtype: null,
+    id: 'project', type: 'project', parent: null, depth: 0, position: 0, children: [], title, status: 'backlog', subtype: null,
     tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: stamp, updated_at: stamp,
     assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null,

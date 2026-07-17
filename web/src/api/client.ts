@@ -11,6 +11,7 @@ import type {
   CardDetailResponse,
   RuntimeStateResponse,
   AgentConversationResponse,
+  AgentLlmExchangeResponse,
   AgentSessionsResponse,
   ChatSessionsResponse,
   ChatEntriesResponse,
@@ -29,6 +30,7 @@ import type {
   CardDiffResponse,
   ControlActionsListResponse,
 } from './types';
+import { GLOBAL_ANALYST_SESSION_ID, type ConversationSessionId } from './contracts';
 import { getAuthToken } from './auth';
 import {
   operatorApiContracts,
@@ -218,12 +220,12 @@ export function listAgentSessions(signal?: AbortSignal): Promise<AgentSessionsRe
   return operatorRequest('agents.list', { signal }) as Promise<AgentSessionsResponse>;
 }
 
-export function getAgentConversation(sessionId: string, signal?: AbortSignal): Promise<AgentConversationResponse> {
+export function getAgentConversation(sessionId: ConversationSessionId, signal?: AbortSignal): Promise<AgentConversationResponse> {
   return operatorRequest('agents.conversation', { params: { id: sessionId }, signal }) as Promise<AgentConversationResponse>;
 }
 
-export function getAgentLlmExchange(sessionId: string, signal?: AbortSignal): Promise<{ exchange: ProviderExchangePayload }> {
-  return operatorRequest('agents.llmExchange', { params: { id: sessionId }, signal }) as Promise<{ exchange: ProviderExchangePayload }>;
+export function getAgentLlmExchange(sessionId: ConversationSessionId, signal?: AbortSignal): Promise<AgentLlmExchangeResponse> {
+  return operatorRequest('agents.llmExchange', { params: { id: sessionId }, signal }) as Promise<AgentLlmExchangeResponse>;
 }
 
 export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {
@@ -234,13 +236,13 @@ export function listChatSessions(signal?: AbortSignal): Promise<ChatSessionsResp
   return operatorRequest('chats.list', { signal });
 }
 
-export function getChatEntries(sessionId: string, signal?: AbortSignal): Promise<ChatEntriesResponse> {
-  return operatorRequest('chats.get', { params: { sessionId }, signal }) as Promise<ChatEntriesResponse>;
+export function getChatEntries(signal?: AbortSignal): Promise<ChatEntriesResponse> {
+  return operatorRequest('chats.get', { params: { sessionId: GLOBAL_ANALYST_SESSION_ID }, signal }) as Promise<ChatEntriesResponse>;
 }
 
-export function sendChatMessage(sessionId: string, content: string, workspaceContext?: ChatWorkspaceContext): Promise<ChatResponse> {
+export function sendChatMessage(content: string, workspaceContext?: ChatWorkspaceContext): Promise<ChatResponse> {
   const body = workspaceContext === undefined ? { content } : { content, workspaceContext };
-  return operatorRequest('chats.send', { params: { sessionId }, body });
+  return operatorRequest('chats.send', { params: { sessionId: GLOBAL_ANALYST_SESSION_ID }, body });
 }
 
 export function listFiles(path?: string): Promise<FilesListResponse> {

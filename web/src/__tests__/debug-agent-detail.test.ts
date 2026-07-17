@@ -24,11 +24,11 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
     api.getAgentConversation.mockResolvedValue({
-      session: { id: 'session-a', role: 'executor', status: 'active', goal_card_id: 'project', card_id: 'project', started_at: '2026-01-01T00:00:00Z', completed_at: null, model: 'test' },
+      session: { id: 'executor:project', role: 'executor', status: 'active', goal_card_id: 'project', card_id: 'project', started_at: '2026-01-01T00:00:00Z', completed_at: null, model: 'test' },
       entries: [],
       activity_status: { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:00Z' },
     });
-    api.getAgentLlmExchange.mockResolvedValue({ exchange: null });
+    api.getAgentLlmExchange.mockResolvedValue({ sessionId: 'executor:project', exchange: null });
   });
 
   it('claims, subscribes, then fetches and unregisters before token clear', async () => {
@@ -43,10 +43,10 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     const unregister = vi.fn(() => order.push('unregister'));
     live.openConversation.mockImplementation(() => { order.push('subscribe'); return unregister; });
 
-    const wrapper = mount(DebugAgentDetail, { props: { sessionId: 'session-a', kind: 'conversation' }, global: { stubs: { ConversationTimeline: true, ViewState: true, StatusBanner: true } } });
+    const wrapper = mount(DebugAgentDetail, { props: { sessionId: 'executor:project', kind: 'conversation' }, global: { stubs: { ConversationTimeline: true, ViewState: true, StatusBanner: true } } });
     await flushPromises();
     expect(order.slice(0, 3)).toEqual(['begin', 'subscribe', 'fetch']);
-    expect(live.openConversation).toHaveBeenCalledWith('session-a', expect.any(Function));
+    expect(live.openConversation).toHaveBeenCalledWith('executor:project', expect.any(Function));
 
     const callback = live.openConversation.mock.calls[0][1] as () => Promise<void>;
     await callback();
@@ -59,7 +59,7 @@ describe('DebugAgentDetail keyed lifecycle', () => {
   it('owns exchange selection independently and renders accepted empty', async () => {
     const store = useAgentStore();
     const clear = vi.spyOn(store, 'clearLlmExchange');
-    const wrapper = mount(DebugAgentDetail, { props: { sessionId: 'session-a', kind: 'llmExchange' }, global: { stubs: { CodeBlock: true, ViewState: false, StatusBanner: true } } });
+    const wrapper = mount(DebugAgentDetail, { props: { sessionId: 'executor:project', kind: 'llmExchange' }, global: { stubs: { CodeBlock: true, ViewState: false, StatusBanner: true } } });
     await flushPromises();
     expect(live.openConversation).not.toHaveBeenCalled();
     expect(api.getAgentLlmExchange).toHaveBeenCalledOnce();

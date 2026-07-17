@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { cardIdSegments } from '../schemas/card-id.js';
 
 export const SAIVAGE_RELATIVE_DIR = '.saivage';
 export const SAIVAGE_CARDS_RELATIVE_DIR = '.saivage/cards';
@@ -11,6 +12,17 @@ export function saivageRoot(projectRoot: string): string {
 export function saivageCardsRoot(projectRoot: string): string {
   return join(projectRoot, SAIVAGE_CARDS_RELATIVE_DIR);
 }
+
+export function cardNamespace(projectRoot: string, cardId: string): string {
+  let path = join(saivageCardsRoot(projectRoot), 'project');
+  for (const segment of cardIdSegments(cardId)) path = join(path, 'children', segment);
+  return path;
+}
+
+export function cardStreamFile(projectRoot: string, cardId: string): string { return join(cardNamespace(projectRoot, cardId), 'card.jsonl'); }
+export function cardRecordStreamFile(projectRoot: string, cardId: string, slot: 'brief' | 'status' | 'review'): string { return join(cardNamespace(projectRoot, cardId), `${slot}.jsonl`); }
+export function cardConversationFile(projectRoot: string, cardId: string, role: 'planner' | 'executor' | 'reviewer'): string { return join(cardNamespace(projectRoot, cardId), 'conversations', `${role}.jsonl`); }
+export function analystConversationFile(projectRoot: string): string { return join(saivageRoot(projectRoot), 'agents', 'conversations', 'analyst%3Aglobal.jsonl'); }
 
 export function saivageLogsRoot(projectRoot: string): string {
   return join(saivageRoot(projectRoot), 'logs');

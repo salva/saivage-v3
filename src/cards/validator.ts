@@ -82,11 +82,21 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
     childrenByParent.set(card.parent, children);
   }
   for (const [parentId, children] of childrenByParent.entries()) {
-    const positions = children.map((child) => child.position).sort((a, b) => a - b);
-    if (!positions.every((position, index) => position === index)) {
-      throw new CardServiceInvariantError(`Parent '${parentId}' has non-contiguous child positions: [${positions.join(',')}]; recovery hint: 'saivage init'.`);
-    }
+    const positions = children.map((child) => child.position);
+    if (new Set(positions).size !== positions.length) throw new CardServiceInvariantError(`Parent '${parentId}' has duplicate active child positions: [${positions.join(',')}].`);
   }
+
+  const visitedDependencies = new Set<string>();
+  const dependencyStack = new Set<string>();
+  const visitDependencies = (id: string): void => {
+    if (dependencyStack.has(id)) throw new CardServiceInvariantError(`Card dependency graph contains a cycle at '${id}'.`);
+    if (visitedDependencies.has(id)) return;
+    dependencyStack.add(id);
+    for (const dependency of byId.get(id)!.depends_on) visitDependencies(dependency);
+    dependencyStack.delete(id);
+    visitedDependencies.add(id);
+  };
+  for (const card of cards) visitDependencies(card.id);
 
   return {
     depthById,

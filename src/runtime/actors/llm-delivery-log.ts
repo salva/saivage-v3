@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { agentMessageSchema } from '../../schemas/index.js';
-import type { AgentMessage } from '../../schemas/index.js';
+import type { AgentMessage, ConversationSessionId } from '../../schemas/index.js';
 import type { LlmCompleteResult, ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
-import type { LlmInvocationInput } from './llm-invocation.js';
+import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
 import { readConversationMessages } from './conversation-session.js';
 import { appendConversationBatch, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
@@ -18,7 +18,7 @@ export {
 } from '../../schemas/message-identity.js';
 
 export interface ToolSettlementRecord {
-  session_id: string;
+  session_id: ConversationSessionId;
   source_input_id: string;
   tool_call_id: string;
   tool_name: string;
@@ -40,7 +40,7 @@ export interface LoggedToolCall {
   args: unknown;
 }
 
-export function appendLlmTurnStarted(conversations: ConversationFileContext, input: LlmInvocationInput, options: { includeSystemPrompt?: boolean } = {}): AgentMessage[] {
+export function appendLlmTurnStarted(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, options: { includeSystemPrompt?: boolean } = {}): AgentMessage[] {
   const messages: AgentMessage[] = [];
   if (options.includeSystemPrompt ?? true) {
     messages.push(agentMessageSchema.parse({
@@ -70,7 +70,7 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
   return messages;
 }
 
-export function appendLlmTurnFinished(conversations: ConversationFileContext, input: LlmInvocationInput, result: LlmCompleteResult): void {
+export function appendLlmTurnFinished(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, result: LlmCompleteResult): void {
   if (result.kind === 'message') {
     appendLlmTurnMessage(conversations, input, result.content);
     return;
@@ -80,13 +80,13 @@ export function appendLlmTurnFinished(conversations: ConversationFileContext, in
   });
 }
 
-export function appendLlmTurnMessage(conversations: ConversationFileContext, input: LlmInvocationInput, content: string): AgentMessage {
+export function appendLlmTurnMessage(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, content: string): AgentMessage {
   const message = assistantMessage(input, content, new Date().toISOString());
   appendOne(conversations, message);
   return message;
 }
 
-function assistantMessage(input: LlmInvocationInput, content: string, timestamp: string): AgentMessage {
+function assistantMessage(input: CanonicalLlmInvocationInput, content: string, timestamp: string): AgentMessage {
   return agentMessageSchema.parse({
       id: `${input.inputId}:message`,
       session_id: input.sessionId,
@@ -100,7 +100,7 @@ function assistantMessage(input: LlmInvocationInput, content: string, timestamp:
     });
 }
 
-function providerPrivateResponsesMessage(input: LlmInvocationInput, projectionMessageId: string, privateContext: ProviderPrivateContext): AgentMessage {
+function providerPrivateResponsesMessage(input: CanonicalLlmInvocationInput, projectionMessageId: string, privateContext: ProviderPrivateContext): AgentMessage {
   if (privateContext.kind !== 'openai_responses') throw new Error(`Unsupported provider private context kind '${privateContext.kind}'.`);
   if (privateContext.source_input_id !== input.inputId) throw new Error(`Provider private context source_input_id '${privateContext.source_input_id}' does not match input '${input.inputId}'.`);
   return agentMessageSchema.parse({
@@ -116,7 +116,7 @@ function providerPrivateResponsesMessage(input: LlmInvocationInput, projectionMe
   });
 }
 
-export function appendLlmTurnMessageBatch(conversations: ConversationFileContext, input: LlmInvocationInput, content: string, privateContext?: ProviderPrivateContext): AgentMessage {
+export function appendLlmTurnMessageBatch(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, content: string, privateContext?: ProviderPrivateContext): AgentMessage {
   if (!privateContext) return appendLlmTurnMessage(conversations, input, content);
   const visible = assistantMessage(input, content, new Date().toISOString());
   const privateRow = providerPrivateResponsesMessage(input, visible.id, privateContext);
@@ -126,7 +126,7 @@ export function appendLlmTurnMessageBatch(conversations: ConversationFileContext
   return visible;
 }
 
-export function appendLlmTurnError(conversations: ConversationFileContext, input: LlmInvocationInput, error: string): AgentMessage {
+export function appendLlmTurnError(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, error: string): AgentMessage {
   const message = agentMessageSchema.parse({
     id: `${input.inputId}:error`,
     session_id: input.sessionId,
@@ -149,7 +149,7 @@ export function appendToolResult(conversations: ConversationFileContext, record:
   return Object.assign(parsed, { message });
 }
 
-export function readLoggedToolCall(projectRoot: string, sessionId: string, agentId: string, sourceInputId: string, toolCallId: string): LoggedToolCall {
+export function readLoggedToolCall(projectRoot: string, sessionId: ConversationSessionId, agentId: string, sourceInputId: string, toolCallId: string): LoggedToolCall {
   const matches = readConversationMessages(projectRoot, sessionId)
     .physicalRows
     .filter((message) => message.session_id === sessionId && message.kind === 'tool_call' && message.id === `${sourceInputId}:tool-call:${toolCallId}` && message.tool_call_id === toolCallId);
@@ -165,7 +165,7 @@ export function readLoggedToolCall(projectRoot: string, sessionId: string, agent
   }
 }
 
-export function appendTerminalProjectedToolResult(conversations: ConversationFileContext, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string }): AgentMessage {
+export function appendTerminalProjectedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string }): AgentMessage {
   return appendSyntheticToolResult(conversations, {
     sessionId: record.sessionId,
     sourceInputId: record.sourceInputId,
@@ -175,7 +175,7 @@ export function appendTerminalProjectedToolResult(conversations: ConversationFil
   });
 }
 
-export function toolCallAgentMessage(input: LlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {
+export function toolCallAgentMessage(input: CanonicalLlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {
   return agentMessageSchema.parse({
     id: `${input.inputId}:tool-call:${toolCall.id}`,
     session_id: input.sessionId,
@@ -191,7 +191,7 @@ export function toolCallAgentMessage(input: LlmInvocationInput, toolCall: ToolCa
   });
 }
 
-export function appendLlmTurnToolCallBatch(conversations: ConversationFileContext, input: LlmInvocationInput, toolCall: ToolCall, privateContext?: ProviderPrivateContext): AgentMessage {
+export function appendLlmTurnToolCallBatch(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, toolCall: ToolCall, privateContext?: ProviderPrivateContext): AgentMessage {
   if (!privateContext) return appendLlmTurnToolCall(conversations, input, toolCall);
   const visible = toolCallAgentMessage(input, toolCall, 0, new Date().toISOString());
   const privateRow = providerPrivateResponsesMessage(input, visible.id, privateContext);
@@ -217,7 +217,7 @@ export function toolResultAgentMessage(record: ToolSettlementRecord): AgentMessa
   });
 }
 
-function appendSyntheticToolResult(conversations: ConversationFileContext, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string; result: unknown }): AgentMessage {
+function appendSyntheticToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; result: unknown }): AgentMessage {
   const message = agentMessageSchema.parse({
     id: `${record.sourceInputId}:tool-result:${record.toolCallId}`,
     session_id: record.sessionId,
@@ -235,17 +235,17 @@ function appendSyntheticToolResult(conversations: ConversationFileContext, recor
   return message;
 }
 
-export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): AgentMessage {
+export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): AgentMessage {
   const payload: SyntheticFailedToolResultPayload = { success: false, error: record.error };
   if (record.data !== undefined) payload.data = record.data;
   return appendSyntheticToolResult(conversations, { ...record, result: payload });
 }
 
-export function appendLlmTurnToolCall(conversations: ConversationFileContext, input: LlmInvocationInput, toolCall: ToolCall): AgentMessage {
+export function appendLlmTurnToolCall(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, toolCall: ToolCall): AgentMessage {
   return appendToolCallMessage(conversations, input, toolCall, 0);
 }
 
-function appendToolCallMessage(conversations: ConversationFileContext, input: LlmInvocationInput, toolCall: ToolCall, index: number): AgentMessage {
+function appendToolCallMessage(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, toolCall: ToolCall, index: number): AgentMessage {
   const message = toolCallAgentMessage(input, toolCall, index);
   appendOne(conversations, message);
   return message;
@@ -267,7 +267,7 @@ function toolCallAgentContent(toolCall: ToolCall): unknown {
   };
 }
 
-export function appendModelRepairMessage(conversations: ConversationFileContext, input: LlmInvocationInput, content: string): AgentMessage {
+export function appendModelRepairMessage(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, content: string): AgentMessage {
   const message = agentMessageSchema.parse({
     id: `${input.inputId}:repair`,
     session_id: input.sessionId,

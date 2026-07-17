@@ -15,7 +15,7 @@ import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/age
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 
 const roots: string[] = [];
-const CHILD = '11111111-1111-4111-8111-111111111111';
+const CHILD = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { result, provider_exchanges: [] }; }
@@ -28,8 +28,8 @@ describe('reviewer pending-notification deferral and semantic currentness', () =
       const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-review-deferral-'));
       roots.push(projectRoot);
       initProjectTree(projectRoot);
-      const store = new CardService(projectRoot, undefined, undefined, () => CHILD);
-      const child = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+      const store = new CardService(projectRoot, undefined, undefined, () => CHILD.slice('card-'.length));
+      const child = store.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
       store.setStatus(child.id, 'running');
       store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'child done' }, error: null, completed_at: '2026-07-15T00:00:00.000Z' } });
       const preexisting = store.openRecord('project', 'review.md');
@@ -78,8 +78,8 @@ describe('reviewer pending-notification deferral and semantic currentness', () =
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-review-fingerprint-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const store = new CardService(projectRoot, undefined, undefined, () => CHILD);
-    const child = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const store = new CardService(projectRoot, undefined, undefined, () => CHILD.slice('card-'.length));
+    const child = store.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn: jest.fn() as never }, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
     const internal = actor as unknown as { captureReviewerCurrentness(input: { card: ReturnType<CardService['read']> }): unknown; reviewerCurrentnessStaleReason(input: { card: ReturnType<CardService['read']> }, snapshot: unknown): string | null };
     const input = { card: store.read('project') };

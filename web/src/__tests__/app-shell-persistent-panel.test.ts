@@ -111,4 +111,12 @@ describe('AppShell persistent analyst panel', () => {
 
     wrapper.unmount();
   });
+
+  it('does not treat invalid Agent route text as the singleton Analyst identity', async () => {
+    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
+    await router.push('/agents/analyst%3Aother');
+    await flushPromises();
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+    wrapper.unmount();
+  });
 });

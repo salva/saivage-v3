@@ -78,9 +78,9 @@ describe('conversation compaction validation', () => {
   });
 
   it('rejects a source row from another session without filtering or relabeling it', () => {
-    const wrong = { ...sourceRound('one')[0]!, session_id: 'planner:other' };
-    expect(() => validateConversationRows(SESSION_ID, [wrong])).toThrow(/planner:other.*planner:project/);
-    expect(wrong.session_id).toBe('planner:other');
+    const wrong: AgentMessage = { ...sourceRound('one')[0]!, session_id: 'reviewer:project' };
+    expect(() => validateConversationRows(SESSION_ID, [wrong])).toThrow(/reviewer:project.*planner:project/);
+    expect(wrong.session_id).toBe('reviewer:project');
   });
 
   it('rejects the superseded duplicate-identity payload shape', () => {

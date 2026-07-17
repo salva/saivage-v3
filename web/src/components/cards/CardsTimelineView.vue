@@ -15,7 +15,7 @@
         <div class="tl-content">
           <div class="tl-title">
             <span class="tl-type-icon">{{ typeIcon(event.card.type) }}</span>
-            <span v-if="event.card.display_path" class="tl-display-path">{{ event.card.display_path }}</span>
+            <span v-if="event.card.logical_path" class="tl-display-path">{{ event.card.logical_path }}</span>
             {{ event.card.title }}
           </div>
           <div class="tl-meta">

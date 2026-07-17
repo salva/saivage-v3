@@ -38,13 +38,13 @@ describe('Analyst continuation compaction safety', () => {
     const summary = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'fixed summary' }, provider_exchanges: [] }));
     const { runtime, projectRoot, summarizerProvider } = harness(primary, summary);
 
-    const first = await runtime.submit('global', { userContent: 'first operator question' });
+    const first = await runtime.submit({ userContent: 'first operator question' });
     expect(first.toolInvocations).toHaveLength(2);
     const firstPrepared = captured[0]!.preparedCompaction;
     expect(captured.slice(0, 3).every((input) => input.preparedCompaction === firstPrepared)).toBe(true);
     expect(captured.slice(0, 3).every((input) => input.systemPrompt === captured[0]!.systemPrompt && input.tools === captured[0]!.tools)).toBe(true);
 
-    await runtime.submit('global', { userContent: 'second operator question', workspaceContext: { view: 'cards', entityId: 'project', refinement: null } });
+    await runtime.submit({ userContent: 'second operator question', workspaceContext: { view: 'cards', entityId: 'project', refinement: null } });
     expect(captured[3]!.preparedCompaction).not.toBe(firstPrepared);
     const before = readConversation(projectRoot, 'analyst:global');
     const classified = classifyConversationRounds('analyst:global', before.sourceRows);
@@ -98,8 +98,8 @@ describe('Analyst continuation compaction safety', () => {
     });
     const summary = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }));
     const { runtime, projectRoot } = harness(primary, summary, projectProviderExchanges, false);
-    await runtime.submit('global', { userContent: `baseline round ${'x'.repeat(5000)}` });
-    const result = await runtime.submit('global', { userContent: 'perform one tool' });
+    await runtime.submit({ userContent: `baseline round ${'x'.repeat(5000)}` });
+    const result = await runtime.submit({ userContent: 'perform one tool' });
 
     expect(result.toolInvocations).toHaveLength(1);
     expect(calls).toHaveLength(4);
@@ -116,9 +116,9 @@ describe('Analyst continuation compaction safety', () => {
   it('publishes confirmed restart as an exact marker/user batch without model continuation', async () => {
     const primary = jest.fn(async (input: LlmInvocationInput) => ({ result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'restart-call', type: 'function' as const, function: { name: 'restart_server', arguments: '{}' } }] }, provider_exchanges: [] }));
     const { runtime, projectRoot, scheduleRestart } = harness(primary, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), true, true);
-    const requested = await runtime.submit('global', { userContent: 'restart when confirmed' });
+    const requested = await runtime.submit({ userContent: 'restart when confirmed' });
     expect(requested.restart).toEqual({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
-    const confirmed = await runtime.submit('global', { userContent: 'RESTART SERVER' });
+    const confirmed = await runtime.submit({ userContent: 'RESTART SERVER' });
     expect(confirmed.restart).toEqual({ status: 'scheduled' });
     expect(scheduleRestart).toHaveBeenCalledTimes(1);
     expect(primary).toHaveBeenCalledTimes(1);
@@ -135,7 +135,7 @@ describe('Analyst continuation compaction safety', () => {
     const summary = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
     const promptTemplates = { render: jest.fn(() => 'x'.repeat(200_000)) } as never;
     const { runtime, projectRoot } = harness(primary, summary, jest.fn(), true, false, promptTemplates);
-    await expect(runtime.submit('global', { userContent: 'must not be published' })).rejects.toThrow(/Prompt\/tool surface does not fit/);
+    await expect(runtime.submit({ userContent: 'must not be published' })).rejects.toThrow(/Prompt\/tool surface does not fit/);
     expect(primary).not.toHaveBeenCalled();
     expect(summary).not.toHaveBeenCalled();
     expect(readConversation(projectRoot, 'analyst:global').physicalRows).toEqual([]);
@@ -150,9 +150,9 @@ describe('Analyst continuation compaction safety', () => {
     });
     const primary = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
     const { runtime } = harness(primary, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), true, false, createTestPromptTemplateRegistry(), compactor as never);
-    const pending = runtime.submit('global', { userContent: 'cancel while compacting' });
+    const pending = runtime.submit({ userContent: 'cancel while compacting' });
     await started;
-    expect(runtime.cancel('global', 'operator cancelled')).toBe(true);
+    expect(runtime.cancel('operator cancelled')).toBe(true);
     await expect(pending).resolves.toMatchObject({ cancelled: true });
     expect(primary).not.toHaveBeenCalled();
     expect(compactor).toHaveBeenCalledTimes(1);

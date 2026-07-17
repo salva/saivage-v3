@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../agents/llm-contracts.js';
 import type { ProviderExchangeAttempt } from '../../../contracts/provider-exchange.js';
-import type { AgentMessage } from '../../../schemas/index.js';
+import type { AgentMessage, ConversationSessionId } from '../../../schemas/index.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import { validateConversationRows } from '../../../contracts/conversation-compaction.js';
 import { providerConversationProjection } from '../conversation-session.js';
@@ -24,7 +24,7 @@ export class SummarizerExchangeProjectionError extends Error {
   }
 }
 
-export async function summarizeRound(args: { sourceSessionId: string; round_id: string; rows: AgentMessage[]; summarizerProvider: SummarizerProviderPort; signal: AbortSignal }): Promise<string> {
+export async function summarizeRound(args: { sourceSessionId: ConversationSessionId; round_id: string; rows: AgentMessage[]; summarizerProvider: SummarizerProviderPort; signal: AbortSignal }): Promise<string> {
   if (args.rows.some((row) => row.kind === 'context_compaction')) throw new Error('summarizeRound must receive immutable non-metadata source rows only.');
   const providerConversation = providerConversationProjection(validateConversationRows(args.sourceSessionId, args.rows));
   const completion = await invokeSummaryTurn(buildSummaryInput(randomUUID(), `summary:${args.round_id}`, 'Summarize this Saivage conversation round as concise prose. Preserve initial and repair segment order. Do not include recoverable-evidence pointer sections.', providerConversation), args.summarizerProvider, args.signal);
@@ -34,10 +34,8 @@ export async function summarizeRound(args: { sourceSessionId: string; round_id: 
 
 export async function summarizeMerge(args: { entries: MergeSummaryInput[]; summarizerProvider: SummarizerProviderPort; signal: AbortSignal }): Promise<string> {
   if (args.entries.length === 0) throw new Error('summarizeMerge requires at least one summary.');
-  const now = new Date().toISOString();
-  const rows: AgentMessage[] = args.entries.map((entry, index) => ({ id: `summary-merge:${randomUUID()}`, session_id: 'summary:merge', role: 'user', kind: 'text', content: `Round ${entry.round_id}:\n${entry.summary_text}`, round_id: 'r-user-00000000000000000000000000000000', message_index: index, block_index: 0, timestamp: now }));
-  const providerConversation = providerConversationProjection(validateConversationRows('summary:merge', rows));
-  const completion = await invokeSummaryTurn(buildSummaryInput(randomUUID(), 'summary:merge', 'Merge these ordered Saivage round summaries into one concise historical summary. Do not include recoverable-evidence pointer sections.', providerConversation), args.summarizerProvider, args.signal);
+  const orderedSummaries = args.entries.map((entry) => `Round ${entry.round_id}:\n${entry.summary_text}`).join('\n\n');
+  const completion = await invokeSummaryTurn(buildSummaryInput(randomUUID(), 'summary:merge', `Merge these ordered Saivage round summaries into one concise historical summary. Do not include recoverable-evidence pointer sections.\n\n${orderedSummaries}`, { sourceSessionId: null, messages: [] }), args.summarizerProvider, args.signal);
   args.signal.throwIfAborted();
   return validateSummaryResult(completion.result, 'summarizeMerge');
 }

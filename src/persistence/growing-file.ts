@@ -1,7 +1,12 @@
 import { constants, closeSync, fsyncSync, ftruncateSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { z } from 'zod';
 
-import { replaceFile, type PublicationTemporaryIdFactory } from './replace-file.js';
+import { replaceFile, type PublicationTemporaryIdFactory, type ReplacementFileIo } from './replace-file.js';
+
+export interface GrowingFileIo {
+  read: typeof readFileSync; open: typeof openSync; write: typeof writeSync; fsync: typeof fsyncSync; truncate: typeof ftruncateSync; close: typeof closeSync;
+}
+const growingFileIo: GrowingFileIo = { read: readFileSync, open: openSync, write: writeSync, fsync: fsyncSync, truncate: ftruncateSync, close: closeSync };
 
 const envelopeSchema = z.object({
   version: z.literal(1),
@@ -35,17 +40,17 @@ export function parseGrowingFile<Row>(path: string, content: string, rowSchema: 
   return rows;
 }
 
-export function readCanonicalGrowingFile<Row>(path: string, rowSchema: z.ZodType<Row>): Row[] {
-  let bytes = readFileSync(path);
+export function readCanonicalGrowingFile<Row>(path: string, rowSchema: z.ZodType<Row>, io: GrowingFileIo = growingFileIo): Row[] {
+  let bytes = io.read(path);
   if (bytes.byteLength > 0 && bytes[bytes.byteLength - 1] !== 0x0a) {
     const finalNewline = bytes.lastIndexOf(0x0a);
     const canonicalLength = finalNewline < 0 ? 0 : finalNewline + 1;
-    const descriptor = openSync(path, constants.O_WRONLY);
+    const descriptor = io.open(path, constants.O_WRONLY);
     try {
-      ftruncateSync(descriptor, canonicalLength);
-      fsyncSync(descriptor);
+      io.truncate(descriptor, canonicalLength);
+      io.fsync(descriptor);
     } finally {
-      closeSync(descriptor);
+      io.close(descriptor);
     }
     bytes = bytes.subarray(0, canonicalLength);
   }
@@ -56,11 +61,12 @@ export function publishFirstEnvelope(
   target: string,
   bytes: Buffer,
   publicationTemporaryId?: PublicationTemporaryIdFactory,
+  replacementIo?: ReplacementFileIo,
 ): void {
   try { closeSync(openSync(target, constants.O_RDONLY)); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      replaceFile(target, bytes, publicationTemporaryId);
+      replaceFile(target, bytes, publicationTemporaryId, replacementIo);
       return;
     }
     throw error;
@@ -71,10 +77,11 @@ export function publishFirstEnvelope(
 export function appendEnvelope(
   target: string,
   bytes: Buffer,
+  io: GrowingFileIo = growingFileIo,
 ): void {
   let fd: number;
   try {
-    fd = openSync(target, constants.O_WRONLY | constants.O_APPEND);
+    fd = io.open(target, constants.O_WRONLY | constants.O_APPEND);
   } catch (error) {
     throw error;
   }
@@ -83,16 +90,16 @@ export function appendEnvelope(
   try {
     let offset = 0;
     while (offset < bytes.byteLength) {
-      const written = writeSync(fd, bytes, offset, bytes.byteLength - offset);
+      const written = io.write(fd, bytes, offset, bytes.byteLength - offset);
       if (written === 0) throw new Error(`Growing-file append made no progress at '${target}'.`);
       offset += written;
     }
-    fsyncSync(fd);
+    io.fsync(fd);
   } catch (error) {
     failure = error;
   }
   try {
-    closeSync(fd);
+    io.close(fd);
   } catch (error) {
     failure ??= error;
   }

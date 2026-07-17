@@ -86,8 +86,8 @@ describe('SyncHub semantic hints', () => {
       if (source === 'card-index') {
         root = mkdtempSync(join(tmpdir(), 'saivage-sync-card-index-'));
         initProjectTree(root);
-        const cards = new CardService(root, undefined, changes, () => '11111111-1111-4111-8111-111111111111');
-        cards.create({ type: 'code', parent: 'project', depth: 1, title: 'sync index', brief: 'sync', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+        const cards = new CardService(root, undefined, changes, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+        cards.create({ type: 'code', parent: 'project', title: 'sync index', brief: 'sync', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       } else {
         const currentness = new ActiveCardLeaf(() => changes.runtimeChanged());
         currentness.setChain(['project']);

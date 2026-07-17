@@ -1,12 +1,11 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { validateConversationRows, type ValidatedConversation } from '../contracts/conversation-compaction.js';
-import { agentMessageSchema, type AgentMessage } from '../schemas/index.js';
-import { readCanonicalGrowingFile, serializeGrowingEnvelope, appendEnvelope, publishFirstEnvelope } from './growing-file.js';
+import { agentMessageSchema, parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../schemas/index.js';
+import { readCanonicalGrowingFile, serializeGrowingEnvelope, appendEnvelope, publishFirstEnvelope, type GrowingFileIo } from './growing-file.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
-import { conversationFile, parseConversationSessionId } from '../runtime/actors/conversation-inventory.js';
+import { conversationFile } from '../runtime/actors/conversation-inventory.js';
 import { listCards } from './card-files.js';
 
 export interface ConversationFileContext { readonly projectRoot: string; readonly changes?: ReadModelChanges }
@@ -16,11 +15,11 @@ function readExact(path: string): string | null {
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
 }
 
-export function probeConversation(projectRoot: string, sessionId: string): boolean {
+export function probeConversation(projectRoot: string, sessionId: ConversationSessionId): boolean {
   return readExact(conversationFile(projectRoot, sessionId)) !== null;
 }
 
-export function readConversation(projectRoot: string, sessionId: string): ValidatedConversation {
+export function readConversation(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation {
   const path = conversationFile(projectRoot, sessionId);
   let rows: AgentMessage[];
   try { rows = readCanonicalGrowingFile(path, agentMessageSchema); }
@@ -29,26 +28,13 @@ export function readConversation(projectRoot: string, sessionId: string): Valida
   catch (error) { throw new Error(`Conversation '${sessionId}' is invalid: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
-export function listConversationSessionIds(projectRoot: string): string[] {
-  const roots = [
-    join(projectRoot, '.saivage', 'agents', 'conversations'),
-    ...listCards(projectRoot).map((card) => join(projectRoot, '.saivage', 'cards', card.id, 'conversations')),
-  ];
-  const sessions: string[] = [];
-  for (const root of roots) {
-    let entries: string[];
-    try { entries = readdirSync(root); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
-    for (const encoded of entries) {
-      let sessionId: string;
-      try { sessionId = decodeURIComponent(encoded); } catch { continue; }
-      if (encodeURIComponent(sessionId) !== encoded) continue;
-      try { parseConversationSessionId(sessionId); } catch { continue; }
-      if (probeConversation(projectRoot, sessionId)) sessions.push(sessionId);
-    }
+export function listConversationSessionIds(projectRoot: string): ConversationSessionId[] {
+  const candidates: ConversationSessionId[] = ['analyst:global'];
+  for (const card of listCards(projectRoot)) {
+    if (card.type === 'project' || card.type === 'goal') candidates.push(parseConversationSessionId(`planner:${card.id}`), parseConversationSessionId(`reviewer:${card.id}`));
+    else candidates.push(parseConversationSessionId(`executor:${card.id}`));
   }
-  if (new Set(sessions).size !== sessions.length) throw new Error('A canonical conversation session id occurs under more than one active root.');
-  return sessions.sort();
+  return candidates.filter((sessionId) => { if (!probeConversation(projectRoot, sessionId)) return false; readConversation(projectRoot, sessionId); return true; }).sort();
 }
 
 function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] {
@@ -69,7 +55,7 @@ export function publishConversationFirstBatch(projectRoot: string, messages: rea
   changes?.agentsChanged();
 }
 
-export function appendConversationBatch(projectRoot: string, messages: readonly AgentMessage[], changes?: ReadModelChanges, publicationTemporaryId?: PublicationTemporaryIdFactory): void {
+export function appendConversationBatch(projectRoot: string, messages: readonly AgentMessage[], changes?: ReadModelChanges, publicationTemporaryId?: PublicationTemporaryIdFactory, io?: GrowingFileIo): void {
   const parsed = validateBatch(messages);
   const sessionId = parsed[0]!.session_id;
   const current = readConversation(projectRoot, sessionId);
@@ -79,7 +65,7 @@ export function appendConversationBatch(projectRoot: string, messages: readonly 
   validateConversationRows(sessionId, [...current.physicalRows, ...parsed]);
   if (current.physicalRows.length === 0) publishConversationFirstBatch(projectRoot, parsed, changes, publicationTemporaryId);
   else {
-    appendEnvelope(conversationFile(projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema));
+    appendEnvelope(conversationFile(projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), io);
     changes?.conversationChanged(sessionId);
     changes?.agentsChanged();
   }

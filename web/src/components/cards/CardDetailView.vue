@@ -8,7 +8,7 @@
       <EntityHeader
         data-testid="card-detail-highlight"
         :title="currentCard.title"
-        :subtitle="currentCard.display_path"
+        :subtitle="currentCard.logical_path"
         :type="labelForCardType(currentCard.type)"
         :status="cardUiStatus(currentCard.status, reason)"
       >
@@ -70,7 +70,7 @@
         <summary class="disclosure-summary">Metadata</summary>
         <div class="meta-grid">
           <div class="meta-item"><span class="meta-key">ID</span><span class="meta-value mono">{{ currentCard.id }}</span></div>
-          <div v-if="currentCard.display_path" class="meta-item"><span class="meta-key">Path</span><span class="meta-value mono">{{ currentCard.display_path }}</span></div>
+          <div v-if="currentCard.logical_path" class="meta-item"><span class="meta-key">Path</span><span class="meta-value mono">{{ currentCard.logical_path }}</span></div>
           <div class="meta-item"><span class="meta-key">Created</span><span class="meta-value" :title="timestampTitle(currentCard.created_at)">{{ fmtDate(currentCard.created_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value" :title="timestampTitle(currentCard.updated_at)">{{ fmtDate(currentCard.updated_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Type</span><span class="meta-value">{{ labelForCardType(currentCard.type) }}</span></div>

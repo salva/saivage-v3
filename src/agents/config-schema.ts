@@ -134,20 +134,6 @@ const securitySectionSchema = z.object({
   maxScanLengthBytes: z.number().int().positive().default(102400),
 });
 
-// Telegram section
-const telegramSectionSchema = z.object({
-  botToken: z.string().optional(),
-  allowedUserIds: z.array(z.number().int()).optional(),
-  notificationChatIds: z.array(z.number().int().safe().refine((value) => value !== 0, { message: 'Chat id must be a non-zero safe integer' })).default([]),
-});
-
-// Notifications section
-export const notificationChannelSchema = z.enum(['web', 'telegram']);
-
-const notificationsSectionSchema = z.object({
-  channels: z.array(notificationChannelSchema).default(['web']),
-}).strict();
-
 export const candidateSchema = z.object({
   provider: z.string().min(1),
   account: z.union([z.string().min(1), z.literal(null)]),
@@ -199,8 +185,6 @@ export const saivageConfigSchema = z.object({
   server: serverSectionSchema.default({}),
   runtime: runtimeSectionSchema.default({}),
   security: securitySectionSchema.default({}),
-  telegram: telegramSectionSchema.optional(),
-  notifications: notificationsSectionSchema.optional(),
   compaction: compactionSectionSchema,
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
 }).strict().superRefine((value, ctx) => {

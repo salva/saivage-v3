@@ -1,4 +1,4 @@
-import type { AgentMessage } from '../schemas/index.js';
+import type { AgentMessage, ConversationSessionId } from '../schemas/index.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/message-identity.js';
 import type { ProviderConversationProjection } from './llm-contracts.js';
@@ -15,7 +15,7 @@ export interface OpenAIResponsesPrivateRowContent {
 type ResponsesInputItem = Record<string, unknown>;
 
 export function responsesInputFromProviderConversation(providerConversation: ProviderConversationProjection): ResponsesInputItem[] {
-  validateResponsesPairs(providerConversation.sourceSessionId, providerConversation.messages);
+  if (providerConversation.sourceSessionId !== null) validateResponsesPairs(providerConversation.sourceSessionId, providerConversation.messages);
   const input: ResponsesInputItem[] = [];
   const privateByProjection = new Map<string, OpenAIResponsesPrivateRowContent>();
   for (const message of providerConversation.messages) {
@@ -79,7 +79,7 @@ export function parsePrivateContent(message: AgentMessage): OpenAIResponsesPriva
   return parsed;
 }
 
-export function validateResponsesPairs(sourceSessionId: string, messages: AgentMessage[]): void {
+export function validateResponsesPairs(sourceSessionId: ConversationSessionId, messages: AgentMessage[]): void {
   const privateById = new Map<string, { message: AgentMessage; content: OpenAIResponsesPrivateRowContent }>();
   const visibleByInput = new Map<string, AgentMessage[]>();
   const privateByInput = new Map<string, AgentMessage[]>();

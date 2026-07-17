@@ -3,7 +3,7 @@ import type { ActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
 import type { AgentMessage } from '../../schemas/index.js';
-import type { LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
+import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
 import { appendUserContextMessage, readConversationMessages, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
@@ -35,9 +35,9 @@ export interface CompactorPort {
 }
 
 type PersistedProviderCompletion =
-  | { kind: 'message'; input: LlmInvocationInput; completion: ProviderTurnCompletion; appended: ReturnType<typeof appendLlmTurnMessageBatch> }
-  | { kind: 'tool_call'; input: LlmInvocationInput; completion: ProviderTurnCompletion; appended: ReturnType<typeof appendLlmTurnToolCallBatch> }
-  | { kind: 'invalid_tool_calls'; input: LlmInvocationInput; completion: ProviderTurnCompletion; error: string; appended: ReturnType<typeof appendLlmTurnError> };
+  | { kind: 'message'; input: CanonicalLlmInvocationInput; completion: ProviderTurnCompletion; appended: ReturnType<typeof appendLlmTurnMessageBatch> }
+  | { kind: 'tool_call'; input: CanonicalLlmInvocationInput; completion: ProviderTurnCompletion; appended: ReturnType<typeof appendLlmTurnToolCallBatch> }
+  | { kind: 'invalid_tool_calls'; input: CanonicalLlmInvocationInput; completion: ProviderTurnCompletion; error: string; appended: ReturnType<typeof appendLlmTurnError> };
 
 type WaitingToolCall = {
   sourceInputId: string;
@@ -47,7 +47,7 @@ type WaitingToolCall = {
 };
 
 type TurnStateUpdate = {
-  input: LlmInvocationInput;
+  input: CanonicalLlmInvocationInput;
   waitingToolCall: WaitingToolCall | null;
 };
 
@@ -67,7 +67,7 @@ export class ConversationLLMActor extends BaseActor {
   readonly agentId: string;
   readonly provider: LLMProviderPort;
   readonly gate: RuntimeGate;
-  input: LlmInvocationInput | null = null;
+  input: CanonicalLlmInvocationInput | null = null;
   outcome: LLMActorOutcome | null = null;
   waitingToolCall: WaitingToolCall | null = null;
   deliveredToolCallIds = new Set<string>();
@@ -285,7 +285,7 @@ export class ConversationLLMActor extends BaseActor {
     }
   }
 
-  private persistProviderCompletion(input: LlmInvocationInput, completion: ProviderTurnCompletion): PersistedProviderCompletion {
+  private persistProviderCompletion(input: CanonicalLlmInvocationInput, completion: ProviderTurnCompletion): PersistedProviderCompletion {
     const result = completion.result;
     if (result.kind === 'message') {
       const appended = appendLlmTurnMessageBatch(this.conversations, input, result.content, completion.provider_private_context);
@@ -338,12 +338,12 @@ export class ConversationLLMActor extends BaseActor {
     this.sendEvent('tool_call');
   }
 
-  private completeWithError(input: LlmInvocationInput, error: string): void {
+  private completeWithError(input: CanonicalLlmInvocationInput, error: string): void {
     this.conversationPublisher?.entryAppended(appendLlmTurnError(this.conversations, input, error));
     this.settleWithError(error);
   }
 
-  private completeProviderFailure(input: LlmInvocationInput, error: unknown): void {
+  private completeProviderFailure(input: CanonicalLlmInvocationInput, error: unknown): void {
     if (!(error instanceof ProviderTurnFailure)) throw new Error(`Provider boundary for '${input.inputId}' failed without ProviderTurnFailure metadata.`);
     if (error.failure_phase === 'provider_attempt' && error.provider_exchanges.length === 0) throw new Error(`Provider attempt for '${input.inputId}' failed without provider_exchange envelope.`);
     const message = error.originalFailure instanceof Error ? error.originalFailure.message : error.message;
@@ -353,7 +353,7 @@ export class ConversationLLMActor extends BaseActor {
     this.settleWithError(message);
   }
 
-  private projectProviderExchanges(input: LlmInvocationInput, attempts: ProviderExchangeAttempt[], outputIds: string[]): void {
+  private projectProviderExchanges(input: CanonicalLlmInvocationInput, attempts: ProviderExchangeAttempt[], outputIds: string[]): void {
     if (attempts.length === 0) return;
     const project = this.provider.projectProviderExchanges;
     if (!project) throw new Error(`Provider for '${input.inputId}' returned provider exchanges without a projection capability.`);
@@ -421,7 +421,7 @@ export class ConversationLLMActor extends BaseActor {
     return promise;
   }
 
-  private startProviderTurn(input: LlmInvocationInput, options: { resetDeliveredToolCalls: boolean; signal?: AbortSignal }): Promise<LLMActorOutcome> {
+  private startProviderTurn(input: CanonicalLlmInvocationInput, options: { resetDeliveredToolCalls: boolean; signal?: AbortSignal }): Promise<LLMActorOutcome> {
     if (options.resetDeliveredToolCalls) this.deliveredToolCallIds.clear();
     this.input = input;
     this.outcome = null;
@@ -449,7 +449,7 @@ export class ConversationLLMActor extends BaseActor {
     this.deliveredToolCallIds.add(toolCallId);
   }
 
-  private appendContinuationContext(input: LlmInvocationInput, continuationInputId: string, continuationContextHook?: LLMToolContinuationContextHook): void {
+  private appendContinuationContext(input: CanonicalLlmInvocationInput, continuationInputId: string, continuationContextHook?: LLMToolContinuationContextHook): void {
     const continuation = continuationContextHook?.(continuationInputId);
     (continuation?.messages ?? []).forEach((message, index) => {
       const result = appendUserContextMessage(this.conversations, input.sessionId, continuationInputId, 'continuation_hook', index, message);
@@ -458,11 +458,11 @@ export class ConversationLLMActor extends BaseActor {
     continuation?.afterAppend?.();
   }
 
-  private assertPersistenceOwnership(input: LlmInvocationInput): void {
+  private assertPersistenceOwnership(input: CanonicalLlmInvocationInput): void {
     if (input.sessionId !== input.providerConversation.sourceSessionId) throw new Error(`Persisted LLM invocation '${input.inputId}' session '${input.sessionId}' does not match provider conversation source session '${input.providerConversation.sourceSessionId}'.`);
   }
 
-  private requireInput(): LlmInvocationInput {
+  private requireInput(): CanonicalLlmInvocationInput {
     if (!this.input) throw new Error(`LLMActor '${this.agentId}' has no input.`);
     return this.input;
   }
@@ -486,13 +486,13 @@ export class ConversationLLMActor extends BaseActor {
     return this.#currentInvocationSignal?.aborted && isRuntimeStoppedInterruption(invocationReason) ? invocationReason : null;
   }
 
-  protected onTurnStarting(_input: LlmInvocationInput): void {}
+  protected onTurnStarting(_input: CanonicalLlmInvocationInput): void {}
 
   protected onTurnStateUpdated(_params: TurnStateUpdate): void {}
 
   protected onTurnSettled(): void {}
 
-  protected async onBeforeProviderCall(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmInvocationInput | void> {
+  protected async onBeforeProviderCall(input: CanonicalLlmInvocationInput, signal: AbortSignal): Promise<CanonicalLlmInvocationInput | void> {
     if (!input.preparedCompaction) throw new Error(`LLMActor '${this.agentId}' admitted an invocation without prepared compaction.`);
     if (this.state() !== 'calling_provider') throw new Error(`LLMActor '${this.agentId}' cannot compact from state '${this.state()}'.`);
     if (!this.compactor.shouldCompact(input)) return;
@@ -503,7 +503,7 @@ export class ConversationLLMActor extends BaseActor {
     return { ...input, providerConversation: compacted.providerConversation };
   }
 
-  protected async callProvider(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
+  protected async callProvider(input: CanonicalLlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
     let firstFailure: AuthoritativeContextFailure;
     try {
       return await this.provider.completeTurn(input, signal);

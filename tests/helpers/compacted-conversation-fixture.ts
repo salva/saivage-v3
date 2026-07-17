@@ -1,9 +1,9 @@
 import { hashConversationRows } from '../../src/contracts/conversation-compaction.js';
-import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage } from '../../src/schemas/index.js';
+import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 
 const TIMESTAMP = '2026-07-17T00:00:00.000Z';
 
-export function compactedConversationFixture(sessionId: string, includePrivatePair = false): {
+export function compactedConversationFixture(sessionId: ConversationSessionId, includePrivatePair = false): {
   rows: AgentMessage[];
   c1CoveredIds: string[];
   c1Summary: string;
@@ -21,7 +21,7 @@ export function compactedConversationFixture(sessionId: string, includePrivatePa
   return { rows: [...first, c1, ...second, c2, suffix, ...pair], c1CoveredIds: first.map((row) => row.id), c1Summary, c2Summary, privatePairIds: pair.map((row) => row.id) };
 }
 
-function round(sessionId: string, name: string, index: number): AgentMessage[] {
+function round(sessionId: ConversationSessionId, name: string, index: number): AgentMessage[] {
   const roundId = `r-user-${String(index).padStart(32, '0')}`;
   const role = sessionId.slice(0, sessionId.indexOf(':'));
   const marker = role === 'analyst'
@@ -33,7 +33,7 @@ function round(sessionId: string, name: string, index: number): AgentMessage[] {
   ];
 }
 
-function compaction(sessionId: string, id: string, rounds: AgentMessage[][], summaryText: string, index: number): AgentMessage {
+function compaction(sessionId: ConversationSessionId, id: string, rounds: AgentMessage[][], summaryText: string, index: number): AgentMessage {
   const payload = contextCompactionContentSchema.parse({
     boundary: 'round',
     retained_static_message_ids: [],
@@ -49,7 +49,7 @@ function compaction(sessionId: string, id: string, rounds: AgentMessage[][], sum
   return agentMessageSchema.parse({ id, session_id: sessionId, role: 'system', kind: 'context_compaction', content: canonicalJson(payload), round_id: `r-compacted-${String(index).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp: TIMESTAMP });
 }
 
-function privatePair(sessionId: string): AgentMessage[] {
+function privatePair(sessionId: ConversationSessionId): AgentMessage[] {
   const sourceInputId = '11111111-1111-4111-8111-111111111111';
   const privateId = 'private-uncovered';
   const visibleId = 'visible-uncovered';

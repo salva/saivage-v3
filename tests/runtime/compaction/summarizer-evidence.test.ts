@@ -8,7 +8,7 @@ import { ProviderTurnFailure, type LlmCompleteResult } from '../../../src/agents
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
 import { readAppLogEntries } from '../../../src/persistence/app-log.js';
-import { agentMessageSchema } from '../../../src/schemas/index.js';
+import { agentMessageSchema, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { summarizeMerge, summarizeRound, SummarizerExchangeProjectionError, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { testAppLogs } from '../../helpers/app-logs.js';
@@ -113,7 +113,7 @@ function evidenceProvider(complete: (input: LlmInvocationInput) => ReturnType<Su
   return { root, provider, project };
 }
 
-function summaryRoundArgs(summarizerProvider: SummarizerProviderPort) {
+function summaryRoundArgs(summarizerProvider: SummarizerProviderPort): { sourceSessionId: ConversationSessionId; round_id: string; rows: ReturnType<typeof sourceRow>[]; summarizerProvider: SummarizerProviderPort; signal: AbortSignal } {
   return { sourceSessionId: 'planner:project', round_id: 'round-1', rows: [sourceRow()], summarizerProvider, signal: new AbortController().signal };
 }
 

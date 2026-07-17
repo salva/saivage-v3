@@ -54,26 +54,17 @@ export function errorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-export function buildTree(cards: CardRecord[]): CardRecord[] {
-  const byId = new Map<string, CardRecord & { children?: CardRecord[] }>();
-  const roots: CardRecord[] = [];
+export interface CardTreeNode { card: CardRecord; childNodes: CardTreeNode[] }
 
+export function buildTree(cards: CardRecord[]): CardTreeNode[] {
+  const nodes = new Map(cards.map((card) => [card.id, { card, childNodes: [] as CardTreeNode[] }]));
+  const roots: CardTreeNode[] = [];
   for (const card of cards) {
-    const node = card as CardRecord & { children?: CardRecord[] };
-    node.children = [];
-    byId.set(card.id, node);
+    const node = nodes.get(card.id)!;
+    const parent = card.parent ? nodes.get(card.parent) : undefined;
+    if (parent) parent.childNodes.push(node);
+    else roots.push(node);
   }
-
-  for (const card of byId.values()) {
-    if (card.parent && byId.has(card.parent)) {
-      const parent = byId.get(card.parent)!;
-      if (!parent.children) parent.children = [];
-      parent.children.push(card);
-    } else {
-      roots.push(card);
-    }
-  }
-
   return roots;
 }
 
@@ -246,7 +237,7 @@ export const useCardStore = defineStore('cards', () => {
 
   const staleNotificationByCard = ref<Record<string, boolean>>({});
 
-  const orderedCardTree = computed<CardRecord[]>(() => buildTree(cards.value));
+  const orderedCardTree = computed<CardTreeNode[]>(() => buildTree(cards.value));
 
   const currentCardHasStaleWarning = computed(() => {
     const cardId = currentCard.value?.id;

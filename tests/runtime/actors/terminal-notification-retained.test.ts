@@ -18,7 +18,7 @@ import { readConversation } from '../../../src/persistence/conversation-file.js'
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
-const CARD = '11111111-1111-4111-8111-111111111111';
+const CARD = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
@@ -68,8 +68,8 @@ describe('retained terminal ordering and notification arbitration', () => {
 
   it('settles failed emit_result before notification context, removes exactly delivered entries, and parks continuation during Pause', async () => {
     const projectRoot = root();
-    const store = new CardService(projectRoot, undefined, undefined, () => CARD);
-    const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Code', brief: 'Implement.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const store = new CardService(projectRoot, undefined, undefined, () => CARD.slice('card-'.length));
+    const card = store.create({ type: 'code', parent: 'project', title: 'Code', brief: 'Implement.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     store.setStatus(card.id, 'running');
     const gate = new RuntimeGate();
     let releaseTerminal!: () => void;

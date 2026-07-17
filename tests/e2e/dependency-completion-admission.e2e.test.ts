@@ -57,15 +57,15 @@ describe('dependency-completion activation admission E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const ids = [
-      '11111111-1111-4111-8111-111111111111',
-      '22222222-2222-4222-8222-222222222222',
-      '33333333-3333-4333-8333-333333333333',
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      'bbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      'cccccccccccccccccccccccccccc',
     ];
     let identityIndex = 0;
     const cards = new CardService(projectRoot, undefined, undefined, () => ids[identityIndex++]!);
-    const parent = cards.create({ type: 'goal', parent: 'project', depth: 1, title: 'Parent', brief: 'Run dependency order', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const dependency = cards.create({ type: 'code', parent: parent.id, depth: 2, title: 'A', brief: 'Complete first', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const dependent = cards.create({ type: 'code', parent: parent.id, depth: 2, title: 'B', brief: 'Complete second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Run dependency order', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Complete first', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Complete second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id], related: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(parent.id, 'running');
 

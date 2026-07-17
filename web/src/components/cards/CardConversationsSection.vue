@@ -38,6 +38,7 @@ import SelectableRow from '../ui/SelectableRow.vue';
 import StatusBadge from '../ui/StatusBadge.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
+import type { ConversationSessionId } from '../../api/contracts';
 
 const props = defineProps<{ cardId: string }>();
 
@@ -60,7 +61,7 @@ function fmtDate(ts: string): string {
   return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : '';
 }
 
-function openSession(id: string): void {
+function openSession(id: ConversationSessionId): void {
   void router.push({ name: 'agent-detail', params: { id } });
 }
 

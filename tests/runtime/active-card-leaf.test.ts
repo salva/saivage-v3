@@ -8,11 +8,11 @@ describe('ActiveCardLeaf', () => {
     let leaf!: ActiveCardLeaf;
     leaf = new ActiveCardLeaf(() => snapshots.push(leaf.activeCardId()));
     leaf.setChain(['project']);
-    leaf.enterChild('project', '11111111-1111-4111-8111-111111111111');
-    leaf.resumeParent('11111111-1111-4111-8111-111111111111', 'project');
+    leaf.enterChild('project', 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    leaf.resumeParent('card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'project');
     leaf.clear();
     expect(leaf.activeCardId()).toBeNull();
-    expect(snapshots).toEqual(['project', '11111111-1111-4111-8111-111111111111', 'project', null]);
+    expect(snapshots).toEqual(['project', 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'project', null]);
   });
 
   it('is silent for the same leaf and fails before publication for invalid transitions', () => {
@@ -23,7 +23,7 @@ describe('ActiveCardLeaf', () => {
     expect(() => leaf.setChain(['wrong'])).toThrow('must begin at project');
     leaf.setChain(['project']);
     leaf.setChain(['project']);
-    expect(() => leaf.enterChild('22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333')).toThrow('not the current autonomous leaf');
+    expect(() => leaf.enterChild('card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'card-cccccccccccccccccccccccccccc')).toThrow('not the current autonomous leaf');
     expect(snapshots).toEqual(['project']);
   });
 
@@ -31,10 +31,10 @@ describe('ActiveCardLeaf', () => {
     const snapshots: Array<string | null> = [];
     let leaf!: ActiveCardLeaf;
     leaf = new ActiveCardLeaf(() => snapshots.push(leaf.activeCardId()));
-    leaf.setChain(['project', '11111111-1111-4111-8111-111111111111']);
-    leaf.setChain(['project', '22222222-2222-4222-8222-222222222222']);
+    leaf.setChain(['project', 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa']);
+    leaf.setChain(['project', 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb']);
     leaf.clear();
     expect(() => leaf.clear()).toThrow('no active leaf');
-    expect(snapshots).toEqual(['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', null]);
+    expect(snapshots).toEqual(['card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb', null]);
   });
 });

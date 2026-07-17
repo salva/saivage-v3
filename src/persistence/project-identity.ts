@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { projectConfigSchema, type ProjectConfig } from '../schemas/index.js';
@@ -30,6 +30,8 @@ export function projectIdentityDigest(project: Pick<ProjectConfig, 'id' | 'creat
 }
 
 export function createProjectIdentity(projectRoot: string, name: string, publicationTemporaryId?: PublicationTemporaryIdFactory): ProjectConfig {
+    const owner = join(projectRoot, '.saivage');
+    try { mkdirSync(owner); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; const stat = lstatSync(owner); if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Project state owner '${owner}' must be a real directory.`); }
     const path = join(projectRoot, '.saivage', 'project.json');
     if (readProjectIdentity(projectRoot)) throw new Error(`Project identity already exists at '${path}'.`);
     const stamp = new Date().toISOString();

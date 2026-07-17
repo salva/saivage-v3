@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { summarizeRound } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { summarizeMerge, summarizeRound } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { agentMessageSchema } from '../../../src/schemas/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 
@@ -19,5 +19,21 @@ describe('summarizer input identity boundary', () => {
     expect(captured.episodeContext).toEqual({ compaction: true });
     expect(captured.episodeContext).not.toHaveProperty('model_spec');
     expect(captured).not.toHaveProperty('preparedCompaction');
+  });
+
+  it('renders merge summaries directly without canonical messages', async () => {
+    let captured!: LlmInvocationInput;
+    await summarizeMerge({
+      entries: [{ round_id: 'one', summary_text: 'first' }, { round_id: 'two', summary_text: 'second' }],
+      summarizerProvider: {
+        completeTurn: jest.fn(async (input: LlmInvocationInput) => { captured = input; return { result: { kind: 'message' as const, content: 'merged' }, provider_exchanges: [] }; }),
+        projectProviderExchanges: jest.fn(),
+      },
+      signal: new AbortController().signal,
+    });
+    expect(captured.sessionId).toBe('summary:merge');
+    expect(captured.providerConversation.messages).toEqual([]);
+    expect(captured.systemPrompt).toContain('Round one:\nfirst');
+    expect(captured.systemPrompt).toContain('Round two:\nsecond');
   });
 });

@@ -93,7 +93,8 @@ describe('prepared compaction estimates', () => {
     expect(inputs[0]!.providerConversation.sourceSessionId).toBe('planner:project');
     expect(inputs[0]!.providerConversation.messages[0]).toMatchObject({ id: 'source', session_id: 'planner:project' });
     expect(inputs[0]!.inputId).not.toBe(inputs[0]!.providerConversation.messages[0]!.id);
-    expect(inputs[1]!.providerConversation.sourceSessionId).toBe('summary:merge');
+    expect(inputs[1]!.sessionId).toBe('summary:merge');
+    expect(inputs[1]!.providerConversation).toEqual({ sourceSessionId: null, messages: [] });
     for (const input of inputs) {
       expect(input.preparedCompaction).toBeUndefined();
       expect(input.modelParams.maxTokens).toBe(2000);
@@ -121,7 +122,7 @@ describe('prepared compaction estimates', () => {
   });
 
   it.each([
-    ['wrong source session', (rows: AgentMessage[]) => [{ ...rows[0]!, session_id: 'planner:other' }, rows[1]!]],
+    ['wrong source session', (rows: AgentMessage[]) => [{ ...rows[0]!, session_id: 'reviewer:project' }, rows[1]!]],
     ['missing private row', (rows: AgentMessage[]) => [rows[1]!]],
     ['missing visible row', (rows: AgentMessage[]) => [rows[0]!]],
     ['mismatched source input', (rows: AgentMessage[]) => [rows[0]!, { ...rows[1]!, provider_projection: { ...rows[1]!.provider_projection!, source_input_id: 'different-input' } }]],
@@ -142,8 +143,9 @@ describe('prepared compaction estimates', () => {
     await summarizeMerge({ entries: [{ round_id: 'old', summary_text: 'explicit prior summary' }], summarizerProvider: { completeTurn, projectProviderExchanges }, signal: new AbortController().signal });
     expect(completeTurn).toHaveBeenCalledTimes(1);
     const mergeInput = completeTurn.mock.calls[0]![0];
-    expect(JSON.stringify(mergeInput.providerConversation.messages)).toContain('explicit prior summary');
-    expect(JSON.stringify(mergeInput.providerConversation.messages)).not.toContain('context_compaction');
+    expect(mergeInput.systemPrompt).toContain('explicit prior summary');
+    expect(mergeInput.systemPrompt).not.toContain('context_compaction');
+    expect(mergeInput.providerConversation.messages).toEqual([]);
   });
 });
 
