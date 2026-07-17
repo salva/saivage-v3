@@ -202,30 +202,41 @@ This appendix is maintained as source-derived reference data for documentation d
 
 ### Agent tools
 
+The inventory lists every tool that each runtime role can potentially be offered by its composed providers and, for autonomous roles, terminal contract. Conditional gates still apply: in particular, Analyst `restart_server` is offered only when restart is available and destructive authorization allows it.
+
 <!-- saivage:agent-tools:start -->
 | Role | Tools | Source |
 |---|---|---|
-| `planner` | `cancel_card,create_card,queue_notification,reorder_child` | `src/tools/analyst-card-tools.ts:142` |
-| `executor` | `` | `src/tools/analyst-tool-registry.ts:55` |
-| `reviewer` | `` | `src/tools/analyst-tool-registry.ts:55` |
-| `analyst` | `cancel_card,create_card,delete_card,get_status,list_agent_sessions,list_processes_tool,mcp_reconcile,navigate_back,navigate_workspace,pause_runtime,queue_notification,read_agent_session,read_control_actions,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_server,resume_runtime,show_config,start_project,stop_project` | `src/tools/analyst-tool-registry.ts:64` |
+| `planner` | `activate_card,cancel_card,create_card,diff_card,edit,edit_card,emit_result,get_card,get_card_history_entry,get_tree,glob,grep,list_card_history,list_cards,queue_notification,read,reorder_child,webfetch,websearch,write` | `src/tools/role-invocation-surfaces.ts:40` |
+| `executor` | `apply_patch,diff_card,edit,emit_result,get_card_history_entry,glob,grep,kill_process,list_card_history,mcp_tool_call,read,run_command,skill,wait_process,webfetch,websearch,write` | `src/tools/role-invocation-surfaces.ts:42` |
+| `reviewer` | `diff_card,edit,emit_result,get_card_history_entry,glob,grep,list_card_history,mcp_tool_call,read,skill,webfetch,websearch,write` | `src/tools/role-invocation-surfaces.ts:41` |
+| `analyst` | `apply_patch,cancel_card,create_card,delete_card,diff_card,edit,get_card,get_card_history_entry,get_status,get_tree,glob,grep,kill_process,list_agent_sessions,list_card_history,list_cards,list_processes_tool,mcp_reconcile,mcp_tool_call,navigate_back,navigate_workspace,pause_runtime,queue_notification,read,read_agent_session,read_control_actions,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_server,resume_runtime,run_command,show_config,skill,start_project,stop_project,wait_process,webfetch,websearch,write` | `src/tools/role-invocation-surfaces.ts:43` |
 <!-- saivage:agent-tools:end -->
 
 ### Config schema
 
+Each row is one reachable fixed-field object occurrence rooted at `saivageConfigSchema`. Record value occurrences use `.entry`; reused schemas appear at every occurrence path.
+
 <!-- saivage:config-schema:start -->
 | Section | Fields | Source |
 |---|---|---|
-| `top-level` | `compaction,mcpServers,models,notifications,providers,runtime,security,server,telegram` | `src/agents/config-schema.ts:198` |
+| `top-level` | `compaction,mcpServers,models,notifications,providers,runtime,security,server,telegram` | `src/agents/config-schema.ts:191` |
 | `models` | `default,equivalents,failover,max_tokens,profiles,routing,temperature` | `src/agents/config-schema.ts:36` |
+| `models.profiles.entry` | `allowed,preferred` | `src/agents/config-schema.ts:15` |
 | `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority` | `src/agents/config-schema.ts:94` |
-| `providers.account` | `apiKey,authProfile,baseUrl,capabilities,models,priority` | `src/agents/config-schema.ts:84` |
+| `providers.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,streaming,toolsMode,transportProtocol` | `src/agents/config-schema.ts:72` |
+| `providers.entry.capabilities.responsesReasoning` | `effort` | `src/agents/config-schema.ts:77` |
+| `providers.entry.modelCapabilities.entry` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,streaming,toolsMode,transportProtocol` | `src/agents/config-schema.ts:72` |
+| `providers.entry.modelCapabilities.entry.responsesReasoning` | `effort` | `src/agents/config-schema.ts:77` |
+| `providers.entry.accounts.entry` | `apiKey,authProfile,baseUrl,capabilities,models,priority` | `src/agents/config-schema.ts:84` |
+| `providers.entry.accounts.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,streaming,toolsMode,transportProtocol` | `src/agents/config-schema.ts:72` |
+| `providers.entry.accounts.entry.capabilities.responsesReasoning` | `effort` | `src/agents/config-schema.ts:77` |
 | `server` | `host,port` | `src/agents/config-schema.ts:106` |
 | `runtime` | `continuous_improvement,process_timeouts` | `src/agents/config-schema.ts:118` |
 | `runtime.process_timeouts` | `executor_ms,planner_ms,reviewer_ms` | `src/agents/config-schema.ts:112` |
 | `security` | `injectionModel,injectionScanner,maxScanLengthBytes` | `src/agents/config-schema.ts:131` |
-| `supervisor` | `` | `src/agents/config-schema.ts:215` |
 | `telegram` | `allowedUserIds,botToken,notificationChatIds` | `src/agents/config-schema.ts:138` |
 | `notifications` | `channels` | `src/agents/config-schema.ts:147` |
-| `mcpServers.entry` | `args,autostart,command,disabled,env,transport,url` | `src/agents/config-schema.ts:186` |
+| `compaction` | `completion_reserve_fraction,enabled,escalate_merge_line_fraction,escalate_summary_line_fraction,input_budget_tokens,merge_line_fraction,snap,summarizer_model,summary_line_fraction,trigger_fraction` | `src/agents/config-schema.ts:151` |
+| `mcpServers.entry` | `args,autostart,command,disabled,env,transport,url` | `src/agents/config-schema.ts:179` |
 <!-- saivage:config-schema:end -->
