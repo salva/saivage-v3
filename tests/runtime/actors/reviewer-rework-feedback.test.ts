@@ -13,6 +13,7 @@ import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocat
 import { testAppLogs } from '../../helpers/app-logs.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
+import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 
 const CHILD = '11111111-1111-4111-8111-111111111111';
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
@@ -74,6 +75,7 @@ describe('accepted reviewer rework feedback', () => {
     const publishedRows: AgentMessage[] = [];
     const entryAppended = jest.fn((row: AgentMessage) => { publishedRows.push(row); });
     const actor = new PlanningCardProcessorActor({
+      ...testAutonomousCompaction,
       projectRoot,
       cardId: 'project',
       store,

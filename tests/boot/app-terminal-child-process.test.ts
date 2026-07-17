@@ -57,7 +57,7 @@ describe('App terminal process adapters', () => {
 
   it('handles a real SIGTERM through the App coordinator and exits zero', async () => {
     const port = await availablePort();
-    const root = project(`models:\n  default: [test-model]\nproviders: {}\nruntime:\n  continuous_improvement: false\nserver:\n  host: 127.0.0.1\n  port: ${port}\n`);
+    const root = project(validConfig(port));
     roots.push(root);
     const child = runChild('signal', root, { SAIVAGE_API_TOKEN: '' });
     const result = collect(child);
@@ -80,7 +80,7 @@ describe('App terminal process adapters', () => {
 
   it('keeps acknowledged restart on exit code 75', async () => {
     const port = await availablePort();
-    const root = project(`models:\n  default: [test-model]\nproviders: {}\nruntime:\n  continuous_improvement: false\nserver:\n  host: 127.0.0.1\n  port: ${port}\n`);
+    const root = project(validConfig(port));
     roots.push(root);
     const result = await collect(runChild('restart-75', root, { SAIVAGE_API_TOKEN: 'child-test-token' }));
     expect(result.code).toBe(75);
@@ -111,3 +111,7 @@ describe('App terminal process adapters', () => {
     expect(payload.report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_timeout' }] });
   }, 20_000);
 });
+
+function validConfig(port: number): string {
+  return `models:\n  default: [test-model]\nproviders:\n  test:\n    models: [test-model]\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: test\n    account: null\n    model: test-model\nruntime:\n  continuous_improvement: false\nserver:\n  host: 127.0.0.1\n  port: ${port}\n`;
+}

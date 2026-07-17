@@ -20,7 +20,7 @@ function root(): string {
 function writeConfig(projectRoot: string, mcpServers: Record<string, unknown>): void {
   mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
   writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), YAML.stringify({
-    models: { default: ['test-model'] }, providers: {}, server: { host: '127.0.0.1', port: 8080 }, mcpServers,
+    models: { default: ['test-model'] }, providers: { test: { models: ['test-model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } }, server: { host: '127.0.0.1', port: 8080 }, mcpServers,
   }));
 }
 

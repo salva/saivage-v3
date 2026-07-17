@@ -15,6 +15,7 @@ import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
 const CHILD = '11111111-1111-4111-8111-111111111111';
@@ -47,7 +48,7 @@ function setup(reviewStatus: 'done' | 'blocked' | 'failed' | 'rework') {
     if (reviewerCalls === 1) return complete(tool('write-review', 'write', { path: 'record:///review.md?v=next', content: 'Review draft.' }));
     return new Promise<ProviderTurnCompletion>((resolve) => { releaseReviewer = () => resolve(complete(tool('review-result', 'emit_result', { status: reviewStatus, summary: reviewStatus }))); });
   }) };
-  const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store: cards, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined });
+  const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store: cards, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
   actor.start();
   const controller = new AbortController();
   const activation = actor.activate({ activationId: 'activation', card: cards.read('project')!, caller: { kind: 'root' }, claimResult: jest.fn(), notificationDelivery: { selectNotifications: () => [...cards.read('project')!.pending_notifications], removeNotifications: (ids) => cards.removeNotifications('project', [...ids]) } }, controller.signal);

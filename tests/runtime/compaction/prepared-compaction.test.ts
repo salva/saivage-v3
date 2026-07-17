@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { prepareCompaction, shouldCompact, type CompactionConfig } from '../../../src/runtime/actors/compaction/compactor.js';
+import { prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../../src/runtime/actors/compaction/compactor.js';
 import { classifyConversationRounds, estimateMessageTokens } from '../../../src/runtime/actors/compaction/round-classifier.js';
 import { computeSlidingCompactionBands } from '../../../src/runtime/actors/compaction/bands.js';
 import { agentMessageSchema, type AgentMessage } from '../../../src/schemas/index.js';
@@ -8,12 +8,13 @@ import type { LlmInvocationInput, PreparedCompaction } from '../../../src/runtim
 import { summarizeMerge, summarizeRound } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { buildOpenAIResponsesRequest } from '../../../src/agents/llm-openai-responses-gateway.js';
 
-const config: CompactionConfig = { enabled: true, input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler', summarizer_model: 'test/_/summary' };
+const config: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
 
 describe('prepared compaction estimates', () => {
   it('derives every activation policy quantity once from the exact prompt and tools', () => {
     const prepared = prepareCompaction(config, 'system', []);
-    expect(prepared).toMatchObject({ inputBudgetTokens: 1000, requestedCompletionTokens: 200, triggerLineTokens: 800, normalTailBudget: 300, normalMiddleBudget: 200, escalatedTailBudget: 250, escalatedMiddleBudget: 150, summarizerModel: 'test/_/summary' });
+    expect(prepared).toMatchObject({ inputBudgetTokens: 1000, requestedCompletionTokens: 200, triggerLineTokens: 800, normalTailBudget: 300, normalMiddleBudget: 200, escalatedTailBudget: 250, escalatedMiddleBudget: 150 });
+    expect(prepared).not.toHaveProperty('summarizerModel');
     expect(prepared.triggerMessageThreshold).toBe(prepared.triggerLineTokens - prepared.estimatedStaticTokens);
     expect(prepared.canonicalMessageHardCeiling).toBe(prepared.inputBudgetTokens - prepared.estimatedStaticTokens - prepared.requestedCompletionTokens);
   });
@@ -73,8 +74,8 @@ describe('prepared compaction estimates', () => {
     const inputs: LlmInvocationInput[] = [];
     const summarizerProvider = { completeTurn: async (input: LlmInvocationInput) => { inputs.push(input); return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }; } };
     const signal = new AbortController().signal;
-    await summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows: [message('source', 'user', 'text', 'source')], summarizerProvider, modelSpec: 'test/_/summary', signal });
-    await summarizeMerge({ entries: [{ round_id: 'round', summary_text: 'summary' }], summarizerProvider, modelSpec: 'test/_/summary', signal });
+    await summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows: [message('source', 'user', 'text', 'source')], summarizerProvider, signal });
+    await summarizeMerge({ entries: [{ round_id: 'round', summary_text: 'summary' }], summarizerProvider, signal });
     expect(inputs).toHaveLength(2);
     expect(inputs[0]!.sessionId).toBe('summary:round');
     expect(inputs[0]!.providerConversation.sourceSessionId).toBe('planner:project');
@@ -97,7 +98,7 @@ describe('prepared compaction estimates', () => {
       return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] };
     } };
 
-    await expect(summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows, summarizerProvider, modelSpec: 'test/_/summary', signal: new AbortController().signal })).resolves.toBe('summary');
+    await expect(summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows, summarizerProvider, signal: new AbortController().signal })).resolves.toBe('summary');
 
     const input = inputs[0]!;
     expect(input.sessionId).toBe('summary:round');
@@ -116,7 +117,7 @@ describe('prepared compaction estimates', () => {
   ] as Array<[string, (rows: AgentMessage[]) => AgentMessage[]]>)('rejects %s before the round summarizer provider call', async (_label, mutate) => {
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
     const rows = mutate(privatePair());
-    await expect(summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows, summarizerProvider: { completeTurn }, modelSpec: 'test/_/summary', signal: new AbortController().signal })).rejects.toThrow();
+    await expect(summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows, summarizerProvider: { completeTurn }, signal: new AbortController().signal })).rejects.toThrow();
     expect(completeTurn).not.toHaveBeenCalled();
     expect(rows).toEqual(mutate(privatePair()));
   });
@@ -124,8 +125,8 @@ describe('prepared compaction estimates', () => {
   it('excludes compaction metadata from later summary input and merges only explicit summary values', async () => {
     const completeTurn = jest.fn(async (_input: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }));
     const metadata = { ...message('metadata', 'system', 'text', '{}'), kind: 'context_compaction' as const };
-    await expect(summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows: [metadata], summarizerProvider: { completeTurn }, modelSpec: 'test', signal: new AbortController().signal })).rejects.toThrow(/immutable non-metadata/);
-    await summarizeMerge({ entries: [{ round_id: 'old', summary_text: 'explicit prior summary' }], summarizerProvider: { completeTurn }, modelSpec: 'test', signal: new AbortController().signal });
+    await expect(summarizeRound({ sourceSessionId: 'planner:project', round_id: 'round', rows: [metadata], summarizerProvider: { completeTurn }, signal: new AbortController().signal })).rejects.toThrow(/immutable non-metadata/);
+    await summarizeMerge({ entries: [{ round_id: 'old', summary_text: 'explicit prior summary' }], summarizerProvider: { completeTurn }, signal: new AbortController().signal });
     expect(completeTurn).toHaveBeenCalledTimes(1);
     const mergeInput = completeTurn.mock.calls[0]![0];
     expect(JSON.stringify(mergeInput.providerConversation.messages)).toContain('explicit prior summary');

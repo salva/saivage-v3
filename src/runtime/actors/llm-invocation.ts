@@ -20,7 +20,6 @@ export type PreparedCompaction = {
   readonly escalatedMergeLineFraction: number;
   readonly escalatedSummaryLineFraction: number;
   readonly snap: 'keep_straddler_verbatim' | 'compact_straddler';
-  readonly summarizerModel: string;
 };
 
 interface LlmInvocationInputBase {
@@ -48,6 +47,8 @@ export type LlmInvocationInput = LlmInvocationInputBase & (
   | { preparedCompaction: PreparedCompaction; modelParams: { temperature?: number; maxTokens?: never } }
   | { preparedCompaction?: never; modelParams: { temperature?: number; maxTokens?: number } }
 );
+
+export type AutonomousLlmInvocationInput = Extract<LlmInvocationInput, { preparedCompaction: PreparedCompaction }>;
 
 export interface ProviderTurnPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;

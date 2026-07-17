@@ -33,14 +33,12 @@ export interface ResolvedConfigAuthority {
   readDocument(): ConfigDocument;
   validateDocument(document: ConfigDocument): { config: SaivageConfig; warnings: readonly string[] };
   loadEffective(): { config: SaivageConfig; warnings: readonly string[] };
-  initializeCanonicalDefaultIfMissing(): void;
   applyChange(mutation: ConfigMutation): ConfigMutationResult;
   validateChange(mutation: ConfigMutation): ConfigMutationResult;
 }
 
 const RUNTIME_KEYS = new Set(['continuous_improvement', 'process_timeouts']);
 const SERVER_KEYS = new Set(['port', 'host']);
-const CANONICAL_DEFAULT = 'models:\n  default:\n    - gpt-4.1\nproviders: {}\nserver:\n  host: 0.0.0.0\n  port: 8080\nruntime: {}\n';
 
 function isRecord(value: unknown): value is RawConfig {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -109,13 +107,6 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
 
   loadEffective(): { config: SaivageConfig; warnings: readonly string[] } {
     return this.validateDocument(this.readDocument());
-  }
-
-  initializeCanonicalDefaultIfMissing(): void {
-    try { readFileSync(this.path); return; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    const document = YAML.parseDocument(CANONICAL_DEFAULT) as ConfigDocument;
-    replaceConfigYaml(this.path, document);
   }
 
   applyChange(mutation: ConfigMutation): ConfigMutationResult {

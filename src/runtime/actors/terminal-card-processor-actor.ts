@@ -3,7 +3,7 @@ import { type CardActivationInput, type CardActivationOutcome, type CardProcesso
 import type { CardService } from '../../cards/card-service.js';
 import { executorActorId } from './ids.js';
 import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
-import type { LlmInvocationInput } from './llm-invocation.js';
+import type { AutonomousLlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
@@ -17,7 +17,7 @@ import { runContractRepairLoop } from './contract-repair-loop.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendRecoveryNotice, appendUserContextMessage, providerConversationProjection, readConversationMessages } from './conversation-session.js';
 import { stabilizeRoleSession } from './conversation-recovery.js';
-import { prepareCompaction, type CompactionConfig } from './compaction/compactor.js';
+import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
@@ -43,7 +43,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly promptTemplates: PromptTemplateRegistry;
   private readonly appLogs: AppLogContext;
 
-  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged: () => void; gate?: RuntimeGate; store: CardService; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged: () => void; gate?: RuntimeGate; store: CardService; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.processRunner = args.processRunner;
@@ -123,7 +123,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createExecutorContract()): LlmInvocationInput {
+  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createExecutorContract()): AutonomousLlmInvocationInput {
     const inputId = this.freshSourceInputId();
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
     const sessionId = executorActorId(this.cardId);
@@ -132,7 +132,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), cardType: input.card.type,
     });
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
-    const preparedCompaction = this.compactionConfig?.enabled ? prepareCompaction(this.compactionConfig, systemPrompt, tools) : null;
+    const preparedCompaction = prepareCompaction(this.compactionConfig, systemPrompt, tools);
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
     this.conversationPublisher?.entryAppended(appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId }));
     const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
@@ -155,7 +155,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       tools,
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
-      ...(preparedCompaction ? { preparedCompaction } : {}),
+      preparedCompaction,
       capabilityRequest: { requiresTools: true },
       episodeContext: { cardId: input.card.id, caller: input.caller },
     };

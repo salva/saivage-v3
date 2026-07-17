@@ -4,9 +4,8 @@ import type { RuntimeControlMechanics } from './runtime-control-service.js';
 import type { LLMProviderPort, ProjectRootCardReader } from '../runtime/actors/index.js';
 import type { CardService } from '../cards/card-service.js';
 import type { InvocationService } from '../agents/invocation-service.js';
-import type { SaivageConfig } from '../agents/config-api.js';
-import { parseCandidateKey } from '../contracts/provider-candidate.js';
 import { compact, shouldCompact } from '../runtime/actors/compaction/compactor.js';
+import type { AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
@@ -25,7 +24,8 @@ export interface MicroActorRuntimeApiFactoryDeps {
   interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
-  config?: SaivageConfig;
+  compactionPolicy: AutonomousCompactionPolicy;
+  summarizerProvider: LLMProviderPort;
   processRunner: ProcessRunner;
   runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
@@ -36,7 +36,6 @@ export interface MicroActorRuntimeApiFactoryDeps {
 }
 
 export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps): RuntimeControlMechanics {
-  const compaction = deps.config?.compaction?.enabled === true ? buildCompactionWiring(deps.invocationService, deps.config) : undefined;
   return createSupervisorRuntimeApi({
     projectRoot: deps.projectRoot,
     eventBus: deps.eventBus,
@@ -44,9 +43,9 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     actorStore: deps.cardStore,
     interventionBinding: deps.interventionBinding,
     provider: createInvocationServiceProvider(deps.invocationService),
-    compactor: compaction?.compactor,
-    compactionConfig: compaction?.compactionConfig,
-    summarizerProvider: compaction?.summarizerProvider,
+    compactor: { shouldCompact, compact },
+    compactionConfig: deps.compactionPolicy,
+    summarizerProvider: deps.summarizerProvider,
     processRunner: deps.processRunner,
     promptTemplates: deps.promptTemplates,
     runtimeGate: deps.runtimeGate,
@@ -58,21 +57,6 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
   });
 }
 
-function buildCompactionWiring(invocationService: InvocationService, config: SaivageConfig) {
-  const compactionConfig = config.compaction;
-  if (!compactionConfig) throw new Error('compaction.enabled=true requires compaction configuration.');
-  const spec = compactionConfig.summarizer_model;
-  if (!spec) throw new Error('compaction.enabled=true requires compaction.summarizer_model.');
-  const candidate = parseCandidateKey(spec);
-  return {
-    compactor: { shouldCompact, compact },
-    compactionConfig,
-    summarizerProvider: {
-      completeTurn: (input: Parameters<LLMProviderPort['completeTurn']>[0], signal: AbortSignal) => invocationService.invokeWithRecovery(invocationRequest(input, signal, [candidate])),
-    },
-  };
-}
-
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
     completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal)),
@@ -80,7 +64,7 @@ export function createInvocationServiceProvider(invocationService: InvocationSer
   };
 }
 
-function invocationRequest(input: LlmInvocationInput, signal: AbortSignal, candidateChain?: NonNullable<InvocationRequest['candidateChain']>): InvocationRequest {
+export function invocationRequest(input: LlmInvocationInput, signal: AbortSignal, candidateChain?: NonNullable<InvocationRequest['candidateChain']>): InvocationRequest {
   const common = {
     inputId: input.inputId, role: input.role, sessionId: input.sessionId, systemPrompt: input.systemPrompt,
     providerConversation: input.providerConversation,

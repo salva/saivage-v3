@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
-import { prepareCompaction, shouldCompact, type CompactionConfig } from '../../src/runtime/actors/compaction/compactor.js';
+import { prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands } from '../../src/runtime/actors/compaction/bands.js';
 import { estimateMessageTokens, type ClassifiedRound } from '../../src/runtime/actors/compaction/round-classifier.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage } from '../../src/schemas/index.js';
@@ -14,20 +14,21 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const config: CompactionConfig = { enabled: true, input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler', summarizer_model: 'test/_/summary' };
+const config: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
+const schemaCompaction = { ...config, enabled: true, summarizer_candidate: { provider: 'test', account: null, model: 'org/summary/model' } } as const;
 
 describe('Stage-I compaction contracts', () => {
   it('requires route-independent budget and derives one completion authority', () => {
-    expect(saivageConfigSchema.safeParse({ compaction: { ...config, input_budget_tokens: undefined } }).success).toBe(false);
+    expect(saivageConfigSchema.safeParse({ compaction: { ...schemaCompaction, input_budget_tokens: undefined } }).success).toBe(false);
     const budget = prepareCompaction(config, 'system', []);
     expect(budget).toMatchObject({ inputBudgetTokens: 1000, requestedCompletionTokens: 200, normalTailBudget: 300, normalMiddleBudget: 200, escalatedTailBudget: 250, escalatedMiddleBudget: 150 });
   });
 
   it('rejects each wider escalated width with the exact derived diagnostic', () => {
-    const tail = saivageConfigSchema.safeParse({ compaction: { ...config, escalate_summary_line_fraction: 0.4, escalate_merge_line_fraction: 0.1 } });
+    const tail = saivageConfigSchema.safeParse({ compaction: { ...schemaCompaction, escalate_summary_line_fraction: 0.4, escalate_merge_line_fraction: 0.1 } });
     expect(tail.success).toBe(false);
     if (!tail.success) expect(tail.error.issues.map((issue) => issue.message)).toContain('Escalated compaction tail width must be <= normal tail width (trigger - summary): escalated=0.4, normal=0.30000000000000004.');
-    const middle = saivageConfigSchema.safeParse({ compaction: { ...config, escalate_summary_line_fraction: 0.6, escalate_merge_line_fraction: 0.2 } });
+    const middle = saivageConfigSchema.safeParse({ compaction: { ...schemaCompaction, escalate_summary_line_fraction: 0.6, escalate_merge_line_fraction: 0.2 } });
     expect(middle.success).toBe(false);
     if (!middle.success) expect(middle.error.issues.some((issue) => issue.message.startsWith('Escalated compaction middle width must be <= normal middle width'))).toBe(true);
   });
@@ -72,7 +73,7 @@ describe('Stage-I compaction contracts', () => {
     try {
       for (let ordinal = 1; ordinal <= 4; ordinal++) appendRawRound(root, ordinal);
       const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }) };
-      const integrationConfig: CompactionConfig = { ...config, input_budget_tokens: 400, snap };
+      const integrationConfig: AutonomousCompactionPolicy = { ...config, input_budget_tokens: 400, snap };
       const invocation = invocationFor('planner:project', [], integrationConfig);
       await compact({ conversations: { projectRoot: root }, input: invocation, summarizerProvider: provider, signal: new AbortController().signal });
       const first = readConversation(root, 'planner:project');
@@ -116,7 +117,7 @@ describe('Stage-I compaction contracts', () => {
       ];
       appendConversationBatch(root, rows);
       const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'small prefix summary' }, provider_exchanges: [] }) };
-      const hardConfig: CompactionConfig = { ...config, input_budget_tokens: 400 };
+      const hardConfig: AutonomousCompactionPolicy = { ...config, input_budget_tokens: 400 };
       const invocation = invocationFor(session_id, rows, hardConfig);
 
       const result = await compact({ conversations: { projectRoot: root }, input: invocation, summarizerProvider: provider, signal: new AbortController().signal });
@@ -227,7 +228,7 @@ function appendRawRound(root: string, ordinal: number, session_id = 'planner:pro
   appendConversationBatch(root, [{ id: `activation-${ordinal}`, session_id, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}` }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id, role: 'user', kind: 'text', content: `${ordinal}:${'x'.repeat(400)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]);
 }
 
-function invocationFor(sessionId: string, contextMessages: AgentMessage[], compactionConfig: CompactionConfig): LlmInvocationInput & { preparedCompaction: NonNullable<LlmInvocationInput['preparedCompaction']> } {
+function invocationFor(sessionId: string, contextMessages: AgentMessage[], compactionConfig: AutonomousCompactionPolicy): LlmInvocationInput & { preparedCompaction: NonNullable<LlmInvocationInput['preparedCompaction']> } {
   const role = sessionId.split(':')[0] as 'planner' | 'executor' | 'reviewer';
   return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, role, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {}, episodeContext: {} };
 }

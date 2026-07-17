@@ -868,6 +868,7 @@ describe('LlmClient provider capability guardrails', () => {
         processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
       },
       security: { injectionScanner: true, maxScanLengthBytes: 102400 },
+      compaction: { enabled: true as const, input_budget_tokens: 100000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' as const, summarizer_candidate: { provider: 'p1', account: null, model: 'test-model' } },
     };
     const registry = new ProviderRegistry(cfg);
     const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, registry });
@@ -909,6 +910,7 @@ describe('LlmClient provider capability guardrails', () => {
         processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
       },
       security: { injectionScanner: true, maxScanLengthBytes: 102400 },
+      compaction: { enabled: true as const, input_budget_tokens: 100000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' as const, summarizer_candidate: { provider: 'openai-codex', account: null, model: 'gpt-5.5' } },
     };
     const registry = new ProviderRegistry(cfg);
     const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'synthetic-token', registry });
@@ -944,6 +946,7 @@ describe('LlmClient provider capability guardrails', () => {
         processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
       },
       security: { injectionScanner: true, maxScanLengthBytes: 102400 },
+      compaction: { enabled: true as const, input_budget_tokens: 100000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' as const, summarizer_candidate: { provider: 'openai-codex', account: null, model: 'gpt-5.5' } },
     };
     const registry = new ProviderRegistry(cfg);
     const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'synthetic-token', registry });

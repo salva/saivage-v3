@@ -11,6 +11,8 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { ProcessLogRefsSchema } from '../../src/contracts/operator-api-processes.js';
 
+const providerRoutingReadModelProvider = () => ({ availabilityScope: 'process_local_reset_on_restart' as const, providers: {} });
+
 describe('contract-backed process routes', () => {
   it('keeps the work root invalid as a concrete process-log reference', () => {
     expect(ProcessLogRefsSchema.safeParse({ stdout: 'work:///', stderr: null }).success).toBe(false);
@@ -25,7 +27,7 @@ describe('contract-backed process routes', () => {
       const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'route-test', 'runtime_card');
       const record = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: '11111111-1111-4111-8111-111111111111', ownerId: 'runtime-owner', ownerKind: 'runtime' });
       await processRunner.waitForSettlement(record.id);
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: { processRunner } as RuntimeApplication, providerRoutingReadModelProvider, authPolicy: new AuthPolicy() });
 
       const list = await fastify.inject({ method: 'GET', url: '/api/processes' });
       expect(list.statusCode).toBe(200);
@@ -60,7 +62,7 @@ describe('contract-backed process routes', () => {
     const fastify = Fastify({ logger: false });
     try {
       const processRunner = createTestProcessRunner(projectRoot);
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: { processRunner } as RuntimeApplication, authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: { processRunner } as RuntimeApplication, providerRoutingReadModelProvider, authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });
       expect(response.statusCode).toBe(404);

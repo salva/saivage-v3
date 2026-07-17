@@ -30,13 +30,17 @@ describe('Analyst compacted conversation projection', () => {
     const captured: LlmInvocationInput[] = [];
     const provider = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       captured.push(input);
+      if (captured.length <= 2) {
+        const toolName = input.tools[captured.length - 1]!.function.name;
+        return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: `tool-${captured.length}`, type: 'function' as const, function: { name: toolName, arguments: '{}' } }] }, provider_exchanges: [] };
+      }
       return { result: { kind: 'message' as const, content: `answer ${captured.length}` }, provider_exchanges: [] };
     }) };
     const runner = createTestProcessRunner(projectRoot);
     const eventBus = new EventBus();
     const runtime = new AnalystRuntime({
       projectRoot,
-      config: saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } } }),
+      config: saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'model' } } }),
       runtimeDeps: {
         configAuthority: {}, cardStore: new CardService(projectRoot), runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard: jest.fn(), notifyCard: jest.fn(), getStatus: jest.fn() },
         emitAnalystToolInvoked: jest.fn(), eventBus, provider, processRunner: runner, analystProcessRootScope: runner.analystRootScope,
@@ -47,16 +51,19 @@ describe('Analyst compacted conversation projection', () => {
 
     await runtime.submit('global', { userContent: 'first operator question' });
     assertLatestOnly(captured[0]!, fixture, sessionId);
+    expect(captured.slice(0, 3).map((input) => input.preparedCompaction)).toEqual([undefined, undefined, undefined]);
+    expect(captured.slice(0, 3).map((input) => input.modelParams.maxTokens)).toEqual([4096, 4096, 4096]);
+    expect(captured[0]!.tools[0]!.function.name).not.toBe(captured[1]!.tools[1]!.function.name);
     expect(captured[0]).not.toHaveProperty('turnMessages');
     expect(countContent(captured[0]!.providerConversation.messages, 'first operator question')).toBe(1);
     expect(countContent(readConversation(projectRoot, sessionId).physicalRows, 'first operator question')).toBe(1);
 
     await runtime.submit('global', { userContent: 'second operator question', workspaceContext: { view: 'cards', entityId: 'project', refinement: null } });
-    assertLatestOnly(captured[1]!, fixture, sessionId);
-    expect(captured[1]).not.toHaveProperty('turnMessages');
-    expect(countContent(captured[1]!.providerConversation.messages, 'first operator question')).toBe(1);
-    expect(countContent(captured[1]!.providerConversation.messages, 'second operator question')).toBe(1);
-    expect(countContent(captured[1]!.providerConversation.messages, 'answer 1')).toBe(1);
+    assertLatestOnly(captured[3]!, fixture, sessionId);
+    expect(captured[3]).not.toHaveProperty('turnMessages');
+    expect(countContent(captured[3]!.providerConversation.messages, 'first operator question')).toBe(1);
+    expect(countContent(captured[3]!.providerConversation.messages, 'second operator question')).toBe(1);
+    expect(countContent(captured[3]!.providerConversation.messages, 'answer 3')).toBe(1);
     const durable = readConversation(projectRoot, sessionId).physicalRows;
     expect(countContent(durable, 'first operator question')).toBe(1);
     expect(countContent(durable, 'second operator question')).toBe(1);

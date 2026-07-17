@@ -7,6 +7,7 @@ import { initProjectTree, CardService as TestCardService } from '../../helpers/c
 import { CardService } from '../../../src/cards/card-service.js';
 import { testAppLogs } from '../../helpers/app-logs.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
+import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { PlanningCardProcessorActor } from '../../../src/runtime/actors/planning-card-processor-actor.js';
 import { TerminalCardProcessorActor } from '../../../src/runtime/actors/terminal-card-processor-actor.js';
@@ -51,7 +52,7 @@ describe('retained terminal ordering and notification arbitration', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => complete(++call === 1
       ? tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'Ready.' })
       : tool('emit-done', 'emit_result', { status: 'done', summary: 'Complete.' }))) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged: () => undefined });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
     actor.start();
     const claimResult = jest.fn(() => order.push('claim'));
 
@@ -79,7 +80,7 @@ describe('retained terminal ordering and notification arbitration', () => {
       if (calls === 2) return new Promise<ProviderTurnCompletion>((resolve) => { releaseTerminal = () => resolve(complete(tool('emit-first', 'emit_result', { status: 'done', summary: 'Stale.' }))); });
       return complete(tool('emit-second', 'emit_result', { status: 'done', summary: 'Fresh.' }));
     }) };
-    const actor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, store, provider, processRunner: createTestProcessRunner(projectRoot), conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined });
+    const actor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, store, provider, processRunner: createTestProcessRunner(projectRoot), conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
     actor.start();
     const pending = actor.activate({ activationId: 'activation', card: store.read(card.id)!, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery(store, card.id), claimResult: jest.fn() }, new AbortController().signal);
     while (!releaseTerminal) await new Promise((resolve) => setTimeout(resolve, 1));

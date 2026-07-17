@@ -5,20 +5,6 @@ export interface Candidate {
   model: string;
 }
 
-/** Serialize a Candidate into a stable string key for health tracking. */
-export function candidateKey(c: Candidate): string {
-  return `${c.provider}/${c.account ?? '_'}/${c.model}`;
-}
-
-/** Parse a candidate key back into a Candidate. */
-export function parseCandidateKey(key: string): Candidate {
-  const parts = key.split('/');
-  if (parts.length !== 3) {
-    throw new Error(`Invalid candidate key: ${key}`);
-  }
-  return {
-    provider: parts[0],
-    account: parts[1] === '_' ? null : parts[1],
-    model: parts[2],
-  };
+export function candidatesEqual(left: Candidate, right: Candidate): boolean {
+  return left.provider === right.provider && left.account === right.account && left.model === right.model;
 }

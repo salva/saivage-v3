@@ -9,7 +9,7 @@ import {
   mergeCapabilities,
   type EffectiveProviderCapabilities,
 } from './provider-capabilities.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
+import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
 
 // ── Account ───────────────────────────────────────────────────
 
@@ -98,6 +98,7 @@ export class Provider {
    * or none can serve the model.
    */
   getAccountsForModel(model: string): Account[] {
+    if (!this.canServe(model)) return [];
     const eligible = this.accounts.filter((a) =>
       a.canServe(model, this.models),
     );
@@ -139,7 +140,7 @@ export class Provider {
     const accounts = this.getAccountsForModel(model);
     return accounts.map((acct) => ({
       provider: this.name,
-      account: acct.name === '_implicit' ? null : acct.name,
+      account: acct === this.implicitAccount ? null : acct.name,
       model,
     }));
   }
@@ -185,5 +186,14 @@ export class ProviderRegistry {
     const provider = this.get(candidate.provider);
     if (!provider) throw new Error(`Cannot resolve effective capabilities for unknown provider "${candidate.provider}".`);
     return provider.getEffectiveCapabilities(candidate.model, candidate.account);
+  }
+
+  assertCandidate(candidate: Candidate): Candidate {
+    const provider = this.get(candidate.provider);
+    const emitted = provider?.getCandidatesForModel(candidate.model) ?? [];
+    if (!emitted.some((value) => candidatesEqual(value, candidate))) {
+      throw new Error(`compaction.summarizer_candidate does not identify a configured provider/account/model candidate: ${JSON.stringify(candidate)}`);
+    }
+    return candidate;
   }
 }

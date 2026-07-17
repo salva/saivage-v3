@@ -49,7 +49,7 @@ describe('InvocationProviderTurnPort', () => {
     const invokeWithRecovery = jest.fn<InvocationTurnService['invokeWithRecovery']>(async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
     const service: InvocationTurnService = { invokeWithRecovery };
     const port = createInvocationProviderTurnPort(service);
-    const preparedCompaction = prepareCompaction({ enabled: true, input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler', summarizer_model: 'test/_/summary' }, 'plan', []);
+    const preparedCompaction = prepareCompaction({ input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' }, 'plan', []);
 
     await port.completeTurn(input({ modelParams: {}, preparedCompaction }), new AbortController().signal);
 

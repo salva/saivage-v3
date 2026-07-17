@@ -13,6 +13,7 @@ import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
 const FEEDBACK = 'Reviewer requested rework at record:///review.md?card=project&v=1. Read it for required changes, update or create the necessary child cards, activate the rework, write record:///status.md?v=next, then call emit_result again when ready for review. Reviewer summary: Add explicit remediation evidence before approval.';
@@ -80,6 +81,7 @@ describe('reviewer rework completion E2E', () => {
       }),
     };
     const runtime = new SupervisorRuntimeApi({
+      ...testAutonomousCompaction,
       projectRoot,
       actorStore: cards,
       interventionBinding: new RuntimeInterventionBinding(),

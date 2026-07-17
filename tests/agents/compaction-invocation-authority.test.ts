@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import type { EffectiveProviderCapabilities } from '../../src/agents/provider-capabilities.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
-import { prepareCompaction, type CompactionConfig } from '../../src/runtime/actors/compaction/compactor.js';
+import { prepareCompaction, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
@@ -18,9 +18,10 @@ import { TerminalCardProcessorActor } from '../../src/runtime/actors/terminal-ca
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const candidate: Candidate = { provider: 'test', account: null, model: 'model' };
-const config: CompactionConfig = { enabled: true, input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler', summarizer_model: 'test/_/summary' };
+const config: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
@@ -81,7 +82,7 @@ describe('singular invocation completion authority', () => {
         ? { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?v=next', content: 'blocked' }) }
         : { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }] }, provider_exchanges: [] };
     } };
-    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {} });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, ...testAutonomousCompaction, compactionConfig: { ...config, input_budget_tokens: 100000 } });
     actor.start();
 
     await expect(actor.activate({ activationId: 'activation', card: store.read('project')!, caller: { kind: 'root' }, notificationDelivery: { selectNotifications: () => [], removeNotifications: () => undefined }, claimResult: jest.fn() }, new AbortController().signal)).resolves.toMatchObject({ status: 'blocked' });
@@ -109,7 +110,7 @@ describe('singular invocation completion authority', () => {
     appendConversationBatch(projectRoot, reviewerFixture.rows);
     appendConversationBatch(projectRoot, executorFixture.rows);
     const provider = { completeTurn: jest.fn() as never };
-    const planner = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {} });
+    const planner = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, ...testAutonomousCompaction, compactionConfig: { ...config, input_budget_tokens: 100000 } });
     const plannerInternals = planner as unknown as {
       reviewerInvocationSurface(cardId: string, sessionId: string): unknown;
       captureReviewerCurrentness(input: unknown): unknown;
@@ -119,7 +120,7 @@ describe('singular invocation completion authority', () => {
     const reviewer = plannerInternals.buildReviewerLlmInput(activationInput, 'reviewer:project', plannerInternals.captureReviewerCurrentness(activationInput), plannerInternals.reviewerInvocationSurface('project', 'reviewer:project'));
 
     const runner = createTestProcessRunner(projectRoot);
-    const executor = new TerminalCardProcessorActor({ projectRoot, cardId: child.id, store, provider, processRunner: runner, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {} });
+    const executor = new TerminalCardProcessorActor({ projectRoot, cardId: child.id, store, provider, processRunner: runner, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, ...testAutonomousCompaction, compactionConfig: { ...config, input_budget_tokens: 100000 } });
     const executorInternals = executor as unknown as {
       executorInvocationSurface(ownerId: string, scope: unknown): unknown;
       buildLlmInput(input: unknown, surface: unknown): import('../../src/runtime/actors/llm-invocation.js').LlmInvocationInput;

@@ -1,4 +1,4 @@
-import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import { builtInCapabilitiesForProvider, capabilityRequestForLlmOptions, supportsCapabilityRequest } from './provider-capabilities.js';
 import { assertProviderConversationSourceRows, type LlmCompleteOptions, type ProviderConversationProjection, type ProviderTurnCompletion, type LlmInvocationClient } from './llm-contracts.js';
@@ -64,7 +64,7 @@ export class LlmProviderGateway implements LlmInvocationClient {
         model: candidate.model,
         requested: match.reasons,
         supported: [],
-        message: `Candidate ${candidateKey(candidate)} does not support requested LLM capabilities: ${match.reasons.join(', ')}`,
+        message: `Candidate ${JSON.stringify(candidate)} does not support requested LLM capabilities: ${match.reasons.join(', ')}`,
       });
     }
   }

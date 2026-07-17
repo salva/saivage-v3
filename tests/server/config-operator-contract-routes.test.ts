@@ -11,6 +11,9 @@ import type { SaivageConfig } from '../../src/agents/config-api.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { writeSaivageConfig } from '../helpers/project-config.js';
 import { testAppLogs } from '../helpers/app-logs.js';
+import { ProviderRegistry } from '../../src/agents/provider.js';
+import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
+import { buildProviderRoutingReadModel } from '../../src/agents/provider-routing-read-model.js';
 
 function testConfig(): SaivageConfig {
   return {
@@ -30,7 +33,14 @@ function testConfig(): SaivageConfig {
     server: { host: '127.0.0.1', port: 0 },
     runtime: {},
     security: {},
+    compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: 'primary', model: 'test-model' } },
   } as unknown as SaivageConfig;
+}
+
+function providerRoutingReadModelProvider() {
+  const registry = new ProviderRegistry(testConfig());
+  const readModel = buildProviderRoutingReadModel({ registry, availability: new MemoryCandidateAvailability() });
+  return () => readModel;
 }
 
 describe('contract-backed config/providers/control-actions routes', () => {
@@ -42,8 +52,9 @@ describe('contract-backed config/providers/control-actions routes', () => {
         models: { default: ['test-model'] },
         providers: testConfig().providers,
         server: { host: '127.0.0.1', port: 8080 },
+        compaction: testConfig().compaction,
       });
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/config' });
 
@@ -66,8 +77,9 @@ describe('contract-backed config/providers/control-actions routes', () => {
       writeSaivageConfig(projectRoot, {
         models: { default: ['test-model'] },
         providers: testConfig().providers,
+        compaction: testConfig().compaction,
       });
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/providers' });
 
@@ -76,9 +88,12 @@ describe('contract-backed config/providers/control-actions routes', () => {
         priority: 7,
         models: ['test-model'],
         baseUrl: 'https://provider.example.test',
-        accounts: ['primary', 'secondary'],
         candidateCount: 2,
         availableCandidateCount: 2,
+        availability: [
+          { candidate: { provider: 'test', account: 'primary', model: 'test-model' }, state: 'HEALTHY' },
+          { candidate: { provider: 'test', account: 'secondary', model: 'test-model' }, state: 'HEALTHY' },
+        ],
       }) } });
     } finally {
       await fastify.close();
@@ -128,7 +143,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         outcome: 'ok',
         outcome_summary: 'updated',
       });
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/control-actions?card_id=11111111-1111-4111-8111-111111111111&since=2026-01-01T12:00:00.000Z' });
 
@@ -147,15 +162,15 @@ describe('contract-backed config/providers/control-actions routes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-config-error-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const configResponse = await fastify.inject({ method: 'GET', url: '/api/config' });
       const providersResponse = await fastify.inject({ method: 'GET', url: '/api/providers' });
 
       expect(configResponse.statusCode).toBe(500);
       expect(configResponse.json()).toEqual({ error: 'Configuration unavailable', message: expect.stringContaining('Configuration not found') });
-      expect(providersResponse.statusCode).toBe(500);
-      expect(providersResponse.json()).toEqual({ error: 'Providers unavailable', message: 'Server was not started with a validated Environment config.' });
+      expect(providersResponse.statusCode).toBe(200);
+      expect(providersResponse.json()).toEqual(providerRoutingReadModelProvider()());
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });

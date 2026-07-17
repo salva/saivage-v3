@@ -12,6 +12,7 @@ import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -22,6 +23,7 @@ async function waitUntil(predicate: () => boolean): Promise<void> { for (let att
 
 function supervisor(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> }): SupervisorRuntimeApi {
   return new SupervisorRuntimeApi({
+    ...testAutonomousCompaction,
     projectRoot,
     actorStore: cards,
     interventionBinding: new RuntimeInterventionBinding(),

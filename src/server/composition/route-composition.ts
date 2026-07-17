@@ -35,6 +35,7 @@ export function registerServerRoutes(options: {
     serverAvailabilityProvider,
     configAuthority: options.configAuthority,
     saivageConfig: options.saivageConfig,
+    providerRoutingReadModelProvider: () => options.runtimeApplication.getProviderRoutingReadModel(),
     restartPort: options.restartPort,
     authPolicy: options.authPolicy,
   });

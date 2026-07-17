@@ -17,6 +17,7 @@ import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocat
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { EventBus } from '../../../src/events/index.js';
+import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -69,7 +70,7 @@ async function startRunningRoot(projectRoot: string) {
   const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
   jest.spyOn(processRunner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
   const changes = new ReadModelChangeBroadcaster();
-  const supervisor = new SupervisorRuntimeApi({
+  const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
     projectRoot, actorStore: cards, interventionBinding: intervention, provider,
     conversations: { projectRoot }, appLogs: { projectRoot },
     readModelChanges: changes,
@@ -108,7 +109,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
       agentsChanged: () => undefined,
       conversationChanged: () => undefined,
     });
-    supervisor = new SupervisorRuntimeApi({
+    supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention,
       provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
       conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
@@ -151,7 +152,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
       agentsChanged: () => undefined,
       conversationChanged: () => undefined,
     });
-    supervisor = new SupervisorRuntimeApi({
+    supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention,
       provider: { completeTurn: async () => { throw new Error('not reached'); } }, conversations: { projectRoot }, appLogs: { projectRoot },
       readModelChanges: changes, processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
@@ -203,7 +204,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     let supervisor!: SupervisorRuntimeApi;
     const snapshots: ProjectionSnapshot[] = [];
     changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
-    supervisor = new SupervisorRuntimeApi({
+    supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention,
       provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
       conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
@@ -261,7 +262,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     let supervisor!: SupervisorRuntimeApi;
     const snapshots: ProjectionSnapshot[] = [];
     changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
-    supervisor = new SupervisorRuntimeApi({
+    supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention, provider,
       conversations: { projectRoot }, appLogs: { projectRoot },
       readModelChanges: changes,
@@ -307,7 +308,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     let supervisor!: SupervisorRuntimeApi;
     const snapshots: ProjectionSnapshot[] = [];
     changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
-    supervisor = new SupervisorRuntimeApi({
+    supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention, provider,
       conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
       processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
@@ -358,7 +359,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
       }),
     };
     const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
-    const supervisor = new SupervisorRuntimeApi({
+    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot,
       actorStore: cards,
       interventionBinding: new RuntimeInterventionBinding(),
@@ -440,7 +441,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     cards.setStatus(left.id, 'running');
     cards.setStatus(right.id, 'running');
     const provider = { completeTurn: jest.fn(async () => { throw new Error('must not install a processor'); }) };
-    const supervisor = new SupervisorRuntimeApi({
+    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
       conversations: { projectRoot }, appLogs: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
@@ -481,7 +482,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
       if (rootScope !== processRunner.runtimeRootScope) await cleanup.promise;
       return { selected: [], stopped: [], failed: [] };
     });
-    const supervisor = new SupervisorRuntimeApi({
+    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, eventBus: bus, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
       conversations: { projectRoot }, appLogs: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
@@ -560,7 +561,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     };
     const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
     jest.spyOn(processRunner, 'terminateScopeTree').mockResolvedValue({ selected: ['p'], stopped: [], failed: [{ groupId: 'p', state: 'unconfirmed', diagnostic: 'private' }] });
-    const supervisor = new SupervisorRuntimeApi({
+    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
       conversations: { projectRoot }, appLogs: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
@@ -584,7 +585,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const cards = new CardService(projectRoot);
     cards.setStatus('project', 'running');
     const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
-    const supervisor = new SupervisorRuntimeApi({
+    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(),
       provider: { completeTurn: async () => { throw new Error('not called'); } },
       conversations: { projectRoot }, appLogs: { projectRoot },
@@ -638,7 +639,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     cards.setStatus('project', 'running');
     const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
     jest.spyOn(processRunner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
-    const supervisor = new SupervisorRuntimeApi({
+    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(),
       provider: { completeTurn: async () => { throw new Error('not called'); } },
       conversations: { projectRoot }, appLogs: { projectRoot },

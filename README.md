@@ -33,8 +33,15 @@ models:
   default: ["gpt-4.1"]
 providers:
   openai:
-    models: ["gpt-4.1"]
+    models: ["gpt-4.1", "org/summary/model"]
     apiKey: "<your-api-key>"
+compaction:
+  enabled: true
+  input_budget_tokens: 120000
+  summarizer_candidate:
+    provider: openai
+    account: null
+    model: "org/summary/model"
 server:
   port: 8080
   host: "0.0.0.0"
@@ -58,7 +65,16 @@ providers:
       streaming: true
       responsesReasoning:
         effort: medium
+compaction:
+  enabled: true
+  input_budget_tokens: 120000
+  summarizer_candidate:
+    provider: openai
+    account: null
+    model: "gpt-5.6"
 ```
+
+Compaction is a boot requirement, not an optional feature. `init` and `start --create-runtime` create generated project/runtime state but never synthesize model, provider, or compaction policy. Omitted, `enabled: false`, incomplete, or non-configured summarizer candidates fail startup. The candidate is an exact structured identity: `account: null` selects the provider-level implicit account, while `account: "_implicit"` and `account: "_"` select those exact explicit account names and remain distinct. Model IDs may contain slashes; there is no flattened compatibility spelling or fallback summarizer route. The operator must select a positive budget appropriate to the configured routes.
 
 Agent prompts are customizable with file-level Markdown overrides in `.saivage/config/prompts/<cardType>/<role>.md`. Shipped defaults live in `src/prompts/` and are copied to `dist/prompts/`; omitted override files keep the built-in defaults. Prompt overrides are durable operator configuration: `saivage init`, `saivage reset`, and `start --create-runtime` preserve them while recreating generated state.
 
@@ -91,7 +107,7 @@ curl http://localhost:8080/health
 
 Explicit Run validates the durable project-rooted running-card chain, constructs fresh process-local `CardActor` owners for every card, and starts only the deepest owner with planner or executor according to card type. Before that fresh activation invokes its provider, the stable role-session owner validates the canonical conversation and locally settles the one permitted latest interrupted call with an explicit failed `tool_result`; no actor object, provider continuation, runtime-state record, or cursor is reconstructed.
 
-Conversation and app-log mutation use direct synchronous domain-owner functions. Stable role conversations are append-only: compaction never replaces a version or writes a cache. Enabled actor compaction requires route-independent `compaction.input_budget_tokens`; each stable autonomous activation/repair loop prepares one exact prompt/tool budget before invocation I/O and carries it unchanged through refreshed continuations. Prepared completion is the sole autonomous output/admission authority, while Analyst and summarizers retain ordinary model limits. Candidate admission uses a documented best-effort canonical-body byte/4 heuristic and sends the exact once-built bytes; providers remain authoritative for context acceptance. Durable policy stores only policy inputs plus the otherwise unreconstructible static estimate, not derived completion/threshold/window values. This minimal ordered summary-group payload is a reset-only cutover: stop the service, preserve configuration, credentials, operator inputs, source, and documentation, run the current built `saivage reset`, and start the current binary. Old generated conversations are not migrated or compatibility-read.
+Conversation and app-log mutation use direct synchronous domain-owner functions. Stable role conversations are append-only: compaction never replaces a version or writes a cache. Mandatory actor compaction requires route-independent `compaction.input_budget_tokens`; each stable autonomous activation/repair loop prepares one exact prompt/tool budget before invocation I/O and carries it unchanged through refreshed continuations. Prepared completion is the sole autonomous output/admission authority, while Analyst and summarizers retain ordinary model limits. Candidate admission uses a documented best-effort canonical-body byte/4 heuristic and sends the exact once-built bytes; providers remain authoritative for context acceptance. Durable policy stores only policy inputs plus the otherwise unreconstructible static estimate, not derived completion/threshold/window values. This minimal ordered summary-group payload is a reset-only cutover: stop the service, preserve configuration, credentials, operator inputs, source, and documentation, run the current built `saivage reset`, and start the current binary. Old generated conversations are not migrated or compatibility-read.
 
 ## Key concepts
 

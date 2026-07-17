@@ -41,5 +41,5 @@ export interface OperatorMcpProviderContext {
 export interface OperatorConfigContext {
   configAuthority: ResolvedConfigAuthority;
   saivageConfig?: SaivageConfig;
-  providerRoutingReadModelProvider?: () => ProviderRoutingReadModel | undefined;
+  providerRoutingReadModelProvider: () => ProviderRoutingReadModel;
 }

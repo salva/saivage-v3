@@ -12,16 +12,15 @@ import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConve
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors } from './result-dropping.js';
 import { summarizeMerge, summarizeRound, type MergeSummaryInput, type SummarizerProviderPort } from './summarizer.js';
 
-export type CompactionConfig = {
-  enabled: boolean; input_budget_tokens?: number; trigger_fraction: number; completion_reserve_fraction: number;
+export type AutonomousCompactionPolicy = {
+  input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
   merge_line_fraction: number; summary_line_fraction: number; escalate_merge_line_fraction: number; escalate_summary_line_fraction: number;
-  snap: SnapPolicy; summarizer_model?: string;
+  snap: SnapPolicy;
 };
 
-export function prepareCompaction(config: CompactionConfig, systemPrompt: string, tools: readonly ToolDefinition[]): PreparedCompaction {
-  if (!config.enabled) throw new Error('Compaction budget requested while compaction is disabled.');
+export function prepareCompaction(config: AutonomousCompactionPolicy, systemPrompt: string, tools: readonly ToolDefinition[]): PreparedCompaction {
   const B = config.input_budget_tokens;
-  if (!Number.isInteger(B) || (B ?? 0) <= 0) throw new Error('compaction.input_budget_tokens must be a positive integer when compaction is enabled.');
+  if (!Number.isInteger(B) || B <= 0) throw new Error('compaction.input_budget_tokens must be a positive integer.');
   if (!(config.completion_reserve_fraction > 0 && config.completion_reserve_fraction <= 1)) throw new Error('compaction.completion_reserve_fraction must be > 0 and <= 1.');
   if (!(0 <= config.merge_line_fraction && config.merge_line_fraction <= config.summary_line_fraction && config.summary_line_fraction <= config.trigger_fraction && config.trigger_fraction <= 1)) throw new Error('Compaction normal fractions must satisfy 0 <= merge <= summary <= trigger <= 1.');
   if (!(0 <= config.escalate_merge_line_fraction && config.escalate_merge_line_fraction <= config.escalate_summary_line_fraction && config.escalate_summary_line_fraction <= config.trigger_fraction)) throw new Error('Compaction escalated fractions must satisfy 0 <= escalate_merge <= escalate_summary <= trigger.');
@@ -32,27 +31,26 @@ export function prepareCompaction(config: CompactionConfig, systemPrompt: string
   const escalatedMiddleWidth = config.escalate_summary_line_fraction - config.escalate_merge_line_fraction;
   if (escalatedTailWidth > normalTailWidth) throw new Error(`Escalated compaction tail width must be <= normal tail width (trigger - summary): escalated=${JSON.stringify(escalatedTailWidth)}, normal=${JSON.stringify(normalTailWidth)}.`);
   if (escalatedMiddleWidth > normalMiddleWidth) throw new Error(`Escalated compaction middle width must be <= normal middle width (summary - merge): escalated=${JSON.stringify(escalatedMiddleWidth)}, normal=${JSON.stringify(normalMiddleWidth)}.`);
-  const requestedCompletionTokens = Math.floor(B! * config.completion_reserve_fraction);
+  const requestedCompletionTokens = Math.floor(B * config.completion_reserve_fraction);
   if (requestedCompletionTokens < 1) throw new Error('compaction requestedCompletionTokens must be positive.');
-  const normalTailBudget = Math.floor(B! * normalTailWidth);
-  const normalMiddleBudget = Math.floor(B! * normalMiddleWidth);
-  const escalatedTailBudget = Math.floor(B! * escalatedTailWidth);
-  const escalatedMiddleBudget = Math.floor(B! * escalatedMiddleWidth);
-  const triggerLineTokens = Math.floor(B! * config.trigger_fraction);
+  const normalTailBudget = Math.floor(B * normalTailWidth);
+  const normalMiddleBudget = Math.floor(B * normalMiddleWidth);
+  const escalatedTailBudget = Math.floor(B * escalatedTailWidth);
+  const escalatedMiddleBudget = Math.floor(B * escalatedMiddleWidth);
+  const triggerLineTokens = Math.floor(B * config.trigger_fraction);
   const estimatedStaticTokens = estimateCanonicalStaticTokens(systemPrompt, tools);
   const triggerMessageThreshold = triggerLineTokens - estimatedStaticTokens;
-  const canonicalMessageHardCeiling = B! - estimatedStaticTokens - requestedCompletionTokens;
+  const canonicalMessageHardCeiling = B - estimatedStaticTokens - requestedCompletionTokens;
   if (!Number.isFinite(estimatedStaticTokens) || estimatedStaticTokens < 0 || triggerMessageThreshold <= 0 || canonicalMessageHardCeiling <= 0 || triggerMessageThreshold > canonicalMessageHardCeiling) {
     throw new Error(`Autonomous prompt/tool surface does not fit the compaction budget (input_budget_tokens=${B}, estimated_static_tokens=${estimatedStaticTokens}, requested_completion_tokens=${requestedCompletionTokens}, trigger_message_threshold=${triggerMessageThreshold}, canonical_message_hard_ceiling=${canonicalMessageHardCeiling}). Raise compaction.input_budget_tokens, reduce the prompt/tool surface, or lower completion_reserve_fraction.`);
   }
-  if (!config.summarizer_model?.trim()) throw new Error('Compaction is enabled but compaction.summarizer_model is unset.');
   return {
-    inputBudgetTokens: B!, requestedCompletionTokens, triggerLineTokens, estimatedStaticTokens, triggerMessageThreshold, canonicalMessageHardCeiling,
+    inputBudgetTokens: B, requestedCompletionTokens, triggerLineTokens, estimatedStaticTokens, triggerMessageThreshold, canonicalMessageHardCeiling,
     normalTailBudget, normalMiddleBudget, escalatedTailBudget, escalatedMiddleBudget,
     triggerFraction: config.trigger_fraction, completionReserveFraction: config.completion_reserve_fraction,
     normalMergeLineFraction: config.merge_line_fraction, normalSummaryLineFraction: config.summary_line_fraction,
     escalatedMergeLineFraction: config.escalate_merge_line_fraction, escalatedSummaryLineFraction: config.escalate_summary_line_fraction,
-    snap: config.snap, summarizerModel: config.summarizer_model,
+    snap: config.snap,
   };
 }
 
@@ -155,12 +153,12 @@ async function mergeSummaryGroups(args: CompactArgs, inputs: MergeSummaryInput[]
     const next: MergeSummaryInput[] = [];
     for (let index = 0; index < current.length; index += groupSize) {
       const group = current.slice(index, index + groupSize);
-      next.push({ round_id: group.map((entry) => entry.round_id).join(','), summary_text: await summarizeMerge({ entries: group, summarizerProvider: args.summarizerProvider, modelSpec: args.input.preparedCompaction.summarizerModel, signal: args.signal }) });
+       next.push({ round_id: group.map((entry) => entry.round_id).join(','), summary_text: await summarizeMerge({ entries: group, summarizerProvider: args.summarizerProvider, signal: args.signal }) });
       args.signal.throwIfAborted();
     }
     current = next;
   }
-  return summarizeMerge({ entries: current, summarizerProvider: args.summarizerProvider, modelSpec: args.input.preparedCompaction.summarizerModel, signal: args.signal });
+  return summarizeMerge({ entries: current, summarizerProvider: args.summarizerProvider, signal: args.signal });
 }
 
 async function fallbackFromScratch(args: CompactArgs, classified: ClassifiedConversation, preamble: AgentMessage[], budget: PreparedCompaction, band: 'normal' | 'escalated', candidateFitFor: CandidateFitFactory): Promise<CandidateFit> {
@@ -171,7 +169,7 @@ async function fallbackFromScratch(args: CompactArgs, classified: ClassifiedConv
     const prefix = boundaryRows.slice(0, length);
     if (!safeFallbackBoundary(prefix, boundaryRows[length])) continue;
     const last = prefix[prefix.length - 1]!;
-    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, false)], content_hash: hashConversationRows(prefix), summary_text: await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: budget.summarizerModel, signal: args.signal }), evidence: recoverableEvidenceDescriptors(prefix) };
+    const partial: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, false)], content_hash: hashConversationRows(prefix), summary_text: await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, signal: args.signal }), evidence: recoverableEvidenceDescriptors(prefix) };
     args.signal.throwIfAborted();
     const retainedStatic = preamble.filter((row) => row.role === 'system' && row.kind !== 'activity').map((row) => row.id);
     const modeBand = band;
@@ -199,7 +197,7 @@ async function applyHardFallback(args: CompactArgs, sourceRows: AgentMessage[], 
     if (latest && cutoffSourceIndex <= latest.cutoffSourceIndex) continue;
     const last = prefix[prefix.length - 1]!;
     const complete = length === boundaryRows.length;
-    const summaryText = await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, modelSpec: budget.summarizerModel, signal: args.signal });
+    const summaryText = await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: boundaryRound.round_id, rows: dropRecoverableResultBodies(prefix), summarizerProvider: args.summarizerProvider, signal: args.signal });
     args.signal.throwIfAborted();
     const group: ContextCompactionContent['summaries'][number] = { kind: 'individual', rounds: [buildCoveredRound(prefix, complete)], content_hash: hashConversationRows(prefix), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(prefix) };
     const summaries = replacesPartial ? [...base.payload.summaries.slice(0, -1), group] : [...base.payload.summaries, group];
@@ -220,7 +218,7 @@ function payloadFor(preamble: AgentMessage[], merged: ContextCompactionContent['
 
 async function summarizeRawRound(args: CompactArgs, round: ClassifiedRound): Promise<ContextCompactionContent['summaries'][number]> {
   const rows = rawRoundRows(round);
-  const summaryText = await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: round.round_id, rows: dropRecoverableResultBodies(rows), summarizerProvider: args.summarizerProvider, modelSpec: args.input.preparedCompaction.summarizerModel, signal: args.signal });
+  const summaryText = await summarizeRound({ sourceSessionId: args.input.sessionId, round_id: round.round_id, rows: dropRecoverableResultBodies(rows), summarizerProvider: args.summarizerProvider, signal: args.signal });
   args.signal.throwIfAborted();
   return { kind: 'individual', rounds: [buildCoveredRound(rows, true)], content_hash: hashConversationRows(rows), summary_text: summaryText, evidence: recoverableEvidenceDescriptors(rows) };
 }

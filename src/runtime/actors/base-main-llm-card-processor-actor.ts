@@ -2,9 +2,9 @@ import { LLMActor, type CompactorPort, type LLMActorOutcome, type LLMProviderPor
 import { BaseCardProcessorActor, type CardProcessorOutcome } from './base-card-processor-actor.js';
 import type { CardActivationInput } from './card-actor.js';
 import { RuntimeGate } from '../runtime-gate.js';
-import type { LlmInvocationInput } from './llm-invocation.js';
+import type { AutonomousLlmInvocationInput } from './llm-invocation.js';
 import type { InvocationSurface } from '../../tools/invocation.js';
-import type { CompactionConfig } from './compaction/compactor.js';
+import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ProviderVisibleUserContextMessage } from './conversation-session.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
@@ -13,9 +13,9 @@ import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
   readonly gate: RuntimeGate;
-  readonly compactor?: CompactorPort;
-  readonly compactionConfig?: CompactionConfig;
-  readonly summarizerProvider?: LLMProviderPort;
+  readonly compactor: CompactorPort;
+  readonly compactionConfig: AutonomousCompactionPolicy;
+  readonly summarizerProvider: LLMProviderPort;
   readonly conversationPublisher?: ConversationChangePublisher;
   readonly conversations: ConversationFileContext;
   readonly runtimeProjectionChanged: () => void;
@@ -23,7 +23,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   #joiningLlmActors: readonly LLMActor[] | null = null;
   #llmInvocationsDisposed = false;
 
-  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.provider = args.provider;
     this.conversations = args.conversations;
@@ -81,7 +81,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
 
   protected async resolveInitialOutcome(
     llm: LLMActor,
-    buildInput: () => LlmInvocationInput | Promise<LlmInvocationInput>,
+    buildInput: () => AutonomousLlmInvocationInput | Promise<AutonomousLlmInvocationInput>,
     surface: InvocationSurface,
     isTerminalToolName: (name: string) => boolean,
     signal: AbortSignal,

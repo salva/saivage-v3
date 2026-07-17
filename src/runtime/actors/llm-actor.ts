@@ -2,7 +2,7 @@ import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import type { AgentMessage } from '../../schemas/index.js';
-import type { LlmInvocationInput, PreparedCompaction } from './llm-invocation.js';
+import type { AutonomousLlmInvocationInput, LlmInvocationInput, PreparedCompaction } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
 import { appendUserContextMessage, readConversationMessages, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
@@ -492,11 +492,11 @@ export class ConversationLLMActor extends BaseActor {
 
 export class LLMActor extends ConversationLLMActor {
   #compacting = false;
-  readonly compactor?: CompactorPort;
-  readonly summarizerProvider?: LLMProviderPort;
+  readonly compactor: CompactorPort;
+  readonly summarizerProvider: LLMProviderPort;
   readonly runtimeProjectionChanged: () => void;
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor?: CompactorPort; summarizerProvider?: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: LLMProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     if (parseLlmActorId(args.agentId).role === 'analyst') throw new Error(`LLMActor '${args.agentId}' only supports autonomous card roles.`);
     this.compactor = args.compactor;
@@ -504,13 +504,17 @@ export class LLMActor extends ConversationLLMActor {
     this.runtimeProjectionChanged = args.runtimeProjectionChanged;
   }
 
+  override turn(input: AutonomousLlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome> {
+    if (!input.preparedCompaction) return Promise.reject(new Error(`LLMActor '${this.agentId}' requires prepared compaction.`));
+    return super.turn(input, signal);
+  }
+
   protected override _on_state_changed(oldState: string | undefined, _newState: string): void {
     if (oldState !== undefined) this.runtimeProjectionChanged();
   }
 
   protected override async onBeforeProviderCall(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmInvocationInput | void> {
-    if (!input.preparedCompaction) return;
-    if (!this.compactor || !this.summarizerProvider) throw new Error(`LLMActor '${this.agentId}' has incomplete compaction wiring.`);
+    if (!input.preparedCompaction) throw new Error(`LLMActor '${this.agentId}' admitted an invocation without prepared compaction.`);
     if (this.state() !== 'calling_provider') throw new Error(`LLMActor '${this.agentId}' cannot compact from state '${this.state()}'.`);
     if (!this.compactor.shouldCompact(input)) return;
     try {

@@ -16,11 +16,11 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 
 import { CardService } from '../cards/card-service.js';
 import { InvocationService } from '../agents/invocation-service.js';
-import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
+import { createInvocationServiceProvider, createMicroActorRuntimeApi, invocationRequest } from './micro-actor-runtime-api-factory.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
 import { ManagedProcessGroupRegistry } from '../runtime/managed-process-group-registry.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
-import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
+import { createPromptTemplateRegistry, type PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { ReadModelChanges } from './read-model-changes.js';
@@ -28,6 +28,8 @@ import type { ConversationFileContext } from '../persistence/conversation-file.j
 import type { AppLogContext } from '../persistence/app-log.js';
 import { RuntimeInterventionBinding } from './intervention-readiness.js';
 import { RuntimeControlService, type RuntimeControlApplicationPort, type RuntimeControlMechanics } from './runtime-control-service.js';
+import type { AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
+import type { LLMProviderPort } from '../runtime/actors/llm-actor.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -35,7 +37,9 @@ export interface RuntimeApiFactoryDeps {
   cardStore: CardService;
   interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
-  config?: SaivageConfig;
+  promptTemplates: PromptTemplateRegistry;
+  compactionPolicy: AutonomousCompactionPolicy;
+  summarizerProvider: LLMProviderPort;
   processRunner: ProcessRunner;
   runtimeGate: RuntimeGate;
   mcpManagerProvider?: () => McpManager | undefined;
@@ -124,6 +128,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   let mcpManager: McpManager | undefined;
 
   const registry = new ProviderRegistry(config);
+  const summarizerCandidate = registry.assertCandidate(config.compaction.summarizer_candidate);
   const router = new ModelRouter(
     config,
     registry,
@@ -137,6 +142,10 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     candidateAvailability,
     appLogs: services.appLogs,
   });
+  const summarizerProvider: LLMProviderPort = {
+    completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal, [summarizerCandidate])),
+  };
+  const { enabled: _enabled, summarizer_candidate: _summarizerCandidate, ...compactionPolicy } = config.compaction;
   const processRegistry = new ManagedProcessGroupRegistry();
   const processRunner = new ProcessRunner(projectRoot, processRegistry);
   const runtimeGate = new RuntimeGate();
@@ -146,7 +155,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
-  const runtimeMechanics = runtimeFactory({ projectRoot, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, config, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
+  const runtimeMechanics = runtimeFactory({ projectRoot, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, compactionPolicy, summarizerProvider, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
   const runtimeControl = new RuntimeControlService({ projectRoot, interventionBinding, mechanics: runtimeMechanics });
   const runtimeComposition = createComposedRuntimeApi({
     runtimeApi: runtimeControl,

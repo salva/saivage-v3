@@ -13,6 +13,7 @@ import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 
@@ -64,8 +65,8 @@ describe('planner/executor notification crash prefixes', () => {
     }) };
     const gate = new RuntimeGate();
     const actor = role === 'planner'
-      ? new PlanningCardProcessorActor({ projectRoot, cardId: card.id, store: cards, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined })
-      : new TerminalCardProcessorActor({ projectRoot, cardId: card.id, store: cards, provider, processRunner: createTestProcessRunner(projectRoot), conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined });
+      ? new PlanningCardProcessorActor({ projectRoot, cardId: card.id, store: cards, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction })
+      : new TerminalCardProcessorActor({ projectRoot, cardId: card.id, store: cards, provider, processRunner: createTestProcessRunner(projectRoot), conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
     actor.start();
     const controller = new AbortController();
     const notification = { id: `notification-${role}-${prefix}`, content: `new ${role} context`, created_at: '2026-07-16T00:00:00.000Z' };

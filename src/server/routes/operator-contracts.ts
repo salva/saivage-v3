@@ -47,7 +47,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
       projectRoot,
       configAuthority: options.configAuthority,
       saivageConfig: options.saivageConfig,
-      providerRoutingReadModelProvider: () => options.runtimeApplication?.getProviderRoutingReadModel(),
+      providerRoutingReadModelProvider: options.providerRoutingReadModelProvider,
     }),
   };
 

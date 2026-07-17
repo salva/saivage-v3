@@ -21,11 +21,11 @@ export const ProviderSummarySchema = z.object({
   priority: z.number(),
   models: z.array(z.string()),
   baseUrl: z.string().optional(),
-  accounts: z.array(z.string()),
   candidateCount: z.number().int().nonnegative(),
   availableCandidateCount: z.number().int().nonnegative(),
   capabilitiesByModel: z.record(z.string(), z.unknown()),
-  availability: z.record(z.string(), z.object({
+  availability: z.array(z.object({
+    candidate: z.object({ provider: z.string(), account: z.string().nullable(), model: z.string() }),
     state: z.string(),
     reason: z.string().optional(),
     untilMs: z.number().optional(),

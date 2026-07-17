@@ -1,7 +1,7 @@
 import type { OperationalAgentRole } from '../schemas/index.js';
 import type { EventLog } from '../observability/index.js';
 import { buildLlmOptions } from './llm-options-factory.js';
-import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
+import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import type { ModelRouter } from './model-router.js';
 import type { CandidateAvailability } from './candidate-availability.js';
@@ -91,7 +91,7 @@ export class InvocationService {
     return this.router.resolve(role, capabilityRequest);
   }
 
-  async invokeCall(request: InvocationRequest, candidate: Candidate, builtRequests?: Map<string, BuiltCandidateRequest>): Promise<ProviderTurnCompletion> {
+  async invokeCall(request: InvocationRequest, candidate: Candidate, builtRequests?: Array<{ candidate: Candidate; request: BuiltCandidateRequest }>): Promise<ProviderTurnCompletion> {
     assertProviderConversationSourceRows(request.providerConversation);
     const call = this.llmCallFn ?? this.llmGateway.createLlmCallFn();
     const outputTokens = request.preparedCompaction?.requestedCompletionTokens ?? request.modelParams.maxTokens;
@@ -103,11 +103,10 @@ export class InvocationService {
     if (request.preparedCompaction) {
       const requestedCompletionTokens = request.preparedCompaction.requestedCompletionTokens;
       const capabilities = this.registry.getEffectiveCapabilities(candidate);
-      const key = candidateKey(candidate);
-      const built = builtRequests?.get(key) ?? buildCandidateRequest({ candidate, capabilities, systemPrompt: request.systemPrompt, providerConversation: request.providerConversation, options });
+      const built = builtRequests?.find((entry) => candidatesEqual(entry.candidate, candidate))?.request ?? buildCandidateRequest({ candidate, capabilities, systemPrompt: request.systemPrompt, providerConversation: request.providerConversation, options });
       const reason = candidateAdmissionFailure(capabilities, built.estimatedWireInputTokens, requestedCompletionTokens);
       if (reason) throw new CandidateAdmissionError(candidate, capabilities.transportProtocol, built.estimatedWireInputTokens, requestedCompletionTokens, capabilities.contextWindowTokens, capabilities.maxOutputTokens, reason);
-      builtRequests?.set(key, built);
+      if (builtRequests && !builtRequests.some((entry) => candidatesEqual(entry.candidate, candidate))) builtRequests.push({ candidate, request: built });
       options.builtCandidateRequest = built;
     }
     const completion = await call(
@@ -127,7 +126,7 @@ export class InvocationService {
     const chain = request.candidateChain ?? await this.resolveCandidates(request.role, request.capabilityRequest);
     if (chain.length === 0) this.throwNoCandidates(request, settled);
     const states: CandidateRecoveryRecord[] = chain.map((candidate) => ({ candidate, attempts: 0, state: 'UNTRIED' }));
-    const builtRequests = new Map<string, BuiltCandidateRequest>();
+    const builtRequests: Array<{ candidate: Candidate; request: BuiltCandidateRequest }> = [];
 
     while (true) {
       throwIfAborted(request.abortSignal);

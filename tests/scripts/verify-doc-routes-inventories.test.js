@@ -109,7 +109,7 @@ describe('source-derived Agent tool inventory', () => {
 });
 
 describe('source-derived Config schema inventory', () => {
-  it('discovers all 19 current object occurrences and repeated capability/reasoning shapes', () => {
+  it('discovers all current object occurrences and repeated capability/reasoning shapes', () => {
     const result = verifyConfigDocs({ projectRoot: process.cwd() });
     expect(result.ok).toBe(true);
     expect([...result.expected.keys()]).toEqual([
@@ -118,7 +118,7 @@ describe('source-derived Config schema inventory', () => {
       'providers.entry.modelCapabilities.entry', 'providers.entry.modelCapabilities.entry.responsesReasoning',
       'providers.entry.accounts.entry', 'providers.entry.accounts.entry.capabilities',
       'providers.entry.accounts.entry.capabilities.responsesReasoning', 'server', 'runtime',
-      'runtime.process_timeouts', 'security', 'telegram', 'notifications', 'compaction', 'mcpServers.entry',
+      'runtime.process_timeouts', 'security', 'telegram', 'notifications', 'compaction', 'compaction.summarizer_candidate', 'mcpServers.entry',
     ]);
     for (const path of ['providers.entry.capabilities', 'providers.entry.modelCapabilities.entry', 'providers.entry.accounts.entry.capabilities']) {
       expect(result.expected.get(path)).toEqual(['contextWindowTokens', 'exclusiveToolChoiceSupport', 'maxOutputTokens', 'quirks', 'responsesReasoning', 'streaming', 'toolsMode', 'transportProtocol']);

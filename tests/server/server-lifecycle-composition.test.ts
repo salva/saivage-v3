@@ -14,10 +14,11 @@ function config(): SaivageConfig {
   return {
     server: { host: '127.0.0.1', port: 8080 },
     models: { default: ['test-model'] },
-    providers: {},
+    providers: { test: { models: ['test-model'] } },
     providerFailoverOrder: [],
     mcpServers: {},
     runtime: { continuousImprovement: false },
+    compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } },
   } as unknown as SaivageConfig;
 }
 
@@ -47,7 +48,7 @@ describe('server lifecycle composition', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-server-cleanup-'));
     try {
       initProjectTree(projectRoot);
-      writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), 'models:\n  default: [test-model]\nproviders: {}\nruntime:\n  continuous_improvement: false\n');
+      writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), validConfigYaml());
       const environment = await loadEnvironment(['node', 'test', '--project-root', projectRoot], { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined });
       const terminal = createAppTerminalCoordinator();
       const services = await createServerServices({ environment, terminal });
@@ -113,7 +114,7 @@ describe('server lifecycle composition', () => {
     let stopped = false;
     try {
       initProjectTree(projectRoot);
-      writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), 'models:\n  default: [test-model]\nproviders: {}\nruntime:\n  continuous_improvement: false\n');
+      writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), validConfigYaml());
       const environment = await loadEnvironment(['node', 'test', '--project-root', projectRoot], { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined });
 
       await expect(createServerServices({ environment, terminal })).rejects.toThrow(rejection.message);
@@ -131,3 +132,7 @@ describe('server lifecycle composition', () => {
   });
 
 });
+
+function validConfigYaml(): string {
+  return 'models:\n  default: [test-model]\nproviders:\n  test:\n    models: [test-model]\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: test\n    account: null\n    model: test-model\nruntime:\n  continuous_improvement: false\n';
+}

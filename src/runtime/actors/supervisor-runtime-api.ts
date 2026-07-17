@@ -13,7 +13,7 @@ import { ActiveCardLeaf } from '../active-card-leaf.js';
 import { selectRunningCardChain } from '../running-card-chain.js';
 import { createConversationChangePublisher } from './conversation-publisher.js';
 import type { LLMProviderPort, CompactorPort } from './llm-actor.js';
-import type { CompactionConfig } from './compaction/compactor.js';
+import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { CardService } from '../../cards/card-service.js';
 import type { RuntimeInterventionBinding } from '../../application/intervention-readiness.js';
 import type { ProcessRunner } from '../process-runner.js';
@@ -30,7 +30,7 @@ export interface SupervisorRuntimeApiOptions {
   projectRoot: string; eventBus?: EventBus; now?: () => string; rootCards?: ProjectRootCardReader;
   actorStore: CardService; interventionBinding: RuntimeInterventionBinding; provider: LLMProviderPort;
   conversations: ConversationFileContext; appLogs: AppLogContext; readModelChanges: ReadModelChanges;
-  compactor?: CompactorPort; compactionConfig?: CompactionConfig; summarizerProvider?: LLMProviderPort;
+  compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: LLMProviderPort;
   processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry;
   runtimeGate?: RuntimeGate; mcpManagerProvider?: () => McpToolInvocationPort | undefined;
 }

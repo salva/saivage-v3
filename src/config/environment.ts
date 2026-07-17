@@ -166,7 +166,6 @@ export async function loadEnvironment(argv: readonly string[], env: EnvironmentS
       : { kind: 'default' };
   const configPath = resolve(cli.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`);
   const configAuthority = createResolvedConfigAuthority({ path: configPath, source, interpolationEnvironment: env });
-  if (cli.createRuntime) configAuthority.initializeCanonicalDefaultIfMissing();
   let config: SaivageConfig;
   let warnings: readonly string[];
   try {

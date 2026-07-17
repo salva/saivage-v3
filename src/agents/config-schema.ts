@@ -148,9 +148,15 @@ const notificationsSectionSchema = z.object({
   channels: z.array(notificationChannelSchema).default(['web']),
 }).strict();
 
+export const candidateSchema = z.object({
+  provider: z.string().min(1),
+  account: z.union([z.string().min(1), z.literal(null)]),
+  model: z.string().min(1),
+}).strict();
+
 const compactionSectionSchema = z.object({
-  enabled: z.boolean().default(false),
-  input_budget_tokens: z.number().int().positive().optional(),
+  enabled: z.literal(true),
+  input_budget_tokens: z.number().int().positive(),
   trigger_fraction: z.number().positive().max(1).default(0.80),
   completion_reserve_fraction: z.number().positive().max(1).default(0.20),
   merge_line_fraction: z.number().nonnegative().max(1).default(0.30),
@@ -158,9 +164,8 @@ const compactionSectionSchema = z.object({
   escalate_merge_line_fraction: z.number().nonnegative().max(1).default(0.40),
   escalate_summary_line_fraction: z.number().nonnegative().max(1).default(0.60),
   snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']).default('keep_straddler_verbatim'),
-  summarizer_model: z.string().optional(),
+  summarizer_candidate: candidateSchema,
 }).strict().superRefine((value, ctx) => {
-  if (value.enabled && value.input_budget_tokens === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['input_budget_tokens'], message: 'compaction.input_budget_tokens is required when compaction.enabled=true' });
   if (value.merge_line_fraction > value.summary_line_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['merge_line_fraction'], message: 'merge_line_fraction must be <= summary_line_fraction' });
   if (value.summary_line_fraction > value.trigger_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['summary_line_fraction'], message: 'summary_line_fraction must be <= trigger_fraction' });
   if (value.escalate_merge_line_fraction > value.escalate_summary_line_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_merge_line_fraction'], message: 'escalate_merge_line_fraction must be <= escalate_summary_line_fraction' });
@@ -172,7 +177,7 @@ const compactionSectionSchema = z.object({
   const escalatedMiddleWidth = value.escalate_summary_line_fraction - value.escalate_merge_line_fraction;
   if (escalatedTailWidth > normalTailWidth) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_summary_line_fraction'], message: `Escalated compaction tail width must be <= normal tail width (trigger - summary): escalated=${JSON.stringify(escalatedTailWidth)}, normal=${JSON.stringify(normalTailWidth)}.` });
   if (escalatedMiddleWidth > normalMiddleWidth) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_merge_line_fraction'], message: `Escalated compaction middle width must be <= normal middle width (summary - merge): escalated=${JSON.stringify(escalatedMiddleWidth)}, normal=${JSON.stringify(normalMiddleWidth)}.` });
-  if (value.enabled && value.input_budget_tokens !== undefined && Math.floor(value.input_budget_tokens * value.completion_reserve_fraction) < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'compaction requestedCompletionTokens must be positive' });
+  if (Math.floor(value.input_budget_tokens * value.completion_reserve_fraction) < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'compaction requestedCompletionTokens must be positive' });
 });
 
 // MCP Server entry
@@ -196,14 +201,13 @@ export const saivageConfigSchema = z.object({
   security: securitySectionSchema.default({}),
   telegram: telegramSectionSchema.optional(),
   notifications: notificationsSectionSchema.optional(),
-  compaction: compactionSectionSchema.optional().default({}),
+  compaction: compactionSectionSchema,
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
 }).strict();
 
 // ── Derived Types ─────────────────────────────────────────────
 
-type ParsedSaivageConfig = z.infer<typeof saivageConfigSchema>;
-export type SaivageConfig = Omit<ParsedSaivageConfig, 'compaction'> & { compaction?: ParsedSaivageConfig['compaction'] };
+export type SaivageConfig = z.infer<typeof saivageConfigSchema>;
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;

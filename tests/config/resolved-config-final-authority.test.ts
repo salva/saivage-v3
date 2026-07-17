@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import * as YAML from 'yaml';
 
 import { createResolvedConfigAuthority } from '../../src/config/resolved-config-authority.js';
+import { loadEnvironment } from '../../src/config/environment.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -15,7 +16,7 @@ describe('selected config authority', () => {
     roots.push(root);
     const selected = join(root, 'selected.yaml');
     const ignored = join(root, 'ignored.yaml');
-    const source = 'models:\n  default: ["${MODEL}"]\nproviders:\n  p:\n    models: ["${MODEL}"]\n    apiKey: "${KEY}"\nserver:\n  port: 8080\n';
+    const source = 'models:\n  default: ["${MODEL}"]\nproviders:\n  p:\n    models: ["${MODEL}"]\n    apiKey: "${KEY}"\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: p\n    account: null\n    model: "${MODEL}"\nserver:\n  port: 8080\n';
     writeFileSync(selected, source);
     writeFileSync(ignored, YAML.stringify({ models: { default: ['ignored'] }, server: { port: 9000 } }));
     const authority = createResolvedConfigAuthority({ path: selected, source: { kind: 'cli', argument: '--config' }, interpolationEnvironment: { MODEL: 'm1', KEY: 'secret' } });
@@ -35,5 +36,12 @@ describe('selected config authority', () => {
     const authority = createResolvedConfigAuthority({ path: selected, source: { kind: 'environment', variable: 'SAIVAGE_CONFIG' }, interpolationEnvironment: {} });
     rmSync(selected);
     expect(() => authority.loadEffective()).toThrow(selected);
+  });
+
+  it('does not synthesize a selected configuration for --create-runtime', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-config-authority-'));
+    roots.push(root);
+    await expect(loadEnvironment(['node', 'test', 'start', '--project-root', root, '--create-runtime'], {})).rejects.toMatchObject({ field: 'config' });
+    expect(() => readFileSync(join(root, '.saivage', 'saivage.yaml'))).toThrow();
   });
 });

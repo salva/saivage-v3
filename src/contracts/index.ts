@@ -107,8 +107,7 @@ export type {
 } from './candidate-availability.js';
 
 export {
-  candidateKey,
-  parseCandidateKey,
+  candidatesEqual,
 } from './provider-candidate.js';
 
 export type {

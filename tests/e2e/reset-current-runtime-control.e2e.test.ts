@@ -24,7 +24,7 @@ describe('reset-current project runtime controls', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-control-e2e-'));
     initProjectTree(projectRoot);
     const port = await availablePort();
-    writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), `models:\n  default: [test-model]\nproviders: {}\nruntime:\n  continuous_improvement: false\nserver:\n  host: 127.0.0.1\n  port: ${port}\n`);
+    writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), `models:\n  default: [test-model]\nproviders:\n  test:\n    models: [test-model]\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: test\n    account: null\n    model: test-model\nruntime:\n  continuous_improvement: false\nserver:\n  host: 127.0.0.1\n  port: ${port}\n`);
     app = await startApp({
       argv: ['node', 'test', 'start', '--project-root', projectRoot],
       env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined },

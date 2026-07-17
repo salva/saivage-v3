@@ -21,6 +21,7 @@ import { invokeTool } from '../../src/tools/invocation.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAppLogs } from '../helpers/app-logs.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -34,6 +35,7 @@ type RuntimeInternals = { cardActors: Map<string, CardActor>; liveCardActors: Ma
 
 function runtime(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>; projectProviderExchanges?: (sessionId: string, inputId: string, attempts: ProviderExchangeAttempt[], outputIds: string[]) => void }, processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry())): SupervisorRuntimeApi {
   return new SupervisorRuntimeApi({
+    ...testAutonomousCompaction,
     projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
     conversations: { projectRoot }, appLogs: testAppLogs(projectRoot),
     readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },

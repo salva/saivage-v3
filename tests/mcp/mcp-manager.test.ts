@@ -23,6 +23,7 @@ function baseConfig(mcpServers: Record<string, unknown>): Record<string, unknown
     server: { port: 8080, host: '127.0.0.1' },
     models: { default: ['test-model'] },
     providers: { test: { priority: 10, models: ['test-model'], apiKey: 'synthetic-secret' } },
+    compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } },
     mcpServers,
   };
 }
@@ -214,7 +215,7 @@ describe('persisted MCP reconciliation', () => {
     writeConfig(root, { one: stdio('one') });
     const { manager, signal } = createManager(root);
     const before = await manager.reconcilePersistedConfig();
-    writeFileSync(join(root, '.saivage', 'saivage.yaml'), 'mcpServers: invalid\n');
+    writeFileSync(join(root, '.saivage', 'saivage.yaml'), YAML.stringify({ ...baseConfig({}), mcpServers: 'invalid' }));
 
     await expect(manager.reconcilePersistedConfig()).rejects.toThrow();
     expect(signal).not.toHaveBeenCalled();
