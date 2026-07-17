@@ -21,7 +21,7 @@ function projectRoot(): string {
 function baseConfig(mcpServers: Record<string, unknown>): Record<string, unknown> {
   return {
     server: { port: 8080, host: '127.0.0.1' },
-    models: { default: ['test-model'] },
+    models: { default: ['test-model'], max_tokens: { analyst: 200 } },
     providers: { test: { priority: 10, models: ['test-model'], apiKey: 'synthetic-secret' } },
     compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } },
     mcpServers,

@@ -13,7 +13,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 function config(): SaivageConfig {
   return {
     server: { host: '127.0.0.1', port: 8080 },
-    models: { default: ['test-model'] },
+    models: { default: ['test-model'], max_tokens: { analyst: 200 } },
     providers: { test: { models: ['test-model'] } },
     providerFailoverOrder: [],
     mcpServers: {},
@@ -134,5 +134,5 @@ describe('server lifecycle composition', () => {
 });
 
 function validConfigYaml(): string {
-  return 'models:\n  default: [test-model]\nproviders:\n  test:\n    models: [test-model]\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: test\n    account: null\n    model: test-model\nruntime:\n  continuous_improvement: false\n';
+  return 'models:\n  default: [test-model]\n  max_tokens:\n    analyst: 200\nproviders:\n  test:\n    models: [test-model]\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: test\n    account: null\n    model: test-model\nruntime:\n  continuous_improvement: false\n';
 }

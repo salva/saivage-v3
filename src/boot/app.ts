@@ -148,19 +148,19 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   const terminal = createAppTerminalCoordinator();
   const lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: prelock.projectRoot, mode: 'bound' });
   terminal.registerCleanupLeaf('lifecycle-lock', () => releaseRuntimeLifecycleLock(lifecycleLock));
-  const restartPort = createRestartPort({
-    onAcknowledgedRestart: () => terminal.stop(),
-    exit: (code) => process.exit(code),
-  });
   let environment: Environment;
   let server: ServerInstance;
   try {
+    environment = await loadEnvironment(options.argv, env);
     if (prelock.createRuntime && readCard(prelock.projectRoot, 'project') === null) {
       mkdirSync(resolve(prelock.projectRoot, '.saivage', 'cards'), { recursive: true });
       const root = newProjectRootInput(prelock.projectRoot);
       publishInitialProjectCard(prelock.projectRoot, root.card, root.brief, 'analyst');
     }
-    environment = await loadEnvironment(options.argv, env);
+    const restartPort = createRestartPort({
+      onAcknowledgedRestart: () => terminal.stop(),
+      exit: (code) => process.exit(code),
+    });
     server = await startServer({ environment, terminal, restartPort });
     const address = server.fastify.server.address();
     if (address === null || typeof address === 'string') throw new Error('Server did not publish a TCP control address.');

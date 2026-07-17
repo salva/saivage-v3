@@ -16,7 +16,7 @@ describe('selected config authority', () => {
     roots.push(root);
     const selected = join(root, 'selected.yaml');
     const ignored = join(root, 'ignored.yaml');
-    const source = 'models:\n  default: ["${MODEL}"]\nproviders:\n  p:\n    models: ["${MODEL}"]\n    apiKey: "${KEY}"\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: p\n    account: null\n    model: "${MODEL}"\nserver:\n  port: 8080\n';
+    const source = 'models:\n  default: ["${MODEL}"]\n  max_tokens:\n    analyst: 200\nproviders:\n  p:\n    models: ["${MODEL}"]\n    apiKey: "${KEY}"\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: p\n    account: null\n    model: "${MODEL}"\nserver:\n  port: 8080\n';
     writeFileSync(selected, source);
     writeFileSync(ignored, YAML.stringify({ models: { default: ['ignored'] }, server: { port: 9000 } }));
     const authority = createResolvedConfigAuthority({ path: selected, source: { kind: 'cli', argument: '--config' }, interpolationEnvironment: { MODEL: 'm1', KEY: 'secret' } });
@@ -36,6 +36,27 @@ describe('selected config authority', () => {
     const authority = createResolvedConfigAuthority({ path: selected, source: { kind: 'environment', variable: 'SAIVAGE_CONFIG' }, interpolationEnvironment: {} });
     rmSync(selected);
     expect(() => authority.loadEffective()).toThrow(selected);
+  });
+
+  it('rejects reconfiguration through the full schema without replacing an invalid selected file', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-config-authority-'));
+    roots.push(root);
+    const selected = join(root, 'selected.yaml');
+    const source = YAML.stringify({
+      models: { default: ['m1'], max_tokens: { analyst: 201 } },
+      providers: { p: { models: ['m1'] } },
+      compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'p', account: null, model: 'm1' } },
+      server: { port: 8080 },
+    });
+    writeFileSync(selected, source);
+    const authority = createResolvedConfigAuthority({ path: selected, source: { kind: 'cli', argument: '--config' }, interpolationEnvironment: {} });
+
+    expect(authority.applyChange({ kind: 'set_server_setting', key: 'port', value: 8181 })).toEqual({
+      success: false,
+      fieldPath: 'models/max_tokens/analyst',
+      message: expect.stringContaining('Effective Analyst max tokens 201 (source: analyst) exceed reserved completion tokens 200'),
+    });
+    expect(readFileSync(selected, 'utf8')).toBe(source);
   });
 
   it('does not synthesize a selected configuration for --create-runtime', async () => {

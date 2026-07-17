@@ -68,7 +68,7 @@ describe('ordinary-runtime last-chance context compaction E2E', () => {
     });
 
     const config = saivageConfigSchema.parse({
-      models: { default: ['work-model'] },
+      models: { default: ['work-model'], max_tokens: { analyst: 2400 } },
       providers: { test: { models: ['work-model', 'org/summary/model'] } },
       compaction: { enabled: true, input_budget_tokens: 12000, summarizer_candidate: { provider: 'test', account: null, model: 'org/summary/model' } },
     });

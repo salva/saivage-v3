@@ -34,7 +34,7 @@ describe('required autonomous compaction E2E', () => {
       return { result: { kind: 'tool_calls', tool_calls: [call] }, provider_exchanges: [] };
     });
     const config = saivageConfigSchema.parse({
-      models: { default: ['work-model'] },
+      models: { default: ['work-model'], max_tokens: { analyst: 2400 } },
       providers: { test: { models: ['work-model', 'org/summary/model'] } },
       compaction: { enabled: true, input_budget_tokens: 12000, summarizer_candidate: { provider: 'test', account: null, model: 'org/summary/model' } },
     });

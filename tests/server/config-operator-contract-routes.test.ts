@@ -17,7 +17,7 @@ import { buildProviderRoutingReadModel } from '../../src/agents/provider-routing
 
 function testConfig(): SaivageConfig {
   return {
-    models: { default: ['test-model'] },
+    models: { default: ['test-model'], max_tokens: { analyst: 200 } },
     providers: {
       test: {
         priority: 7,
@@ -49,7 +49,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
     const fastify = Fastify({ logger: false });
     try {
       writeSaivageConfig(projectRoot, {
-        models: { default: ['test-model'] },
+        models: testConfig().models,
         providers: testConfig().providers,
         server: { host: '127.0.0.1', port: 8080 },
         compaction: testConfig().compaction,
@@ -75,7 +75,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
     const fastify = Fastify({ logger: false });
     try {
       writeSaivageConfig(projectRoot, {
-        models: { default: ['test-model'] },
+        models: testConfig().models,
         providers: testConfig().providers,
         compaction: testConfig().compaction,
       });
@@ -171,6 +171,30 @@ describe('contract-backed config/providers/control-actions routes', () => {
       expect(configResponse.json()).toEqual({ error: 'Configuration unavailable', message: expect.stringContaining('Configuration not found') });
       expect(providersResponse.statusCode).toBe(200);
       expect(providersResponse.json()).toEqual(providerRoutingReadModelProvider()());
+    } finally {
+      await fastify.close();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('reports the Analyst reserve invariant through the selected /api/config authority', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-config-reserve-route-'));
+    const fastify = Fastify({ logger: false });
+    try {
+      writeSaivageConfig(projectRoot, {
+        models: { default: ['test-model'], max_tokens: { analyst: 201 } },
+        providers: testConfig().providers,
+        compaction: testConfig().compaction,
+      });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
+
+      const response = await fastify.inject({ method: 'GET', url: '/api/config' });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({
+        error: 'Configuration unavailable',
+        message: expect.stringContaining('Effective Analyst max tokens 201 (source: analyst) exceed reserved completion tokens 200'),
+      });
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });

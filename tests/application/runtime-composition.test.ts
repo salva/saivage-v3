@@ -18,7 +18,7 @@ afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop(
 
 function config(candidate = { provider: 'test', account: null as string | null, model: 'org/summary/model' }) {
   return saivageConfigSchema.parse({
-    models: { default: ['org/summary/model'] },
+    models: { default: ['org/summary/model'], max_tokens: { analyst: 2000 } },
     providers: { test: { models: ['org/summary/model'] } },
     compaction: { enabled: true, input_budget_tokens: 10000, summarizer_candidate: candidate },
   });

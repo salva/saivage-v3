@@ -203,7 +203,23 @@ export const saivageConfigSchema = z.object({
   notifications: notificationsSectionSchema.optional(),
   compaction: compactionSectionSchema,
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  const maxTokens = value.models.max_tokens ?? {};
+  const analystTokens = maxTokens['analyst'];
+  const defaultTokens = maxTokens['default'];
+  const requested = analystTokens ?? defaultTokens ?? 4096;
+  const source = analystTokens !== undefined ? 'analyst' : defaultTokens !== undefined ? 'default' : 'hard default';
+  const budget = value.compaction.input_budget_tokens;
+  const fraction = value.compaction.completion_reserve_fraction;
+  const reserved = Math.floor(budget * fraction);
+  if (requested > reserved) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['models', 'max_tokens', source === 'analyst' ? 'analyst' : source === 'default' ? 'default' : 'analyst'],
+      message: `Effective Analyst max tokens ${requested} (source: ${source}) exceed reserved completion tokens ${reserved} (floor(input_budget_tokens ${budget} * completion_reserve_fraction ${fraction})). Raise compaction.input_budget_tokens or compaction.completion_reserve_fraction, or lower the configured Analyst max.`,
+    });
+  }
+});
 
 // ── Derived Types ─────────────────────────────────────────────
 

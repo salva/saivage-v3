@@ -40,7 +40,7 @@ describe('Analyst compacted conversation projection', () => {
     const eventBus = new EventBus();
     const runtime = new AnalystRuntime({
       projectRoot,
-      config: saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'model' } } }),
+      config: saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 20480, summarizer_candidate: { provider: 'test', account: null, model: 'model' } } }),
       runtimeDeps: {
         configAuthority: {}, cardStore: new CardService(projectRoot), runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard: jest.fn(), notifyCard: jest.fn(), getStatus: jest.fn() },
         emitAnalystToolInvoked: jest.fn(), eventBus, provider, processRunner: runner, analystProcessRootScope: runner.analystRootScope,
