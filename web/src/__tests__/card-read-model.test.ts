@@ -2,7 +2,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { describe, expect, it, vi } from 'vitest';
 import type { CardRecord } from '../api/types';
 import { useCardBrowserReadModel } from '../composables/useCardBrowserReadModel';
-import { applyCardFilters, buildTree, selectChildrenOf } from '../stores/cards';
+import { buildTree, selectChildrenOf } from '../stores/cards';
 import { useCardStore } from '../stores/cards';
 
 function card(overrides: Partial<CardRecord>): CardRecord {
@@ -30,16 +30,6 @@ function card(overrides: Partial<CardRecord>): CardRecord {
 }
 
 describe('card selectors', () => {
-  it('filters cards without owning fetch state', () => {
-    const cards = [
-      card({ id: '11111111-1111-4111-8111-111111111111', title: 'Alpha', priority: 1, tags: ['ui'] }),
-      card({ id: '22222222-2222-4222-8222-222222222222', title: 'Beta', priority: 9, tags: ['ui'] }),
-      card({ id: '33333333-3333-4333-8333-333333333333', title: 'Gamma', priority: 10, tags: ['api'] }),
-    ];
-
-    expect(applyCardFilters(cards, { status: '', type: '', query: 'a' }).map((entry) => entry.id)).toEqual(['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333']);
-  });
-
   it('builds trees and ordered child projections from authoritative card records', () => {
     const cards = [
       card({ id: 'project', type: 'project', position: 0 }),

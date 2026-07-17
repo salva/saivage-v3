@@ -28,11 +28,13 @@
             <Button class="auth-banner-action" size="sm" variant="ghost" @click="openTokenFromAuthBanner">Open Token modal</Button>
             <Button class="auth-banner-dismiss" size="sm" variant="ghost" aria-label="Dismiss API token banner" @click="dismissAuthBanner">Dismiss</Button>
           </div>
-          <router-view v-slot="{ Component }">
-            <transition name="fade" mode="out-in">
-              <component :is="Component" />
-            </transition>
-          </router-view>
+          <div class="workspace-route-host">
+            <router-view v-slot="{ Component }">
+              <transition name="fade" mode="out-in">
+                <component :is="Component" />
+              </transition>
+            </router-view>
+          </div>
         </main>
       </div>
     </div>
@@ -264,9 +266,17 @@ onUnmounted(() => {
 
 .workspace-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.workspace-route-host {
+  flex: 1;
   min-height: 0;
   overflow: auto;
-  background: var(--bg);
 }
 
 .analyst-pane {
@@ -375,6 +385,7 @@ onUnmounted(() => {
   border-radius:0;
   color:var(--text);
   font-size:13px;
+  flex-shrink:0;
 }
 .auth-banner strong { color:var(--danger); }
 .auth-banner-dismiss { margin-left:auto; }

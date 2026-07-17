@@ -29,14 +29,10 @@ export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStor
   }
 
   return {
-    cards: refs.cards,
-    orderedCards: refs.orderedFilteredCards,
+    orderedCards: refs.cards,
     orderedCardTree: refs.orderedCardTree,
     loading: refs.loading,
     errorMsg: computed(() => refs.error.value),
-    filterStatus: refs.filterStatus,
-    filterType: refs.filterType,
-    searchQuery: refs.searchQuery,
     effectiveExpandedTreeIds,
     toggleTreeNode,
   };

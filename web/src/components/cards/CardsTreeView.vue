@@ -1,13 +1,14 @@
 <template>
   <div class="tree-container">
     <div v-if="tree.length === 0" class="tree-empty">
-      No cards match the current read-only filters.
+      No cards available.
     </div>
     <ul v-else class="tree-list">
       <li v-for="node in renderedTree" :key="node.card.id">
         <SelectableRow
           as="div"
           class="tree-node"
+          :selected="selectedCardId === node.card.id"
           :style="{ paddingLeft: `${node.depth * 20 + 8}px` }"
           @select="emit('select', node.card.id)"
         >
@@ -15,10 +16,11 @@
             v-if="node.hasChildren"
             type="button"
             class="node-toggle"
-            :aria-label="expandedIds.has(node.card.id) ? `Collapse ${node.card.title}` : `Expand ${node.card.title}`"
+            :disabled="isRouteForced(node.card.id)"
+            :aria-label="toggleLabel(node)"
             @click.stop="emit('toggle', node.card.id)"
           >
-            {{ expandedIds.has(node.card.id) ? '▾' : '▸' }}
+            {{ isEffectivelyExpanded(node.card.id) ? '▾' : '▸' }}
           </button>
           <span v-else class="node-toggle placeholder"></span>
 
@@ -42,6 +44,7 @@ const props = defineProps<{
   cards: CardRecord[];
   tree: CardRecord[];
   expandedIds: Set<string>;
+  selectedCardId: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -55,7 +58,32 @@ interface TreeNode {
   card: CardRecord;
   depth: number;
   hasChildren: boolean;
-  children: CardRecord[];
+}
+
+const selectedAncestorIds = computed<Set<string>>(() => {
+  const ancestors = new Set<string>();
+  if (!props.selectedCardId) return ancestors;
+
+  const cardsById = new Map(props.cards.map((card) => [card.id, card]));
+  let parentId = cardsById.get(props.selectedCardId)?.parent ?? null;
+  while (parentId) {
+    ancestors.add(parentId);
+    parentId = cardsById.get(parentId)?.parent ?? null;
+  }
+  return ancestors;
+});
+
+function isEffectivelyExpanded(id: string): boolean {
+  return props.expandedIds.has(id) || selectedAncestorIds.value.has(id);
+}
+
+function isRouteForced(id: string): boolean {
+  return selectedAncestorIds.value.has(id) && !props.expandedIds.has(id);
+}
+
+function toggleLabel(node: TreeNode): string {
+  if (isRouteForced(node.card.id)) return `${node.card.title}: Expanded to show selected card`;
+  return isEffectivelyExpanded(node.card.id) ? `Collapse ${node.card.title}` : `Expand ${node.card.title}`;
 }
 
 const renderedTree = computed<TreeNode[]>(() => {
@@ -69,15 +97,13 @@ const renderedTree = computed<TreeNode[]>(() => {
       childrenMap.set(card.parent, existing);
     }
   }
-
-
   function walk(nodes: CardRecord[], depth: number): void {
     for (const card of nodes) {
       const children = childrenMap.get(card.id) || [];
       const hasChildren = children.length > 0;
-      flat.push({ card, depth, hasChildren, children });
+      flat.push({ card, depth, hasChildren });
 
-      if (hasChildren && props.expandedIds.has(card.id)) {
+      if (hasChildren && isEffectivelyExpanded(card.id)) {
         walk(children, depth + 1);
       }
     }
@@ -115,6 +141,11 @@ const renderedTree = computed<TreeNode[]>(() => {
   line-height: 1.4;
   border-left: 3px solid transparent;
   min-height: 32px;
+}
+
+.tree-node.selected {
+  background: var(--entry-user-bg);
+  border-left-color: var(--accent-2);
 }
 
 .node-toggle {

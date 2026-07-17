@@ -11,7 +11,7 @@ const originalFetch = globalThis.fetch;
 
 const routeSmokeCases = [
   { path: '/dashboard', root: '[data-testid="route-dashboard"]', bodyText: /Runtime Console/i },
-  { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /Any status|Could not load cards/i },
+  { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /No cards available|Could not load cards/i },
   { path: '/agents', root: '[data-testid="route-agents"]', bodyText: /Could not load agents|No agent sessions recorded yet/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata/i },
   { path: '/debug', root: '[data-testid="route-debug"]', bodyText: /State|Errors|Timeline/i },
@@ -153,6 +153,10 @@ describe('operator dashboard S06 smoke contract', () => {
   it('keeps the persistent analyst panel mounted by the shell with no drawer toggle', () => {
     expect(appShellSource).toContain('AnalystChatPanel');
     expect(appShellSource).toContain('workspace-content');
+    expect(appShellSource).toContain('workspace-route-host');
+    expect(appShellSource).toMatch(/\.workspace-content\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+    expect(appShellSource).toMatch(/\.workspace-route-host\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow:\s*auto;/s);
+    expect(appShellSource).toMatch(/\.auth-banner\s*\{[^}]*flex-shrink:\s*0;/s);
     expect(appShellSource).not.toMatch(/drawer|toggleAnalyst|open analyst|close analyst/i);
   });
 });

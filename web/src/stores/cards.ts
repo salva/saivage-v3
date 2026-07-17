@@ -6,7 +6,6 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type {
   CardRecord,
-  CardType,
   CardStatus,
   CardListResponse,
   CardDetailResponse,
@@ -29,12 +28,6 @@ import { createLogger } from '../utils/logger';
 const log = createLogger('store:cards');
 
 /* ─── Selectors ───────────────────────────────────────────────────────────── */
-
-export interface CardFilterState {
-  status: CardStatus | '';
-  type: CardType | '';
-  query: string;
-}
 
 export function buildDetailError(err: unknown, fallback: string): DetailErrorState {
   if (err instanceof ApiError) {
@@ -89,38 +82,6 @@ export function sortCardsByParentPosition(a: CardRecord, b: CardRecord): number 
   const pb = b.position ?? Number.POSITIVE_INFINITY;
   if (pa !== pb) return pa - pb;
   return a.id.localeCompare(b.id);
-}
-
-export function applyCardFilters(source: CardRecord[], filters: CardFilterState): CardRecord[] {
-  let result = source;
-
-  if (filters.status) result = result.filter((card) => card.status === filters.status);
-  if (filters.type) result = result.filter((card) => card.type === filters.type);
-  if (filters.query) {
-    const q = filters.query.toLowerCase();
-    result = result.filter((card) =>
-      card.title.toLowerCase().includes(q)
-      || card.id.toLowerCase().includes(q));
-  }
-
-  return result;
-}
-
-export function selectOrderedFilteredCards(source: CardRecord[], filters: CardFilterState): CardRecord[] {
-  const matched = applyCardFilters(source, filters);
-  if (matched.length === source.length) return matched;
-  const byId = new Map(source.map((card) => [card.id, card]));
-  const included = new Set(matched.map((card) => card.id));
-  for (const card of matched) {
-    let parentId = card.parent;
-    while (parentId) {
-      const parent = byId.get(parentId);
-      if (!parent) break;
-      included.add(parent.id);
-      parentId = parent.parent;
-    }
-  }
-  return source.filter((card) => included.has(card.id));
 }
 
 export function selectChildrenOf(cards: CardRecord[], parentId: string): CardRecord[] {
@@ -284,19 +245,7 @@ export const useCardStore = defineStore('cards', () => {
 
   const staleNotificationByCard = ref<Record<string, boolean>>({});
 
-  const filterStatus = ref<CardStatus | ''>('');
-  const filterType = ref<CardType | ''>('');
-  const searchQuery = ref<string>('');
-
-  const activeFilters = computed(() => ({
-    status: filterStatus.value,
-    type: filterType.value,
-    query: searchQuery.value,
-  }));
-
-  const orderedFilteredCards = computed<CardRecord[]>(() => selectOrderedFilteredCards(cards.value, activeFilters.value));
-
-  const orderedCardTree = computed<CardRecord[]>(() => buildTree(orderedFilteredCards.value));
+  const orderedCardTree = computed<CardRecord[]>(() => buildTree(cards.value));
 
   const currentCardHasStaleWarning = computed(() => {
     const cardId = currentCard.value?.id;
@@ -494,16 +443,6 @@ export const useCardStore = defineStore('cards', () => {
     }
   }
 
-  async function applyFilters(): Promise<void> {
-    await fetchCards();
-  }
-
-  function clearFilters(): void {
-    filterStatus.value = '';
-    filterType.value = '';
-    searchQuery.value = '';
-  }
-
   async function refetch(): Promise<void> {
     await fetchCards();
     const currentId = currentCard.value?.id;
@@ -538,10 +477,6 @@ export const useCardStore = defineStore('cards', () => {
     cardHistoryDiffError,
     staleNotificationByCard,
     currentCardHasStaleWarning,
-    filterStatus,
-    filterType,
-    searchQuery,
-    orderedFilteredCards,
     orderedCardTree,
     isStale,
     fetchCards,
@@ -549,8 +484,6 @@ export const useCardStore = defineStore('cards', () => {
     fetchCardHistoryForCard,
     selectCardHistoryVersion,
     refreshCardHistory,
-    applyFilters,
-    clearFilters,
     refetch,
     markDetailStale,
     clearCardHistoryState,

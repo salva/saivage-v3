@@ -52,7 +52,15 @@ describe('read-only positive checklist', () => {
     expect(cardsViewSource).not.toContain('Card Tree');
     expect(cardsViewSource).not.toContain('Open Timeline');
     expect(cardsViewSource).not.toContain('view-tab');
-    expect(cardsViewSource).not.toContain('placeholder="Search cards..."');
+    const removedCardsFilters = new RegExp([
+      ['Search', ' cards'].join(''),
+      ['Filter by ', 'status'].join(''),
+      ['Filter by ', 'type'].join(''),
+      ['Any ', 'status'].join(''),
+      ['Any ', 'type'].join(''),
+      ['cards', '-filters'].join(''),
+    ].join('|'));
+    expect(cardsViewSource).not.toMatch(removedCardsFilters);
     expect(timelineViewSource).toContain('CardsTimelineView');
     expect(timelineViewSource).not.toContain('Back to Card Tree');
 
