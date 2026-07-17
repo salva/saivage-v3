@@ -8,6 +8,7 @@ const now = '2026-07-17T12:00:00.000Z';
 const sourceId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const goalId = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const targetId = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb-cccccccccccccccccccccccccccc';
+const publishedChildId = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb-dddddddddddddddddddddddddddd';
 
 function card(overrides: Record<string, unknown>) {
   const status = String(overrides.status ?? 'backlog');
@@ -58,6 +59,7 @@ function card(overrides: Record<string, unknown>) {
 const source = card({ status: 'running' });
 const goal = card({ id: goalId, type: 'goal', position: 2, children: [targetId], title: 'Collapsed ancestor goal', status: 'backlog', logical_path: '2' });
 const target = card({ id: targetId, parent: goalId, depth: 2, position: 1, title: 'Deep linked target', status: 'blocked', logical_path: '2.1' });
+const publishedChild = card({ id: publishedChildId, parent: goalId, depth: 2, position: 2, title: 'Newly linked nested child', status: 'backlog', logical_path: '2.2' });
 function segment(value: number): string {
   const letters = Array<string>(28).fill('a');
   let remaining = value;
@@ -100,6 +102,9 @@ type CardsFixture = {
   cardsRequestCount: number;
   detailRequestCounts: Record<string, number>;
   useReplacement: boolean;
+  publishNestedChild: () => void;
+  holdNextCards: () => void;
+  releaseCards: () => void;
   holdNextDetail: (id: string, outcome: 'success' | 'failure') => void;
   releaseDetail: (id: string) => void;
 };
@@ -116,10 +121,26 @@ async function installCardsFixture(page: Page, authBanner: boolean): Promise<Car
   });
 
   const heldDetails = new Map<string, { outcome: 'success' | 'failure'; promise: Promise<void>; release: () => void }>();
+  let nestedChildPublished = false;
+  let heldCards: { promise: Promise<void>; release: () => void } | null = null;
+  let releasableCards: { promise: Promise<void>; release: () => void } | null = null;
   const fixture: CardsFixture = {
     cardsRequestCount: 0,
     detailRequestCounts: {},
     useReplacement: false,
+    publishNestedChild() { nestedChildPublished = true; },
+    holdNextCards() {
+      if (heldCards || releasableCards) throw new Error('A cards request is already held');
+      let release!: () => void;
+      const promise = new Promise<void>((resolve) => { release = resolve; });
+      heldCards = { promise, release };
+      releasableCards = heldCards;
+    },
+    releaseCards() {
+      if (!releasableCards) throw new Error('No held cards request');
+      releasableCards.release();
+      releasableCards = null;
+    },
     holdNextDetail(id, outcome) {
       let release!: () => void;
       const promise = new Promise<void>((resolve) => { release = resolve; });
@@ -131,14 +152,26 @@ async function installCardsFixture(page: Page, authBanner: boolean): Promise<Car
       held.release();
     },
   };
+  const currentCards = () => {
+    const cards = initialCards.map((entry) => {
+      if (entry.id === targetId && fixture.useReplacement) return replacementTarget;
+      if (entry.id === goalId && nestedChildPublished) return { ...entry, children: [targetId, publishedChildId], version_seq: 2 };
+      return entry;
+    });
+    if (nestedChildPublished) cards.splice(cards.findIndex((entry) => entry.id === targetId) + 1, 0, publishedChild);
+    return cards;
+  };
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === 'GET' && url.pathname === '/api/cards') {
       fixture.cardsRequestCount += 1;
-      const cards = fixture.useReplacement
-        ? initialCards.map((entry) => entry.id === targetId ? replacementTarget : entry)
-        : initialCards;
+      const cards = currentCards();
+      const held = heldCards;
+      if (held) {
+        heldCards = null;
+        await held.promise;
+      }
       await fulfillJson(route, parseOperatorResponse('cards.list', { cards, total: cards.length }));
       return;
     }
@@ -156,9 +189,7 @@ async function installCardsFixture(page: Page, authBanner: boolean): Promise<Car
           return;
         }
       }
-      const cards = fixture.useReplacement
-        ? initialCards.map((entry) => entry.id === targetId ? replacementTarget : entry)
-        : initialCards;
+      const cards = currentCards();
       const detailCard = cards.find((entry) => entry.id === id);
       if (!detailCard) {
         await fulfillJson(route, { error: 'not_found', message: 'Synthetic card not found' }, 404);
@@ -303,6 +334,31 @@ test('desktop Cards uses independent panes and route-only semantic selection thr
   await expect.poll(() => fixture.cardsRequestCount).toBeGreaterThan(requestCount);
   await expect(page).toHaveURL(`/cards/${targetId}`);
   await expectSelected(page, 'Deep linked target after canonical refresh', 'changed');
+});
+
+test('desktop Cards renders a newly linked nested child while an older list route is held', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const fixture = await installCardsFixture(page, false);
+  await page.goto(`/cards/${targetId}`);
+  await expectSelected(page, 'Deep linked target', 'blocked');
+  await expect(page.getByRole('button', { name: 'Collapsed ancestor goal: Expanded to show selected card', exact: true })).toBeVisible();
+
+  const initialRequestCount = fixture.cardsRequestCount;
+  fixture.holdNextCards();
+  await page.evaluate(() => window.__saivageWsFixture!.emitCardChanged());
+  await expect.poll(() => fixture.cardsRequestCount).toBe(initialRequestCount + 1);
+
+  fixture.publishNestedChild();
+  await page.evaluate(() => window.__saivageWsFixture!.emitCardChanged());
+  await expect.poll(() => fixture.cardsRequestCount).toBe(initialRequestCount + 2);
+
+  const row = page.locator('.tree-node').filter({ hasText: 'Newly linked nested child' });
+  await expect(row).toBeVisible();
+  await expect(row).toHaveCSS('padding-left', '48px');
+  expect(fixture.cardsRequestCount).toBe(initialRequestCount + 2);
+
+  fixture.releaseCards();
+  await expect(row).toBeVisible();
 });
 
 test('desktop Cards keeps independent pane geometry below the in-flow auth banner', async ({ page }) => {

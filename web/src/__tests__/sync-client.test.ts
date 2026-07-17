@@ -2,14 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import type { LiveSyncInvalidateFrame, LiveSyncSubscribedFrame, WsConnectionState } from '../api/types';
 import type { WsConnectionManager, WsEventHandler, WsOpenHandler, WsStateHandler, WsSyncFrameHandler } from '../api/websocket';
-import { SyncClient } from '../sync/client';
+import { SyncClient, type SyncResourceRegistration } from '../sync/client';
 import { useAnalystChat } from '../stores/analystChat';
 import { useFeedbackStore } from '../stores/feedback';
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
+function deferred(): { promise: Promise<void>; resolve: () => void; reject: (reason: unknown) => void } {
   let resolve!: () => void;
-  const promise = new Promise<void>((res) => { resolve = res; });
-  return { promise, resolve };
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
 }
 
 function createConn(initial: WsConnectionState = 'offline') {
@@ -67,24 +68,107 @@ describe('SyncClient', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it('uses single-flight plus trailing refetch per resource', async () => {
+  it('immediately invokes Cards refetches even while an older invocation is active', async () => {
     const { conn, emitSync } = createConn();
     const client = new SyncClient(conn);
     const first = deferred();
-    const refetch = vi.fn(() => first.promise);
+    const second = deferred();
+    const refetch = vi.fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
     client.register({ resource: 'cards', scope: 'core', refetch });
     client.start();
-    await flush();
-    refetch.mockClear();
 
     emitSync({ t: 'invalidate', resource: 'cards' });
     emitSync({ t: 'invalidate', resource: 'cards' });
     await flush();
+    expect(refetch).toHaveBeenCalledTimes(2);
+
+    first.resolve();
+    second.resolve();
+    await flush();
+  });
+
+  it('observes and logs each overlapping Cards rejection independently', async () => {
+    const { conn, emitSync } = createConn();
+    const client = new SyncClient(conn);
+    const first = deferred();
+    const second = deferred();
+    const firstError = new Error('first Cards refresh failed');
+    const secondError = new Error('second Cards refresh failed');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    client.register({
+      resource: 'cards',
+      scope: 'core',
+      refetch: vi.fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise),
+    });
+    client.start();
+
+    emitSync({ t: 'invalidate', resource: 'cards' });
+    emitSync({ t: 'invalidate', resource: 'cards' });
+    first.reject(firstError);
+    second.reject(secondError);
+    await flush();
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith('[sync]', 'Sync refetch failed for cards', firstError);
+    expect(warn).toHaveBeenCalledWith('[sync]', 'Sync refetch failed for cards', secondError);
+  });
+
+  it('keeps non-Cards refetches single-flight with one trailing call and settlement callback', async () => {
+    const { conn, emitSync } = createConn();
+    const client = new SyncClient(conn);
+    const first = deferred();
+    const second = deferred();
+    const refetch = vi.fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const onRefetch = vi.fn();
+    client.register({ resource: 'runtime', scope: 'core', refetch, onRefetch });
+    client.start();
+
+    emitSync({ t: 'invalidate', resource: 'runtime' });
+    emitSync({ t: 'invalidate', resource: 'runtime' });
+    await flush();
     expect(refetch).toHaveBeenCalledTimes(1);
+    expect(onRefetch).not.toHaveBeenCalled();
 
     first.resolve();
     await flush();
     expect(refetch).toHaveBeenCalledTimes(2);
+    expect(onRefetch).toHaveBeenCalledTimes(1);
+    expect(onRefetch).toHaveBeenCalledWith(expect.any(String));
+
+    second.resolve();
+    await flush();
+    expect(onRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects Cards success callbacks at the registration boundary', () => {
+    const { conn } = createConn();
+    const client = new SyncClient(conn);
+    const cardsRegistration = {
+      resource: 'cards',
+      scope: 'core',
+      refetch: async () => undefined,
+    } satisfies SyncResourceRegistration;
+    const runtimeRegistration = {
+      resource: 'runtime',
+      scope: 'core',
+      refetch: async () => undefined,
+      onRefetch: (_timestamp: string) => undefined,
+    } satisfies SyncResourceRegistration;
+    const cardsWithCallback = {
+      ...cardsRegistration,
+      onRefetch: (_timestamp: string) => undefined,
+    };
+
+    client.register(cardsRegistration)();
+    client.register(runtimeRegistration)();
+    // @ts-expect-error Cards registrations cannot publish refetch success callbacks.
+    client.register(cardsWithCallback);
   });
 
   it('ignores invalidations for inactive resources', async () => {

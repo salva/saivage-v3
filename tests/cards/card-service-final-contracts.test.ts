@@ -73,16 +73,58 @@ describe('CardService final reset-only contracts', () => {
     expect(() => cards.list()).toThrow();
   });
 
-  it('emits child-link history before card/runtime hints only after confirmed append', () => {
-    const eventBus = new EventBus(); const order: string[] = []; const events: Array<{ kind: string; cardId: string }> = [];
-    eventBus.subscribe('card_history_appended', (event) => { order.push('history'); events.push({ kind: event.payload.entry_kind, cardId: event.payload.card_id }); });
+  it('admits a fresh parent and confirms the linked child before history/card/runtime effects', () => {
+    const parent = new CardService(root, undefined, undefined, () => FIRST_SEGMENT).create({ ...input(), type: 'goal' });
+    const childId = `${parent.id}-${SECOND_SEGMENT}`;
+    const order: string[] = [];
+    const eventBus = new EventBus();
+    const assertLinkedVisibility = () => {
+      const observer = new CardService(root);
+      expect(observer.read(parent.id)?.children).toEqual([childId]);
+      expect(observer.listChildren(parent.id)).toEqual([childId]);
+      expect(observer.list().map(({ id }) => id)).toEqual(['project', parent.id, childId]);
+      expect(observer.read(childId)?.id).toBe(childId);
+    };
+    eventBus.subscribe('card_history_appended', (event) => {
+      order.push('history');
+      expect(event.payload).toMatchObject({ entry_kind: 'child_link', card_id: parent.id });
+      assertLinkedVisibility();
+    });
     const changes = new ReadModelChangeBroadcaster();
-    changes.subscribe({ cardStateChanged: () => { order.push('card'); }, runtimeChanged: () => { order.push('runtime'); }, agentsChanged() {}, conversationChanged() {} });
-    const cards = new CardService(root, eventBus, changes, () => FIRST_SEGMENT);
+    changes.subscribe({
+      cardStateChanged: () => { order.push('card'); assertLinkedVisibility(); },
+      runtimeChanged: () => { order.push('runtime'); assertLinkedVisibility(); },
+      agentsChanged() {},
+      conversationChanged() {},
+    });
+    const writeParentLink = ((...args: unknown[]) => {
+      order.push('parent-link-write');
+      return Reflect.apply(writeSync, undefined, args);
+    }) as typeof writeSync;
+    const io: GrowingFileIo = {
+      read: readFileSync,
+      open(path, flags) {
+        order.push('parent-link-open');
+        const observer = new CardService(root);
+        expect(observer.read(parent.id)?.children).toEqual([]);
+        expect(observer.listChildren(parent.id)).toEqual([]);
+        expect(observer.list().map(({ id }) => id)).toEqual(['project', parent.id]);
+        expect(observer.read(childId)).toBeNull();
+        return openSync(path, flags);
+      },
+      write: writeParentLink,
+      fsync(fd) { order.push('parent-link-fsync'); fsyncSync(fd); },
+      truncate: ftruncateSync,
+      close(fd) { order.push('parent-link-close'); closeSync(fd); },
+    };
+    const cards = new CardService(root, eventBus, changes, () => SECOND_SEGMENT, io);
 
-    cards.create(input());
-    expect(order).toEqual(['history', 'card', 'runtime']);
-    expect(events).toEqual([{ kind: 'child_link', cardId: 'project' }]);
+    const child = cards.create(input(parent.id));
+
+    expect(child.id).toBe(childId);
+    // Reaching the append means publishInitialCard completed its initial-stream proof,
+    // CardService freshly admitted the still-unlinked parent, and its second proof returned.
+    expect(order).toEqual(['parent-link-open', 'parent-link-write', 'parent-link-fsync', 'parent-link-close', 'history', 'card', 'runtime']);
   });
 
   it('projects a cloned target and dependency statuses in declared order', () => {
@@ -254,12 +296,37 @@ describe('CardService final reset-only contracts', () => {
     const eventBus = new EventBus(); const events = jest.fn(); eventBus.subscribe('card_history_appended', (event) => { events(event); });
     const changes = new ReadModelChangeBroadcaster(); const publications: string[] = [];
     changes.subscribe({ cardStateChanged: () => publications.push('card'), runtimeChanged: () => publications.push('runtime'), agentsChanged() {}, conversationChanged() {} });
-    const io: GrowingFileIo = { read: readFileSync, open: openSync, write: writeSync, fsync(fd) { fsyncSync(fd); throw new Error('parent link fsync'); }, truncate: ftruncateSync, close: closeSync };
+    const operations: string[] = [];
+    const afterFailure: string[] = [];
+    let failed = false;
+    const record = (operation: string) => { operations.push(operation); if (failed) afterFailure.push(operation); };
+    const tracedRead = ((...args: unknown[]) => {
+      record('read');
+      return Reflect.apply(readFileSync, undefined, args);
+    }) as typeof readFileSync;
+    const tracedWrite = ((...args: unknown[]) => {
+      record('write');
+      return Reflect.apply(writeSync, undefined, args);
+    }) as typeof writeSync;
+    const io: GrowingFileIo = {
+      read: tracedRead,
+      open(path, flags) { record('open'); return openSync(path, flags); },
+      write: tracedWrite,
+      fsync(fd) {
+        record('fsync');
+        fsyncSync(fd);
+        failed = true;
+        throw new Error('parent link fsync');
+      },
+      truncate(fd, length) { record('truncate'); ftruncateSync(fd, length); },
+      close(fd) { record('close'); closeSync(fd); },
+    };
     const cards = new CardService(root, eventBus, changes, () => FIRST_SEGMENT, io);
     expect(() => cards.create(input())).toThrow('parent link fsync');
     expect(publications).toEqual([]);
     expect(events).not.toHaveBeenCalled();
-    expect(new CardService(root).read(FIRST)?.id).toBe(FIRST);
+    expect(operations).toEqual(['open', 'write', 'fsync', 'close']);
+    expect(afterFailure).toEqual(['close']);
   });
 
   it.each([

@@ -8,12 +8,19 @@ import { createLogger } from '../utils/logger';
 export type SyncResourceScope = 'core' | 'active';
 export type SyncResourceKey = LiveSyncUnscopedResource;
 
-export interface SyncResourceRegistration {
-  resource: SyncResourceKey;
-  scope: SyncResourceScope;
-  refetch: () => Promise<void>;
-  onRefetch?: (timestamp: string) => void;
-}
+export type SyncResourceRegistration =
+  | {
+      resource: 'cards';
+      scope: SyncResourceScope;
+      refetch: () => Promise<void>;
+      onRefetch?: never;
+    }
+  | {
+      resource: Exclude<SyncResourceKey, 'cards'>;
+      scope: SyncResourceScope;
+      refetch: () => Promise<void>;
+      onRefetch?: (timestamp: string) => void;
+    };
 
 interface FlightState {
   inFlight: boolean;
@@ -137,6 +144,10 @@ export class SyncClient {
   private refetchResource(resource: SyncResourceKey, invalidatedAt?: string): void {
     const registration = this.resources.get(resource);
     if (!registration) return;
+    if (registration.resource === 'cards') {
+      void registration.refetch().catch((err) => log.warn('Sync refetch failed for cards', err));
+      return;
+    }
     this.runSingleFlight(resource, registration.refetch, invalidatedAt, registration.onRefetch);
   }
 

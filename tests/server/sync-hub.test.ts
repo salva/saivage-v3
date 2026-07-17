@@ -11,6 +11,14 @@ import { ReadModelChangeBroadcaster } from '../../src/application/read-model-cha
 import { CardService } from '../../src/cards/card-service.js';
 import { ActiveCardLeaf } from '../../src/runtime/active-card-leaf.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import type { WebSocket } from 'ws';
+
+const FIRST_SEGMENT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const SECOND_SEGMENT = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+function socket() {
+  return { OPEN: 1, CONNECTING: 0, readyState: 1, send: jest.fn(), close: jest.fn(), removeAllListeners: jest.fn() } as unknown as WebSocket;
+}
 
 function event(kind: string, payload: Record<string, unknown>): DomainEvent<any> {
   return {
@@ -74,32 +82,57 @@ describe('SyncHub semantic hints', () => {
     ]);
   });
 
-  it.each(['card-index', 'actor-owner'] as const)('delivers a real %s runtime hint through the broadcaster after debounce', (source) => {
+  it('delivers post-link Cards and runtime frames through the real create composition', () => {
+    jest.useFakeTimers();
+    const live = new LiveSyncSocket();
+    const ws = socket();
+    live.add(ws);
+    const hub = new SyncHub(live, 25);
+    const changes = new ReadModelChangeBroadcaster();
+    changes.subscribe(hub);
+    const root = mkdtempSync(join(tmpdir(), 'saivage-sync-card-index-'));
+    try {
+      initProjectTree(root);
+      const segments = [FIRST_SEGMENT, SECOND_SEGMENT];
+      const cards = new CardService(root, undefined, changes, () => segments.shift()!);
+      const parent = cards.create({ type: 'goal', parent: 'project', title: 'sync parent', brief: 'sync', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      jest.advanceTimersByTime(25);
+      jest.mocked(ws.send).mockClear();
+
+      const child = cards.create({ type: 'code', parent: parent.id, title: 'sync child', brief: 'sync', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      expect(child.id).toBe(`card-${FIRST_SEGMENT}-${SECOND_SEGMENT}`);
+      expect(cards.read(parent.id)?.children).toEqual([child.id]);
+      expect(cards.listChildren(parent.id)).toEqual([child.id]);
+      expect(cards.list().map(({ id }) => id)).toEqual(['project', parent.id, child.id]);
+      expect(cards.read(child.id)?.id).toBe(child.id);
+      expect(ws.send).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(25);
+
+      expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([
+        { t: 'invalidate', resource: 'cards' },
+        { t: 'invalidate', resource: 'runtime' },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      hub.dispose();
+    }
+  });
+
+  it('delivers a real actor-owner runtime hint through the broadcaster after debounce', () => {
     jest.useFakeTimers();
     const live = new LiveSyncSocket();
     const invalidate = jest.spyOn(live, 'invalidate');
     const hub = new SyncHub(live, 25);
     const changes = new ReadModelChangeBroadcaster();
     changes.subscribe(hub);
-    let root: string | undefined;
-    try {
-      if (source === 'card-index') {
-        root = mkdtempSync(join(tmpdir(), 'saivage-sync-card-index-'));
-        initProjectTree(root);
-        const cards = new CardService(root, undefined, changes, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-        cards.create({ type: 'code', parent: 'project', title: 'sync index', brief: 'sync', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-      } else {
-        const currentness = new ActiveCardLeaf(() => changes.runtimeChanged());
-        currentness.setChain(['project']);
-      }
-      expect(invalidate).not.toHaveBeenCalled();
+    const currentness = new ActiveCardLeaf(() => changes.runtimeChanged());
+    currentness.setChain(['project']);
+    expect(invalidate).not.toHaveBeenCalled();
 
-      jest.advanceTimersByTime(25);
+    jest.advanceTimersByTime(25);
 
-      expect(invalidate.mock.calls.filter(([target]) => target.resource === 'runtime')).toEqual([[{ resource: 'runtime' }]]);
-    } finally {
-      if (root) rmSync(root, { recursive: true, force: true });
-      hub.dispose();
-    }
+    expect(invalidate.mock.calls).toEqual([[{ resource: 'runtime' }]]);
+    hub.dispose();
   });
 });
