@@ -16,6 +16,7 @@ import type { InvocationJoinOutcome } from '../../../src/runtime/actors/invocati
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
+import { EventBus } from '../../../src/events/index.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -269,6 +270,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
     supervisor.launchStartedProject(prepared.state);
+    const runningVersion = cards.read('project')!.version_seq;
     await waitUntil(() => releaseTerminal !== undefined);
     const internals = supervisor as unknown as SupervisorInternals;
     const owner = internals.cardActors.get('project');
@@ -279,7 +281,8 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     releaseTerminal();
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
-    expect(cards.read('project')).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'Complete.' } } });
+    expect(cards.read('project')).toMatchObject({ status: 'done', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'done', summary: 'Complete.' } } });
+    expect(cards.listCardHistory('project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(internals.liveCardActors.has('project')).toBe(false);
     expect(internals.cardActors.has('project')).toBe(false);
     expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [], agents: [] });
@@ -312,9 +315,11 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
     supervisor.launchStartedProject(prepared.state);
+    const runningVersion = cards.read('project')!.version_seq;
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
-    expect(cards.read('project')?.status).toBe('failed');
+    expect(cards.read('project')).toMatchObject({ status: 'failed', version_seq: runningVersion + 1 });
+    expect(cards.listCardHistory('project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'stopped', index: { byStatus: { failed: 1 } } });
   });
 
@@ -419,6 +424,130 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(invocations[1]?.inputId).not.toBe(invocations[0]?.inputId);
     expect(supervisor.getActorRuntimeReadModel().agents).toEqual([expect.objectContaining({ role: 'executor', cardId: terminal.id })]);
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+  });
+
+  it('rejects persisted running siblings before installing any actor or processor ownership', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-invalid-siblings-'));
+    initProjectTree(projectRoot);
+    const cards = new CardService(projectRoot, undefined, undefined, (() => {
+      const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+      let index = 0;
+      return () => ids[index++]!;
+    })());
+    const left = cards.create({ type: 'code', parent: 'project', depth: 1, title: 'left', brief: 'left', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const right = cards.create({ type: 'code', parent: 'project', depth: 1, title: 'right', brief: 'right', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    cards.setStatus('project', 'running');
+    cards.setStatus(left.id, 'running');
+    cards.setStatus(right.id, 'running');
+    const provider = { completeTurn: jest.fn(async () => { throw new Error('must not install a processor'); }) };
+    const supervisor = new SupervisorRuntimeApi({
+      projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
+      conversations: { projectRoot }, appLogs: { projectRoot },
+      readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
+      processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
+    });
+    const internals = supervisor as unknown as SupervisorInternals;
+
+    await expect(supervisor.beginStartProject()).rejects.toThrow('strict ancestor chain');
+    expect(internals.runIdentity).toBeNull();
+    expect(internals.liveCardActors.size).toBe(0);
+    expect(internals.cardActors.size).toBe(0);
+    expect(supervisor.getActorRuntimeReadModel()).toEqual({ pauseMode: 'idle', activeWork: 'none', cards: [], agents: [], diagnostics: [] });
+    expect(provider.completeTurn).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('contains a real result winner through non-aborting tracker joins (publication callback throws=%s)', async (callbackThrows) => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-real-result-stop-'));
+    initProjectTree(projectRoot);
+    const bus = new EventBus();
+    const cards = new CardService(projectRoot, bus, undefined, () => '11111111-1111-4111-8111-111111111111');
+    const child = cards.create({ type: 'code', parent: 'project', depth: 1, title: 'result winner', brief: 'finish', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    cards.setStatus('project', 'running');
+    cards.setStatus(child.id, 'running');
+    const runningVersion = cards.read(child.id)!.version_seq;
+    const terminal = deferred<ProviderTurnCompletion>();
+    let executorCalls = 0;
+    let terminalSignal: AbortSignal | null = null;
+    const provider = { completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
+      if (input.role !== 'executor') return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      executorCalls += 1;
+      if (executorCalls === 1) return complete(tool('write', 'write', { path: 'record:///status.md?v=next', content: 'Ready.' }));
+      terminalSignal = signal;
+      return terminal.promise;
+    }) };
+    const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
+    const cleanup = deferred<void>();
+    jest.spyOn(processRunner, 'terminateScopeTree').mockImplementation(async ({ rootScope }) => {
+      if (rootScope !== processRunner.runtimeRootScope) await cleanup.promise;
+      return { selected: [], stopped: [], failed: [] };
+    });
+    const supervisor = new SupervisorRuntimeApi({
+      projectRoot, eventBus: bus, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
+      conversations: { projectRoot }, appLogs: { projectRoot },
+      readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
+      processRunner, promptTemplates: { render: () => 'test prompt' },
+    });
+    const prepared = await supervisor.beginStartProject();
+    if (!prepared.accepted) throw new Error('runtime start was not accepted');
+    supervisor.launchStartedProject(prepared.state);
+    await waitUntil(() => terminalSignal !== null);
+    const internals = supervisor as unknown as SupervisorInternals;
+    const owner = internals.liveCardActors.get(child.id)!;
+    const processor = owner.processor!;
+    const llm = (processor as import('../../../src/runtime/actors/base-main-llm-card-processor-actor.js').BaseMainLLMCardProcessorActor).listLlmActors()[0]!;
+    const activation = owner.awaitSettlement();
+    let callerSettled = false;
+    void activation.then(() => { callerSettled = true; });
+    const suppress = jest.spyOn(processor, 'suppressContinuationAndPrepareJoin');
+    const processorJoin = jest.spyOn(processor, 'joinActivation');
+    const closeLlm = jest.spyOn(llm, 'closeInvocationAdmission');
+    const llmJoin = jest.spyOn(llm, 'joinInvocationSettlement');
+    const release = jest.spyOn(supervisor as unknown as { releaseSettledActor(actor: CardActor): void }, 'releaseSettledActor');
+    const commit = jest.spyOn(cards, 'commitTerminalLifecyclePatch');
+    const read = jest.spyOn(cards, 'read');
+    let readCountAtCallback = -1;
+    if (callbackThrows) bus.subscribe('card_history_appended', () => { readCountAtCallback = read.mock.calls.length; throw new Error('post-publication callback failed'); }, { propagateErrors: true });
+    let stopped: Promise<unknown> | null = null;
+    const originalClose = cards.closeRecord.bind(cards);
+    jest.spyOn(cards, 'closeRecord').mockImplementation((...args) => {
+      stopped ??= supervisor.stopProject();
+      return originalClose(...args);
+    });
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    terminal.resolve(complete(tool('accepted', 'emit_result', { status: 'done', summary: 'Accepted result.' })));
+    await waitUntil(() => stopped !== null);
+    expect(supervisor.getStatus().status).toBe('closing');
+    expect(owner.claim).toBe('claimed_result');
+    expect(internals.liveCardActors.get(child.id)).toBe(owner);
+    expect(internals.cardActors.get(child.id)).toBe(owner);
+    expect(terminalSignal!.aborted).toBe(false);
+    expect(callerSettled).toBe(false);
+    cleanup.resolve();
+    await expect(stopped!).resolves.toEqual({ status: 'stopped', contained: true });
+
+    expect(suppress).toHaveBeenCalledTimes(1);
+    expect(closeLlm).toHaveBeenCalledTimes(1);
+    const suppressionReason = suppress.mock.calls[0]![0];
+    expect(suppressionReason).toBeInstanceOf(RuntimeStoppedInterruption);
+    expect(closeLlm).toHaveBeenCalledWith(suppressionReason);
+    expect(processorJoin).toHaveBeenCalledTimes(1);
+    expect(llmJoin).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalled();
+    expect(internals.liveCardActors.size).toBe(0);
+    expect(internals.cardActors.size).toBe(0);
+    if (callbackThrows) {
+      expect(callerSettled).toBe(false);
+      expect(readCountAtCallback).toBeGreaterThanOrEqual(0);
+      expect(read.mock.calls.length).toBe(readCountAtCallback);
+    } else {
+      await expect(activation).resolves.toMatchObject({ status: 'done', summary: 'Accepted result.' });
+      expect(callerSettled).toBe(true);
+    }
+    expect(cards.read(child.id)).toMatchObject({ status: 'done', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'done', summary: 'Accepted result.' } } });
+    expect(cards.listCardHistory(child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
+    consoleError.mockRestore();
   });
 
   it('retains the full owner map and closing runtime when process containment fails', async () => {

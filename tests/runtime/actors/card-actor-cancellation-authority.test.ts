@@ -315,7 +315,7 @@ describe('CardActor authoritative cancellation', () => {
     expect(releaseSettledActor).not.toHaveBeenCalled();
   });
 
-  it.each(['success' as const, 'failure' as const])('preserves result-winner arbitration with a controlled Stop join %s', async (cleanup) => {
+  it.each(['success' as const, 'failure' as const])('preserves result-winner arbitration with controlled processor settlement %s', async (cleanup) => {
     cards.setStatus('project', 'running');
     const owned = actor('project');
     const activation = owned.actor.restartRunning({ kind: 'root' });
