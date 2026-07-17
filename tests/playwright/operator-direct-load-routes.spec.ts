@@ -6,7 +6,7 @@ const syntheticToken = 'synthetic-direct-load-token';
 
 const directRouteCases = [
   { path: '/dashboard', root: '[data-testid="route-dashboard"]', bodyText: /Runtime Status|Restart \/ Recovery Evidence/i },
-  { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /Any status|Synthetic dashboard smoke card/i },
+  { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /Synthetic Project|Synthetic dashboard smoke card/i },
   { path: '/agents', root: '[data-testid="route-agents"]', bodyText: /agent sessions|analyst|planner/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata|plan\.json/i },
   { path: '/debug', root: '[data-testid="route-debug"]', bodyText: /Runtime State|Timeline|Errors/i },

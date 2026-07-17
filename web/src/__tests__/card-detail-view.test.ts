@@ -11,8 +11,9 @@ describe('CardDetailView S06 read-only detail contract', () => {
   });
 
   it('surfaces record outputs through the dedicated records section', () => {
-    expect(detailSource).toContain('CardRecordsSection');
+    expect(detailSource).toContain('<CardRecordsSection :card-id="currentCard.id" />');
     expect(recordsSource).toContain('DocumentFrame');
+    expect(recordsSource).toContain('<MarkdownText v-else-if="stateValue(slot.key).content" :source="stateValue(slot.key).content || \'\'" />');
     expect(recordsSource).toContain("key: 'brief'");
     expect(recordsSource).toContain("key: 'status'");
     expect(recordsSource).toContain("key: 'review'");

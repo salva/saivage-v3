@@ -62,8 +62,7 @@ function card(overrides: Partial<CardRecord>): CardRecord {
 const CardDetailStub = defineComponent({
   name: 'CardDetailView',
   props: { cardId: { type: String, required: true } },
-  emits: ['navigate'],
-  template: '<div data-testid="card-detail-stub"><button data-testid="detail-link" @click="$emit(\'navigate\', \'11111111-1111-4111-8111-111111111111\')">Open linked card</button></div>',
+  template: '<div data-testid="card-detail-stub"></div>',
 });
 
 async function mountCards(path: string, cards: CardRecord[]) {
@@ -121,7 +120,7 @@ describe('CardsView read-only navigation contract', () => {
     expect(source).not.toMatch(/@drop|@dragstart|@dragover|handleKeydown/);
   });
 
-  it('derives exact selection from direct routes, tree navigation, detail links, and history', async () => {
+  it('derives exact selection from direct routes, tree navigation, and history', async () => {
     const first = card({ id: '11111111-1111-4111-8111-111111111111', title: 'First card', status: 'running' });
     const second = card({ id: '22222222-2222-4222-8222-222222222222', title: 'Second card', status: 'done' });
     const { wrapper, router, store } = await mountCards(`/cards/${first.id}`, [projectCard(), first, second]);
@@ -136,22 +135,17 @@ describe('CardsView read-only navigation contract', () => {
     expect(router.currentRoute.value.params.id).toBe(second.id);
     expect(selectedTitle(wrapper)).toBe('Second card');
 
-    await wrapper.find('[data-testid="detail-link"]').trigger('click');
-    await flushPromises();
-    expect(router.currentRoute.value.params.id).toBe(first.id);
-    expect(selectedTitle(wrapper)).toBe('First card');
-
     router.back();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
-    expect(router.currentRoute.value.params.id).toBe(second.id);
-    expect(selectedTitle(wrapper)).toBe('Second card');
+    expect(router.currentRoute.value.params.id).toBe(first.id);
+    expect(selectedTitle(wrapper)).toBe('First card');
 
     router.forward();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
-    expect(router.currentRoute.value.params.id).toBe(first.id);
-    expect(selectedTitle(wrapper)).toBe('First card');
+    expect(router.currentRoute.value.params.id).toBe(second.id);
+    expect(selectedTitle(wrapper)).toBe('Second card');
   });
 
   it('keeps route selection across canonical card replacement without a route fetch', async () => {

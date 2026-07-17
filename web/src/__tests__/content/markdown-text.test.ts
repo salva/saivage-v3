@@ -53,4 +53,12 @@ describe('MarkdownText', () => {
     expect(wrapper.text()).toContain('before');
     expect(wrapper.text()).toContain('after');
   });
+
+  it('renders an encoded card reference as a sanitized Cards anchor', () => {
+    const wrapper = mountMarkdownText('Continue with [[card:goal%2Fnext|the next card]].');
+    const link = wrapper.get('a');
+
+    expect(link.text()).toBe('the next card');
+    expect(link.attributes('href')).toBe('/cards/goal%2Fnext');
+  });
 });
