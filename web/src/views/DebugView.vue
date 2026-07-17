@@ -396,8 +396,8 @@ const {
   error: runtimeError, refreshError: runtimeRefreshError, lastFetchedAt: runtimeLastFetchedAt,
 } = storeToRefs(runtimeStore);
 const {
-  cards, total: cardsTotal, loading: cardsLoading, refreshing: cardsRefreshing,
-  error: cardsError, refreshError: cardsRefreshError,
+  cards, total: cardsTotal, collectionLoading: cardsLoading, collectionRefreshing: cardsRefreshing,
+  collectionError: cardsError, collectionRefreshError: cardsRefreshError,
 } = storeToRefs(cardsStore);
 const {
   sessions, sessionsLoaded, sessionsLoading, sessionsRefreshing,

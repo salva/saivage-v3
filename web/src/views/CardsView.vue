@@ -11,8 +11,8 @@
     >
       <template #list>
         <div class="cards-md__tree">
-          <ViewState v-if="loading" state="loading" title="Loading cards" />
-          <ViewState v-else-if="errorMsg" state="error" title="Could not load cards" :message="errorMsg" />
+          <ViewState v-if="collectionLoading" state="loading" title="Loading cards" />
+          <ViewState v-else-if="collectionError" state="error" title="Could not load cards" :message="collectionError" />
           <CardsTreeView
             v-else
             :cards="orderedCards"
@@ -49,8 +49,8 @@ const cardStore = useCardStore();
 const {
   orderedCards,
   orderedCardTree,
-  loading,
-  errorMsg,
+  collectionLoading,
+  collectionError,
   effectiveExpandedTreeIds,
   toggleTreeNode,
 } = useCardBrowserReadModel(cardStore);

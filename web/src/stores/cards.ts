@@ -231,15 +231,16 @@ export const useCardStore = defineStore('cards', () => {
   let cardHistoryEntryRequestSeq = 0;
   const cards = ref<CardRecord[]>([]);
   const total = ref(0);
-  const loading = ref(false);
-  const refreshing = ref(false);
-  const refreshError = ref<string | null>(null);
-  const error = ref<string | null>(null);
+  const collectionLoading = ref(false);
+  const collectionRefreshing = ref(false);
+  const collectionRefreshError = ref<string | null>(null);
+  const collectionError = ref<string | null>(null);
 
   const currentCard = ref<CardRecord | null>(null);
   const currentChildren = ref<CardRecord[]>([]);
   const currentLifecycle = ref<CardLifecycleSummary | null>(null);
   const currentDispatches = ref<DispatchSummary | null>(null);
+  const currentDetailLoading = ref(false);
   const currentDetailError = ref<DetailErrorState | null>(null);
   const currentDetailFreshness = ref<DetailFreshnessState>(createEmptyDetailState());
 
@@ -267,6 +268,7 @@ export const useCardStore = defineStore('cards', () => {
     currentChildren.value = [];
     currentLifecycle.value = null;
     currentDispatches.value = null;
+    currentDetailLoading.value = false;
     currentDetailError.value = null;
     currentDetailFreshness.value = createEmptyDetailState();
     clearCardHistoryState();
@@ -379,8 +381,8 @@ export const useCardStore = defineStore('cards', () => {
     cardsRequestController?.abort();
     cardsRequestController = new AbortController();
     const initial = cards.value.length === 0;
-    if (initial) loading.value = true; else refreshing.value = true;
-    if (initial) error.value = null; else refreshError.value = null;
+    if (initial) collectionLoading.value = true; else collectionRefreshing.value = true;
+    if (initial) collectionError.value = null; else collectionRefreshError.value = null;
     try {
       const response: CardListResponse = await listCards(cardsRequestController.signal);
       if (requestSeq !== cardsRequestSeq) return;
@@ -392,16 +394,16 @@ export const useCardStore = defineStore('cards', () => {
         return current;
       });
       total.value = response.total;
-      error.value = null;
-      refreshError.value = null;
+      collectionError.value = null;
+      collectionRefreshError.value = null;
     } catch (err) {
       if (requestSeq !== cardsRequestSeq || (err instanceof DOMException && err.name === 'AbortError')) return;
       const msg = errorMessage(err, 'Failed to fetch cards');
-      if (initial) error.value = msg; else refreshError.value = msg;
+      if (initial) collectionError.value = msg; else collectionRefreshError.value = msg;
       log.error('fetchCards', msg);
       throw err;
     } finally {
-      if (requestSeq === cardsRequestSeq) { loading.value = false; refreshing.value = false; }
+      if (requestSeq === cardsRequestSeq) { collectionLoading.value = false; collectionRefreshing.value = false; }
     }
   }
 
@@ -412,8 +414,7 @@ export const useCardStore = defineStore('cards', () => {
     ++cardHistoryRequestSeq;
     ++cardHistoryEntryRequestSeq;
     if (currentCard.value?.id !== id) clearCurrentDetail();
-    loading.value = true;
-    error.value = null;
+    currentDetailLoading.value = true;
     currentDetailError.value = null;
     try {
       const response: CardDetailResponse = await getCard(id, detailRequestController.signal);
@@ -428,7 +429,6 @@ export const useCardStore = defineStore('cards', () => {
     } catch (err) {
       if (requestSeq !== cardDetailRequestSeq) return;
       const detailErr = buildDetailError(err, 'Failed to fetch card detail');
-      error.value = detailErr.message;
       if (currentCard.value?.id === id) {
         currentDetailError.value = detailErr;
         markDetailStale('refresh-failed');
@@ -439,7 +439,7 @@ export const useCardStore = defineStore('cards', () => {
       log.error('fetchCardDetail', detailErr.message);
       throw err;
     } finally {
-      if (requestSeq === cardDetailRequestSeq) loading.value = false;
+      if (requestSeq === cardDetailRequestSeq) currentDetailLoading.value = false;
     }
   }
 
@@ -455,14 +455,15 @@ export const useCardStore = defineStore('cards', () => {
   return {
     cards,
     total,
-    loading,
-    refreshing,
-    refreshError,
-    error,
+    collectionLoading,
+    collectionRefreshing,
+    collectionRefreshError,
+    collectionError,
     currentCard,
     currentChildren,
     currentLifecycle,
     currentDispatches,
+    currentDetailLoading,
     currentDetailError,
     currentDetailFreshness,
     cardHistory,

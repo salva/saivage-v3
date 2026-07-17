@@ -87,7 +87,10 @@ const replacementTarget = card({
 
 type CardsFixture = {
   cardsRequestCount: number;
+  detailRequestCounts: Record<string, number>;
   useReplacement: boolean;
+  holdNextDetail: (id: string, outcome: 'success' | 'failure') => void;
+  releaseDetail: (id: string) => void;
 };
 
 async function fulfillJson(route: Route, payload: unknown, status = 200) {
@@ -101,7 +104,22 @@ async function installCardsFixture(page: Page, authBanner: boolean): Promise<Car
     unauthorized: authBanner ? (method, pathname) => method === 'GET' && pathname === '/api/state' : false,
   });
 
-  const fixture: CardsFixture = { cardsRequestCount: 0, useReplacement: false };
+  const heldDetails = new Map<string, { outcome: 'success' | 'failure'; promise: Promise<void>; release: () => void }>();
+  const fixture: CardsFixture = {
+    cardsRequestCount: 0,
+    detailRequestCounts: {},
+    useReplacement: false,
+    holdNextDetail(id, outcome) {
+      let release!: () => void;
+      const promise = new Promise<void>((resolve) => { release = resolve; });
+      heldDetails.set(id, { outcome, promise, release });
+    },
+    releaseDetail(id) {
+      const held = heldDetails.get(id);
+      if (!held) throw new Error(`No held detail request for ${id}`);
+      held.release();
+    },
+  };
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -117,6 +135,16 @@ async function installCardsFixture(page: Page, authBanner: boolean): Promise<Car
     const detailMatch = request.method() === 'GET' ? url.pathname.match(/^\/api\/cards\/([^/]+)$/) : null;
     if (detailMatch) {
       const id = decodeURIComponent(detailMatch[1]);
+      fixture.detailRequestCounts[id] = (fixture.detailRequestCounts[id] ?? 0) + 1;
+      const held = heldDetails.get(id);
+      if (held) {
+        await held.promise;
+        heldDetails.delete(id);
+        if (held.outcome === 'failure') {
+          await fulfillJson(route, { error: 'unavailable', message: 'Synthetic delayed detail failure' }, 503);
+          return;
+        }
+      }
       const cards = fixture.useReplacement
         ? initialCards.map((entry) => entry.id === targetId ? replacementTarget : entry)
         : initialCards;
@@ -273,6 +301,64 @@ test('desktop Cards keeps independent pane geometry below the in-flow auth banne
 
   await expectSelected(page, 'Deep linked target', 'blocked');
   await expectIndependentDesktopScrolling(page, true);
+});
+
+test('desktop Cards preserves the mounted tree and scroll while selected detail is delayed or fails', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const fixture = await installCardsFixture(page, false);
+  await page.goto(`/cards/${sourceId}`);
+  await expectSelected(page, 'Source card with canonical record link', 'running');
+
+  const treeScroller = page.locator('.cards-md__tree');
+  const treeRoot = page.locator('.tree-container');
+  const successCard = overflowCards[25];
+  const failureCard = overflowCards[26];
+  const successId = String(successCard.id);
+  const successTitle = String(successCard.title);
+  const failureId = String(failureCard.id);
+  const failureTitle = String(failureCard.title);
+  const successRow = page.locator('.tree-node').filter({ hasText: successTitle });
+  await successRow.scrollIntoViewIfNeeded();
+  await expect.poll(() => treeScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await treeRoot.evaluate((element) => { element.setAttribute('data-regression-tree-identity', 'original-tree'); });
+
+  const collectionRequestCount = fixture.cardsRequestCount;
+  const successScrollTop = await treeScroller.evaluate((element) => element.scrollTop);
+  fixture.holdNextDetail(successId, 'success');
+  await successRow.evaluate((element) => (element as HTMLElement).click());
+  await expect.poll(() => fixture.detailRequestCounts[successId] ?? 0).toBe(1);
+
+  await expect(page).toHaveURL(`/cards/${successId}`);
+  await expectSelected(page, successTitle, 'backlog');
+  await expect(page.getByText('Loading card', { exact: true })).toBeVisible();
+  await expect(treeRoot).toHaveAttribute('data-regression-tree-identity', 'original-tree');
+  expect(await treeScroller.evaluate((element) => element.scrollTop)).toBe(successScrollTop);
+  expect(fixture.cardsRequestCount).toBe(collectionRequestCount);
+
+  fixture.releaseDetail(successId);
+  await expect(page.getByTestId('card-detail-highlight')).toContainText(successTitle);
+  await expect(treeRoot).toHaveAttribute('data-regression-tree-identity', 'original-tree');
+  expect(await treeScroller.evaluate((element) => element.scrollTop)).toBe(successScrollTop);
+  expect(fixture.cardsRequestCount).toBe(collectionRequestCount);
+
+  const failureRow = page.locator('.tree-node').filter({ hasText: failureTitle });
+  await failureRow.scrollIntoViewIfNeeded();
+  const failureScrollTop = await treeScroller.evaluate((element) => element.scrollTop);
+  fixture.holdNextDetail(failureId, 'failure');
+  await failureRow.evaluate((element) => (element as HTMLElement).click());
+  await expect.poll(() => fixture.detailRequestCounts[failureId] ?? 0).toBe(1);
+  await expect(page).toHaveURL(`/cards/${failureId}`);
+  await expectSelected(page, failureTitle, 'backlog');
+  await expect(page.getByText('Loading card', { exact: true })).toBeVisible();
+  await expect(treeRoot).toHaveAttribute('data-regression-tree-identity', 'original-tree');
+  expect(await treeScroller.evaluate((element) => element.scrollTop)).toBe(failureScrollTop);
+
+  fixture.releaseDetail(failureId);
+  await expect(page.getByText('Card detail unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('Could not load cards', { exact: true })).toHaveCount(0);
+  await expect(treeRoot).toHaveAttribute('data-regression-tree-identity', 'original-tree');
+  expect(await treeScroller.evaluate((element) => element.scrollTop)).toBe(failureScrollTop);
+  expect(fixture.cardsRequestCount).toBe(collectionRequestCount);
 });
 
 test('mobile Cards uses a single pane, scrollable detail, and Back to Cards', async ({ page }) => {

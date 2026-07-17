@@ -1,6 +1,6 @@
 <template>
   <div class="card-detail-container">
-    <ViewState v-if="loading" state="loading" title="Loading card" message="Fetching the latest card detail." />
+    <ViewState v-if="currentDetailLoading" state="loading" title="Loading card" message="Fetching the latest card detail." />
     <StatusBanner v-else-if="detailError" tone="danger" :title="detailErrorTitle" :message="detailError.message">
       <template #action><button type="button" class="banner-action" @click="reloadDetail">Retry</button></template>
     </StatusBanner>
@@ -125,7 +125,7 @@ const {
   currentDetailError,
   currentDetailFreshness,
   currentCardHasStaleWarning,
-  loading,
+  currentDetailLoading,
 } = storeToRefs(cardStore);
 
 const detailError = computed<DetailErrorState | null>(() => currentDetailError.value);

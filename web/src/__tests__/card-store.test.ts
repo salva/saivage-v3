@@ -15,8 +15,15 @@ function setupStore() { setActivePinia(createPinia()); vi.clearAllMocks(); retur
 function makeCard(overrides: Partial<CardRecord> = {}): CardRecord { const id = overrides.id || '11111111-1111-4111-8111-111111111111'; const lifecycle = overrides.lifecycle ?? { status: overrides.status ?? 'running', result: null, error: null, completed_at: null } as CardRecord['lifecycle']; return { id, type: 'code', parent: null, depth: 0, position: 0, title: `Card ${id}`, status: 'running', tags: [], priority: 5, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [], ...overrides, display_path: overrides.display_path ?? null, lifecycle, operator_summary: overrides.operator_summary ?? { lifecycleStatus: lifecycle.status, terminal: false, blocked: lifecycle.status === 'blocked', hasError: Boolean(lifecycle.error), error: lifecycle.error ?? null, completedAt: lifecycle.completed_at ?? null, stale: lifecycle.status === 'changed', actionCount: 0 } }; }
 function mlr(cards: CardRecord[], total?: number): CardListResponse { return { cards, total: total ?? cards.length }; }
 function mdr(card: CardRecord, children: CardRecord[] = []): CardDetailResponse { return { card, children }; }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
 
 const A = makeCard({ id: '11111111-1111-4111-8111-111111111111', title: 'Alpha' });
+const B = makeCard({ id: '22222222-2222-4222-8222-222222222222', title: 'Beta' });
 
 describe('useCardStore evidence support', () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -40,6 +47,98 @@ describe('useCardStore evidence support', () => {
     vi.mocked(getCard).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
     await expect(s.fetchCardDetail(A.id)).rejects.toBeTruthy();
     expect(s.currentDetailError).toEqual({ kind: 'unauthorized', status: 401, message: 'Unauthorized' });
+  });
+
+  it('confines pending and failed detail state to detail while preserving the canonical collection state', async () => {
+    const s = setupStore();
+    s.cards = [A, B];
+    s.collectionLoading = false;
+    s.collectionRefreshing = true;
+    s.collectionError = 'existing collection error';
+    s.collectionRefreshError = 'existing refresh error';
+    const canonicalCards = s.cards;
+    const canonicalA = s.cards[0];
+    const request = deferred<CardDetailResponse>();
+    vi.mocked(getCard).mockReturnValue(request.promise);
+
+    const detailPromise = s.fetchCardDetail(A.id);
+    expect(s.currentDetailLoading).toBe(true);
+    expect(s.currentDetailError).toBeNull();
+    expect(s.cards).toBe(canonicalCards);
+    expect(s.cards[0]).toBe(canonicalA);
+    expect({
+      loading: s.collectionLoading,
+      refreshing: s.collectionRefreshing,
+      error: s.collectionError,
+      refreshError: s.collectionRefreshError,
+    }).toEqual({
+      loading: false,
+      refreshing: true,
+      error: 'existing collection error',
+      refreshError: 'existing refresh error',
+    });
+
+    request.reject(new Error('detail unavailable'));
+    await expect(detailPromise).rejects.toThrow('detail unavailable');
+    expect(s.currentDetailLoading).toBe(false);
+    expect(s.currentDetailError).toEqual({ kind: 'network', status: null, message: 'detail unavailable' });
+    expect(s.cards).toBe(canonicalCards);
+    expect(s.cards[0]).toBe(canonicalA);
+    expect(s.collectionLoading).toBe(false);
+    expect(s.collectionRefreshing).toBe(true);
+    expect(s.collectionError).toBe('existing collection error');
+    expect(s.collectionRefreshError).toBe('existing refresh error');
+  });
+
+  it.each(['success', 'rejection'] as const)('keeps B authoritative through stale A %s and cleanup', async (staleOutcome) => {
+    const s = setupStore();
+    const requestA = deferred<CardDetailResponse>();
+    const requestB = deferred<CardDetailResponse>();
+    vi.mocked(getCard)
+      .mockReturnValueOnce(requestA.promise)
+      .mockReturnValueOnce(requestB.promise);
+
+    const promiseA = s.fetchCardDetail(A.id);
+    const promiseB = s.fetchCardDetail(B.id);
+    expect(s.currentDetailLoading).toBe(true);
+    expect(s.currentCard).toBeNull();
+
+    if (staleOutcome === 'success') requestA.resolve(mdr(A));
+    else requestA.reject(new Error('stale A failed'));
+    if (staleOutcome === 'success') await promiseA;
+    else await expect(promiseA).resolves.toBeUndefined();
+
+    expect(s.currentDetailLoading).toBe(true);
+    expect(s.currentCard).toBeNull();
+    expect(s.currentDetailError).toBeNull();
+
+    requestB.resolve(mdr(B));
+    await promiseB;
+    expect(s.currentDetailLoading).toBe(false);
+    expect(s.currentCard?.id).toBe(B.id);
+    expect(s.currentDetailError).toBeNull();
+  });
+
+  it('lets only B publish its detail error and clear detail loading', async () => {
+    const s = setupStore();
+    const requestA = deferred<CardDetailResponse>();
+    const requestB = deferred<CardDetailResponse>();
+    vi.mocked(getCard)
+      .mockReturnValueOnce(requestA.promise)
+      .mockReturnValueOnce(requestB.promise);
+
+    const promiseA = s.fetchCardDetail(A.id);
+    const promiseB = s.fetchCardDetail(B.id);
+    requestA.resolve(mdr(A));
+    await promiseA;
+    expect(s.currentDetailLoading).toBe(true);
+    expect(s.currentCard).toBeNull();
+
+    requestB.reject(new Error('B failed'));
+    await expect(promiseB).rejects.toThrow('B failed');
+    expect(s.currentDetailLoading).toBe(false);
+    expect(s.currentCard).toBeNull();
+    expect(s.currentDetailError).toEqual({ kind: 'network', status: null, message: 'B failed' });
   });
 
   it('reports per-card stale notifications through isStale', () => {

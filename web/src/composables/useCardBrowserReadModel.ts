@@ -31,8 +31,8 @@ export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStor
   return {
     orderedCards: refs.cards,
     orderedCardTree: refs.orderedCardTree,
-    loading: refs.loading,
-    errorMsg: computed(() => refs.error.value),
+    collectionLoading: refs.collectionLoading,
+    collectionError: computed(() => refs.collectionError.value),
     effectiveExpandedTreeIds,
     toggleTreeNode,
   };

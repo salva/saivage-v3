@@ -10,6 +10,12 @@ describe('CardDetailView S06 read-only detail contract', () => {
     expect(detailSource).toContain('navigateCard(dispatch.parentCardId)');
   });
 
+  it('renders loading and failure from selected-detail state only', () => {
+    expect(detailSource).toContain('v-if="currentDetailLoading"');
+    expect(detailSource).toContain('v-else-if="detailError"');
+    expect(detailSource).not.toMatch(/\bloading,\s*\n/);
+  });
+
   it('surfaces record outputs through the dedicated records section', () => {
     expect(detailSource).toContain('<CardRecordsSection :card-id="currentCard.id" />');
     expect(recordsSource).toContain('DocumentFrame');

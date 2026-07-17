@@ -161,6 +161,35 @@ describe('CardsView read-only navigation contract', () => {
     expect(fetchCards).not.toHaveBeenCalled();
   });
 
+  it('keeps the tree and expansion intent mounted while route-selected detail is pending or failed', async () => {
+    const first = card({ id: '11111111-1111-4111-8111-111111111111', title: 'First card', status: 'running' });
+    const second = card({ id: '22222222-2222-4222-8222-222222222222', title: 'Second card', status: 'done' });
+    const { wrapper, router, store } = await mountCards(`/cards/${first.id}`, [projectCard(), first, second]);
+    const fetchCards = vi.spyOn(store, 'fetchCards');
+    const tree = wrapper.findComponent(CardsTreeView);
+
+    store.currentDetailLoading = true;
+    await nextTick();
+    expect(wrapper.findComponent(CardsTreeView).element).toBe(tree.element);
+    expect(wrapper.text()).not.toContain('Loading cards');
+
+    const secondRow = wrapper.findAll('.tree-node').find((row) => row.text().includes('Second card'))!;
+    await secondRow.trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.params.id).toBe(second.id);
+    expect(selectedTitle(wrapper)).toBe('Second card');
+    expect(wrapper.findComponent(CardsTreeView).element).toBe(tree.element);
+    expect(wrapper.findComponent(CardsTreeView).props('expandedIds')).toEqual(new Set(['project']));
+    expect(fetchCards).not.toHaveBeenCalled();
+
+    store.currentDetailLoading = false;
+    store.currentDetailError = { kind: 'network', status: null, message: 'detail unavailable' };
+    await nextTick();
+    expect(wrapper.findComponent(CardsTreeView).element).toBe(tree.element);
+    expect(wrapper.text()).not.toContain('Could not load cards');
+    expect(fetchCards).not.toHaveBeenCalled();
+  });
+
   it('records collapse intent while route reveal keeps deep selection visible, then reapplies it', async () => {
     const goal = card({ id: '11111111-1111-4111-8111-111111111111', type: 'goal', title: 'Goal' });
     const leaf = card({ id: '22222222-2222-4222-8222-222222222222', parent: goal.id, depth: 2, title: 'Deep leaf', status: 'blocked' });

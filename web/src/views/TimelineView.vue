@@ -1,8 +1,8 @@
 <template>
   <div class="timeline-layout">
     <div class="timeline-content">
-      <ViewState v-if="loading" state="loading" title="Loading timeline" />
-      <ViewState v-else-if="error" state="error" title="Could not load timeline" :message="error" />
+      <ViewState v-if="collectionLoading" state="loading" title="Loading timeline" />
+      <ViewState v-else-if="collectionError" state="error" title="Could not load timeline" :message="collectionError" />
       <CardsTimelineView v-else :cards="cards" @select="selectCard" />
     </div>
   </div>
@@ -17,7 +17,7 @@ import { useCardStore } from '../stores/cards';
 
 const router = useRouter();
 const cardStore = useCardStore();
-const { cards, loading, error } = storeToRefs(cardStore);
+const { cards, collectionLoading, collectionError } = storeToRefs(cardStore);
 
 function selectCard(id: string): void {
   router.push({ name: 'card-detail', params: { id } });
