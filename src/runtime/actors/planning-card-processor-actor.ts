@@ -4,7 +4,7 @@ import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-acto
 import { plannerActorId, reviewerActorId } from './ids.js';
 import { type CardActivationInput, type CardActivationOutcome, type CardActor, type CardCancellationResult, type CardActorStorePort, type CardProcessorActor } from './card-actor.js';
 import type { CardNotification } from '../../schemas/index.js';
-import type { AutonomousLlmInvocationInput } from './llm-invocation.js';
+import type { PreparedLlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
@@ -140,7 +140,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createPlannerContract()): AutonomousLlmInvocationInput {
+  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createPlannerContract()): PreparedLlmInvocationInput {
     const inputId = this.freshSourceInputId();
     const sessionId = plannerActorId(this.cardId);
     const systemPrompt = this.plannerPrompt(input.card, surface, contract);
@@ -274,7 +274,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private buildReviewerLlmInput(input: CardActivationInput, sessionId: string, currentness: ReviewerCurrentnessSnapshot, surface: InvocationSurface, contract = createReviewerContract()): AutonomousLlmInvocationInput {
+  private buildReviewerLlmInput(input: CardActivationInput, sessionId: string, currentness: ReviewerCurrentnessSnapshot, surface: InvocationSurface, contract = createReviewerContract()): PreparedLlmInvocationInput {
     const inputId = this.freshSourceInputId();
     const systemPrompt = this.reviewerPrompt(input.card, surface, contract);
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];

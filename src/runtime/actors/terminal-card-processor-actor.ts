@@ -3,7 +3,7 @@ import { type CardActivationInput, type CardActivationOutcome, type CardProcesso
 import type { CardService } from '../../cards/card-service.js';
 import { executorActorId } from './ids.js';
 import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
-import type { AutonomousLlmInvocationInput } from './llm-invocation.js';
+import type { PreparedLlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
@@ -124,7 +124,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createExecutorContract()): AutonomousLlmInvocationInput {
+  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createExecutorContract()): PreparedLlmInvocationInput {
     const inputId = this.freshSourceInputId();
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
     const sessionId = executorActorId(this.cardId);

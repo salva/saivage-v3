@@ -13,10 +13,22 @@ const config: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_
 describe('prepared compaction estimates', () => {
   it('derives every activation policy quantity once from the exact prompt and tools', () => {
     const prepared = prepareCompaction(config, 'system', []);
-    expect(prepared).toMatchObject({ inputBudgetTokens: 1000, requestedCompletionTokens: 200, triggerLineTokens: 800, normalTailBudget: 300, normalMiddleBudget: 200, escalatedTailBudget: 250, escalatedMiddleBudget: 150 });
+    expect(prepared).toMatchObject({ inputBudgetTokens: 1000, reservedCompletionTokens: 200, requestedCompletionTokens: 200, triggerLineTokens: 800, normalTailBudget: 300, normalMiddleBudget: 200, escalatedTailBudget: 250, escalatedMiddleBudget: 150 });
     expect(prepared).not.toHaveProperty('summarizerModel');
     expect(prepared.triggerMessageThreshold).toBe(prepared.triggerLineTokens - prepared.estimatedStaticTokens);
-    expect(prepared.canonicalMessageHardCeiling).toBe(prepared.inputBudgetTokens - prepared.estimatedStaticTokens - prepared.requestedCompletionTokens);
+    expect(prepared.canonicalMessageHardCeiling).toBe(prepared.inputBudgetTokens - prepared.estimatedStaticTokens - prepared.reservedCompletionTokens);
+  });
+
+  it('keeps reserved capacity as the hard ceiling authority while preserving an exact smaller output request', () => {
+    const prepared = prepareCompaction(config, 'system', [], 137);
+    expect(prepared.reservedCompletionTokens).toBe(200);
+    expect(prepared.requestedCompletionTokens).toBe(137);
+    expect(prepared.canonicalMessageHardCeiling).toBe(prepared.inputBudgetTokens - prepared.estimatedStaticTokens - 200);
+  });
+
+  it('rejects invalid exact output requests instead of clamping them', () => {
+    expect(() => prepareCompaction(config, 'system', [], 0)).toThrow(/positive integer/);
+    expect(() => prepareCompaction(config, 'system', [], 201)).toThrow(/must not exceed reservedCompletionTokens/);
   });
 
   it('triggers exactly at the prepared boundary while hidden rows remain zero and Unicode keeps UTF-16 sizing', () => {
@@ -135,7 +147,7 @@ describe('prepared compaction estimates', () => {
   });
 });
 
-function invocation(contextMessages: AgentMessage[], preparedCompaction: PreparedCompaction): LlmInvocationInput {
+function invocation(contextMessages: AgentMessage[], preparedCompaction: PreparedCompaction): import('../../../src/runtime/actors/llm-invocation.js').PreparedLlmInvocationInput {
   return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
 }
 

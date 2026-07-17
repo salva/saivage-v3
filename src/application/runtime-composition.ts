@@ -28,7 +28,7 @@ import type { ConversationFileContext } from '../persistence/conversation-file.j
 import type { AppLogContext } from '../persistence/app-log.js';
 import { RuntimeInterventionBinding } from './intervention-readiness.js';
 import { RuntimeControlService, type RuntimeControlApplicationPort, type RuntimeControlMechanics } from './runtime-control-service.js';
-import type { AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
+import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 
 export interface RuntimeApiFactoryDeps {
@@ -93,6 +93,8 @@ function buildAnalystDeps(input: {
   configAuthority: ResolvedConfigAuthority;
   appLogs: AppLogContext;
   interventionReadiness: RuntimeInterventionBinding;
+  compactionPolicy: AutonomousCompactionPolicy;
+  summarizerProvider: SummarizerProviderPort;
 }): AnalystRuntimeDeps {
   return {
     configAuthority: input.configAuthority,
@@ -103,6 +105,9 @@ function buildAnalystDeps(input: {
     eventBus: input.eventBus,
     emitAnalystToolInvoked: input.emitAnalystToolInvoked,
     provider: createInvocationServiceProvider(input.invocationService),
+    compactionPolicy: input.compactionPolicy,
+    compactor: { shouldCompact, compact },
+    summarizerProvider: input.summarizerProvider,
     processRunner: input.processRunner,
     analystProcessRootScope: input.processRunner.analystRootScope,
     mcpManager: input.mcpManager,
@@ -184,6 +189,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       configAuthority: services.configAuthority,
       appLogs: services.appLogs,
       interventionReadiness: interventionBinding,
+      compactionPolicy,
+      summarizerProvider,
     });
     return analystDepsCache;
   };

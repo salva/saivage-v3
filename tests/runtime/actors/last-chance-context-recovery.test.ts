@@ -6,24 +6,27 @@ import { join } from 'node:path';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
-import { readConversation } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
 import { agentMessageSchema, type AgentMessage, type OperationalAgentRole } from '../../../src/schemas/index.js';
 import { CompactionAppendError, CompactionSummaryConstructionError, prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
 import { SummarizerExchangeProjectionError } from '../../../src/runtime/actors/compaction/summarizer.js';
-import { LLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
-import type { AutonomousLlmInvocationInput, LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
+import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
+import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 
 const roots: string[] = [];
 const INITIAL_INPUT_ID = '00000000-0000-4000-8000-000000000001';
 afterEach(() => { jest.restoreAllMocks(); while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-describe('LLMActor last-chance context recovery', () => {
+describe('ConversationLLMActor last-chance context recovery', () => {
   it.each([
     ['planner', 'planner:project'],
     ['reviewer', 'reviewer:project'],
     ['executor', 'executor:project'],
+    ['analyst', 'analyst:global'],
   ] as Array<[OperationalAgentRole, string]>)('recovers one %s logical input with one compacted retry and singular persistence', async (role, agentId) => {
-    const firstProjection = { sourceSessionId: agentId, messages: [message(agentId, 'source', 'user', 'original source')] };
+    const source = message(agentId, 'source', 'user', 'original source');
+    const trigger = message(agentId, 'trigger', 'user', 'logical input');
+    const firstProjection = { sourceSessionId: agentId, messages: [source, trigger] };
     const compactedProjection = { sourceSessionId: agentId, messages: [message(agentId, 'compacted', 'system', 'smaller')] };
     const providerCalls: LlmInvocationInput[] = [];
     const ordering: string[] = [];
@@ -39,7 +42,8 @@ describe('LLMActor last-chance context recovery', () => {
     };
     const compact = jest.fn<CompactorPort['compact']>(async () => { ordering.push('compact'); return compacted(compactedProjection, 17); });
     const { actor, root } = actorHarness(role, agentId, provider, compact);
-    const initial = input(role, agentId, firstProjection, [message(agentId, 'trigger', 'user', 'logical input')]);
+    appendConversationBatch(root, [source, trigger]);
+    const initial = input(role, agentId, firstProjection);
 
     await expect(actor.turn(initial)).resolves.toMatchObject({ type: 'result', result: { content: 'done' } });
 
@@ -47,8 +51,6 @@ describe('LLMActor last-chance context recovery', () => {
     expect(compact.mock.calls[0]![0]).toMatchObject({ strategy: 'authoritative_context_recovery', input: { inputId: initial.inputId } });
     expect(providerCalls).toHaveLength(2);
     expect(ordering).toEqual(['provider-1', 'compact', 'provider-2']);
-    expect(providerCalls[0]).not.toHaveProperty('turnMessages');
-    expect(providerCalls[1]).not.toHaveProperty('turnMessages');
     const { providerConversation: _firstProjection, ...firstFields } = providerCalls[0]!;
     const { providerConversation: _secondProjection, ...secondFields } = providerCalls[1]!;
     expect(secondFields).toEqual(firstFields);
@@ -292,7 +294,7 @@ describe('LLMActor last-chance context recovery', () => {
 function actorHarness(role: OperationalAgentRole, agentId: string, provider: LLMProviderPort, compact: CompactorPort['compact']) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-last-chance-'));
   roots.push(root);
-  const actor = new LLMActor({
+  const actor = new ConversationLLMActor({
     projectRoot: root,
     agentId,
     provider,
@@ -306,10 +308,10 @@ function actorHarness(role: OperationalAgentRole, agentId: string, provider: LLM
   return { actor, root };
 }
 
-function input(role: OperationalAgentRole, agentId: string, providerConversation: LlmInvocationInput['providerConversation'], turnMessages?: AgentMessage[]): AutonomousLlmInvocationInput {
+function input(role: OperationalAgentRole, agentId: string, providerConversation: LlmInvocationInput['providerConversation']): PreparedLlmInvocationInput {
   return {
     inputId: INITIAL_INPUT_ID, agentId, role, sessionId: agentId, systemPrompt: 'system', providerConversation,
-    ...(turnMessages ? { turnMessages } : {}), tools: [], terminalToolNames: [], modelParams: {},
+    tools: [], terminalToolNames: [], modelParams: {},
     preparedCompaction: prepareCompaction({ input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', []),
     capabilityRequest: {}, episodeContext: {},
   };

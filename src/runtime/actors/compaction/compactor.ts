@@ -5,7 +5,7 @@ import { hashConversationRows, validateConversationRows, type ValidatedContextCo
 import { classifySourceSegments } from '../../../contracts/conversation-source-classification.js';
 import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { ProviderConversationProjection, ToolDefinition } from '../../../agents/llm-contracts.js';
-import type { LlmInvocationInput, PreparedCompaction } from '../llm-invocation.js';
+import type { PreparedCompaction, PreparedLlmInvocationInput } from '../llm-invocation.js';
 import { providerConversationProjection } from '../conversation-session.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type SlidingBandPartitions, type SnapPolicy } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConversation, type ClassifiedRound } from './round-classifier.js';
@@ -18,7 +18,7 @@ export type AutonomousCompactionPolicy = {
   snap: SnapPolicy;
 };
 
-export function prepareCompaction(config: AutonomousCompactionPolicy, systemPrompt: string, tools: readonly ToolDefinition[]): PreparedCompaction {
+export function prepareCompaction(config: AutonomousCompactionPolicy, systemPrompt: string, tools: readonly ToolDefinition[], requestedCompletionTokens?: number): PreparedCompaction {
   const B = config.input_budget_tokens;
   if (!Number.isInteger(B) || B <= 0) throw new Error('compaction.input_budget_tokens must be a positive integer.');
   if (!(config.completion_reserve_fraction > 0 && config.completion_reserve_fraction <= 1)) throw new Error('compaction.completion_reserve_fraction must be > 0 and <= 1.');
@@ -31,8 +31,11 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
   const escalatedMiddleWidth = config.escalate_summary_line_fraction - config.escalate_merge_line_fraction;
   if (escalatedTailWidth > normalTailWidth) throw new Error(`Escalated compaction tail width must be <= normal tail width (trigger - summary): escalated=${JSON.stringify(escalatedTailWidth)}, normal=${JSON.stringify(normalTailWidth)}.`);
   if (escalatedMiddleWidth > normalMiddleWidth) throw new Error(`Escalated compaction middle width must be <= normal middle width (summary - merge): escalated=${JSON.stringify(escalatedMiddleWidth)}, normal=${JSON.stringify(normalMiddleWidth)}.`);
-  const requestedCompletionTokens = Math.floor(B * config.completion_reserve_fraction);
-  if (requestedCompletionTokens < 1) throw new Error('compaction requestedCompletionTokens must be positive.');
+  const reservedCompletionTokens = Math.floor(B * config.completion_reserve_fraction);
+  if (reservedCompletionTokens < 1) throw new Error('compaction reservedCompletionTokens must be positive.');
+  const requested = requestedCompletionTokens ?? reservedCompletionTokens;
+  if (!Number.isInteger(requested) || requested < 1) throw new Error('compaction requestedCompletionTokens must be a positive integer.');
+  if (requested > reservedCompletionTokens) throw new Error(`compaction requestedCompletionTokens (${requested}) must not exceed reservedCompletionTokens (${reservedCompletionTokens}).`);
   const normalTailBudget = Math.floor(B * normalTailWidth);
   const normalMiddleBudget = Math.floor(B * normalMiddleWidth);
   const escalatedTailBudget = Math.floor(B * escalatedTailWidth);
@@ -40,12 +43,12 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
   const triggerLineTokens = Math.floor(B * config.trigger_fraction);
   const estimatedStaticTokens = estimateCanonicalStaticTokens(systemPrompt, tools);
   const triggerMessageThreshold = triggerLineTokens - estimatedStaticTokens;
-  const canonicalMessageHardCeiling = B - estimatedStaticTokens - requestedCompletionTokens;
+  const canonicalMessageHardCeiling = B - estimatedStaticTokens - reservedCompletionTokens;
   if (!Number.isFinite(estimatedStaticTokens) || estimatedStaticTokens < 0 || triggerMessageThreshold <= 0 || canonicalMessageHardCeiling <= 0 || triggerMessageThreshold > canonicalMessageHardCeiling) {
-    throw new Error(`Autonomous prompt/tool surface does not fit the compaction budget (input_budget_tokens=${B}, estimated_static_tokens=${estimatedStaticTokens}, requested_completion_tokens=${requestedCompletionTokens}, trigger_message_threshold=${triggerMessageThreshold}, canonical_message_hard_ceiling=${canonicalMessageHardCeiling}). Raise compaction.input_budget_tokens, reduce the prompt/tool surface, or lower completion_reserve_fraction.`);
+    throw new Error(`Prompt/tool surface does not fit the compaction budget (input_budget_tokens=${B}, estimated_static_tokens=${estimatedStaticTokens}, reserved_completion_tokens=${reservedCompletionTokens}, requested_completion_tokens=${requested}, trigger_message_threshold=${triggerMessageThreshold}, canonical_message_hard_ceiling=${canonicalMessageHardCeiling}). Raise compaction.input_budget_tokens or reduce the prompt/tool surface.`);
   }
   return {
-    inputBudgetTokens: B, requestedCompletionTokens, triggerLineTokens, estimatedStaticTokens, triggerMessageThreshold, canonicalMessageHardCeiling,
+    inputBudgetTokens: B, reservedCompletionTokens, requestedCompletionTokens: requested, triggerLineTokens, estimatedStaticTokens, triggerMessageThreshold, canonicalMessageHardCeiling,
     normalTailBudget, normalMiddleBudget, escalatedTailBudget, escalatedMiddleBudget,
     triggerFraction: config.trigger_fraction, completionReserveFraction: config.completion_reserve_fraction,
     normalMergeLineFraction: config.merge_line_fraction, normalSummaryLineFraction: config.summary_line_fraction,
@@ -58,9 +61,8 @@ export function estimateCanonicalStaticTokens(systemPrompt: string, tools: reado
   return estimateTextTokens(systemPrompt) + estimateTextTokens(canonicalJson(tools));
 }
 
-export function shouldCompact(input: LlmInvocationInput): boolean {
+export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
   const budget = input.preparedCompaction;
-  if (!budget) return false;
   const estimatedMessageTokens = input.providerConversation.messages.reduce((sum, row) => sum + estimateMessageTokens(row), 0);
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
@@ -84,7 +86,7 @@ export class CompactionAppendError extends Error {
   }
 }
 
-export type CompactArgs = { strategy: CompactionStrategy; conversations: ConversationFileContext; input: LlmInvocationInput & { preparedCompaction: PreparedCompaction }; summarizerProvider: SummarizerProviderPort; signal: AbortSignal };
+export type CompactArgs = { strategy: CompactionStrategy; conversations: ConversationFileContext; input: PreparedLlmInvocationInput; summarizerProvider: SummarizerProviderPort; signal: AbortSignal };
 type Candidate = { payload: ContextCompactionContent; compaction: ValidatedContextCompaction; message: AgentMessage; providerConversation: ProviderConversationProjection; estimatedProviderMessageTokens: number };
 type CandidateFit = { candidate: Candidate; accepted: boolean };
 type CandidateFitFactory = (payload: ContextCompactionContent) => CandidateFit;

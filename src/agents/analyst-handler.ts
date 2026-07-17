@@ -1,5 +1,4 @@
 import type { AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
-import { validateConversationRows } from '../contracts/conversation-compaction.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import {
@@ -25,8 +24,9 @@ import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from
 import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { createConversationChangePublisher } from '../runtime/actors/conversation-publisher.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
+import { appendConversationBatch } from '../persistence/conversation-file.js';
 import type { AppLogContext } from '../persistence/app-log.js';
-import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
+import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
 import { invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
 import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
@@ -39,6 +39,9 @@ import type { RestartPort } from '../boot/restart-port.js';
 import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from '../runtime/actors/invocation-lifecycle.js';
 import { DefaultAnalystBriefRecordMutationService, DefaultAnalystCardMutationService, DefaultAnalystConfigMutationService, DefaultAnalystNotificationMutationService } from '../application/analyst-mutation-services.js';
+import type { CompactorPort } from '../runtime/actors/llm-actor.js';
+import { prepareCompaction, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
+import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 
 
 export interface WorkspaceContext {
@@ -92,6 +95,9 @@ export interface AnalystRuntimeDeps {
   eventBus: EventBus;
   mcpManager?: McpManager;
   provider: LLMProviderPort;
+  compactionPolicy: AutonomousCompactionPolicy;
+  compactor: CompactorPort;
+  summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner;
   analystProcessRootScope: ManagedProcessScope;
   conversations: ConversationFileContext;
@@ -196,7 +202,7 @@ export class AnalystSessionActor extends BaseActor {
   constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
     super();
     this.processScope = args.runtimeDeps.processRunner.createDirectScope(args.runtimeDeps.analystProcessRootScope, `analyst-session:${args.sessionId}`, 'operator_session');
-    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
+    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, compactor: args.runtimeDeps.compactor, summarizerProvider: args.runtimeDeps.summarizerProvider, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
   }
 
   override start(): void {
@@ -425,25 +431,29 @@ export class AnalystSessionActor extends BaseActor {
     }
   }
 
-  private buildInvocationInput(newMessages: AgentMessage[], surface: InvocationSurface): LlmInvocationInput {
+  private buildInvocationInput(newMessages: AgentMessage[], surface: InvocationSurface): PreparedLlmInvocationInput {
     const tools = surfaceToolDefinitions(surface);
     const modelParams = getModelParamsForRole(this.args.config, 'analyst');
-    const activeRows = [...readConversationMessages(this.args.projectRoot, this.sessionId).physicalRows, ...newMessages];
+    const inputId = randomUUID();
+    const systemPrompt = this.args.promptTemplates.render('analyst', 'analyst', {
+      toolList: formatPromptToolList(tools),
+      vocabularySnippet: formatVocabularySnippet(),
+      projectContext: this.buildProjectContext(),
+    });
+    const preparedCompaction = prepareCompaction(this.args.runtimeDeps.compactionPolicy, systemPrompt, tools, modelParams.maxTokens);
+    appendConversationBatch(this.args.runtimeDeps.conversations.projectRoot, newMessages, this.args.runtimeDeps.conversations.changes);
+    for (const message of newMessages) this.llm.conversationPublisher?.entryAppended(message);
     return {
-      inputId: randomUUID(),
+      inputId,
       agentId: this.llm.agentId,
       role: 'analyst',
       sessionId: this.sessionId,
-      systemPrompt: this.args.promptTemplates.render('analyst', 'analyst', {
-        toolList: formatPromptToolList(tools),
-        vocabularySnippet: formatVocabularySnippet(),
-        projectContext: this.buildProjectContext(),
-      }),
-      providerConversation: providerConversationProjection(validateConversationRows(this.sessionId, activeRows)),
-      turnMessages: newMessages,
+      systemPrompt,
+      providerConversation: providerConversationProjection(readConversationMessages(this.args.projectRoot, this.sessionId)),
       tools,
       terminalToolNames: [],
-      modelParams: { temperature: modelParams.temperature, maxTokens: modelParams.maxTokens },
+      modelParams: { temperature: modelParams.temperature },
+      preparedCompaction,
       capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),
       episodeContext: { surface: this.args.surface ?? 'web-chat' },
     };
@@ -473,7 +483,7 @@ export class AnalystSessionActor extends BaseActor {
         : `Analyst LLM unavailable: ${error}`;
   }
 
-  private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations, input?: LlmInvocationInput): AnalystResponse {
+  private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations, input?: PreparedLlmInvocationInput): AnalystResponse {
     if (input) {
       const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, this.errorMessage(err));
       this.llm.conversationPublisher?.entryAppended(message);

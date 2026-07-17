@@ -15,12 +15,13 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { compact, shouldCompact } from '../../src/runtime/actors/compaction/compactor.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('Analyst compacted conversation projection', () => {
-  it('rereads C1/C2 state for fresh and subsequent turns and appends each pending message once', async () => {
+  it('rereads C1/C2 state for fresh and subsequent prepared turns and publishes each input message once', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-compaction-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
@@ -38,12 +39,15 @@ describe('Analyst compacted conversation projection', () => {
     }) };
     const runner = createTestProcessRunner(projectRoot);
     const eventBus = new EventBus();
+    const config = saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 20480, summarizer_candidate: { provider: 'test', account: null, model: 'model' } } });
+    const { enabled: _enabled, summarizer_candidate: _summarizerCandidate, ...compactionPolicy } = config.compaction;
     const runtime = new AnalystRuntime({
       projectRoot,
-      config: saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 20480, summarizer_candidate: { provider: 'test', account: null, model: 'model' } } }),
+      config,
       runtimeDeps: {
         configAuthority: {}, cardStore: new CardService(projectRoot), runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard: jest.fn(), notifyCard: jest.fn(), getStatus: jest.fn() },
         emitAnalystToolInvoked: jest.fn(), eventBus, provider, processRunner: runner, analystProcessRootScope: runner.analystRootScope,
+        compactionPolicy, compactor: { shouldCompact, compact }, summarizerProvider: { completeTurn: provider.completeTurn, projectProviderExchanges: jest.fn() },
         conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), interventionReadiness: new RuntimeInterventionBinding(),
       } as never,
       promptTemplates: createTestPromptTemplateRegistry(),
@@ -51,16 +55,18 @@ describe('Analyst compacted conversation projection', () => {
 
     await runtime.submit('global', { userContent: 'first operator question' });
     assertLatestOnly(captured[0]!, fixture, sessionId);
-    expect(captured.slice(0, 3).map((input) => input.preparedCompaction)).toEqual([undefined, undefined, undefined]);
-    expect(captured.slice(0, 3).map((input) => input.modelParams.maxTokens)).toEqual([4096, 4096, 4096]);
+    const firstPrepared = captured[0]!.preparedCompaction;
+    expect(firstPrepared).toMatchObject({ reservedCompletionTokens: 4096, requestedCompletionTokens: 4096 });
+    expect(captured.slice(0, 3).every((input) => input.preparedCompaction === firstPrepared)).toBe(true);
+    expect(captured.slice(0, 3).map((input) => input.modelParams.maxTokens)).toEqual([undefined, undefined, undefined]);
     expect(captured[0]!.tools[0]!.function.name).not.toBe(captured[1]!.tools[1]!.function.name);
-    expect(captured[0]).not.toHaveProperty('turnMessages');
     expect(countContent(captured[0]!.providerConversation.messages, 'first operator question')).toBe(1);
     expect(countContent(readConversation(projectRoot, sessionId).physicalRows, 'first operator question')).toBe(1);
 
     await runtime.submit('global', { userContent: 'second operator question', workspaceContext: { view: 'cards', entityId: 'project', refinement: null } });
     assertLatestOnly(captured[3]!, fixture, sessionId);
-    expect(captured[3]).not.toHaveProperty('turnMessages');
+    expect(captured[3]!.preparedCompaction).not.toBe(firstPrepared);
+    expect(captured[3]!.preparedCompaction).toMatchObject({ reservedCompletionTokens: 4096, requestedCompletionTokens: 4096 });
     expect(countContent(captured[3]!.providerConversation.messages, 'first operator question')).toBe(1);
     expect(countContent(captured[3]!.providerConversation.messages, 'second operator question')).toBe(1);
     expect(countContent(captured[3]!.providerConversation.messages, 'answer 3')).toBe(1);

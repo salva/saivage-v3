@@ -1,8 +1,8 @@
-import { LLMActor, type CompactorPort, type LLMActorOutcome, type LLMProviderPort, type LLMToolContinuationContextHook } from './llm-actor.js';
+import { ConversationLLMActor, type CompactorPort, type LLMActorOutcome, type LLMProviderPort, type LLMToolContinuationContextHook } from './llm-actor.js';
 import { BaseCardProcessorActor, type CardProcessorOutcome } from './base-card-processor-actor.js';
 import type { CardActivationInput } from './card-actor.js';
 import { RuntimeGate } from '../runtime-gate.js';
-import type { AutonomousLlmInvocationInput } from './llm-invocation.js';
+import type { PreparedLlmInvocationInput } from './llm-invocation.js';
 import type { InvocationSurface } from '../../tools/invocation.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
@@ -20,8 +20,8 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   readonly conversationPublisher?: ConversationChangePublisher;
   readonly conversations: ConversationFileContext;
   readonly runtimeProjectionChanged: () => void;
-  readonly activeLlmActors = new Map<string, LLMActor>();
-  #joiningLlmActors: readonly LLMActor[] | null = null;
+  readonly activeLlmActors = new Map<string, ConversationLLMActor>();
+  #joiningLlmActors: readonly ConversationLLMActor[] | null = null;
   #llmInvocationsDisposed = false;
 
   protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher }) {
@@ -36,17 +36,17 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     this.runtimeProjectionChanged = args.runtimeProjectionChanged;
   }
 
-  protected createMainLlm(agentId: string): LLMActor {
+  protected createMainLlm(agentId: string): ConversationLLMActor {
     const existing = this.activeLlmActors.get(agentId);
     if (existing) return existing;
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, conversations: this.conversations, gate: this.gate, compactor: this.compactor, summarizerProvider: this.summarizerProvider, conversationPublisher: this.conversationPublisher, runtimeProjectionChanged: this.runtimeProjectionChanged });
+    const llm = new ConversationLLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, conversations: this.conversations, gate: this.gate, compactor: this.compactor, summarizerProvider: this.summarizerProvider, conversationPublisher: this.conversationPublisher, runtimeProjectionChanged: this.runtimeProjectionChanged });
     llm.start();
     this.activeLlmActors.set(agentId, llm);
     this.runtimeProjectionChanged();
     return llm;
   }
 
-  listLlmActors(): readonly LLMActor[] {
+  listLlmActors(): readonly ConversationLLMActor[] {
     return [...this.activeLlmActors.values()];
   }
 
@@ -81,8 +81,8 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   }
 
   protected async resolveInitialOutcome(
-    llm: LLMActor,
-    buildInput: () => AutonomousLlmInvocationInput | Promise<AutonomousLlmInvocationInput>,
+    llm: ConversationLLMActor,
+    buildInput: () => PreparedLlmInvocationInput | Promise<PreparedLlmInvocationInput>,
     surface: InvocationSurface,
     isTerminalToolName: (name: string) => boolean,
     signal: AbortSignal,

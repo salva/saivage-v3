@@ -28,7 +28,7 @@ describe('compaction config validation', () => {
     expect(saivageConfigSchema.safeParse({ models, compaction: { ...compaction, escalate_summary_line_fraction: 0.4, escalate_merge_line_fraction: 0.1 } }).success).toBe(false);
     const completion = saivageConfigSchema.safeParse({ models, compaction: { ...compaction, input_budget_tokens: 1, completion_reserve_fraction: 0.1 } });
     expect(completion.success).toBe(false);
-    if (!completion.success) expect(completion.error.issues.map((issue) => issue.message)).toContain('compaction requestedCompletionTokens must be positive');
+    if (!completion.success) expect(completion.error.issues.map((issue) => issue.message)).toContain('compaction reservedCompletionTokens must be positive');
   });
 
   it.each([

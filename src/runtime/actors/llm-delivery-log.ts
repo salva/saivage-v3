@@ -55,7 +55,6 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
       timestamp: new Date().toISOString(),
     }));
   }
-  for (const message of input.turnMessages ?? []) messages.push(message);
   messages.push(agentMessageSchema.parse({
     id: `${input.inputId}:started`,
     session_id: input.sessionId,

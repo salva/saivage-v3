@@ -52,11 +52,21 @@ describe('singular invocation completion authority', () => {
     expect(call).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { label: 'analyst', maxTokens: 777 },
-    { label: 'summarizer', maxTokens: 2000 },
-    { label: 'disabled autonomous', maxTokens: undefined },
-  ])('keeps $label on ordinary maxTokens without compacted admission', async ({ maxTokens }) => {
+  it('uses an exact requested completion below the reserved capacity for admission and transport', async () => {
+    let observedOptions: Parameters<LlmCallFn>[4] | undefined;
+    const observed: LlmCallFn = async (_candidate, _prompt, _providerConversation, _session, options) => { observedOptions = options; return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [] }; };
+    const service = invocationService(capabilities('openai-chat-completions'), observed);
+    const request = preparedRequest(137);
+
+    await service.invokeCall(request, candidate);
+
+    expect(request.preparedCompaction).toMatchObject({ reservedCompletionTokens: 200, requestedCompletionTokens: 137 });
+    expect(observedOptions!.max_tokens).toBe(137);
+    expect(observedOptions!.builtCandidateRequest!.body.max_tokens).toBe(137);
+  });
+
+  it('keeps direct nonpersisting summarization on ordinary maxTokens without compacted admission', async () => {
+    const maxTokens = 2000;
     let observedOptions: Parameters<LlmCallFn>[4] | undefined;
     const observed: LlmCallFn = async (_candidate, _prompt, _providerConversation, _session, options) => { observedOptions = options; return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [] }; };
     const service = invocationService({ ...capabilities('openai-responses'), contextWindowTokens: undefined, maxOutputTokens: undefined }, observed);
@@ -138,8 +148,8 @@ describe('singular invocation completion authority', () => {
   });
 });
 
-function preparedRequest(): InvocationRequest {
-  return { inputId: '00000000-0000-4000-8000-000000000001', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(config, 'system', []), capabilityRequest: {} };
+function preparedRequest(requestedCompletionTokens?: number): InvocationRequest {
+  return { inputId: '00000000-0000-4000-8000-000000000001', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(config, 'system', [], requestedCompletionTokens), capabilityRequest: {} };
 }
 
 function capabilities(transportProtocol: EffectiveProviderCapabilities['transportProtocol']): EffectiveProviderCapabilities {

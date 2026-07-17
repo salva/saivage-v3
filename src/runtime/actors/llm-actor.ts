@@ -3,8 +3,8 @@ import type { ActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
 import type { AgentMessage } from '../../schemas/index.js';
-import type { AutonomousLlmInvocationInput, LlmInvocationInput } from './llm-invocation.js';
-import { actorKindFromId, parseLlmActorId } from './ids.js';
+import type { LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
+import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
 import { appendUserContextMessage, readConversationMessages, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import type { ToolResult } from '../../tools/invocation.js';
@@ -30,7 +30,7 @@ export interface LLMProviderPort {
 }
 
 export interface CompactorPort {
-  shouldCompact(input: LlmInvocationInput): boolean;
+  shouldCompact(input: PreparedLlmInvocationInput): boolean;
   compact(args: CompactArgs): Promise<CompactionResult>;
 }
 
@@ -82,8 +82,11 @@ export class ConversationLLMActor extends BaseActor {
 
   readonly conversationPublisher?: ConversationChangePublisher;
   readonly conversations: ConversationFileContext;
+  readonly compactor: CompactorPort;
+  readonly summarizerProvider: SummarizerProviderPort;
+  readonly runtimeProjectionChanged?: () => void;
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher; runtimeProjectionChanged?: () => void }) {
     super();
     if (actorKindFromId(args.agentId) !== 'llm') throw new Error(`LLMActor requires an LLM actor id: ${args.agentId}`);
     this.projectRoot = args.projectRoot;
@@ -92,9 +95,13 @@ export class ConversationLLMActor extends BaseActor {
     this.conversations = args.conversations;
     this.gate = args.gate ?? new RuntimeGate();
     this.conversationPublisher = args.conversationPublisher;
+    this.compactor = args.compactor;
+    this.summarizerProvider = args.summarizerProvider;
+    this.runtimeProjectionChanged = args.runtimeProjectionChanged;
   }
 
-  turn(input: LlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome> {
+  turn(input: PreparedLlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome> {
+    if (!input.preparedCompaction) return Promise.reject(new Error(`LLMActor '${this.agentId}' requires prepared compaction.`));
     if (input.agentId !== this.agentId) return Promise.reject(new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}.`));
     if (this.#result) return Promise.reject(new Error(`LLMActor '${this.agentId}' already has a pending turn.`));
     if (this.state() !== 'idle') return Promise.reject(new Error(`LLMActor '${this.agentId}' cannot start a new turn from '${this.state()}'.`));
@@ -224,7 +231,7 @@ export class ConversationLLMActor extends BaseActor {
           const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(effectiveInput.sessionId);
           for (const result of appendLlmTurnStarted(this.conversations, effectiveInput, { includeSystemPrompt })) this.conversationPublisher?.entryAppended(result);
           if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(effectiveInput.sessionId);
-          const providerInput = this.consumeTurnMessages(effectiveInput);
+          const providerInput = effectiveInput;
           this.input = providerInput;
           this.onTurnStateUpdated({ input: providerInput, waitingToolCall: null });
           await this.gate.waitUntilOpen(exactSignal);
@@ -455,12 +462,6 @@ export class ConversationLLMActor extends BaseActor {
     if (input.sessionId !== input.providerConversation.sourceSessionId) throw new Error(`Persisted LLM invocation '${input.inputId}' session '${input.sessionId}' does not match provider conversation source session '${input.providerConversation.sourceSessionId}'.`);
   }
 
-  private consumeTurnMessages(input: LlmInvocationInput): LlmInvocationInput {
-    if (input.turnMessages === undefined) return input;
-    const { turnMessages: _consumed, ...continuationInput } = input;
-    return continuationInput;
-  }
-
   private requireInput(): LlmInvocationInput {
     if (!this.input) throw new Error(`LLMActor '${this.agentId}' has no input.`);
     return this.input;
@@ -491,64 +492,21 @@ export class ConversationLLMActor extends BaseActor {
 
   protected onTurnSettled(): void {}
 
-  protected async onBeforeProviderCall(_input: LlmInvocationInput, _signal: AbortSignal): Promise<LlmInvocationInput | void> {}
-
-  protected callProvider(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
-    return this.provider.completeTurn(input, signal);
-  }
-
-  protected assertProviderReplayBoundary(): void {
-    if (!this.#providerBoundaryEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover before entering the provider boundary.`);
-    if (this.#completionPersistenceEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover after completion persistence began.`);
-  }
-
-}
-
-export class LLMActor extends ConversationLLMActor {
-  #compacting = false;
-  readonly compactor: CompactorPort;
-  readonly summarizerProvider: SummarizerProviderPort;
-  readonly runtimeProjectionChanged: () => void;
-
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; runtimeProjectionChanged: () => void; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher }) {
-    super(args);
-    if (parseLlmActorId(args.agentId).role === 'analyst') throw new Error(`LLMActor '${args.agentId}' only supports autonomous card roles.`);
-    this.compactor = args.compactor;
-    this.summarizerProvider = args.summarizerProvider;
-    this.runtimeProjectionChanged = args.runtimeProjectionChanged;
-  }
-
-  override turn(input: AutonomousLlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome> {
-    if (!input.preparedCompaction) return Promise.reject(new Error(`LLMActor '${this.agentId}' requires prepared compaction.`));
-    return super.turn(input, signal);
-  }
-
-  protected override _on_state_changed(oldState: string | undefined, _newState: string): void {
-    if (oldState !== undefined) this.runtimeProjectionChanged();
-  }
-
-  protected override async onBeforeProviderCall(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmInvocationInput | void> {
+  protected async onBeforeProviderCall(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmInvocationInput | void> {
     if (!input.preparedCompaction) throw new Error(`LLMActor '${this.agentId}' admitted an invocation without prepared compaction.`);
     if (this.state() !== 'calling_provider') throw new Error(`LLMActor '${this.agentId}' cannot compact from state '${this.state()}'.`);
     if (!this.compactor.shouldCompact(input)) return;
-    try {
-      this.#compacting = true;
-      const compacted = await this.compactor.compact({ strategy: 'preventive', conversations: this.conversations, input, summarizerProvider: this.summarizerProvider, signal });
-      signal.throwIfAborted();
-      if (compacted.kind !== 'compacted') throw new Error('Preventive compaction returned no_smaller_projection.');
-      if (compacted.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compacted.providerConversation.sourceSessionId}'.`);
-      const compactedInput = { ...input, providerConversation: compacted.providerConversation } as LlmInvocationInput;
-      this.#compacting = false;
-      return compactedInput;
-    } finally {
-      this.#compacting = false;
-    }
+    const compacted = await this.compactor.compact({ strategy: 'preventive', conversations: this.conversations, input, summarizerProvider: this.summarizerProvider, signal });
+    signal.throwIfAborted();
+    if (compacted.kind !== 'compacted') throw new Error('Preventive compaction returned no_smaller_projection.');
+    if (compacted.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compacted.providerConversation.sourceSessionId}'.`);
+    return { ...input, providerConversation: compacted.providerConversation };
   }
 
-  protected override async callProvider(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
+  protected async callProvider(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
     let firstFailure: AuthoritativeContextFailure;
     try {
-      return await super.callProvider(input, signal);
+      return await this.provider.completeTurn(input, signal);
     } catch (error) {
       if (!isAuthoritativeContextFailure(error)) throw error;
       firstFailure = error;
@@ -561,7 +519,6 @@ export class LLMActor extends ConversationLLMActor {
 
     let compaction: Extract<CompactionResult, { kind: 'compacted' }>;
     try {
-      this.#compacting = true;
       const result = await this.compactor.compact({ strategy: 'authoritative_context_recovery', conversations: this.conversations, input, summarizerProvider: this.summarizerProvider, signal });
       signal.throwIfAborted();
       if (result.kind === 'no_smaller_projection') {
@@ -583,8 +540,6 @@ export class LLMActor extends ConversationLLMActor {
       if (error instanceof SummarizerExchangeProjectionError) throw new PostRejectionFatalError(error);
       if (signal.aborted) signal.throwIfAborted();
       throw new PostRejectionFatalError(error);
-    } finally {
-      this.#compacting = false;
     }
 
     if (compaction.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) {
@@ -593,7 +548,7 @@ export class LLMActor extends ConversationLLMActor {
     const retryInput = { ...input, providerConversation: compaction.providerConversation };
     let secondCompletion: ProviderTurnCompletion;
     try {
-      secondCompletion = await super.callProvider(retryInput, signal);
+      secondCompletion = await this.provider.completeTurn(retryInput, signal);
     } catch (error) {
       if (!(error instanceof ProviderTurnFailure)) throw error;
       if (isAuthoritativeContextFailure(error)) {
@@ -616,6 +571,15 @@ export class LLMActor extends ConversationLLMActor {
       ...secondCompletion,
       provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, secondCompletion.provider_exchanges),
     };
+  }
+
+  protected assertProviderReplayBoundary(): void {
+    if (!this.#providerBoundaryEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover before entering the provider boundary.`);
+    if (this.#completionPersistenceEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover after completion persistence began.`);
+  }
+
+  protected override _on_state_changed(oldState: string | undefined, _newState: string): void {
+    if (oldState !== undefined) this.runtimeProjectionChanged?.();
   }
 
 }

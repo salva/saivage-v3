@@ -3,14 +3,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { LLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
+import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-describe('autonomous LLM admission', () => {
+describe('prepared conversation LLM admission', () => {
   it('rejects cast unprepared input before transition, persistence, projection, or downstream calls', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-autonomous-admission-'));
     roots.push(projectRoot);
@@ -19,7 +19,7 @@ describe('autonomous LLM admission', () => {
     const compact = jest.fn<CompactorPort['compact']>();
     const summarize = jest.fn<LLMProviderPort['completeTurn']>();
     const projectionChanged = jest.fn();
-    const actor = new LLMActor({
+    const actor = new ConversationLLMActor({
       projectRoot,
       agentId: 'planner:project',
       provider: { completeTurn: providerCall },
@@ -32,7 +32,7 @@ describe('autonomous LLM admission', () => {
     projectionChanged.mockClear();
     const input: LlmInvocationInput = {
       inputId: '00000000-0000-4000-8000-000000000001', agentId: actor.agentId, role: 'planner', sessionId: 'planner:project',
-      systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, turnMessages: [], tools: [], terminalToolNames: [],
+      systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [],
       modelParams: { maxTokens: 100 }, capabilityRequest: {}, episodeContext: {},
     };
 
