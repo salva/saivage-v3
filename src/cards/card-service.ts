@@ -50,6 +50,12 @@ import {
 import { CardHistoryReader, type CardDiffEntry } from './history-reader.js';
 import type { CardNotification } from '../schemas/types.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
+import { CardServiceInvariantError } from './errors.js';
+
+export type CardActivationAdmissionProjection = {
+  child: CardRecord;
+  dependencies: Array<{ id: string; status: CardStatus }>;
+};
 
 export type { CardDiffEntry, CardMutationContext, NewCardInput, RecordProjection };
 
@@ -76,6 +82,19 @@ export class CardService {
     for (const card of listCards(this.projectRoot).sort((left, right) => left.depth - right.depth)) state.upsert(card);
     for (const id of readCardIndex(this.projectRoot).tombstonedIds) state.addReservedId(id);
     return state;
+  }
+
+  readActivationAdmission(cardId: string): CardActivationAdmissionProjection | null {
+    const cards = listCards(this.projectRoot);
+    const cardsById = new Map(cards.map((card) => [card.id, card]));
+    const child = cardsById.get(cardId);
+    if (!child) return null;
+    const dependencies = child.depends_on.map((id) => {
+      const dependency = cardsById.get(id);
+      if (!dependency) throw new CardServiceInvariantError(`Card '${child.id}' depends_on missing card '${id}'.`);
+      return { id, status: dependency.status };
+    });
+    return clone({ child, dependencies });
   }
 
   read(id: string): CardRecord | null { return clone(this.state().get(id) ?? null); }

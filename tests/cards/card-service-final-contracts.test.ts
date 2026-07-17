@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,6 +10,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 
 const FIRST = '11111111-1111-4111-8111-111111111111';
 const SECOND = '22222222-2222-4222-8222-222222222222';
+const THIRD = '33333333-3333-4333-8333-333333333333';
 
 function input(parent = 'project'): NewCardInput {
   return {
@@ -50,6 +51,49 @@ describe('CardService final reset-only contracts', () => {
     expect(cards.create(input()).id).toBe(SECOND);
     expect(identity).toHaveBeenCalledTimes(2);
     expect(cards.listChildren('project')).toEqual([FIRST, SECOND]);
+  });
+
+  it('projects a cloned target and dependency statuses in declared order', () => {
+    const identity = jest.fn<() => string>().mockReturnValueOnce(FIRST).mockReturnValueOnce(SECOND).mockReturnValueOnce(THIRD);
+    const cards = new CardService(root, undefined, undefined, identity);
+    cards.create(input());
+    cards.create(input());
+    cards.setStatus(FIRST, 'running');
+    cards.commitTerminalLifecyclePatch(FIRST, {
+      status: 'done',
+      lifecycle: { status: 'done', result: { kind: 'done', summary: 'complete' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' },
+    });
+    cards.create({ ...input(), title: 'Dependent card', depends_on: [SECOND, FIRST] });
+
+    const projection = cards.readActivationAdmission(THIRD);
+    expect(projection).toMatchObject({
+      child: { id: THIRD, depends_on: [SECOND, FIRST] },
+      dependencies: [{ id: SECOND, status: 'backlog' }, { id: FIRST, status: 'done' }],
+    });
+
+    projection!.child.title = 'mutated projection';
+    projection!.dependencies[0]!.status = 'cancelled';
+    expect(cards.readActivationAdmission(THIRD)).toMatchObject({
+      child: { title: 'Dependent card' },
+      dependencies: [{ id: SECOND, status: 'backlog' }, { id: FIRST, status: 'done' }],
+    });
+  });
+
+  it('returns null only when the requested target is absent', () => {
+    const cards = new CardService(root);
+    expect(cards.readActivationAdmission(FIRST)).toBeNull();
+    expect(cards.readActivationAdmission('project')).toMatchObject({ child: { id: 'project' }, dependencies: [] });
+  });
+
+  it('propagates strict missing dependency references', () => {
+    const cards = new CardService(root, undefined, undefined, () => FIRST);
+    cards.create({ ...input(), depends_on: [SECOND] });
+    expect(() => cards.readActivationAdmission(FIRST)).toThrow(`Card '${FIRST}' depends_on missing card '${SECOND}'.`);
+  });
+
+  it('propagates malformed canonical card artifacts', () => {
+    writeFileSync(join(root, '.saivage', 'cards', 'project', 'card', 'versions', '1.json'), '{malformed}\n');
+    expect(() => new CardService(root).readActivationAdmission('project')).toThrow();
   });
 
   it.each(['backlog', 'running', 'changed', 'blocked'] as const)('preserves notifications while %s remains unresolved', (status) => {
