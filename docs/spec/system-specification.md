@@ -20,7 +20,7 @@ Authored `brief.md`, `status.md`, and `review.md` records use strict card-owned 
 
 ## 3. Agent Selection And Sessions
 
-Every nonterminal project/goal activation begins planner. Every nonterminal terminal-card activation begins executor. Reviewer is nested live planner work and is never selected at restart. Reviewer rework returns to a fresh planner activation; stale review refresh has no count limit.
+Every nonterminal project/goal activation begins planner. Every nonterminal terminal-card activation begins executor. Reviewer is nested live planner work and is never selected at restart. After accepted reviewer rework closes `review.md` and settles the reviewer terminal result, and before admitting the fresh planner activation, the owner appends exactly one ordinary canonical user-text row to `planner:<card-id>`. That row contains the exact closed review URL and reviewer summary, so ordinary conversation projection supplies both to the fresh activation. This handoff uses no notification, retry counter, or durable reviewer phase. Stale review refresh has no count limit.
 
 Stable session IDs are `planner:<card-id>`, `executor:<card-id>`, and `reviewer:<card-id>`. Each session has one append-only canonical conversation. There are no versions, sidecars, active-session pointers, snapshot cursors, or reconstructed provider/tool continuations.
 

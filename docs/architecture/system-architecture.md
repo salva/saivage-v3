@@ -70,6 +70,8 @@ Immediately before planner/executor terminal acceptance, one no-await reread cho
 
 Reviewer never drains the queue. Before accepting `done`, `blocked`, `failed`, or `rework`, it recomputes semantic currentness and rereads pending context. Pending context wins: discard the open review first, append the paired defer failure second, transition nothing, and return to planner. Stale-without-pending similarly discards before its failed stale result and refreshed context. Every fresh reviewer activation unconditionally discards an existing open review before its activation marker. There is no reviewer round limit.
 
+Accepted reviewer rework has one processor-owned handoff in this order: close the accepted `review.md` → settle the reviewer terminal result → strictly read the just-closed review URL and append one canonical user-text row to `planner:<card-id>` through the conversation owner → begin the next planner activation and ordinary provider projection. The row contains that exact closed review URL and the accepted reviewer summary. A strict review read or conversation append failure propagates and prevents the next planner admission; there is no notification, transient prompt path, or alternate handoff owner.
+
 ## 6. Runtime Controls
 
 Runtime lifecycle is process-local. Startup is stopped. An installed instance is starting, running, pausing, paused, or closing. Pause uses one boolean and at most one parked frontier; admitted synchronous settlement may finish, but no fresh provider/tool/process/child/reviewer admission begins until Resume.
