@@ -18,7 +18,7 @@ import type { NotifyCardResult } from '../runtime-api.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import type { RuntimeGate } from '../runtime-gate.js';
-import { appendActivationMarker, appendRecoveryNotice, appendUserContextMessage, providerConversationProjection, readConversationMessages } from './conversation-session.js';
+import { appendActivationMarker, appendCanonicalUserText, appendRecoveryNotice, appendUserContextMessage, providerConversationProjection, readConversationMessages } from './conversation-session.js';
 import { stabilizeRoleSession } from './conversation-recovery.js';
 import { prepareCompaction, type CompactionConfig } from './compaction/compactor.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../../utils/prompt-api.js';
@@ -257,6 +257,11 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           const closeError = this.closeRequiredRecord(input.card.id, 'review.md', 'reviewer', currentCard.version_seq);
           if (closeError) return control.done(this.plannerFailure(closeError));
           llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
+          if (accepted.result.kind === 'rework') {
+            const message = this.reviewerReworkPlannerMessage(input.card.id, accepted.summary);
+            const appended = appendCanonicalUserText(this.conversations, plannerActorId(this.cardId), message);
+            this.conversationPublisher?.entryAppended(appended);
+          }
           if (accepted.result.kind !== 'rework') this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(accepted, new Date().toISOString()));
           return control.done(accepted);
         },
