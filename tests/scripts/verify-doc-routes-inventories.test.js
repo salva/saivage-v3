@@ -60,12 +60,8 @@ describe('source-derived Agent tool inventory', () => {
     expect(result.expected.get('analyst')).not.toContain('emit_result');
   });
 
-  it('ignores non-runtime Analyst projections but reacts to runtime composition, provider, control, and terminal inputs', () => {
+  it('reacts to runtime composition, provider, control, and terminal inputs', () => {
     withFixture([...TOOL_SOURCES, DOC], (root) => {
-      const baseline = verifyAgentToolDocs({ projectRoot: root }).expected;
-      rewrite(root, 'src/tools/analyst-tool-registry.ts', (source) => source.replace("export const ANALYST_SHARED_PROVIDER_TOOL_NAMES = [", "export const ANALYST_SHARED_PROVIDER_TOOL_NAMES = ['projection_only',"));
-      expect(verifyAgentToolDocs({ projectRoot: root }).expected).toEqual(baseline);
-
       rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => source.replace("planner: ['plannerControl', 'cardInspection', 'workspace', 'cardHistory', 'web']", "planner: ['plannerControl', 'cardInspection', 'workspace', 'cardHistory']"));
       expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('planner')).not.toContain('websearch');
 

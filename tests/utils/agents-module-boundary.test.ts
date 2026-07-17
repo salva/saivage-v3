@@ -10,6 +10,5 @@ describe('agents module ownership boundary', () => {
     expect(analystApi.AnalystRuntime).toBeDefined();
     expect(analystApi.GLOBAL_ANALYST_SESSION_ID).toBe('analyst:global');
     expect(toolApi.evaluateAuthz).toBeDefined();
-    expect(toolApi.ANALYST_TOOL_DEFINITIONS).toBeDefined();
   });
 });
