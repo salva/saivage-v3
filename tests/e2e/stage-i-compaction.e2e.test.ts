@@ -9,6 +9,7 @@ import { compact } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { hashConversationRows } from '../../src/contracts/conversation-compaction.js';
+import { buildOpenAIResponsesRequest } from '../../src/agents/llm-openai-responses-gateway.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -189,7 +190,7 @@ describe('Stage-I compaction contracts', () => {
       const rows = [
         { id: 'protected-activation', session_id: sessionId, role: 'system' as const, kind: 'activity' as const, content: JSON.stringify({ event: 'activation_open' }), round_id: 'r-pre-99999999999999999999999999999999', message_index: 0, block_index: 0, timestamp },
         { id: 'protected-prefix', session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: 'x'.repeat(600), round_id: 'r-user-99999999999999999999999999999999', message_index: 1, block_index: 0, timestamp },
-        { id: `${inputId}:tool-call:call-1`, session_id: sessionId, role: 'assistant' as const, kind: 'tool_call' as const, content: '{}', tool: 'read', tool_call_id: 'call-1', round_id: 'r-assistant-99999999999999999999999999999999', message_index: 2, block_index: 0, timestamp },
+        { id: `${inputId}:tool-call:call-1`, session_id: sessionId, role: 'assistant' as const, kind: 'tool_call' as const, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), tool: 'read', tool_call_id: 'call-1', round_id: 'r-assistant-99999999999999999999999999999999', message_index: 2, block_index: 0, timestamp },
         { id: `${inputId}:tool-result:call-1`, session_id: sessionId, role: 'tool' as const, kind: 'tool_result' as const, content: JSON.stringify({ success: true }), tool: 'read', tool_call_id: 'call-1', round_id: 'r-user-99999999999999999999999999999999', message_index: 3, block_index: 0, timestamp },
         { id: 'private-1', session_id: sessionId, role: 'system' as const, kind: 'provider_private' as const, content: JSON.stringify({ transport: 'openai-responses', source_input_id: inputId, projection_message_id: 'public-1', provider: 'openai', model: 'gpt-5.6', output: [{ type: 'message', content: [{ type: 'output_text', text: 'private' }] }] }), round_id: 'r-user-99999999999999999999999999999999', message_index: 4, block_index: 0, timestamp },
         { id: 'public-1', session_id: sessionId, role: 'assistant' as const, kind: 'text' as const, content: 'y'.repeat(600), round_id: 'r-assistant-99999999999999999999999999999999', message_index: 5, block_index: 0, timestamp, provider_projection: { kind: 'openai_responses' as const, source_input_id: inputId, private_message_id: 'private-1', projection_kind: 'assistant_message' as const } },
@@ -202,6 +203,15 @@ describe('Stage-I compaction contracts', () => {
       expect(cutoff).not.toBe(`${inputId}:tool-call:call-1`);
       expect(cutoff).not.toBe('private-1');
       expect(result.providerConversation.messages.some((row) => row.id === 'protected-tail')).toBe(true);
+      expect(result.providerConversation.messages.filter((row) => row.id.endsWith(':rendered'))).toHaveLength(1);
+      expect(result.providerConversation.messages.some((row) => row.kind === 'context_compaction')).toBe(false);
+      expect(result.providerConversation.messages.some((row) => row.id === `${inputId}:tool-call:call-1`)).toBe(result.providerConversation.messages.some((row) => row.id === `${inputId}:tool-result:call-1`));
+      expect(result.providerConversation.messages.some((row) => row.id === 'private-1')).toBe(result.providerConversation.messages.some((row) => row.id === 'public-1'));
+      expect(estimateMessageTokens(rows[4]!)).toBe(0);
+      expect(estimateMessageTokens(rows[5]!)).toBeGreaterThan(0);
+      const body = buildOpenAIResponsesRequest({ provider: 'openai', account: null, model: 'gpt-5.6' }, 'system', result.providerConversation, { inputId: 'wire-check', phase: 'tools', contract_id: 'c', contractName: 'c', terminalToolOffered: [], tools: [], tool_choice: { kind: 'auto' } });
+      expect(JSON.stringify(body)).not.toContain('context_compaction');
+      if (result.providerConversation.messages.some((row) => row.id === 'private-1')) expect(JSON.stringify(body.input)).toContain('private');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
