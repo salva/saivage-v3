@@ -49,7 +49,7 @@ function argv(root: string): string[] {
 function publishExistingRootCard(root: string): void {
   const stamp = '2026-07-17T00:00:00.000Z';
   const card: CardRecord = {
-    id: 'project', type: 'project', parent: null, depth: 0, position: 0, children: [], title: 'existing', status: 'backlog', subtype: null,
+    id: 'project', type: 'project', parent: null, depth: 0, children: [], title: 'existing', status: 'backlog', subtype: null,
     tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: stamp, updated_at: stamp,
     assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null,

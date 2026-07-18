@@ -172,7 +172,9 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
     }
     const result = this.store.reorderChildren(parentId, [...orderedChildIds], { actor: 'analyst', surface: this.surface, reason: 'analyst reorder_child' });
     if (!result.ok) return failure('reorder_set_mismatch', { reason: 'reorder_set_mismatch', missing: result.missing, extra: result.extra, parent_id: parentId });
-    try { propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard); } catch { /* notification is best effort */ }
+    if (result.changed > 0) {
+      try { propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard); } catch { /* notification is best effort */ }
+    }
     return { success: true, data: { parent_id: parentId, changed: result.changed } };
   }
 }

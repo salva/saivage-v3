@@ -75,7 +75,7 @@ describe('useCardStore evidence support', () => {
     const projectAfter = makeCard({ id: 'project', children: [A_ID] });
     const parentBefore = makeCard({ ...A, children: [] });
     const parentAfter = makeCard({ ...A, children: [A_CHILD_B_ID] });
-    const linkedChild = makeCard({ id: A_CHILD_B_ID, parent: A_ID, depth: 2, position: 0, title: 'New linked child' });
+    const linkedChild = makeCard({ id: A_CHILD_B_ID, parent: A_ID, depth: 2, title: 'New linked child' });
     vi.mocked(listCards)
       .mockReturnValueOnce(oldList.promise)
       .mockReturnValueOnce(newList.promise);

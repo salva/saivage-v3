@@ -11,7 +11,6 @@ const card = {
   type: 'code',
   parent: 'project',
   depth: 1,
-  position: 1,
   title: 'Synthetic dashboard smoke card',
   status: 'done',
   lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
@@ -56,7 +55,6 @@ const baseChild = {
 const children = Array.from({ length: 40 }, (_, index) => ({
   ...baseChild,
   id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-  position: index + 1,
   title: `Synthetic child card ${index + 1} for hierarchy overflow`,
   logical_path: `1.${index + 1}`,
 }));

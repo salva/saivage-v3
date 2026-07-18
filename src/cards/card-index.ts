@@ -37,23 +37,11 @@ export class CardIndex {
     this.addChildEdge(card.parent, card.id);
   }
 
-  private sortChildEdges(parent: string): void {
-    const arr = this._childrenByParent.get(parent);
-    if (!arr) return;
-    arr.sort((a, b) => {
-      const ac = this._cards.get(a);
-      const bc = this._cards.get(b);
-      return (ac?.position ?? 0) - (bc?.position ?? 0) || a.localeCompare(b);
-    });
-    this._childrenByParent.set(parent, arr);
-  }
-
   private addChildEdge(parent: string | null, childId: string): void {
     if (parent === null) return;
     const arr = this._childrenByParent.get(parent) ?? [];
     if (!arr.includes(childId)) arr.push(childId);
     this._childrenByParent.set(parent, arr);
-    this.sortChildEdges(parent);
   }
 
   private removeChildEdge(parent: string | null, childId: string): void {
@@ -62,10 +50,7 @@ export class CardIndex {
     if (!arr) return;
     const filtered = arr.filter((c) => c !== childId);
     if (filtered.length === 0) this._childrenByParent.delete(parent);
-    else {
-      this._childrenByParent.set(parent, filtered);
-      this.sortChildEdges(parent);
-    }
+    else this._childrenByParent.set(parent, filtered);
   }
 
   detectDependsOnCycle(id: string, newDependsOn: readonly string[]): string[] {

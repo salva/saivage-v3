@@ -27,7 +27,17 @@ describe('reset-only hierarchical card storage', () => {
     const status = cards.openRecord(dependency.id, 'status.md'); cards.editRecord(dependency.id, 'status.md', status.version, 'status'); cards.closeRecord(dependency.id, 'status.md', status.version, 'executor', dependency.version_seq);
     const dependencySession = parseConversationSessionId(`executor:${dependency.id}`);
     appendConversationBatch(root, [row(dependencySession, 'message')]);
+    const dependencyStreamBefore = readFileSync(cardStreamFile(root, dependency.id), 'utf8');
+    const dependentStreamBefore = readFileSync(cardStreamFile(root, dependent.id), 'utf8');
+    const goalVersionBefore = cards.read(goal.id)!.version_seq;
     expect(cards.reorderChildren(goal.id, [dependent.id, dependency.id], context)).toEqual({ ok: true, changed: 2 });
+    expect(readFileSync(cardStreamFile(root, dependency.id), 'utf8')).toBe(dependencyStreamBefore);
+    expect(readFileSync(cardStreamFile(root, dependent.id), 'utf8')).toBe(dependentStreamBefore);
+    const reordered = new CardService(root);
+    expect(reordered.read(goal.id)).toMatchObject({ version_seq: goalVersionBefore + 1, children: [dependent.id, dependency.id] });
+    expect(reordered.read(dependency.id)?.version_seq).toBe(dependency.version_seq);
+    expect(reordered.read(dependent.id)?.version_seq).toBe(dependent.version_seq);
+    expect(reordered.listChildren(goal.id)).toEqual([dependent.id, dependency.id]);
     expect(() => cards.deleteSubtrees([goal.id], context, () => true)).toThrow(new RegExp(survivor.id));
     cards.updateDependsOn(survivor.id, [], context);
     const deleted = cards.deleteSubtrees([dependency.id, dependent.id], context, () => true);

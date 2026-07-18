@@ -515,7 +515,7 @@ function semanticCardFingerprint(card: CardRecord): string {
     type: card.type,
     parent: card.parent,
     depth: card.depth,
-    position: card.position,
+    children: card.children,
     title: card.title,
     status: card.status,
     lifecycle: card.lifecycle,

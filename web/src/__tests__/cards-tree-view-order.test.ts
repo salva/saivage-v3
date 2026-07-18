@@ -15,9 +15,9 @@ describe('CardsTreeView', () => {
       'card-cccccccccccccccccccccccccccc',
     ];
     const root = cardView('project', { children: childIds });
-    const low = cardView(childIds[0], { title: 'Zulu low', priority: 1, position: 30 });
-    const high = cardView(childIds[1], { title: 'Alpha high', priority: 99, position: 20 });
-    const mid = cardView(childIds[2], { title: 'Middle', priority: 50, position: 10 });
+    const low = cardView(childIds[0], { title: 'Zulu low', priority: 1 });
+    const high = cardView(childIds[1], { title: 'Alpha high', priority: 99 });
+    const mid = cardView(childIds[2], { title: 'Middle', priority: 50 });
     const cards = [mid, root, high, low];
     const wrapper = mount(CardsTreeView, { props: { cards, tree: buildTree(cards), expandedIds: new Set(['project']), selectedCardId: null } });
 

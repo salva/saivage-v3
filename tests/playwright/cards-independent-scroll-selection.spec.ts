@@ -25,7 +25,6 @@ function card(overrides: Record<string, unknown>) {
     type: 'code',
     parent: 'project',
     depth: 1,
-    position: 1,
     children: [],
     title: 'Source card with canonical record link',
     description: 'Deterministic Cards browser fixture.',
@@ -57,9 +56,9 @@ function card(overrides: Record<string, unknown>) {
 }
 
 const source = card({ status: 'running' });
-const goal = card({ id: goalId, type: 'goal', position: 2, children: [targetId], title: 'Collapsed ancestor goal', status: 'backlog', logical_path: '2' });
-const target = card({ id: targetId, parent: goalId, depth: 2, position: 1, title: 'Deep linked target', status: 'blocked', logical_path: '2.1' });
-const publishedChild = card({ id: publishedChildId, parent: goalId, depth: 2, position: 2, title: 'Newly linked nested child', status: 'backlog', logical_path: '2.2' });
+const goal = card({ id: goalId, type: 'goal', children: [targetId], title: 'Collapsed ancestor goal', status: 'backlog', logical_path: '2' });
+const target = card({ id: targetId, parent: goalId, depth: 2, title: 'Deep linked target', status: 'blocked', logical_path: '2.1' });
+const publishedChild = card({ id: publishedChildId, parent: goalId, depth: 2, title: 'Newly linked nested child', status: 'backlog', logical_path: '2.2' });
 function segment(value: number): string {
   const letters = Array<string>(28).fill('a');
   let remaining = value;
@@ -71,7 +70,6 @@ function segment(value: number): string {
 }
 const overflowCards = Array.from({ length: 32 }, (_, index) => card({
   id: `card-${segment(index + 3)}`,
-  position: index + 3,
   title: `Overflow tree card ${String(index + 1).padStart(2, '0')}`,
   logical_path: String(index + 3),
 }));
@@ -80,7 +78,6 @@ const project = card({
   type: 'project',
   parent: null,
   depth: 0,
-  position: 0,
   children: [sourceId, goalId, ...overflowCards.map((entry) => entry.id)],
   title: 'Cards fixture project',
   status: 'running',

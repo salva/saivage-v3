@@ -14,11 +14,11 @@ const UNLINKED_ID = 'card-eeeeeeeeeeeeeeeeeeeeeeeeeeee';
 describe('card selectors', () => {
   it('projects committed parent links and order from scrambled flat records', () => {
     const cards = [
-      cardView(UNLINKED_ID, { position: 0, title: 'Unlinked' }),
-      cardView(C_ID, { position: 0, title: 'Nested' }),
-      cardView(A_ID, { position: 1, children: [C_ID], title: 'A' }),
+      cardView(UNLINKED_ID, { title: 'Unlinked' }),
+      cardView(C_ID, { title: 'Nested' }),
+      cardView(A_ID, { children: [C_ID], title: 'A' }),
       cardView('project', { children: [B_ID, A_ID, MISSING_ID] }),
-      cardView(B_ID, { position: 99, title: 'B' }),
+      cardView(B_ID, { title: 'B' }),
     ];
 
     const tree = buildTree(cards);

@@ -53,12 +53,17 @@ function readLinkedArtifacts(projectRoot: string, targetId: string): CardArtifac
 }
 
 export function readCard(projectRoot: string, cardId: string): CardRecord | null { return readLinkedArtifacts(projectRoot, cardId)?.current.card ?? null; }
-export function readLinkedChildren(projectRoot: string, parentId: string): CardRecord[] {
+export interface LinkedChildrenProjection { readonly parent: CardRecord; readonly activeChildren: CardRecord[] }
+export function readLinkedChildrenProjection(projectRoot: string, parentId: string): LinkedChildrenProjection {
   const parent = readCard(projectRoot, parentId);
   if (!parent) throw new Error(`Parent card '${parentId}' does not exist.`);
-  const children = parent.children.flatMap((id) => { const child = readCard(projectRoot, id); return child ? [child] : []; });
-  if (new Set(children.map((child) => child.position)).size !== children.length) throw new Error(`Parent '${parentId}' has duplicate active child positions.`);
-  return children.sort((left, right) => left.position - right.position || left.id.localeCompare(right.id));
+  return {
+    parent,
+    activeChildren: parent.children.flatMap((id) => { const child = readCard(projectRoot, id); return child ? [child] : []; }),
+  };
+}
+export function readLinkedChildren(projectRoot: string, parentId: string): CardRecord[] {
+  return readLinkedChildrenProjection(projectRoot, parentId).activeChildren;
 }
 export function readCardArtifacts(projectRoot: string, cardId: string): CardArtifactIndex {
   const artifacts = readLinkedArtifacts(projectRoot, cardId);

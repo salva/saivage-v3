@@ -46,7 +46,7 @@ describe('DashboardView S06 read-only contract', () => {
     const firstId = `${goalId}-bbbbbbbbbbbbbbbbbbbbbbbbbbbb`;
     const secondId = `${goalId}-cccccccccccccccccccccccccccc`;
     const goal = cardView(goalId, { type: 'goal', children: [secondId, firstId] });
-    cardsStore.cards = [cardView(firstId, { position: 1 }), goal, cardView(secondId, { position: 20 })];
+    cardsStore.cards = [cardView(firstId), goal, cardView(secondId)];
     cardsStore.currentCard = goal;
 
     const model = useDashboardReadModel({

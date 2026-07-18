@@ -27,6 +27,7 @@ import {
   readCardArtifacts,
   readCardHistory,
   readLinkedChildren,
+  readLinkedChildrenProjection,
 } from '../persistence/card-files.js';
 import type { GrowingFileIo } from '../persistence/growing-file.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
@@ -34,6 +35,7 @@ import { ReadModelChangeBroadcaster } from '../application/read-model-changes.js
 import { CardIndex } from './card-index.js';
 import {
   assertCanCreateCard,
+  assertGenericCardPatch,
   briefContentForNewCard,
   buildSetStatusLifecycle,
   buildUpdatedCard,
@@ -143,11 +145,9 @@ export class CardService {
     const parentBeforeClaim = this.read(parent.id);
     if (!parentBeforeClaim) throw new Error(`Parent '${parent.id}' changed before child namespace claim.`);
     assertChildParentAdmission(parentBeforeClaim, 'Cannot claim a child namespace under');
-    const children = readLinkedChildren(this.projectRoot, parentBeforeClaim.id);
-    const position = children.length === 0 ? 0 : Math.max(...children.map((card) => card.position)) + 1;
     const timestamp = new Date().toISOString();
     const cardInput: Omit<CardRecord, 'id'> = {
-      type: input.type, parent: parentBeforeClaim.id, depth: parentBeforeClaim.depth + 1, position, children: [], title: input.title, status: input.status,
+      type: input.type, parent: parentBeforeClaim.id, depth: parentBeforeClaim.depth + 1, children: [], title: input.title, status: input.status,
       subtype: input.subtype ?? null, tags: input.tags, priority: input.priority, urgency: input.urgency,
       created_by: input.created_by, created_at: timestamp, updated_at: timestamp, version_seq: 1,
       assigned_to: input.assigned_to ?? null, depends_on: input.depends_on, related: input.related,
@@ -180,6 +180,7 @@ export class CardService {
 
   private applyPatch(id: string, changes: CardPatch, kind: 'update' | 'status' | 'mutate' | 'depends', ctx: CardMutationContext): CardRecord {
     const existing = this.read(id); if (!existing) throw new Error(`Card '${id}' not found.`);
+    assertGenericCardPatch(changes);
     const real = prunePartialPatch(existing, changes); if (Object.keys(real).length === 0) return existing;
     const candidate = cardRecordSchema.parse(buildUpdatedCard(existing, real, new Date().toISOString(), ctx));
     if (real.depends_on && this.detectCycles(id, candidate.depends_on).length > 0) throw new Error(`Dependency cycle detected for '${id}'.`);
@@ -192,19 +193,25 @@ export class CardService {
 
   updateDependsOn(id: string, dependsOn: string[], ctx: CardMutationContext = { actor: 'runtime', surface: 'runtime', reason: 'dependency update' }): CardRecord { return this.applyPatch(id, { depends_on: dependsOn }, 'depends', ctx); }
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): { ok: true; changed: number } | { ok: false; reason: string; missing: string[]; extra: string[] } {
-    const children = readLinkedChildren(this.projectRoot, parentId);
-    const actual = children.map((card) => card.id); if (actual.length !== orderedChildIds.length || actual.some((id) => !orderedChildIds.includes(id))) return { ok: false, reason: 'ordered child ids do not match current children', missing: actual.filter((id) => !orderedChildIds.includes(id)), extra: orderedChildIds.filter((id) => !actual.includes(id)) };
-    const childrenById = new Map(children.map((card) => [card.id, card]));
-    let changed = 0;
-    orderedChildIds.forEach((id, position) => {
-      const existing = childrenById.get(id)!;
-      if (existing.position === position) return;
-      const candidate = cardRecordSchema.parse(buildUpdatedCard(existing, { position }, new Date().toISOString(), ctx));
-      const history = historyEntry(existing, 'mutate', ctx, ['position'], 'position updated');
-      publishCardVersion(this.projectRoot, candidate, history, this.cardAppendIo);
-      this.publishHistoryEffects(history, false);
-      changed += 1;
+    const { parent, activeChildren } = readLinkedChildrenProjection(this.projectRoot, parentId);
+    const actual = activeChildren.map((card) => card.id);
+    const actualSet = new Set(actual);
+    const requestedSet = new Set(orderedChildIds);
+    if (actual.length !== orderedChildIds.length || requestedSet.size !== orderedChildIds.length || actual.some((id) => !requestedSet.has(id))) {
+      return { ok: false, reason: 'ordered child ids do not match current children', missing: actual.filter((id) => !requestedSet.has(id)), extra: orderedChildIds.filter((id) => !actualSet.has(id)) };
+    }
+    const changed = orderedChildIds.reduce((count, id, index) => count + (actual[index] === id ? 0 : 1), 0);
+    if (changed === 0) return { ok: true, changed: 0 };
+    const retained = parent.children.filter((id) => !actualSet.has(id));
+    const candidate = cardRecordSchema.parse({
+      ...parent,
+      children: [...orderedChildIds, ...retained],
+      version_seq: parent.version_seq + 1,
+      updated_at: new Date().toISOString(),
     });
+    const history = historyEntry(parent, 'mutate', { ...ctx, reason: ctx.reason ?? 'children reordered' }, ['children'], 'children reordered');
+    publishCardVersion(this.projectRoot, candidate, history, this.cardAppendIo);
+    this.publishHistoryEffects(history, false);
     return { ok: true, changed };
   }
   deleteSubtrees(requestedIds: readonly string[], ctx: CardMutationContext, allowed: (card: CardRecord) => boolean): { deleted: string[]; requested: string[] } {

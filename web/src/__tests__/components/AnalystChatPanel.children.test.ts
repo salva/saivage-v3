@@ -43,10 +43,10 @@ describe('AnalystChatPanel on-screen children', () => {
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
     const cards = useCardStore();
     cards.cards = [
-      cardView(CHILD_TWO_ID, { position: 0, title: 'Second' }),
+      cardView(CHILD_TWO_ID, { title: 'Second' }),
       cardView('project', { children: [CHILD_ONE_ID, CHILD_TWO_ID, CHILD_ZERO_ID], title: 'Parent' }),
-      cardView(CHILD_ZERO_ID, { position: 1, title: 'Zero' }),
-      cardView(CHILD_ONE_ID, { position: 2, title: 'First' }),
+      cardView(CHILD_ZERO_ID, { title: 'Zero' }),
+      cardView(CHILD_ONE_ID, { title: 'First' }),
     ];
     const workspaceRoute = useWorkspaceRouteStore();
     workspaceRoute.view = 'cards';

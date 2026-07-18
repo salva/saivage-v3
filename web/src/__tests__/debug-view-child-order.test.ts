@@ -25,12 +25,12 @@ describe('DebugView committed child order', () => {
       'card-cccccccccccccccccccccccccccc',
     ];
     cardsStore.cards = [
-      cardView(orderedIds[3], { position: 1, title: 'A' }),
-      cardView(orderedIds[2], { position: 4, title: 'D' }),
+      cardView(orderedIds[3], { title: 'A' }),
+      cardView(orderedIds[2], { title: 'D' }),
       cardView('project', { children: orderedIds, title: 'Debug Parent', status: 'running' }),
-      cardView(orderedIds[4], { position: 2, title: 'C' }),
-      cardView(orderedIds[0], { position: 3, title: 'E' }),
-      cardView(orderedIds[1], { position: 1, title: 'B' }),
+      cardView(orderedIds[4], { title: 'C' }),
+      cardView(orderedIds[0], { title: 'E' }),
+      cardView(orderedIds[1], { title: 'B' }),
     ];
     cardsStore.total = cardsStore.cards.length;
     await runtimeStore.fetchState();

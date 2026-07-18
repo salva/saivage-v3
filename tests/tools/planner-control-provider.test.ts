@@ -1,4 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { CardServiceInvariantError, type CardActivationAdmissionProjection } from '../../src/cards/card-api.js';
 import type { CardActivationOutcome } from '../../src/runtime/actors/card-actor.js';
@@ -6,6 +9,8 @@ import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createPlannerControlProvider, type PlannerControlProviderContext } from '../../src/tools/planner-control-provider.js';
 import { testAppLogs } from '../helpers/app-logs.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
+import { listControlActions } from '../../src/persistence/control-action-audit.js';
 
 const PARENT = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CHILD = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -20,7 +25,7 @@ function card(status: CardStatus = 'backlog', changes: Partial<CardRecord> = {})
     type: 'code',
     parent: PARENT,
     depth: 2,
-    position: 0,
+    children: [],
     title: 'Child',
     status,
     tags: [],
@@ -44,7 +49,7 @@ function projection(child: CardRecord, dependencies: CardActivationAdmissionProj
 
 type Actor = NonNullable<ReturnType<PlannerControlProviderContext['children']['get']>>;
 
-function harness(admission: CardActivationAdmissionProjection | null, actorOverrides: Partial<Actor> = {}) {
+function harness(admission: CardActivationAdmissionProjection | null, actorOverrides: Partial<Actor> = {}, options: { projectRoot?: string; reorderResult?: ReturnType<NonNullable<PlannerControlProviderContext['store']['reorderChildren']>> } = {}) {
   const events: string[] = [];
   const actor: Actor = {
     activate: jest.fn<Actor['activate']>(async (_caller, parentAdmit) => {
@@ -69,20 +74,22 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     return card('running');
   });
   const mutateCard = jest.fn<NonNullable<PlannerControlProviderContext['store']['mutateCard']>>((_cardId, changes) => card('backlog', changes));
+  const reorderChildren = jest.fn<NonNullable<PlannerControlProviderContext['store']['reorderChildren']>>(() => options.reorderResult ?? { ok: true, changed: 2 });
   const store: PlannerControlProviderContext['store'] = {
     read: jest.fn((_cardId: string) => admission?.child ?? null),
     readActivationAdmission,
     mutateCard,
+    reorderChildren,
     setStatus,
   };
   const provider = createPlannerControlProvider({
-    projectRoot: '/test/planner-control',
+    projectRoot: options.projectRoot ?? '/test/planner-control',
     parentCardId: PARENT,
     sessionId: `planner:${PARENT}`,
     store,
     children: { get },
     cancelCard: async () => { throw new Error('unused'); },
-    appLogs: testAppLogs('/test/planner-control'),
+    appLogs: testAppLogs(options.projectRoot ?? '/test/planner-control'),
   });
   const surface = buildInvocationSurface('planner', [provider]);
   return {
@@ -92,6 +99,7 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     readActivationAdmission,
     setStatus,
     mutateCard,
+    reorderChildren,
     surface,
     invoke: () => invokeTool(surface, 'activate_card', { card_id: CHILD }),
   };
@@ -105,6 +113,26 @@ describe('planner activate_card dependency-completion admission', () => {
       .resolves.toMatchObject({ success: false, error: expect.stringContaining('Unrecognized key') });
     expect(test.mutateCard).not.toHaveBeenCalled();
     expect(test.setStatus).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: 'real reorder', result: { ok: true as const, changed: 2 }, success: true, outcome: 'ok' },
+    { name: 'no-op reorder', result: { ok: true as const, changed: 0 }, success: true, outcome: 'ok' },
+    { name: 'mismatch', result: { ok: false as const, reason: 'ordered child ids do not match current children', missing: [CHILD], extra: [DEPENDENCY_A] }, success: false, outcome: 'error' },
+  ])('preserves reorder result and audit shapes for $name', async ({ result, success, outcome }) => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-planner-reorder-'));
+    try {
+      initProjectTree(root);
+      const test = harness(projection(card()), {}, { projectRoot: root, reorderResult: result });
+      const toolResult = await invokeTool(test.surface, 'reorder_child', { orderedChildIds: [CHILD, DEPENDENCY_A] });
+      expect(toolResult.success).toBe(success);
+      if (result.ok) expect(toolResult).toEqual({ success: true, data: { parent_id: PARENT, changed: result.changed } });
+      else expect(toolResult).toEqual({ success: false, error: `reorder_child set mismatch: missing=${CHILD} extra=${DEPENDENCY_A}` });
+      expect(test.reorderChildren).toHaveBeenCalledWith(PARENT, [CHILD, DEPENDENCY_A], { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
+      expect(listControlActions(root).at(0)).toMatchObject({ action: 'card.reorder_child', target_id: PARENT, outcome, outcome_summary: result.ok ? 'mutation applied' : 'reorder_set_mismatch' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('preserves missing-target and immediate-child failures before actor lookup', async () => {

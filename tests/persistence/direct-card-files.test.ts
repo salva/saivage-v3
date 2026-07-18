@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
-import { readCard } from '../../src/persistence/card-files.js';
+import { readCard, readLinkedChildren } from '../../src/persistence/card-files.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
@@ -20,6 +20,19 @@ describe('exact hierarchical card files', () => {
     expect(cardNamespace(root, child.id)).toBe(join(root, '.saivage', 'cards', 'project', 'children', segment));
     expect(cards.read('project')!.children).toEqual([child.id]);
     expect(readFileSync(cardStreamFile(root, child.id), 'utf8').trim().split('\n')).toHaveLength(1);
+  });
+
+  it('projects active children in exact committed parent order while retaining tombstoned links', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const first = cards.create({ type: 'code', parent: 'project', title: 'First', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const retained = cards.create({ type: 'code', parent: 'project', title: 'Retained', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const second = cards.create({ type: 'code', parent: 'project', title: 'Second', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    cards.deleteSubtrees([retained.id], { actor: 'analyst', surface: 'runtime' }, () => true);
+    cards.reorderChildren('project', [second.id, first.id], { actor: 'analyst', surface: 'runtime' });
+
+    expect(readCard(root, 'project')?.children).toEqual([second.id, first.id, retained.id]);
+    expect(readLinkedChildren(root, 'project').map(({ id }) => id)).toEqual([second.id, first.id]);
   });
 
   it('fails on a complete unsupported row kind in the exact parent stream', () => {

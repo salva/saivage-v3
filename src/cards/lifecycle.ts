@@ -35,7 +35,7 @@ export interface NewCardInput {
   metadata?: import('../schemas/index.js').CardMetadata | null;
 }
 
-export type CardPatch = Partial<Omit<CardRecord, 'type'>>;
+export type CardPatch = Partial<Omit<CardRecord, 'type' | 'children'>>;
 
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'parent',
@@ -43,8 +43,6 @@ const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'depth',
   'id',
   'created_at',
-  'children',
-  'position',
 ]);
 
 const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
@@ -103,7 +101,6 @@ const TRACKED_FIELDS = [
   'depends_on',
   'related',
   'assigned_to',
-  'position',
 ] as const satisfies ReadonlyArray<keyof CardRecord>;
 
 export function isTerminalType(type: CardType): boolean {
@@ -174,6 +171,10 @@ export function prunePartialPatch(
     (pruned as Record<string, unknown>)[key] = value;
   }
   return pruned;
+}
+
+export function assertGenericCardPatch(changes: CardPatch): void {
+  if (Object.hasOwn(changes, 'children')) throw new Error("Field 'children' cannot be changed via update/mutateCard; use the dedicated child link or reorder operation.");
 }
 
 export function validateMutablePatch(
@@ -275,14 +276,6 @@ export function collectChangedFields(
   return changedFields;
 }
 
-export interface BuildNewCardParams {
-  input: NewCardInput;
-  id: string;
-  depth: number;
-  position: number;
-  timestamp: string;
-}
-
 export function assertCanCreateCard(input: NewCardInput): void {
   if ((input as { type: string }).type === 'plan') {
     throw new Error('Plan cards are no longer created. Planning state lives on goal cards.');
@@ -290,42 +283,6 @@ export function assertCanCreateCard(input: NewCardInput): void {
   if (input.type === 'project' && input.parent !== null) {
     throw new Error(`Project card '${PROJECT_CARD_ID}' must be the root card and cannot have parent '${input.parent}'.`);
   }
-}
-
-export function buildNewCard({ input, id, depth, position, timestamp }: BuildNewCardParams): CardRecord {
-  const lifecycle = input.lifecycle ?? ({ status: input.status, result: null, error: null, completed_at: null } as CardLifecycleState);
-  if (input.status !== lifecycle.status) throw new Error(`New card status '${input.status}' must match lifecycle.status '${lifecycle.status}'.`);
-  return {
-    id,
-    type: input.type,
-    parent: input.parent,
-    depth,
-    position,
-    children: [],
-    title: input.title,
-    status: input.status,
-    subtype: input.subtype ?? null,
-    tags: input.tags,
-    priority: input.priority,
-    urgency: input.urgency,
-    created_by: input.created_by,
-    created_at: timestamp,
-    updated_at: timestamp,
-    assigned_to: input.assigned_to ?? null,
-    depends_on: input.depends_on,
-    related: input.related,
-    lifecycle,
-    metrics: input.metrics ?? null,
-    estimate: input.estimate ?? null,
-    started_at: input.started_at ?? null,
-    duration_ms: input.duration_ms ?? null,
-    status_text: input.status_text ?? null,
-    status_text_updated_at: input.status_text_updated_at ?? null,
-    status_text_author_session_id: input.status_text_author_session_id ?? null,
-    latest_self_report: input.latest_self_report ?? null,
-    pending_notifications: [],
-    version_seq: 1,
-  };
 }
 
 export function briefContentForNewCard(input: NewCardInput): string {

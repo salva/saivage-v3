@@ -62,8 +62,81 @@ describe('two-kind card stream validation', () => {
     const link = rows[1]!;
     if (link.kind !== 'card-version') throw new Error('Expected a child-link card version.');
     expect(link.history?.kind).toBe('child_link');
+    expect(validateCardStream(rows, '/canonical/card.jsonl', 'project').current.version).toBe(2);
+    const replaced = structuredClone(rows);
+    const replacedLink = replaced[1]!;
+    if (replacedLink.kind !== 'card-version') throw new Error('Expected a child-link card version.');
+    replacedLink.card.children = [replacedLink.card.children[0]!, 'card-z'];
+    expect(() => validateCardStream(replaced, '/canonical/card.jsonl', 'project')).toThrow(/invalid children transition/);
+
     link.card.title = 'Forbidden during child link';
     expect(() => validateCardStream(rows, '/canonical/card.jsonl', 'project')).toThrow(/child-link row mutates 'title'/);
+  });
+
+  it('accepts only a real children-only same-membership permutation, including retained-link movement', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-stream-validation-'));
+    roots.push(root);
+    initProjectTree(root);
+    const cards = new CardService(root);
+    const first = cards.create(input());
+    const retained = cards.create(input());
+    const second = cards.create(input());
+    cards.deleteSubtrees([retained.id], { actor: 'analyst', surface: 'runtime' }, () => true);
+    cards.reorderChildren('project', [second.id, first.id], { actor: 'analyst', surface: 'runtime', reason: 'test reorder' });
+    const rows = structuredClone(readCardArtifacts(root, 'project').artifacts);
+    const reorder = rows.at(-1)!;
+    if (reorder.kind !== 'card-version' || !reorder.history) throw new Error('Expected a reorder card version.');
+    expect(reorder.card.children).toEqual([second.id, first.id, retained.id]);
+    expect(reorder.history).toMatchObject({ kind: 'mutate', changed_fields: ['children'] });
+    expect(validateCardStream(rows, '/canonical/card.jsonl', 'project').current.card.children).toEqual([second.id, first.id, retained.id]);
+
+    const identity = structuredClone(rows);
+    const identityRow = identity.at(-1)!;
+    if (identityRow.kind !== 'card-version' || !identityRow.history) throw new Error('Expected a reorder card version.');
+    identityRow.card.children = [...identityRow.history.snapshot.children];
+    expect(() => validateCardStream(identity, '/canonical/card.jsonl', 'project')).toThrow(/invalid children transition/);
+
+    const changedMembership = structuredClone(rows);
+    const changedRow = changedMembership.at(-1)!;
+    if (changedRow.kind !== 'card-version') throw new Error('Expected a reorder card version.');
+    changedRow.card.children[0] = 'card-z';
+    expect(() => validateCardStream(changedMembership, '/canonical/card.jsonl', 'project')).toThrow(/invalid children transition/);
+
+    const duplicate = structuredClone(rows);
+    const duplicateRow = duplicate.at(-1)!;
+    if (duplicateRow.kind !== 'card-version') throw new Error('Expected a reorder card version.');
+    duplicateRow.card.children[1] = duplicateRow.card.children[0]!;
+    expect(() => validateCardStream(duplicate, '/canonical/card.jsonl', 'project')).toThrow();
+
+    for (const nextChildren of [
+      [...reorder.card.children, 'card-z'],
+      reorder.card.children.slice(1),
+      ['card-z', ...reorder.card.children.slice(1)],
+    ]) {
+      const invalid = structuredClone(rows);
+      const invalidRow = invalid.at(-1)!;
+      if (invalidRow.kind !== 'card-version') throw new Error('Expected a reorder card version.');
+      invalidRow.card.children = nextChildren;
+      expect(() => validateCardStream(invalid, '/canonical/card.jsonl', 'project')).toThrow(/invalid children transition/);
+    }
+
+    const wrongKind = structuredClone(rows);
+    const wrongKindRow = wrongKind.at(-1)!;
+    if (wrongKindRow.kind !== 'card-version' || !wrongKindRow.history) throw new Error('Expected a reorder card version.');
+    wrongKindRow.history.kind = 'update';
+    expect(() => validateCardStream(wrongKind, '/canonical/card.jsonl', 'project')).toThrow(/invalid children transition/);
+
+    const wrongFields = structuredClone(rows);
+    const wrongFieldsRow = wrongFields.at(-1)!;
+    if (wrongFieldsRow.kind !== 'card-version' || !wrongFieldsRow.history) throw new Error('Expected a reorder card version.');
+    wrongFieldsRow.history.changed_fields = ['children', 'title'];
+    expect(() => validateCardStream(wrongFields, '/canonical/card.jsonl', 'project')).toThrow(/invalid children transition/);
+
+    const piggyback = structuredClone(rows);
+    const piggybackRow = piggyback.at(-1)!;
+    if (piggybackRow.kind !== 'card-version') throw new Error('Expected a reorder card version.');
+    piggybackRow.card.title = 'piggybacked';
+    expect(() => validateCardStream(piggyback, '/canonical/card.jsonl', 'project')).toThrow(/children-reorder row mutates 'title'/);
   });
 
   it('requires an exact type-preserving tombstone and rejects every later row', () => {

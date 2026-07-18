@@ -61,7 +61,7 @@ export interface CardNotification {
 }
 
 export interface CardRecord {
-  id: string; type: CardType; parent: string | null; depth: number; position: number; title: string; status: CardStatus;
+  id: string; type: CardType; parent: string | null; depth: number; title: string; status: CardStatus;
   children: string[];
   subtype?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; related: string[];

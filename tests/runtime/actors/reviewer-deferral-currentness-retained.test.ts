@@ -93,4 +93,21 @@ describe('reviewer pending-notification deferral and semantic currentness', () =
     expect(internal.reviewerCurrentnessStaleReason(input, refreshed)).toContain('changed during review');
     expect(JSON.stringify(store.read('project'))).not.toMatch(/review.*retr|rework.*count/i);
   });
+
+  it('detects a descendant parent-owned child reorder in an ancestor review snapshot', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-review-order-fingerprint-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const store = new CardService(projectRoot);
+    const parent = store.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Plan', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const first = store.create({ type: 'code', parent: parent.id, title: 'First', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const second = store.create({ type: 'code', parent: parent.id, title: 'Second', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn: jest.fn() as never }, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
+    const internal = actor as unknown as { captureReviewerCurrentness(input: { card: ReturnType<CardService['read']> }): unknown; reviewerCurrentnessStaleReason(input: { card: ReturnType<CardService['read']> }, snapshot: unknown): string | null };
+    const input = { card: store.read('project') };
+    const snapshot = internal.captureReviewerCurrentness(input);
+
+    expect(store.reorderChildren(parent.id, [second.id, first.id], { actor: 'planner', surface: 'runtime', reason: 'review currentness test' })).toEqual({ ok: true, changed: 2 });
+    expect(internal.reviewerCurrentnessStaleReason(input, snapshot)).toContain('changed during review');
+  });
 });

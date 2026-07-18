@@ -36,7 +36,6 @@ export function cardView(id: string, overrides: CardOverrides = {}): CardRecord 
     type: id === 'project' ? 'project' : 'code',
     parent,
     depth,
-    position: 0,
     children: [],
     title: id === 'project' ? 'Project' : 'Card',
     status,

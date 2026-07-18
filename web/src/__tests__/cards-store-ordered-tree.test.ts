@@ -20,9 +20,9 @@ describe('useCardStore ordered tree', () => {
       'card-cccccccccccccccccccccccccccc',
     ];
     const root = cardView('project', { children: childIds });
-    const first = cardView(childIds[0], { title: 'First', position: 30 });
-    const second = cardView(childIds[1], { title: 'Second', position: 20 });
-    const third = cardView(childIds[2], { title: 'Third', position: 10 });
+    const first = cardView(childIds[0], { title: 'First' });
+    const second = cardView(childIds[1], { title: 'Second' });
+    const third = cardView(childIds[2], { title: 'Third' });
     store.cards = [second, root, third, first];
 
     expect(store.orderedCardTree.map((node) => node.card.id)).toEqual(['project']);

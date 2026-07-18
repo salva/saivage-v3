@@ -28,9 +28,9 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
         `Project card '${projectCard.id}' is invalid: expected canonical id '${PROJECT_CARD_ID}'.`,
       );
     }
-    if (projectCard.parent !== null || projectCard.depth !== 0 || projectCard.position !== 0) {
+    if (projectCard.parent !== null || projectCard.depth !== 0) {
       throw new CardServiceInvariantError(
-        `Project card '${projectCard.id}' must be the root card with parent null, depth 0, and position 0.`,
+        `Project card '${projectCard.id}' must be the root card with parent null and depth 0.`,
       );
     }
   }
@@ -68,23 +68,6 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
     return depth;
   };
   for (const card of cards) computeDepth(card.id);
-
-  const childrenByParent = new Map<string, CardRecord[]>();
-  for (const card of cards) {
-    if (card.parent === null) {
-      if (card.position !== 0) {
-        throw new CardServiceInvariantError(`Root card '${card.id}' has position ${card.position}, expected 0; recovery hint: 'saivage init'.`);
-      }
-      continue;
-    }
-    const children = childrenByParent.get(card.parent) ?? [];
-    children.push(card);
-    childrenByParent.set(card.parent, children);
-  }
-  for (const [parentId, children] of childrenByParent.entries()) {
-    const positions = children.map((child) => child.position);
-    if (new Set(positions).size !== positions.length) throw new CardServiceInvariantError(`Parent '${parentId}' has duplicate active child positions: [${positions.join(',')}].`);
-  }
 
   const visitedDependencies = new Set<string>();
   const dependencyStack = new Set<string>();

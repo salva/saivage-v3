@@ -17,6 +17,17 @@ export type CardVersionArtifact = z.infer<typeof cardVersionArtifactSchema>;
 export type CardTombstone = z.infer<typeof cardTombstoneSchema>;
 export type CardStreamRow = z.infer<typeof cardStreamRowSchema>;
 
+function sameValues(left: unknown, right: unknown): boolean { return JSON.stringify(left) === JSON.stringify(right); }
+
+function assertOnlyCardFieldsChanged(path: string, prior: CardRecord, next: CardRecord, allowed: ReadonlySet<string>, transition: string): void {
+  const keys = new Set([...Object.keys(prior), ...Object.keys(next)]);
+  for (const key of keys) {
+    if (!allowed.has(key) && !sameValues((next as unknown as Record<string, unknown>)[key], (prior as unknown as Record<string, unknown>)[key])) {
+      throw new Error(`Card stream '${path}' ${transition} row mutates '${key}'.`);
+    }
+  }
+}
+
 export function parseCardVersionArtifact(raw: unknown, path: string, expected?: { cardId: string; version: number }): CardVersionArtifact {
   const parsed = cardVersionArtifactSchema.safeParse(raw);
   if (!parsed.success) throw new Error(`Card version row at '${path}' is invalid: ${parsed.error.message}`);
@@ -47,17 +58,25 @@ export function validateCardStream(rows: readonly CardStreamRow[], path: string,
     if (!prior) {
       if (row.card.children.length !== 0) throw new Error(`Initial card row at '${path}' must have no children.`);
     } else {
-      if (JSON.stringify(row.history!.snapshot) !== JSON.stringify(prior)) throw new Error(`Card stream '${path}' history does not snapshot the prior card.`);
+      if (!sameValues(row.history!.snapshot, prior)) throw new Error(`Card stream '${path}' history does not snapshot the prior card.`);
       const priorChildren = prior.children;
       const nextChildren = row.card.children;
       const childLink = row.history!.kind === 'child_link';
       const validLink = childLink && nextChildren.length === priorChildren.length + 1 && priorChildren.every((id, i) => nextChildren[i] === id);
-      if (childLink ? !validLink : JSON.stringify(nextChildren) !== JSON.stringify(priorChildren)) throw new Error(`Card stream '${path}' has an invalid children transition.`);
+      const reorder = row.history!.kind === 'mutate' && sameValues(row.history!.changed_fields, ['children']);
+      const sameChildren = sameValues(nextChildren, priorChildren);
+      const validReorder = reorder
+        && !sameChildren
+        && nextChildren.length === priorChildren.length
+        && new Set(nextChildren).size === nextChildren.length
+        && priorChildren.every((id) => nextChildren.includes(id));
+      if (childLink ? !validLink : reorder ? !validReorder : !sameChildren) throw new Error(`Card stream '${path}' has an invalid children transition.`);
       for (const field of ['id', 'type', 'parent', 'depth', 'created_at', 'created_by'] as const) if (row.card[field] !== prior[field]) throw new Error(`Card stream '${path}' mutates immutable field '${field}'.`);
       if (row.card.status !== prior.status) validateTransition(prior.status, row.card.status);
       if (childLink) {
-        const mutable = new Set(['children', 'version_seq', 'updated_at']);
-        for (const key of Object.keys(prior) as Array<keyof CardRecord>) if (!mutable.has(key) && JSON.stringify(row.card[key]) !== JSON.stringify(prior[key])) throw new Error(`Card stream '${path}' child-link row mutates '${String(key)}'.`);
+        assertOnlyCardFieldsChanged(path, prior, row.card, new Set(['children', 'version_seq', 'updated_at']), 'child-link');
+      } else if (reorder) {
+        assertOnlyCardFieldsChanged(path, prior, row.card, new Set(['children', 'version_seq', 'updated_at']), 'children-reorder');
       }
     }
     artifacts.push(row);

@@ -12,6 +12,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { publishInitialCard } from '../../src/persistence/card-files.js';
 import { replacementTempPath } from '../../src/persistence/replace-file.js';
+import { computeCardLogicalPath } from '../../src/application/read-models/card-view.js';
 
 const FIRST_SEGMENT = 'a';
 const SECOND_SEGMENT = 'b';
@@ -184,7 +185,7 @@ describe('CardService final reset-only contracts', () => {
     expect(() => readFileSync(cardStreamFile(root, FIRST))).toThrow();
   });
 
-  it('keeps allocation independent from sibling position', () => {
+  it('keeps directory allocation independent from parent-owned sibling order', () => {
     const cards = new CardService(root);
     const parent = cards.create({ ...input(), type: 'goal' });
     const first = cards.create(input(parent.id));
@@ -230,7 +231,6 @@ describe('CardService final reset-only contracts', () => {
       type: 'code' as const,
       parent: 'project',
       depth: 1,
-      position: 0,
       children: [],
       title: 'Publication failure',
       created_by: 'analyst' as const,
@@ -350,6 +350,79 @@ describe('CardService final reset-only contracts', () => {
     expect(cards.listCardHistory(FIRST)).toEqual([]);
   });
 
+  it('rejects forged children patches before no-op pruning on every generic patch path', () => {
+    const { cards, publications, historyEvents } = observableCardService(root);
+    cards.create(input());
+    const beforeEvents = historyEvents.length;
+    publications.length = 0;
+
+    expect(() => cards.update(FIRST, { children: [] } as unknown as CardPatch)).toThrow("Field 'children' cannot be changed");
+    expect(() => cards.mutateCard(FIRST, { children: [SECOND] } as unknown as CardPatch, { actor: 'analyst', surface: 'web-chat' })).toThrow("Field 'children' cannot be changed");
+    expect(publications).toEqual([]);
+    expect(historyEvents).toHaveLength(beforeEvents);
+    expect(cards.read(FIRST)).toMatchObject({ children: [], version_seq: 1 });
+  });
+
+  it('reorders with one parent append, leaves child streams unchanged, and survives a fresh ordered read', () => {
+    const { cards, publications, historyEvents } = observableCardService(root);
+    const parent = cards.create({ ...input(), type: 'goal' });
+    const first = cards.create(input(parent.id));
+    const second = cards.create(input(parent.id));
+    const parentPath = cardStreamFile(root, parent.id);
+    const firstBefore = readFileSync(cardStreamFile(root, first.id), 'utf8');
+    const secondBefore = readFileSync(cardStreamFile(root, second.id), 'utf8');
+    const parentRowsBefore = readFileSync(parentPath, 'utf8').trim().split('\n').length;
+    publications.length = 0;
+    historyEvents.length = 0;
+
+    expect(cards.reorderChildren(parent.id, [second.id, first.id], { actor: 'analyst', surface: 'runtime', reason: 'test reorder' })).toEqual({ ok: true, changed: 2 });
+
+    expect(historyEvents).toEqual([parent.id]);
+    expect(publications.map(({ kind }) => kind)).toEqual(['card']);
+    expect(readFileSync(parentPath, 'utf8').trim().split('\n')).toHaveLength(parentRowsBefore + 1);
+    expect(readFileSync(cardStreamFile(root, first.id), 'utf8')).toBe(firstBefore);
+    expect(readFileSync(cardStreamFile(root, second.id), 'utf8')).toBe(secondBefore);
+    const restarted = new CardService(root);
+    expect(restarted.listChildren(parent.id)).toEqual([second.id, first.id]);
+    expect(restarted.listCardHistory(parent.id).at(-1)).toMatchObject({ kind: 'mutate', changed_fields: ['children'], change_summary: 'children reordered' });
+    expect(computeCardLogicalPath(restarted, restarted.read(second.id)!)).toBe('1.1');
+    expect(computeCardLogicalPath(restarted, restarted.read(first.id)!)).toBe('1.2');
+  });
+
+  it('keeps reorder no-op and mismatch paths silent', () => {
+    const { cards, publications, historyEvents } = observableCardService(root);
+    const first = cards.create(input());
+    const second = cards.create(input());
+    const beforeEvents = historyEvents.length;
+    const rootRows = readFileSync(cardStreamFile(root, 'project'), 'utf8');
+    publications.length = 0;
+
+    expect(cards.reorderChildren('project', [first.id, second.id], { actor: 'analyst', surface: 'runtime' })).toEqual({ ok: true, changed: 0 });
+    expect(cards.reorderChildren('project', [first.id, first.id], { actor: 'analyst', surface: 'runtime' })).toEqual({ ok: false, reason: 'ordered child ids do not match current children', missing: [second.id], extra: [] });
+    expect(cards.reorderChildren('project', [first.id, THIRD], { actor: 'analyst', surface: 'runtime' })).toEqual({ ok: false, reason: 'ordered child ids do not match current children', missing: [second.id], extra: [THIRD] });
+    expect(readFileSync(cardStreamFile(root, 'project'), 'utf8')).toBe(rootRows);
+    expect(publications).toEqual([]);
+    expect(historyEvents).toHaveLength(beforeEvents);
+  });
+
+  it('moves active children first while retaining tombstoned links stably, but does not rewrite retained links for an active no-op', () => {
+    const cards = new CardService(root);
+    const first = cards.create(input());
+    const retainedOne = cards.create(input());
+    const second = cards.create(input());
+    const retainedTwo = cards.create(input());
+    cards.deleteSubtrees([retainedOne.id, retainedTwo.id], { actor: 'analyst', surface: 'runtime' }, () => true);
+    const noOpRows = readFileSync(cardStreamFile(root, 'project'), 'utf8');
+
+    expect(cards.reorderChildren('project', [first.id, second.id], { actor: 'analyst', surface: 'runtime' })).toEqual({ ok: true, changed: 0 });
+    expect(readFileSync(cardStreamFile(root, 'project'), 'utf8')).toBe(noOpRows);
+    expect(cards.read('project')?.children).toEqual([first.id, retainedOne.id, second.id, retainedTwo.id]);
+
+    expect(cards.reorderChildren('project', [second.id, first.id], { actor: 'analyst', surface: 'runtime' })).toEqual({ ok: true, changed: 2 });
+    expect(cards.read('project')?.children).toEqual([second.id, first.id, retainedOne.id, retainedTwo.id]);
+    expect(cards.listChildren('project')).toEqual([second.id, first.id]);
+  });
+
   it('keeps no-op patches silent and real non-index updates card-only', () => {
     const { cards, publications } = observableCardService(root);
     cards.create(input());
@@ -409,6 +482,37 @@ describe('CardService final reset-only contracts', () => {
     expect(() => cards.create(input())).toThrow('parent link fsync');
     expect(publications).toEqual([]);
     expect(events).not.toHaveBeenCalled();
+    expect(operations).toEqual(['open', 'write', 'fsync', 'close']);
+    expect(afterFailure).toEqual(['close']);
+  });
+
+  it('emits no effects or post-error persistence work when a reorder append reports failure', () => {
+    const setup = new CardService(root);
+    const first = setup.create(input());
+    const second = setup.create(input());
+    const eventBus = new EventBus();
+    const events = jest.fn();
+    eventBus.subscribe('card_history_appended', (event) => { events(event); });
+    const changes = new ReadModelChangeBroadcaster();
+    const publications: string[] = [];
+    changes.subscribe({ cardStateChanged: () => publications.push('card'), runtimeChanged: () => publications.push('runtime'), agentsChanged() {}, conversationChanged() {} });
+    const operations: string[] = [];
+    const afterFailure: string[] = [];
+    let failed = false;
+    const record = (operation: string) => { operations.push(operation); if (failed) afterFailure.push(operation); };
+    const io: GrowingFileIo = {
+      read: readFileSync,
+      open(path, flags) { record('open'); return openSync(path, flags); },
+      write: ((...args: unknown[]) => { record('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
+      fsync(fd) { record('fsync'); fsyncSync(fd); failed = true; throw new Error('reorder fsync'); },
+      truncate: ftruncateSync,
+      close(fd) { record('close'); closeSync(fd); },
+    };
+    const cards = new CardService(root, eventBus, changes, io);
+
+    expect(() => cards.reorderChildren('project', [second.id, first.id], { actor: 'analyst', surface: 'runtime' })).toThrow('reorder fsync');
+    expect(events).not.toHaveBeenCalled();
+    expect(publications).toEqual([]);
     expect(operations).toEqual(['open', 'write', 'fsync', 'close']);
     expect(afterFailure).toEqual(['close']);
   });

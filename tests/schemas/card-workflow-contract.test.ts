@@ -1,8 +1,8 @@
-import { cardRecordSchema } from '../../src/schemas/index.js';
+import { cardRecordSchema, persistedCardRecordSchema } from '../../src/schemas/index.js';
 import { enqueueCardNotification, removeCardNotifications } from '../../src/cards/lifecycle.js';
 
 const base = {
-  id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', type: 'code', parent: 'project', depth: 1, position: 0, children: [],
+  id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', type: 'code', parent: 'project', depth: 1, children: [],
   title: 'work', status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null },
   tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-15T00:00:00.000Z',
   updated_at: '2026-07-15T00:00:00.000Z', version_seq: 1, depends_on: [], related: [],
@@ -11,7 +11,10 @@ const base = {
 
 describe('card workflow contract', () => {
   test('requires strict pending notifications and hierarchical identity', () => {
-    expect(cardRecordSchema.parse(base).pending_notifications).toHaveLength(1);
+    const parsed = cardRecordSchema.parse(base);
+    expect(parsed.pending_notifications).toHaveLength(1);
+    expect(parsed).not.toHaveProperty('position');
+    expect(persistedCardRecordSchema.safeParse({ ...base, position: 0 }).success).toBe(false);
     expect(cardRecordSchema.safeParse({ ...base, id: 'card-1' }).success).toBe(false);
     const { pending_notifications: _pending, ...missing } = base;
     expect(cardRecordSchema.safeParse(missing).success).toBe(false);

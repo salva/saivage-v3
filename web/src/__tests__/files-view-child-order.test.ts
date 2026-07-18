@@ -17,12 +17,12 @@ describe('FilesView committed child order', () => {
     const orderedIds = [childId('e'), childId('b'), childId('d'), childId('a'), childId('c')];
     const parent = cardView(PARENT_ID, { type: 'goal', children: orderedIds, title: 'Parent A', status: 'running' });
     cardsStore.cards = [
-      cardView(orderedIds[3], { position: 1, title: 'A' }),
-      cardView(orderedIds[2], { position: 4, title: 'D' }),
+      cardView(orderedIds[3], { title: 'A' }),
+      cardView(orderedIds[2], { title: 'D' }),
       parent,
-      cardView(orderedIds[4], { position: 2, title: 'C' }),
-      cardView(orderedIds[0], { position: 3, title: 'E' }),
-      cardView(orderedIds[1], { position: 1, title: 'B' }),
+      cardView(orderedIds[4], { title: 'C' }),
+      cardView(orderedIds[0], { title: 'E' }),
+      cardView(orderedIds[1], { title: 'B' }),
     ];
     cardsStore.currentCard = parent;
     const wrapper = mount(FilesView, { global: { stubs: { CodeBlock: true, MarkdownText: true } } });

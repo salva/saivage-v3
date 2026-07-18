@@ -33,3 +33,39 @@ describe('analyst card mutation service deletion', () => {
     expect(deleteSubtrees).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('analyst child reorder propagation', () => {
+  function reorderHarness(result: ReturnType<CardService['reorderChildren']>) {
+    const parent = { id: 'project', type: 'project', parent: null, status: 'backlog' } as CardRecord;
+    const reorderChildren = jest.fn(() => result);
+    const getAncestors = jest.fn(() => [] as string[]);
+    const setStatus = jest.fn();
+    const store = { read: jest.fn(() => parent), reorderChildren, getAncestors, setStatus } as unknown as CardService;
+    const notifyCard = jest.fn(() => ({ ok: true as const, notificationId: 'notification' }));
+    const service = new DefaultAnalystCardMutationService(store, 'web-chat', notifyCard);
+    return { service, reorderChildren, getAncestors, setStatus, notifyCard };
+  }
+
+  it('returns a zero-change success without status propagation or notification', () => {
+    const test = reorderHarness({ ok: true, changed: 0 });
+    expect(test.service.reorder('project', [])).toEqual({ success: true, data: { parent_id: 'project', changed: 0 } });
+    expect(test.getAncestors).not.toHaveBeenCalled();
+    expect(test.setStatus).not.toHaveBeenCalled();
+    expect(test.notifyCard).not.toHaveBeenCalled();
+  });
+
+  it('propagates exactly once for a real reorder', () => {
+    const test = reorderHarness({ ok: true, changed: 2 });
+    expect(test.service.reorder('project', [])).toEqual({ success: true, data: { parent_id: 'project', changed: 2 } });
+    expect(test.getAncestors).toHaveBeenCalledTimes(1);
+    expect(test.notifyCard).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not propagate a reorder mismatch', () => {
+    const test = reorderHarness({ ok: false, reason: 'ordered child ids do not match current children', missing: [FIRST], extra: [] });
+    expect(test.service.reorder('project', [])).toMatchObject({ success: false, error: 'reorder_set_mismatch' });
+    expect(test.getAncestors).not.toHaveBeenCalled();
+    expect(test.setStatus).not.toHaveBeenCalled();
+    expect(test.notifyCard).not.toHaveBeenCalled();
+  });
+});
