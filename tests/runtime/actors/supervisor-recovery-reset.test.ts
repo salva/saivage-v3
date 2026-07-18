@@ -115,4 +115,53 @@ describe('Supervisor full-chain stopped recovery', () => {
     await expect(supervisor(root, cards).beginStartProject()).resolves.toMatchObject({ accepted: true });
     expect(cards.read('project')?.status).toBe('running'); expect(cards.read(child.id)?.status).toBe('stopped');
   });
+
+  it.each([0, 1, 2])('stops after stopped-status append failure at leaf-to-root position %i with no later effect, then a fresh process uses the committed prefix', async (failureIndex) => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-reset-status-prefix-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'goal', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'leaf', brief: 'leaf', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    cards.setStatus('project', 'running'); cards.setStatus(goal.id, 'running'); cards.setStatus(leaf.id, 'running');
+    const order = [leaf.id, goal.id, 'project'];
+    const originalStop = cards.stopRunningForRecovery.bind(cards);
+    const stop = jest.spyOn(cards, 'stopRunningForRecovery').mockImplementation((id) => {
+      if (id === order[failureIndex]) throw new Error(`status append ${failureIndex} failed`);
+      return originalStop(id);
+    });
+    const activate = jest.spyOn(cards, 'activateStopped');
+    await expect(supervisor(root, cards).beginStartProject()).rejects.toThrow(`status append ${failureIndex} failed`);
+    expect(stop.mock.calls.map(([id]) => id)).toEqual(order.slice(0, failureIndex + 1));
+    expect(activate).not.toHaveBeenCalled();
+    order.forEach((id, index) => expect(cards.read(id)?.status).toBe(index < failureIndex ? 'stopped' : 'running'));
+
+    jest.restoreAllMocks();
+    const freshCards = new CardService(root);
+    await expect(supervisor(root, freshCards).beginStartProject()).resolves.toMatchObject({ accepted: true });
+    expect(freshCards.read('project')?.status).toBe('running');
+    expect(freshCards.read(goal.id)?.status).toBe('stopped');
+    expect(freshCards.read(leaf.id)?.status).toBe('stopped');
+  });
+
+  it.each([
+    { point: 'failed-result', toolPending: true },
+    { point: 'notice', toolPending: false },
+  ] as const)('performs no status or later recovery append after $point publication fails', async ({ point, toolPending }) => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-reset-conversation-failure-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    cards.setStatus('project', 'running');
+    pendingSession(root, 'planner:project', 'planner', 'project', '8', toolPending);
+    const publicationFailure = new Error(`${point} append publication failed`);
+    let conversationWrites = 0;
+    const changes = { conversationChanged: () => { conversationWrites += 1; throw publicationFailure; }, cardProjectionChanged() {}, agentsChanged() {}, runtimeChanged() {}, subscribe: () => ({ unsubscribe() {} }) } as unknown as ReadModelChangeBroadcaster;
+    const stop = jest.spyOn(cards, 'stopRunningForRecovery');
+    const activate = jest.spyOn(cards, 'activateStopped');
+    await expect(supervisor(root, cards, { changes }).beginStartProject()).rejects.toThrow(publicationFailure);
+    expect(conversationWrites).toBe(1);
+    expect(stop).not.toHaveBeenCalled();
+    expect(activate).not.toHaveBeenCalled();
+    expect(cards.read('project')?.status).toBe('running');
+    const rows = readConversation(root, 'planner:project').sourceRows;
+    expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(toolPending ? 1 : 0);
+    expect(rows.filter((row) => row.kind === 'model_recovered')).toHaveLength(toolPending ? 0 : 1);
+  });
 });

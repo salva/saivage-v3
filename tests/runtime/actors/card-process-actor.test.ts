@@ -21,7 +21,7 @@ describe('CardProcessActor configured graph execution', () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess } = {}) {
+  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess; conversationPublisher?: { entryAppended(entry: import('../../../src/schemas/index.js').AgentMessage): void }; removeNotifications?: (store: CardService, cardId: string, ids: readonly string[]) => void; onClaim?: () => void } = {}) {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-card-process-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
@@ -35,11 +35,11 @@ describe('CardProcessActor configured graph execution', () => {
       store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined },
       cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn }, conversations: { projectRoot }, appLogs: { projectRoot },
       processRunner, promptTemplates: { render: (_type, _role, values) => String(values.contractDescription) },
-      runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction,
+      runtimeProjectionChanged: () => undefined, conversationPublisher: options.conversationPublisher, ...testAutonomousCompaction,
     });
     actor.start();
-    const claimResult = jest.fn();
-    const input = () => ({ activationId: 'activation-test', card: store.read(cardId)!, caller: { kind: 'root' as const }, entry: 'BACKLOG' as const, claimResult, alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(), notificationDelivery: { selectNotifications: () => store.read(cardId)!.pending_notifications, removeNotifications: (ids: readonly string[]) => { store.removeNotifications(cardId, [...ids]); } } });
+    const claimResult = jest.fn(() => options.onClaim?.());
+    const input = () => ({ activationId: 'activation-test', card: store.read(cardId)!, caller: { kind: 'root' as const }, entry: 'BACKLOG' as const, claimResult, alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(), notificationDelivery: { selectNotifications: () => store.read(cardId)!.pending_notifications, removeNotifications: (ids: readonly string[]) => { options.removeNotifications ? options.removeNotifications(store, cardId, ids) : store.removeNotifications(cardId, [...ids]); } } });
     return { projectRoot, cardId, store, processRunner, actor, claimResult, input };
   }
 
@@ -89,6 +89,42 @@ describe('CardProcessActor configured graph execution', () => {
     expect(rows.some((row) => row.kind === 'tool_result' && row.content.includes('updated after this node began'))).toBe(true);
   });
 
+  it.each(['plain text', 'malformed arguments', 'missing record', 'empty record'] as const)('keeps %s correction inside one logical node', async (failure) => {
+    let calls = 0;
+    const h = harness(async () => {
+      calls += 1;
+      if (calls === 1) {
+        if (failure === 'plain text') return { result: { kind: 'message', content: 'premature answer' }, provider_exchanges: [] };
+        if (failure === 'malformed arguments') return { result: { kind: 'tool_calls', tool_calls: [{ id: 'malformed', type: 'function', function: { name: 'emit_result', arguments: '{not-json' } }] }, provider_exchanges: [] };
+        if (failure === 'empty record') { const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, '   '); }
+        return tool('invalid-record', 'complete_direct');
+      }
+      let open;
+      try { open = h.store.readRecord('project', 'status.md', 'open'); }
+      catch { open = h.store.openRecord('project', 'status.md'); }
+      h.store.editRecord('project', 'status.md', open.version, 'corrected evidence');
+      return tool('valid', 'complete_direct');
+    });
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
+    expect(calls).toBe(2);
+    const rows = readConversation(h.projectRoot, 'planner:project').sourceRows;
+    expect(rows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open'))).toHaveLength(1);
+    expect(rows.some((row) => row.kind === (failure === 'plain text' ? 'model_repair' : 'tool_result'))).toBe(true);
+  });
+
+  it('accepts non-empty closed existence-only evidence without opening or closing another version', async () => {
+    const source = cardProcessesSchema.parse({
+      planning: { ...DEFAULT_CARD_PROCESSES.planning, nodes: { ...DEFAULT_CARD_PROCESSES.planning.nodes, plan: { ...DEFAULT_CARD_PROCESSES.planning.nodes.plan, records: [{ name: 'status.md', updated: false }] } } },
+      terminal: DEFAULT_CARD_PROCESSES.terminal,
+    });
+    const h = harness(async () => tool('closed-evidence', 'complete_direct'), { process: compileCardProcesses(source).planning });
+    const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'existing evidence'); h.store.closeRecord('project', 'status.md', open.version, 'planner', h.store.read('project')!.version_seq);
+    const close = jest.spyOn(h.store, 'closeRecord');
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
+    expect(close).not.toHaveBeenCalled();
+    expect(h.store.readRecord('project', 'status.md', 'latest').version).toBe(open.version);
+  });
+
   it('delivers late pending notifications with correction before exact removal and retries the same node', async () => {
     let calls = 0;
     const h = harness(async (_input: LlmInvocationInput) => {
@@ -117,18 +153,22 @@ describe('CardProcessActor configured graph execution', () => {
       if (input.role === 'planner') { const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'ready'); return tool('to-review', 'admit_review'); }
       reviewerCalls += 1;
       const open = h.store.openRecord('project', 'review.md'); h.store.editRecord('project', 'review.md', open.version, `review ${reviewerCalls}`);
-      if (reviewerCalls === 1) h.store.mutateCard('project', { title: 'Changed during review' }, { actor: 'planner', surface: 'runtime', reason: 'test semantic change' });
+      if (reviewerCalls <= 2) h.store.mutateCard('project', { title: `Changed during review ${reviewerCalls}` }, { actor: 'planner', surface: 'runtime', reason: 'test semantic change' });
       return tool(`review-${reviewerCalls}`, 'approved');
     });
-    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
-    expect(reviewerCalls).toBe(2);
+    const outcome = await h.actor.activate(h.input(), new AbortController().signal);
+    expect(outcome).toMatchObject({ status: 'done' });
+    expect(reviewerCalls).toBe(3);
     const rows = readConversation(h.projectRoot, 'reviewer:project').sourceRows;
     expect(rows.some((row) => row.kind === 'tool_result' && row.content.includes('Review context is stale'))).toBe(true);
-    expect(rows.filter((row) => row.role === 'user' && row.content.startsWith('Descendant work:'))).toHaveLength(2);
+    expect(rows.filter((row) => row.kind === 'tool_result' && row.content.includes('Review context is stale'))).toHaveLength(2);
+    expect(rows.filter((row) => row.role === 'user' && row.content.startsWith('Descendant work:'))).toHaveLength(3);
   });
 
   it.each([
-    ['array', []], ['null', null], ['unknown field', { outcome: 'complete_direct', summary: 'ready', extra: true }],
+    ['array', []], ['null', null], ['string', 'invalid'], ['number', 1], ['boolean', true],
+    ['missing outcome', { summary: 'ready' }], ['missing summary', { outcome: 'complete_direct' }],
+    ['unknown field', { outcome: 'complete_direct', summary: 'ready', extra: true }],
     ['non-string outcome', { outcome: 1, summary: 'ready' }], ['unknown outcome', { outcome: 'unknown', summary: 'ready' }],
     ['empty summary', { outcome: 'complete_direct', summary: '  ' }], ['overlong summary', { outcome: 'complete_direct', summary: 'x'.repeat(2001) }],
     ['non-string summary', { outcome: 'complete_direct', summary: 1 }],
@@ -194,6 +234,121 @@ describe('CardProcessActor configured graph execution', () => {
     expect(h.claimResult).toHaveBeenCalledTimes(1);
   });
 
+  it('closes multiple records in configured order and supplies their exact URLs to a same-role next node', async () => {
+    const source = cardProcessesSchema.parse({
+      planning: { entries: { BACKLOG: { node: 'prepare' }, CHANGED: { node: 'prepare' }, BLOCKED: { node: 'prepare' }, STOPPED: { node: 'prepare', prompt: 'stopped-recovery' } }, nodes: {
+        prepare: { role: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: [{ name: 'brief.md', updated: false }, { name: 'status.md', updated: false }], edges: { prepared: { target: { node: 'finish' }, prompt: 'review-to-plan' } } },
+        finish: { role: 'planner', prompt: 'recover', correction_prompt: 'correct-plan-result', records: [{ name: 'status.md', updated: true }], edges: { complete: { target: { terminal: 'DONE' } } } },
+      } }, terminal: DEFAULT_CARD_PROCESSES.terminal,
+    });
+    let calls = 0;
+    const h = harness(async (input) => {
+      calls += 1;
+      expect(h.actor.executingLlmSnapshot()?.role).toBe('planner');
+      if (calls === 1) return tool('prepared', 'prepared', 'prepared records');
+      const transition = input.providerConversation.messages.find((row) => row.role === 'user' && row.content.includes('Previous process node: prepare'))?.content;
+      expect(transition).toContain('record:///brief.md?card=project&v=2\n- record:///status.md?card=project&v=1');
+      const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'final status');
+      return tool('complete', 'complete');
+    }, { process: compileCardProcesses(source).planning });
+    const brief = h.store.openRecord('project', 'brief.md'); h.store.editRecord('project', 'brief.md', brief.version, 'updated brief');
+    const status = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', status.version, 'prepared status');
+    const closeOrder: string[] = [];
+    const close = h.store.closeRecord.bind(h.store);
+    jest.spyOn(h.store, 'closeRecord').mockImplementation((cardId, filename, ...args) => { closeOrder.push(filename); return close(cardId, filename, ...args); });
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
+    expect(calls).toBe(2);
+    expect(closeOrder).toEqual(['brief.md', 'status.md', 'status.md']);
+    expect(readConversation(h.projectRoot, 'planner:project').sourceRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open'))).toHaveLength(2);
+    expect(h.claimResult).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['planner', 'reviewer', 'executor'] as const)('preserves every selected notification ID when any %s candidate-delivery append fails', async (role) => {
+    for (const failurePoint of ['failed-result', 'notification', 'correction'] as const) {
+      let roleCalls = 0;
+      const injected = new Error(`${role} ${failurePoint} append failed`);
+      const publisher = { entryAppended: jest.fn((entry: import('../../../src/schemas/index.js').AgentMessage) => {
+        const isFailure = failurePoint === 'failed-result'
+          ? entry.kind === 'tool_result' && entry.content.includes('pending_notifications')
+          : failurePoint === 'notification'
+            ? entry.role === 'user' && entry.content === `${role} selected notification`
+            : entry.role === 'user' && entry.content.includes('reconsider the appended context');
+        if (isFailure) throw injected;
+      }) };
+      const h = harness(async (input) => {
+        if (input.role === 'planner' && role !== 'planner') {
+          const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
+          return tool('to-review', 'admit_review');
+        }
+        roleCalls += 1;
+        const filename = role === 'reviewer' ? 'review.md' : 'status.md';
+        const open = h.store.openRecord(h.cardId, filename); h.store.editRecord(h.cardId, filename, open.version, 'ready');
+        h.store.enqueueNotification(h.cardId, { id: `${role}-${failurePoint}`, content: `${role} selected notification`, created_at: '2026-07-18T00:00:00.000Z' });
+        return tool(`${role}-${failurePoint}`, role === 'reviewer' ? 'approved' : role === 'executor' ? 'done' : 'complete_direct');
+      }, { cardType: role === 'executor' ? 'code' : undefined, conversationPublisher: publisher });
+      await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'failed', summary: injected.message });
+      expect(roleCalls).toBe(1);
+      expect(h.store.read(h.cardId)!.pending_notifications.map(({ id }) => id)).toEqual([`${role}-${failurePoint}`]);
+      expect(h.claimResult).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(['planner', 'reviewer', 'executor'] as const)('retains duplicate-visible context when %s crashes after candidate appends before removal', async (role) => {
+    let roleCalls = 0;
+    const crash = new Error('crash before notification removal');
+    const h = harness(async (input) => {
+      if (input.role === 'planner' && role !== 'planner') {
+        const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
+        return tool('to-review', 'admit_review');
+      }
+      roleCalls += 1;
+      const filename = role === 'reviewer' ? 'review.md' : 'status.md';
+      const open = h.store.openRecord(h.cardId, filename); h.store.editRecord(h.cardId, filename, open.version, 'ready');
+      h.store.enqueueNotification(h.cardId, { id: `${role}-retained`, content: `${role} duplicate-visible`, created_at: '2026-07-18T00:00:00.000Z' });
+      return tool(`${role}-candidate`, role === 'reviewer' ? 'approved' : role === 'executor' ? 'done' : 'complete_direct');
+    }, { cardType: role === 'executor' ? 'code' : undefined, removeNotifications: () => { throw crash; } });
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'failed', summary: crash.message });
+    const rows = readConversation(h.projectRoot, `${role}:${h.cardId}`).sourceRows;
+    expect(rows.some((row) => row.kind === 'tool_result' && row.content.includes('pending_notifications'))).toBe(true);
+    expect(rows.some((row) => row.role === 'user' && row.content === `${role} duplicate-visible`)).toBe(true);
+    expect(rows.some((row) => row.role === 'user' && row.content.includes('reconsider the appended context'))).toBe(true);
+    expect(h.store.read(h.cardId)!.pending_notifications.map(({ id }) => id)).toEqual([`${role}-retained`]);
+    expect(roleCalls).toBe(1);
+  });
+
+  it.each(['planner', 'reviewer', 'executor'] as const)('removes only the selected %s IDs and corrects again for a late arrival', async (role) => {
+    let roleCalls = 0;
+    let insertedLate = false;
+    const h = harness(async (input) => {
+      if (input.role === 'planner' && role !== 'planner') {
+        const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
+        return tool('to-review', 'admit_review');
+      }
+      roleCalls += 1;
+      if (roleCalls === 1) {
+        const filename = role === 'reviewer' ? 'review.md' : 'status.md';
+        const open = h.store.openRecord(h.cardId, filename); h.store.editRecord(h.cardId, filename, open.version, 'ready');
+        h.store.enqueueNotification(h.cardId, { id: `${role}-selected`, content: 'selected first', created_at: '2026-07-18T00:00:00.000Z' });
+      }
+      return tool(`${role}-${roleCalls}`, role === 'reviewer' ? 'approved' : role === 'executor' ? 'done' : 'complete_direct');
+    }, {
+      cardType: role === 'executor' ? 'code' : undefined,
+      removeNotifications: (store, cardId, ids) => {
+        if (!insertedLate) {
+          insertedLate = true;
+          store.enqueueNotification(cardId, { id: `${role}-late`, content: 'arrived after selection', created_at: '2026-07-18T00:00:01.000Z' });
+        }
+        store.removeNotifications(cardId, [...ids]);
+      },
+    });
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
+    expect(roleCalls).toBe(3);
+    expect(h.store.read(h.cardId)!.pending_notifications).toEqual([]);
+    const rows = readConversation(h.projectRoot, `${role}:${h.cardId}`).sourceRows;
+    expect(rows.filter((row) => row.kind === 'tool_result' && row.content.includes('pending_notifications'))).toHaveLength(2);
+    expect(rows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open'))).toHaveLength(1);
+  });
+
   it('claims a terminal result before record-close failure selects the existing failed outcome', async () => {
     const h = harness(async () => {
       const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'ready');
@@ -203,5 +358,82 @@ describe('CardProcessActor configured graph execution', () => {
     await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'failed', summary: 'close failed after claim' });
     expect(h.claimResult).toHaveBeenCalledTimes(1);
     expect(h.store.readRecord('project', 'status.md', 'open').artifact.content).toBe('ready');
+  });
+
+  it.each([
+    { emitted: 'done', status: 'done' }, { emitted: 'blocked', status: 'blocked' }, { emitted: 'failed', status: 'failed' },
+  ] as const)('maps terminal executor outcome $emitted to the existing $status processor outcome', async ({ emitted, status }) => {
+    const h = harness(async () => { const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, emitted); return tool(`terminal-${emitted}`, emitted); }, { cardType: 'code' });
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status, summary: emitted });
+    expect(h.claimResult).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['accepted settlement', 'cleanup'] as const)('keeps the terminal claim authoritative when %s fails', async (point) => {
+    const injected = new Error(`${point} failed after claim`);
+    const publisher = point === 'accepted settlement' ? { entryAppended(entry: import('../../../src/schemas/index.js').AgentMessage) { if (entry.kind === 'tool_result' && entry.content.includes('"accepted":true')) throw injected; } } : undefined;
+    const h = harness(async () => {
+      const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
+      return tool('accepted', 'done');
+    }, { cardType: 'code', conversationPublisher: publisher });
+    if (point === 'cleanup') jest.spyOn(h.processRunner, 'terminateScopeTree').mockRejectedValue(injected);
+    const outcome = await h.actor.activate(h.input(), new AbortController().signal);
+    expect(outcome).toMatchObject({ status: 'failed', summary: expect.stringContaining(injected.message) });
+    expect(h.claimResult).toHaveBeenCalledTimes(1);
+    expect(h.store.readRecord(h.cardId, 'status.md', 'latest').artifact.content).toBe('ready');
+    const accepted = readConversation(h.projectRoot, `executor:${h.cardId}`).sourceRows.filter((row) => row.kind === 'tool_result' && row.content.includes('"accepted":true'));
+    expect(accepted).toHaveLength(1);
+  });
+
+  it('reuses one executor node scope through correction and cleans it before routing onward', async () => {
+    const source = cardProcessesSchema.parse({
+      planning: DEFAULT_CARD_PROCESSES.planning,
+      terminal: { entries: { BACKLOG: { node: 'implement' }, CHANGED: { node: 'implement' }, BLOCKED: { node: 'implement' }, STOPPED: { node: 'implement', prompt: 'stopped-recovery' } }, nodes: {
+        implement: { role: 'executor', prompt: 'implement', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { implementation_ready: { target: { node: 'verify' }, prompt: 'implementation-to-verification' }, failed: { target: { terminal: 'FAILED' } } } },
+        verify: { role: 'executor', prompt: 'verify', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { verified: { target: { terminal: 'DONE' } }, failed: { target: { terminal: 'FAILED' } } } },
+      } },
+    });
+    let calls = 0;
+    const events: string[] = [];
+    const h = harness(async () => {
+      calls += 1;
+      if (calls === 1) return { result: { kind: 'message', content: 'not a typed result' }, provider_exchanges: [] };
+      if (calls === 2) { const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'implementation'); return tool('implemented', 'implementation_ready'); }
+      expect(events).toContain('cleanup:0');
+      const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'verification'); return tool('verified', 'verified');
+    }, { cardType: 'code', process: compileCardProcesses(source).terminal });
+    const createScope = jest.spyOn(h.processRunner, 'createDirectScope');
+    const terminate = h.processRunner.terminateScopeTree.bind(h.processRunner);
+    jest.spyOn(h.processRunner, 'terminateScopeTree').mockImplementation(async (args) => { events.push(`cleanup:${events.length}`); return terminate(args); });
+    const outcome = await h.actor.activate(h.input(), new AbortController().signal);
+    expect(outcome).toMatchObject({ status: 'done' });
+    expect(calls).toBe(3);
+    expect(createScope.mock.calls.map(([, ownerId]) => ownerId)).toEqual(['card-activation:activation-test:node:0', 'card-activation:activation-test:node:1']);
+    expect(events).toEqual(['cleanup:0', 'cleanup:1']);
+  });
+
+  it('orders intermediate and terminal acceptance effects and publishes the processor outcome only after cleanup', async () => {
+    const source = cardProcessesSchema.parse({
+      planning: DEFAULT_CARD_PROCESSES.planning,
+      terminal: { entries: { BACKLOG: { node: 'first' }, CHANGED: { node: 'first' }, BLOCKED: { node: 'first' }, STOPPED: { node: 'first', prompt: 'stopped-recovery' } }, nodes: {
+        first: { role: 'executor', prompt: 'implement', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { next: { target: { node: 'second' }, prompt: 'implementation-to-verification' } } },
+        second: { role: 'executor', prompt: 'verify', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { finish: { target: { terminal: 'DONE' } } } },
+      } },
+    });
+    const events: string[] = [];
+    let calls = 0;
+    const publisher = { entryAppended(entry: import('../../../src/schemas/index.js').AgentMessage) { if (entry.kind === 'tool_result' && entry.content.includes('"accepted":true')) events.push(`settle:${calls}`); } };
+    const h = harness(async () => {
+      calls += 1;
+      const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, `node ${calls}`);
+      return tool(`result-${calls}`, calls === 1 ? 'next' : 'finish');
+    }, { cardType: 'code', process: compileCardProcesses(source).terminal, conversationPublisher: publisher, onClaim: () => events.push('claim') });
+    const close = h.store.closeRecord.bind(h.store);
+    jest.spyOn(h.store, 'closeRecord').mockImplementation((...args) => { events.push(`close:${calls}`); return close(...args); });
+    const terminate = h.processRunner.terminateScopeTree.bind(h.processRunner);
+    jest.spyOn(h.processRunner, 'terminateScopeTree').mockImplementation(async (args) => { events.push(`cleanup:${calls}`); return terminate(args); });
+    const outcome = await h.actor.activate(h.input(), new AbortController().signal);
+    events.push(`publication:${outcome.status}`);
+    expect(events).toEqual(['close:1', 'settle:1', 'cleanup:1', 'claim', 'close:2', 'settle:2', 'cleanup:2', 'publication:done']);
+    expect(h.claimResult).toHaveBeenCalledTimes(1);
   });
 });

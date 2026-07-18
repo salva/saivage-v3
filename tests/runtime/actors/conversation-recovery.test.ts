@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -8,6 +8,7 @@ import { classifyConversation, stabilizeRoleSession } from '../../../src/runtime
 
 import { hashConversationRows, validateConversationRows } from '../../../src/contracts/conversation-compaction.js';
 import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
+import { conversationFile } from '../../../src/runtime/actors/conversation-inventory.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 
 const terminalTools = new Set(['emit_result']);
@@ -205,6 +206,21 @@ describe('exact role-session stabilization', () => {
     expect(() => stabilize(newer.projectRoot, newer.sessionId)).toThrow(/not its final exact canonical source row/);
   });
 
+  it('rejects missing and mismatched latest activation-marker association before recovery writes', () => {
+    const missingRoot = mkdtempSync(join(tmpdir(), 'saivage-role-stabilization-missing-marker-')); roots.push(missingRoot); initProjectTree(missingRoot);
+    appendConversationBatch(missingRoot, [message({ session_id: 'planner:project', kind: 'text', role: 'assistant', content: 'pending without marker' })]);
+    expect(() => stabilize(missingRoot)).toThrow(/no activation marker/);
+    expect(readConversation(missingRoot, 'planner:project').sourceRows).toHaveLength(1);
+
+    const mismatched = scenario();
+    appendConversationBatch(mismatched.projectRoot, [message({ id: `${mismatched.sourceInputId}:pending`, session_id: mismatched.sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
+    const path = conversationFile(mismatched.projectRoot, mismatched.sessionId);
+    const canonical = readFileSync(path, 'utf8');
+    writeFileSync(path, canonical.replace('\\"role\\":\\"planner\\"', '\\"role\\":\\"reviewer\\"'));
+    expect(() => stabilize(mismatched.projectRoot, mismatched.sessionId)).toThrow(/malformed planner activation_open marker/);
+    expect(readFileSync(path, 'utf8')).not.toContain('model-recovered');
+  });
+
   it('stops immediately when notice publication reports an error', () => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
     appendConversationBatch(projectRoot, [message({ id: `${sourceInputId}:message`, session_id: sessionId, kind: 'text', role: 'assistant' })]);
@@ -228,5 +244,19 @@ describe('exact role-session stabilization', () => {
     const rows = readConversation(projectRoot, sessionId).sourceRows;
     expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
     expect(rows.filter((row) => row.kind === 'model_recovered')).toHaveLength(0);
+  });
+
+  it.each([
+    { point: 'failed-result', toolPending: true }, { point: 'notice', toolPending: false },
+  ] as const)('propagates a physical $point append failure with no later recovery row', ({ toolPending }) => {
+    const { projectRoot, sessionId, sourceInputId } = scenario();
+    appendConversationBatch(projectRoot, [toolPending ? toolCall(sourceInputId, 'pending', sessionId, 'activate_card') : message({ id: `${sourceInputId}:pending`, session_id: sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
+    const path = conversationFile(projectRoot, sessionId);
+    const before = readFileSync(path, 'utf8');
+    const originalMode = statSync(path).mode;
+    chmodSync(path, 0o444);
+    try { expect(() => stabilize(projectRoot, sessionId)).toThrow(); }
+    finally { chmodSync(path, originalMode); }
+    expect(readFileSync(path, 'utf8')).toBe(before);
   });
 });
