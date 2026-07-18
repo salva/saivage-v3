@@ -58,7 +58,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     if (!prepared.accepted) throw new Error('Run was not accepted.');
     runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => inputs.length === 1);
-    expect(runtime.getActorRuntimeReadModel().cards.map((entry) => entry.cardId).sort()).toEqual(['project', child.id].sort());
+    expect(runtime.getActorRuntimeReadModel().cards.map((entry) => entry.cardId)).toEqual(['project']);
     expect(runtime.getActorRuntimeReadModel()).not.toHaveProperty('agents');
 
     expect(runtime.beginPause().settled).toBe(false);
@@ -80,10 +80,11 @@ describe('Stage-I runtime lifecycle E2E', () => {
     if (!restarted.accepted) throw new Error('Restart Run was not accepted.');
     runtime.launchStartedProject(restarted.launch);
     await waitUntil(() => inputs.length === 3);
-    expect(inputs[2]!.sessionId).toBe(`executor:${child.id}`);
+    expect(inputs[2]!.sessionId).toBe('planner:project');
     expect(inputs[2]!.inputId).not.toBe(inputs[1]!.inputId);
     expect(inputs[2]!.providerConversation.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'system', kind: 'model_recovered' })]));
-    expect(readConversation(projectRoot, `executor:${child.id}`).physicalRows.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
+    expect(readConversation(projectRoot, 'planner:project').physicalRows.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
+    expect(cards.read(child.id)?.status).toBe('stopped');
     await expect(runtime.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });
 
@@ -104,7 +105,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
       calls += 1;
       if (calls === 1) return complete(tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'candidate' }));
       return new Promise<ProviderTurnCompletion>((resolve, reject) => {
-        releaseTerminal = () => resolve(complete(tool('emit-late', 'emit_result', { status: 'done', summary: 'late' })));
+        releaseTerminal = () => resolve(complete(tool('emit-late', 'emit_result', { outcome: 'done', summary: 'late' })));
         signal.addEventListener('abort', () => reject(signal.reason), { once: true });
       });
     }) };

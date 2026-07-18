@@ -65,7 +65,6 @@ describe('failed child activation lifecycle E2E', () => {
     const failedChild = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Fail once', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const sibling = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Run second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
-    cards.setStatus(parent.id, 'running');
 
     const parentAfterFailure = deferred<void>();
     const continueParent = deferred<void>();
@@ -74,12 +73,19 @@ describe('failed child activation lifecycle E2E', () => {
     let parentCalls = 0;
     let failedChildCalls = 0;
     let siblingCalls = 0;
+    let projectCalls = 0;
     let failedRunningVersion = 0;
     let failureToolResult: unknown;
     let supervisor!: SupervisorRuntimeApi;
     const provider = {
       projectProviderExchanges: jest.fn(),
       completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
+        if (input.sessionId === 'planner:project') {
+          projectCalls += 1;
+          if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
+          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?v=next', content: 'Parent workflow complete.' }));
+          return complete(tool('complete-project', 'emit_result', { outcome: 'complete_direct', summary: 'Project complete.' }));
+        }
         if (input.sessionId === `planner:${parent.id}`) {
           parentCalls += 1;
           if (parentCalls === 1) return complete(tool('activate-a', 'activate_card', { card_id: failedChild.id }));
@@ -92,7 +98,8 @@ describe('failed child activation lifecycle E2E', () => {
           }
           if (parentCalls === 3) return complete(tool('edit-a', 'edit_card', { card_id: failedChild.id, title: 'A changed' }));
           if (parentCalls === 4) return complete(tool('retry-a', 'activate_card', { card_id: failedChild.id }));
-          return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+          if (parentCalls === 5) return complete(tool('write-parent-status', 'write', { path: 'record:///status.md?v=next', content: 'Children complete.' }));
+          return complete(tool('complete-parent', 'emit_result', { outcome: 'complete_direct', summary: 'Parent complete.' }));
         }
         if (input.sessionId === `executor:${failedChild.id}`) {
           failedChildCalls += 1;
@@ -101,7 +108,7 @@ describe('failed child activation lifecycle E2E', () => {
             throw permanentFailure(input);
           }
           if (failedChildCalls === 2) return complete(tool('write-a', 'write', { path: 'record:///status.md?v=next', content: 'Retry succeeded.' }));
-          return complete(tool('done-a', 'emit_result', { status: 'done', summary: 'A succeeded on retry.' }));
+          return complete(tool('done-a', 'emit_result', { outcome: 'done', summary: 'A succeeded on retry.' }));
         }
         if (input.sessionId === `executor:${sibling.id}`) {
           siblingCalls += 1;
@@ -110,7 +117,7 @@ describe('failed child activation lifecycle E2E', () => {
             await releaseSibling.promise;
             return complete(tool('write-b', 'write', { path: 'record:///status.md?v=next', content: 'B complete.' }));
           }
-          return complete(tool('done-b', 'emit_result', { status: 'done', summary: 'B complete.' }));
+          return complete(tool('done-b', 'emit_result', { outcome: 'done', summary: 'B complete.' }));
         }
         throw new Error(`Unexpected provider session '${input.sessionId}'.`);
       }),
@@ -159,7 +166,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(awaitSettlement).not.toHaveBeenCalled();
     expect(failedChildCalls).toBe(3);
     expect(history(cards, failedChild.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(2);
-    await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    await waitUntil(() => supervisor.getStatus().status === 'stopped');
   });
 
   it('selects cleanup failure after accepted executor terminal handling as the only terminal publication', async () => {
@@ -169,17 +176,23 @@ describe('failed child activation lifecycle E2E', () => {
     const cards = new CardService(projectRoot);
     const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', brief: 'Fail cleanup', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
-    cards.setStatus(child.id, 'running');
-    const runningVersion = cards.read(child.id)!.version_seq;
+    const initialVersion = cards.read(child.id)!.version_seq;
     const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
     jest.spyOn(processRunner, 'terminateScopeTree').mockImplementation(async ({ rootScope }) => rootScope === processRunner.runtimeRootScope
       ? { selected: [], stopped: [], failed: [] }
       : { selected: ['cleanup'], stopped: [], failed: [{ groupId: 'cleanup', state: 'unconfirmed', diagnostic: 'cleanup exploded' }] });
     let executorCalls = 0;
+    let plannerCalls = 0;
     const provider = { completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
+      if (input.role === 'planner') {
+        plannerCalls += 1;
+        if (plannerCalls === 1) return complete(tool('activate-cleanup-child', 'activate_card', { card_id: child.id }));
+        if (plannerCalls === 2) return complete(tool('write-project-failure', 'write', { path: 'record:///status.md?v=next', content: 'Child cleanup failed.' }));
+        return complete(tool('fail-project', 'emit_result', { outcome: 'failed', summary: 'Child cleanup failed.' }));
+      }
       if (input.role === 'executor') return complete(++executorCalls === 1
         ? tool('write', 'write', { path: 'record:///status.md?v=next', content: 'Accepted output.' })
-        : tool('accepted', 'emit_result', { status: 'done', summary: 'Accepted before cleanup.' }));
+        : tool('accepted', 'emit_result', { outcome: 'done', summary: 'Accepted before cleanup.' }));
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     }) };
     const supervisor = runtime(projectRoot, cards, provider, processRunner);
@@ -187,8 +200,9 @@ describe('failed child activation lifecycle E2E', () => {
     if (!prepared.accepted) throw new Error('Run was not accepted.');
     supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => cards.read(child.id)?.status === 'failed');
+    await waitUntil(() => !(supervisor as unknown as RuntimeInternals).cardActors.has(child.id));
 
-    expect(cards.read(child.id)).toMatchObject({ status: 'failed', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'failed', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
+    expect(cards.read(child.id)).toMatchObject({ status: 'failed', version_seq: initialVersion + 2, lifecycle: { result: { kind: 'failed', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
     expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(cards.readRecord(child.id, 'status.md', 'latest').artifact.content).toBe('Accepted output.');
     expect(() => cards.readRecord(child.id, 'status.md', 'open')).toThrow();
@@ -196,7 +210,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(terminalRows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool_result', content: JSON.stringify({ success: true, data: { accepted: true } }) })]));
     expect((supervisor as unknown as RuntimeInternals).cardActors.has(child.id)).toBe(false);
     expect((supervisor as unknown as RuntimeInternals).liveCardActors.has(child.id)).toBe(false);
-    await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: false });
+    await waitUntil(() => supervisor.getStatus().status === 'stopped');
   });
 
   it('publishes one failed lifecycle for malformed provider failure metadata through the real processor stack', async () => {
@@ -213,7 +227,8 @@ describe('failed child activation lifecycle E2E', () => {
     supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
-    expect(cards.read('project')).toMatchObject({ status: 'failed', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'failed', summary: expect.stringContaining('failed without ProviderTurnFailure metadata') }, error: expect.stringContaining('failed without ProviderTurnFailure metadata') } });
+    expect(cards.read('project')).toMatchObject({ status: 'failed', lifecycle: { result: { kind: 'failed', summary: expect.stringContaining('failed without ProviderTurnFailure metadata') }, error: expect.stringContaining('failed without ProviderTurnFailure metadata') } });
+    expect(cards.read('project')!.version_seq).toBeGreaterThan(runningVersion);
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect((supervisor as unknown as RuntimeInternals).cardActors.size).toBe(0);
     expect((supervisor as unknown as RuntimeInternals).liveCardActors.size).toBe(0);

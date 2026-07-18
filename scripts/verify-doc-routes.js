@@ -330,9 +330,8 @@ function toolNamesFromProvider(projectRoot, functionName, relPath) {
 }
 
 function terminalToolName(projectRoot, role) {
-  const contractPath = `src/contracts/${role}-contract.ts`;
-  const contract = sourceAst(projectRoot, contractPath);
-  if (!contract.content.includes('name: TERMINAL_RESULT_TOOL_NAME')) throw new Error(`${role} contract does not compose TERMINAL_RESULT_TOOL_NAME`);
+  const nodeExecution = sourceAst(projectRoot, 'src/runtime/actors/agent-node-execution.ts');
+  if (!nodeExecution.content.includes('name: TERMINAL_RESULT_TOOL_NAME')) throw new Error(`configured ${role} node contract does not compose TERMINAL_RESULT_TOOL_NAME`);
   const result = sourceAst(projectRoot, 'src/contracts/result-envelope.ts');
   const initializer = requiredInitializer(constInitializers(result.ast), 'TERMINAL_RESULT_TOOL_NAME', result.ast.fileName);
   if (!ts.isStringLiteral(initializer)) throw new Error('TERMINAL_RESULT_TOOL_NAME must be a string literal');

@@ -16,9 +16,7 @@ const TOOL_SOURCES = [
   'src/tools/web-tools.ts',
   'src/tools/skill-provider.ts',
   'src/tools/mcp-provider.ts',
-  'src/contracts/planner-contract.ts',
-  'src/contracts/executor-contract.ts',
-  'src/contracts/reviewer-contract.ts',
+  'src/runtime/actors/agent-node-execution.ts',
   'src/contracts/result-envelope.ts',
 ];
 const DOC = 'docs/architecture/system-architecture.md';
@@ -118,7 +116,15 @@ describe('source-derived Config schema inventory', () => {
       'providers.entry.modelCapabilities.entry', 'providers.entry.modelCapabilities.entry.responsesReasoning',
       'providers.entry.accounts.entry', 'providers.entry.accounts.entry.capabilities',
       'providers.entry.accounts.entry.capabilities.responsesReasoning', 'server', 'runtime',
-      'runtime.process_timeouts', 'security', 'compaction', 'compaction.summarizer_candidate', 'mcpServers.entry',
+      'runtime.process_timeouts', 'security', 'compaction', 'compaction.summarizer_candidate',
+      'card_processes', 'card_processes.planning', 'card_processes.planning.entries',
+      'card_processes.planning.entries.BACKLOG', 'card_processes.planning.entries.CHANGED', 'card_processes.planning.entries.BLOCKED', 'card_processes.planning.entries.STOPPED',
+      'card_processes.planning.nodes.entry', 'card_processes.planning.nodes.entry.records.item', 'card_processes.planning.nodes.entry.edges.entry',
+      'card_processes.planning.nodes.entry.edges.entry.target.variant1', 'card_processes.planning.nodes.entry.edges.entry.target.variant2',
+      'card_processes.terminal', 'card_processes.terminal.entries',
+      'card_processes.terminal.entries.BACKLOG', 'card_processes.terminal.entries.CHANGED', 'card_processes.terminal.entries.BLOCKED', 'card_processes.terminal.entries.STOPPED',
+      'card_processes.terminal.nodes.entry', 'card_processes.terminal.nodes.entry.records.item', 'card_processes.terminal.nodes.entry.edges.entry',
+      'card_processes.terminal.nodes.entry.edges.entry.target.variant1', 'card_processes.terminal.nodes.entry.edges.entry.target.variant2', 'mcpServers.entry',
     ]);
     for (const path of ['providers.entry.capabilities', 'providers.entry.modelCapabilities.entry', 'providers.entry.accounts.entry.capabilities']) {
       expect(result.expected.get(path)).toEqual(['contextWindowTokens', 'exclusiveToolChoiceSupport', 'maxOutputTokens', 'quirks', 'responsesReasoning', 'streaming', 'toolsMode', 'transportProtocol']);

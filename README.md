@@ -48,7 +48,63 @@ server:
   port: 8080
   host: "0.0.0.0"
 runtime: {}
+card_processes:
+  planning:
+    entries:
+      BACKLOG: {node: plan}
+      CHANGED: {node: plan}
+      BLOCKED: {node: plan}
+      STOPPED: {node: recover, prompt: stopped-recovery}
+    nodes:
+      plan:
+        role: planner
+        prompt: plan
+        correction_prompt: correct-plan-result
+        records: [{name: status.md, updated: true}]
+        edges:
+          complete_direct: {target: {terminal: DONE}}
+          admit_review: {target: {node: review}, prompt: plan-to-review}
+          blocked: {target: {terminal: BLOCKED}}
+          failed: {target: {terminal: FAILED}}
+      review:
+        role: reviewer
+        prompt: review
+        correction_prompt: correct-review-result
+        records: [{name: review.md, updated: true}]
+        edges:
+          approved: {target: {terminal: DONE}}
+          revision_required: {target: {node: plan}, prompt: review-to-plan}
+          blocked: {target: {terminal: BLOCKED}}
+          failed: {target: {terminal: FAILED}}
+      recover:
+        role: planner
+        prompt: recover
+        correction_prompt: correct-plan-result
+        records: [{name: status.md, updated: true}]
+        edges:
+          complete_direct: {target: {terminal: DONE}}
+          admit_review: {target: {node: review}, prompt: plan-to-review}
+          blocked: {target: {terminal: BLOCKED}}
+          failed: {target: {terminal: FAILED}}
+  terminal:
+    entries:
+      BACKLOG: {node: execute}
+      CHANGED: {node: execute}
+      BLOCKED: {node: execute}
+      STOPPED: {node: execute, prompt: stopped-recovery}
+    nodes:
+      execute:
+        role: executor
+        prompt: execute
+        correction_prompt: correct-execution-result
+        records: [{name: status.md, updated: true}]
+        edges:
+          done: {target: {terminal: DONE}}
+          blocked: {target: {terminal: BLOCKED}}
+          failed: {target: {terminal: FAILED}}
 ```
+
+This is the authoritative default topology. Planner chooses `complete_direct` or `admit_review`; reviewer chooses `approved` or `revision_required`; child count never selects review. Edges are strict tagged objects, and reusable edge prompts are allowed only when the target is another node. Configuration is required—there is no synthesized fallback.
 
 Direct public OpenAI GPT-5.6 through the Responses API is selected by provider capability, not by a model-name heuristic. Public OpenAI Responses uses API-key credentials only; Codex/OpenAI OAuth auth profiles are a separate `openai-codex-backend` contract and are not aliases for public OpenAI API keys.
 
@@ -78,7 +134,17 @@ compaction:
 
 Compaction is a boot requirement, not an optional feature. `init` and `start --create-runtime` create generated project/runtime state but never synthesize model, provider, or compaction policy. Omitted, `enabled: false`, incomplete, or non-configured summarizer candidates fail startup. The candidate is an exact structured identity: `account: null` selects the provider-level implicit account, while `account: "_implicit"` and `account: "_"` select those exact explicit account names and remain distinct. Model IDs may contain slashes; there is no flattened compatibility spelling or fallback summarizer route. The effective Analyst output request (`models.max_tokens.analyst`, then `models.max_tokens.default`, then 4096) must not exceed `floor(compaction.input_budget_tokens * compaction.completion_reserve_fraction)`. Startup acquires the lifecycle lock before full selected-config/environment validation, but completes that validation before any `--create-runtime` generated root-card read or publication; invalid configuration therefore creates or changes no generated root-card state. The operator must select a positive budget appropriate to the configured routes.
 
-Agent prompts are customizable with file-level Markdown overrides in `.saivage/config/prompts/<cardType>/<role>.md`. Shipped defaults live in `src/prompts/` and are copied to `dist/prompts/`; omitted override files keep the built-in defaults. Prompt overrides are durable operator configuration: `saivage init`, `saivage reset`, and `start --create-runtime` preserve them while recreating generated state.
+Agent prompts are customizable with file-level Markdown overrides in `.saivage/config/prompts/<cardType>/<role>.md`. Process artifacts use `.saivage/config/prompts/<cardType>/process/<identity>.md`; bundled equivalents live below `src/prompts/<cardType>/`. Every effective planner/reviewer/executor role template must include `{{contractDescription}}` exactly once and must not hard-code `emit_result` fields or values. For example:
+
+```markdown
+Perform the current configured executor node step. Follow its node/edge prompt context.
+{{contractDescription}}
+Use the generated Executor contract for this node exactly; the configured edge decides what follows.
+```
+
+The generated contract accepts strict parsed `{outcome,summary}`. Hidden correction keeps plain text, invalid outcomes, pending notifications, and stale/missing required records in the same node. `updated:true` compares the once-captured record version/revision baseline. Terminal routes claim before close/settlement/node cleanup/CardActor publication; intermediate routes do not claim and clean the current executor scope before the next node.
+
+Prompt overrides are durable operator configuration: `saivage init`, `saivage reset`, and `start --create-runtime` preserve them while recreating generated state. Before deployment, audit every role override; update incompatible files to defer exactly once to `{{contractDescription}}`, or remove them. Startup fails rather than normalizing old `status` fields or outcome values.
 
 Current card IDs use parent-local spreadsheet segments (`card-a`, `card-b`, ..., `card-z`, `card-aa`; nested parents restart at `a`). Every creation starts at `a` and directly attempts exclusive creation of each exact candidate namespace, advancing only when that `mkdir` returns `EEXIST` and never inspecting or enumerating the collision. A successful namespace claim remains consumed even if publication or linking later fails; membership begins only after complete initial publication and the parent's cumulative `children` array append.
 
@@ -117,7 +183,7 @@ curl http://localhost:8080/health
 | [Architecture](docs/architecture/system-architecture.md) | current architecture summary | How the functional model is organized into runtime, agents, storage, API, and UI subsystems. |
 | [README](README.md) | current validation and documentation authority map | Quick start, validation profiles, and this canonical documentation map. |
 
-Explicit Run validates the durable project-rooted running-card chain, constructs fresh process-local `CardActor` owners and immediate-child waits for every card, and starts only the deepest owner with planner or executor according to card type. Before a fresh activation invokes its provider, the stable role-session owner validates the canonical conversation. An ordinary latest interrupted call, including a parent call whose child became terminal before Stop won parent settlement, receives an explicit failed `tool_result` with `outcome_unknown:true`. The narrow exception is an immediate reconstructed child that publishes and releases its real outcome in that same still-admitted Run: strict call/child association permits the parent to record that known result before any fresh activation work. No old actor, callback, provider continuation, runtime-state record, or cursor is reconstructed. If this reconstructed-result append reports an error, its outcome is unknown and that server process retains the owner in `error`; process restart is required before another Run, project Stop, or explicit card cancellation can be admitted.
+Explicit Run selects the complete linked project-rooted running chain without installing actors, stabilizes every eligible conversation leaf-to-root, publishes every participant `stopped` leaf-to-root, and starts only project through configured STOPPED. An unmatched parent `activate_card` is settled as ordinary interrupted outcome-unknown work; terminal child results are never reconstructed or replayed. A partial reset is not atomic: the first error stops the attempt, and a later Run freshly selects the remaining running prefix or stopped project. Stopped descendants remain inactive until an exact parent `activate_card` reuses their identity through STOPPED. Intervention-ready Analyst brief/card edits and immediate-parent planner edits preserve stopped.
 
 Conversation and app-log mutation use direct synchronous domain-owner functions. Stable role conversations are append-only: compaction never replaces a version or writes a cache. Planner, reviewer, executor, and Analyst persisted turns all use the singular prepared conversation actor. Each autonomous activation carries one exact prompt/tool budget; each Analyst submission prepares its exact rendered prompt, ordered tools, configured output request, and temperature before source publication, then retains that prepared value across tool continuations. Candidate admission uses a best-effort canonical-body byte/4 heuristic, while providers remain authoritative. One first-pass rejection backed by strict structured input-context evidence and no accepted output may force one strictly reducing compaction append and one fresh ordinary route pass under the same input identity; for an Analyst continuation, an already accepted tool effect and its one persisted result remain outside this seam and are never replayed or duplicated. A second rejection or clean no-smaller result is terminal, with no third pass or route-by-compaction expansion. Direct, nonpersisting summarizers remain unprepared, fixed to the one Registry-validated configured candidate, and receive no self-compaction or replay; summary attempts retain distinct summary-session/input app-log evidence. Durable policy stores only policy inputs plus the otherwise unreconstructible static estimate, not derived completion/threshold/window values. The minimal ordered summary-group payload and strict marker-first Analyst source format are reset-only cutovers: stop the service, preserve configuration, credentials, operator inputs, source, and documentation, run the current built `saivage reset`, and start the current binary. Old generated conversations are not migrated or compatibility-read.
 

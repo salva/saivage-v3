@@ -16,7 +16,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
-const FEEDBACK = 'Reviewer requested rework at record:///review.md?card=project&v=1. Read it for required changes, update or create the necessary child cards, activate the rework, write record:///status.md?v=next, then call emit_result again when ready for review. Reviewer summary: Add explicit remediation evidence before approval.';
+const FEEDBACK = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=1\n\ntest process prompt: review-to-plan';
 const REVISED_EVIDENCE = 'Revised remediation evidence addressing the concrete review.';
 const roots: string[] = [];
 
@@ -58,25 +58,25 @@ describe('reviewer rework completion E2E', () => {
         if (input.role === 'planner') {
           plannerCalls += 1;
           if (plannerCalls === 1) return complete(tool('planner-write-initial', 'write', { path: 'record:///status.md?v=next', content: 'Initial completion evidence.' }));
-          if (plannerCalls === 2) return complete(tool('planner-done-initial', 'emit_result', { status: 'done', summary: 'Initial submission.' }));
+          if (plannerCalls === 2) return complete(tool('planner-done-initial', 'emit_result', { outcome: 'admit_review', summary: 'Initial submission.' }));
           if (plannerCalls === 3) {
             remediationProjection = input.providerConversation;
             const feedbackRows = input.providerConversation.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK);
             if (feedbackRows.length !== 1) throw new Error(`Expected one projected reviewer feedback row, received ${feedbackRows.length}.`);
             return complete(tool('planner-write-revised', 'write', { path: 'record:///status.md?v=next', content: REVISED_EVIDENCE }));
           }
-          if (plannerCalls === 4) return complete(tool('planner-done-revised', 'emit_result', { status: 'done', summary: 'Concrete remediation complete.' }));
+          if (plannerCalls === 4) return complete(tool('planner-done-revised', 'emit_result', { outcome: 'admit_review', summary: 'Concrete remediation complete.' }));
           throw new Error(`Unexpected planner provider call ${plannerCalls}.`);
         }
 
         reviewerCalls += 1;
         if (reviewerCalls === 1) return complete(tool('reviewer-write-rework', 'write', { path: 'record:///review.md?v=next', content: 'Rework required: add explicit remediation evidence.' }));
-        if (reviewerCalls === 2) return complete(tool('reviewer-request-rework', 'emit_result', { status: 'rework', summary: REVIEW_SUMMARY }));
+        if (reviewerCalls === 2) return complete(tool('reviewer-request-rework', 'emit_result', { outcome: 'revision_required', summary: REVIEW_SUMMARY }));
         if (reviewerCalls === 3) {
           if (cards.readRecord('project', 'status.md', 'latest').artifact.content !== REVISED_EVIDENCE) throw new Error('Reviewer did not observe revised remediation evidence.');
           return complete(tool('reviewer-write-done', 'write', { path: 'record:///review.md?v=next', content: 'Approved after concrete remediation.' }));
         }
-        if (reviewerCalls === 4) return complete(tool('reviewer-done', 'emit_result', { status: 'done', summary: 'Approved after concrete remediation.' }));
+        if (reviewerCalls === 4) return complete(tool('reviewer-done', 'emit_result', { outcome: 'approved', summary: 'Approved after concrete remediation.' }));
         throw new Error(`Unexpected reviewer provider call ${reviewerCalls}.`);
       }),
     };

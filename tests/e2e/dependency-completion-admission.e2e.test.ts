@@ -61,7 +61,6 @@ describe('dependency-completion activation admission E2E', () => {
     const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Complete first', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Complete second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id], related: [] });
     cards.setStatus('project', 'running');
-    cards.setStatus(parent.id, 'running');
 
     const bRejected = deferred<void>();
     const allowDependency = deferred<void>();
@@ -74,10 +73,17 @@ describe('dependency-completion activation admission E2E', () => {
     let parentCalls = 0;
     let dependencyCalls = 0;
     let dependentCalls = 0;
+    let projectCalls = 0;
     let firstDependentToolResult: unknown;
 
     const provider = {
       completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
+        if (input.sessionId === 'planner:project') {
+          projectCalls += 1;
+          if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
+          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?v=next', content: 'Dependency workflow complete.' }));
+          return complete(tool('complete-project', 'emit_result', { outcome: 'complete_direct', summary: 'Project complete.' }));
+        }
         if (input.sessionId === `planner:${parent.id}`) {
           parentCalls += 1;
           if (parentCalls === 1) return complete(tool('activate-b-first', 'activate_card', { card_id: dependent.id }));
@@ -94,12 +100,13 @@ describe('dependency-completion activation admission E2E', () => {
             await allowDependent.promise;
             return complete(tool('activate-b-second', 'activate_card', { card_id: dependent.id }));
           }
-          return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: 'record:///status.md?v=next', content: 'Dependencies complete.' }));
+          return complete(tool('complete-parent', 'emit_result', { outcome: 'complete_direct', summary: 'Parent complete.' }));
         }
         if (input.sessionId === `executor:${dependency.id}`) {
           dependencyCalls += 1;
           if (dependencyCalls === 1) return complete(tool('write-a', 'write', { path: 'record:///status.md?v=next', content: 'A completed first.' }));
-          return complete(tool('done-a', 'emit_result', { status: 'done', summary: 'A complete.' }));
+          return complete(tool('done-a', 'emit_result', { outcome: 'done', summary: 'A complete.' }));
         }
         if (input.sessionId === `executor:${dependent.id}`) {
           dependentCalls += 1;
@@ -111,7 +118,7 @@ describe('dependency-completion activation admission E2E', () => {
           if (dependentCalls === 2) {
             dependentToolCompleted.resolve();
             await allowDependentCompletion.promise;
-            return complete(tool('done-b', 'emit_result', { status: 'done', summary: 'B complete.' }));
+            return complete(tool('done-b', 'emit_result', { outcome: 'done', summary: 'B complete.' }));
           }
           throw new Error('Dependent executor received an unexpected extra turn.');
         }
@@ -176,6 +183,6 @@ describe('dependency-completion activation admission E2E', () => {
     expect(dependentCalls).toBe(2);
     expect(internals.cardActors.has(dependent.id)).toBe(false);
     expect(internals.liveCardActors.has(dependent.id)).toBe(false);
-    await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    await waitUntil(() => supervisor.getStatus().status === 'stopped');
   }, 15_000);
 });

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
@@ -30,13 +31,14 @@ describe('required autonomous compaction E2E', () => {
       plannerCalls += 1;
       const call = plannerCalls === 1
         ? { id: 'write', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?v=next', content: 'blocked evidence' }) } }
-        : { id: 'emit', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } };
+        : { id: 'emit', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ outcome: 'blocked', summary: 'blocked' }) } };
       return { result: { kind: 'tool_calls', tool_calls: [call] }, provider_exchanges: [] };
     });
     const config = saivageConfigSchema.parse({
       models: { default: ['work-model'], max_tokens: { analyst: 2400 } },
       providers: { test: { models: ['work-model', 'org/summary/model'] } },
       compaction: { enabled: true, input_budget_tokens: 12000, summarizer_candidate: { provider: 'test', account: null, model: 'org/summary/model' } },
+      card_processes: DEFAULT_CARD_PROCESSES,
     });
     const eventBus = new EventBus();
     const readModelChanges = new ReadModelChangeBroadcaster();

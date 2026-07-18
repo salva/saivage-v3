@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
@@ -64,13 +65,14 @@ describe('ordinary-runtime last-chance context compaction E2E', () => {
         compactionsAtSecondPass = readConversation(projectRoot, 'planner:project').compactions.length;
         return toolCompletion(request, 'write-after-recovery', 'write', { path: 'record:///status.md?v=next', content: 'Recovered after one authoritative context rejection.' });
       }
-      return toolCompletion(request, 'emit-after-recovery', 'emit_result', { status: 'done', summary: 'Recovered and completed.' });
+      return toolCompletion(request, 'emit-after-recovery', 'emit_result', { outcome: 'complete_direct', summary: 'Recovered and completed.' });
     });
 
     const config = saivageConfigSchema.parse({
       models: { default: ['work-model'], max_tokens: { analyst: 2400 } },
       providers: { test: { models: ['work-model', 'org/summary/model'] } },
       compaction: { enabled: true, input_budget_tokens: 12000, summarizer_candidate: { provider: 'test', account: null, model: 'org/summary/model' } },
+      card_processes: DEFAULT_CARD_PROCESSES,
     });
     const eventBus = new EventBus();
     const readModelChanges = new ReadModelChangeBroadcaster();

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
@@ -70,6 +71,7 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
         input_budget_tokens: 50000,
         summarizer_candidate: { provider: 'test', account: null, model: 'org/summary/model' },
       },
+      card_processes: DEFAULT_CARD_PROCESSES,
     });
     const eventBus = new EventBus();
     const readModelChanges = new ReadModelChangeBroadcaster();

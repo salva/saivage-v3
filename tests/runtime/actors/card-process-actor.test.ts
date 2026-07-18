@@ -11,6 +11,9 @@ import { initProjectTree } from '../../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
+import { cardProcessesSchema } from '../../../src/agents/config-schema.js';
+import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
+import { compileCardProcesses, type CompiledCardProcess } from '../../../src/runtime/card-process/card-process-config.js';
 
 const tool = (id: string, outcome: string, summary = outcome): ProviderTurnCompletion => ({ result: { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ outcome, summary }) } }] }, provider_exchanges: [] });
 
@@ -18,22 +21,26 @@ describe('CardProcessActor configured graph execution', () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-  function harness(completeTurn: LLMProviderPort['completeTurn']) {
+  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess } = {}) {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-card-process-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const store = new CardService(projectRoot);
+    const cardId = options.cardType === 'code'
+      ? store.create({ type: 'code', parent: 'project', title: 'code', brief: 'code', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] }).id
+      : 'project';
+    const processRunner = createTestProcessRunner(projectRoot);
     const actor = new CardProcessActor({
-      projectRoot, cardId: 'project', process: testAutonomousCompaction.cardProcesses.planning,
+      projectRoot, cardId, process: options.process ?? (options.cardType === 'code' ? testAutonomousCompaction.cardProcesses.terminal : testAutonomousCompaction.cardProcesses.planning),
       store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined },
       cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn }, conversations: { projectRoot }, appLogs: { projectRoot },
-      processRunner: createTestProcessRunner(projectRoot), promptTemplates: { render: (_type, _role, values) => String(values.contractDescription) },
+      processRunner, promptTemplates: { render: (_type, _role, values) => String(values.contractDescription) },
       runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction,
     });
     actor.start();
     const claimResult = jest.fn();
-    const input = () => ({ activationId: 'activation-test', card: store.read('project')!, caller: { kind: 'root' as const }, entry: 'BACKLOG' as const, claimResult, alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(), notificationDelivery: { selectNotifications: () => store.read('project')!.pending_notifications, removeNotifications: (ids: readonly string[]) => { store.removeNotifications('project', [...ids]); } } });
-    return { projectRoot, store, actor, claimResult, input };
+    const input = () => ({ activationId: 'activation-test', card: store.read(cardId)!, caller: { kind: 'root' as const }, entry: 'BACKLOG' as const, claimResult, alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(), notificationDelivery: { selectNotifications: () => store.read(cardId)!.pending_notifications, removeNotifications: (ids: readonly string[]) => { store.removeNotifications(cardId, [...ids]); } } });
+    return { projectRoot, cardId, store, processRunner, actor, claimResult, input };
   }
 
   it('routes complete_direct to DONE without reviewer and claims only after fresh status evidence', async () => {
@@ -120,15 +127,81 @@ describe('CardProcessActor configured graph execution', () => {
     expect(rows.filter((row) => row.role === 'user' && row.content.startsWith('Descendant work:'))).toHaveLength(2);
   });
 
-  it('repairs a strict parsed emit_result shape without re-entering the node', async () => {
+  it.each([
+    ['array', []], ['null', null], ['unknown field', { outcome: 'complete_direct', summary: 'ready', extra: true }],
+    ['non-string outcome', { outcome: 1, summary: 'ready' }], ['unknown outcome', { outcome: 'unknown', summary: 'ready' }],
+    ['empty summary', { outcome: 'complete_direct', summary: '  ' }], ['overlong summary', { outcome: 'complete_direct', summary: 'x'.repeat(2001) }],
+    ['non-string summary', { outcome: 'complete_direct', summary: 1 }],
+  ])('repairs parsed emit_result %s without re-entering the node', async (_label, invalid) => {
     let calls = 0;
     const h = harness(async () => {
       calls += 1;
-      if (calls === 1) { const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'ready'); return { result: { kind: 'tool_calls', tool_calls: [{ id: 'invalid', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ outcome: 'complete_direct', summary: 'ready', extra: true }) } }] }, provider_exchanges: [] }; }
+      if (calls === 1) { const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'ready'); return { result: { kind: 'tool_calls', tool_calls: [{ id: 'invalid', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify(invalid) } }] }, provider_exchanges: [] }; }
       return tool('valid', 'complete_direct');
     });
     await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
     expect(calls).toBe(2);
     expect(readConversation(h.projectRoot, 'planner:project').sourceRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open'))).toHaveLength(1);
+  });
+
+  it.each(['reviewer', 'executor'] as const)('delivers candidate-gate notifications and continues the same %s node', async (role) => {
+    let roleCalls = 0;
+    const h = harness(async (input) => {
+      if (input.role === 'planner') {
+        const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
+        return tool('to-review', 'admit_review');
+      }
+      roleCalls += 1;
+      if (roleCalls === 1) {
+        const open = h.store.openRecord(h.cardId, role === 'reviewer' ? 'review.md' : 'status.md');
+        h.store.editRecord(h.cardId, role === 'reviewer' ? 'review.md' : 'status.md', open.version, 'ready');
+        h.store.enqueueNotification(h.cardId, { id: `${role}-late`, content: `${role} late context`, created_at: '2026-07-18T00:00:00.000Z' });
+      }
+      return tool(`${role}-${roleCalls}`, role === 'reviewer' ? 'approved' : 'done');
+    }, role === 'executor' ? { cardType: 'code' } : {});
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
+    expect(roleCalls).toBe(2);
+    expect(h.store.read(h.cardId)!.pending_notifications).toEqual([]);
+    const rows = readConversation(h.projectRoot, `${role}:${h.cardId}`).sourceRows;
+    expect(rows.some((row) => row.kind === 'tool_result' && row.content.includes('pending_notifications'))).toBe(true);
+    expect(rows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open'))).toHaveLength(1);
+  });
+
+  it('routes two same-role executor nodes with one stable session and distinct node cleanup scopes', async () => {
+    const source = cardProcessesSchema.parse({
+      planning: DEFAULT_CARD_PROCESSES.planning,
+      terminal: { entries: { BACKLOG: { node: 'implement' }, CHANGED: { node: 'implement' }, BLOCKED: { node: 'implement' }, STOPPED: { node: 'implement', prompt: 'stopped-recovery' } }, nodes: {
+        implement: { role: 'executor', prompt: 'implement', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { implementation_ready: { target: { node: 'verify' }, prompt: 'implementation-to-verification' }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } },
+        verify: { role: 'executor', prompt: 'verify', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { verified: { target: { terminal: 'DONE' } }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } },
+      } },
+    });
+    const process = compileCardProcesses(source).terminal;
+    let calls = 0;
+    const h = harness(async () => {
+      calls += 1;
+      if (calls === 2) expect(h.claimResult).not.toHaveBeenCalled();
+      const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, `node ${calls}`);
+      return tool(`node-${calls}`, calls === 1 ? 'implementation_ready' : 'verified');
+    }, { cardType: 'code', process });
+    const createScope = jest.spyOn(h.processRunner, 'createDirectScope');
+    const cleanup = jest.spyOn(h.processRunner, 'terminateScopeTree');
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
+    const rows = readConversation(h.projectRoot, `executor:${h.cardId}`).sourceRows;
+    expect(rows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open'))).toHaveLength(2);
+    expect(rows.some((row) => row.role === 'user' && row.content.includes('Previous process node: implement'))).toBe(true);
+    expect(createScope.mock.calls.map(([, ownerId]) => ownerId)).toEqual(['card-activation:activation-test:node:0', 'card-activation:activation-test:node:1']);
+    expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(h.claimResult).toHaveBeenCalledTimes(1);
+  });
+
+  it('claims a terminal result before record-close failure selects the existing failed outcome', async () => {
+    const h = harness(async () => {
+      const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'ready');
+      return tool('accepted-before-close', 'complete_direct');
+    });
+    jest.spyOn(h.store, 'closeRecord').mockImplementation(() => { throw new Error('close failed after claim'); });
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'failed', summary: 'close failed after claim' });
+    expect(h.claimResult).toHaveBeenCalledTimes(1);
+    expect(h.store.readRecord('project', 'status.md', 'open').artifact.content).toBe('ready');
   });
 });
