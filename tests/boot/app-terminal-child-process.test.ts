@@ -97,15 +97,10 @@ describe('App terminal process adapters', () => {
   }, 10_000);
 
   it('keeps a hanging child alive through the real ten-second bound then runs the later leaf', async () => {
-    const started = Date.now();
     const result = await collect(runChild('coordinator-hang'));
-    const elapsed = Date.now() - started;
     const payload = JSON.parse(result.stdout.trim()) as { elapsed: number; later: boolean; report: unknown };
     expect(result.code).toBe(0);
-    expect(elapsed).toBeGreaterThanOrEqual(9_500);
-    // The child reports the contractual ten-second timer below. Allow broad-suite
-    // worker/process startup contention outside that measured child interval.
-    expect(elapsed).toBeLessThan(16_000);
+    expect(result.signal).toBeNull();
     expect(payload.elapsed).toBeGreaterThanOrEqual(9_900);
     expect(payload.later).toBe(true);
     expect(payload.report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_timeout' }] });

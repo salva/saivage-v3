@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { createAppTerminalCoordinator } from '../../src/boot/app.js';
+import { APP_CLEANUP_LEAF_TIMEOUT_MS, createAppTerminalCoordinator } from '../../src/boot/app.js';
 
 describe('App terminal coordinator', () => {
   afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
@@ -27,6 +27,7 @@ describe('App terminal coordinator', () => {
 
   it('shares one report and continues after a bounded hanging leaf', async () => {
     jest.useFakeTimers();
+    expect(APP_CLEANUP_LEAF_TIMEOUT_MS).toBe(10_000);
     const terminal = createAppTerminalCoordinator();
     const calls: string[] = [];
     terminal.registerCleanupLeaf('fastify', async () => { calls.push('later'); });
@@ -34,11 +35,20 @@ describe('App terminal coordinator', () => {
 
     const first = terminal.stop();
     const second = terminal.stop();
+    const settled = jest.fn();
+    void first.then(settled);
     expect(first).toBe(second);
     expect(calls).toEqual(['hanging']);
-    await jest.advanceTimersByTimeAsync(10_000);
-    await expect(first).resolves.toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_timeout' }] });
+    await jest.advanceTimersByTimeAsync(9_999);
+    expect(settled).not.toHaveBeenCalled();
+    expect(calls).toEqual(['hanging']);
+    await jest.advanceTimersByTimeAsync(1);
+    const report = await first;
+    expect(report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_timeout' }] });
     expect(calls).toEqual(['hanging', 'later']);
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(settled).toHaveBeenCalledWith(report);
+    expect(await second).toBe(report);
     expect(jest.getTimerCount()).toBe(0);
   });
 
