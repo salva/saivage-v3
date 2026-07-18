@@ -8,6 +8,8 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 
 const fixture = join(process.cwd(), 'tests', 'fixtures', 'app-terminal-child.ts');
 const tsx = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
+// Conservative real-child runaway guard for this suite, not a product timing assertion.
+const REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS = 20_000;
 const children = new Set<ChildProcess>();
 
 function runChild(scenario: string, projectRoot?: string, extraEnv: NodeJS.ProcessEnv = {}): ChildProcess {
@@ -28,7 +30,7 @@ function collect(child: ChildProcess): Promise<{ code: number | null; signal: No
   child.stderr!.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk; });
   return new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('exit', (code, signal) => resolve({ code, signal, stdout, stderr }));
+    child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
   });
 }
 
@@ -68,15 +70,16 @@ describe('App terminal process adapters', () => {
     });
     child.kill('SIGTERM');
     await expect(result).resolves.toMatchObject({ code: 0, signal: null });
-  }, 20_000);
+  }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 
   it('preserves the original startup failure after coordinator cleanup', async () => {
     const root = project('models: invalid\n');
     roots.push(root);
     const result = await collect(runChild('startup-failure', root));
     expect(result.code).toBe(23);
+    expect(result.signal).toBeNull();
     expect(result.stderr).toContain('STARTUP_ERROR:');
-  }, 20_000);
+  }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 
   it('keeps acknowledged restart on exit code 75', async () => {
     const port = await availablePort();
@@ -84,17 +87,18 @@ describe('App terminal process adapters', () => {
     roots.push(root);
     const result = await collect(runChild('restart-75', root, { SAIVAGE_API_TOKEN: 'child-test-token' }));
     expect(result.code).toBe(75);
-  }, 20_000);
+    expect(result.signal).toBeNull();
+  }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 
   it('clears a real referenced timer after fast rejection so the child exits promptly', async () => {
-    const started = Date.now();
     const result = await collect(runChild('coordinator-fast-reject'));
-    const payload = JSON.parse(result.stdout.trim()) as { elapsed: number; report: unknown };
+    const payload = JSON.parse(result.stdout.trim()) as { elapsed: number; exitReadyElapsed: number; report: unknown };
     expect(result.code).toBe(0);
-    expect(Date.now() - started).toBeLessThan(8_000);
+    expect(result.signal).toBeNull();
     expect(payload.elapsed).toBeLessThan(1_000);
+    expect(payload.exitReadyElapsed).toBeLessThan(1_000);
     expect(payload.report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_failed' }] });
-  }, 10_000);
+  }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 
   it('keeps a hanging child alive through the real ten-second bound then runs the later leaf', async () => {
     const result = await collect(runChild('coordinator-hang'));
@@ -104,7 +108,7 @@ describe('App terminal process adapters', () => {
     expect(payload.elapsed).toBeGreaterThanOrEqual(9_900);
     expect(payload.later).toBe(true);
     expect(payload.report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_timeout' }] });
-  }, 20_000);
+  }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 });
 
 function validConfig(port: number): string {

@@ -6,9 +6,13 @@ const projectRoot = process.argv[3];
 if (scenario === 'coordinator-fast-reject') {
   const terminal = createAppTerminalCoordinator();
   terminal.registerCleanupLeaf('runtime', () => Promise.reject(new Error('private failure')));
-  const started = Date.now();
+  const started = performance.now();
   const report = await terminal.stop();
-  process.stdout.write(`${JSON.stringify({ elapsed: Date.now() - started, report })}\n`);
+  const elapsed = performance.now() - started;
+  const settledAt = performance.now();
+  process.once('beforeExit', () => {
+    process.stdout.write(`${JSON.stringify({ elapsed, exitReadyElapsed: performance.now() - settledAt, report })}\n`);
+  });
 } else if (scenario === 'coordinator-hang') {
   const terminal = createAppTerminalCoordinator();
   let later = false;
