@@ -6,29 +6,24 @@ import type { RuntimeStatus } from '../../schemas/index.js';
 export interface RuntimeStatusReadModel {
   runtime: RuntimeStatus;
   currentCardId: string | null;
-  goalCount: number;
-  lastTickAt: string | null;
+  started_at: string;
   pid: number;
   actorRuntime: ActorRuntimeReadModel;
   serverAvailability?: ServerAvailability;
 }
 
 export interface RuntimeStatusInputs {
-  projectRoot: string;
   runtimeApi: Pick<RuntimeApi, 'getStatus' | 'getActorRuntimeReadModel'>;
-  pid?: number;
   serverAvailability?: ServerAvailability;
 }
 
 export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): RuntimeStatusReadModel {
-  const pid = inputs.pid ?? process.pid;
   const status = inputs.runtimeApi.getStatus();
   return {
     runtime: status.status,
     currentCardId: status.currentCardId,
-    goalCount: status.goalCount,
-    lastTickAt: status.lastTickAt,
-    pid,
+    started_at: status.startedAt,
+    pid: status.pid,
     actorRuntime: inputs.runtimeApi.getActorRuntimeReadModel(),
     ...(inputs.serverAvailability ? { serverAvailability: inputs.serverAvailability } : {}),
   };

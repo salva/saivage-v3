@@ -6,7 +6,7 @@ import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-ac
 import { parseLlmActorId } from './ids.js';
 import { toPublicAgentPhase, toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import type { ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
-import type { RuntimeControlMechanics } from '../../application/runtime-control-service.js';
+import type { RuntimeControlMechanics, RuntimeLaunchPlan } from '../../application/runtime-control-service.js';
 import type { NotifyCardResult, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { ActiveCardLeaf } from '../active-card-leaf.js';
@@ -25,6 +25,7 @@ import type { ReadModelChanges } from '../../application/read-model-changes.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { RuntimeContainmentError, RuntimeStoppedInterruption, isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
 import { ReconstructedActivationResultAppendError } from './conversation-recovery.js';
+import type { RuntimeProcessIdentity } from '../lock.js';
 
 export interface ProjectRootCardReader { read(cardId: string): { id: string; type: string } | null }
 
@@ -35,7 +36,10 @@ export interface SupervisorRuntimeApiOptions {
   compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry;
   runtimeGate?: RuntimeGate; mcpManagerProvider?: () => McpToolInvocationPort | undefined;
+  processIdentity: RuntimeProcessIdentity;
 }
+
+interface SupervisorLaunchPlan extends RuntimeLaunchPlan { readonly chain: readonly CardRecord[] }
 
 export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   private readonly eventBus: EventBus;
@@ -46,7 +50,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   private readonly currentness: ActiveCardLeaf;
   private started = false;
   private status: RuntimeStatus = 'stopped';
-  private preparedLeaf: CardRecord | null = null;
+  private preparedLaunch: SupervisorLaunchPlan | null = null;
   private runIdentity: object | null = null;
   private stopSettlement: Promise<StopProjectResult> | null = null;
   private closingInterruption: RuntimeStoppedInterruption | null = null;
@@ -135,34 +139,42 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     return tracked;
   }
 
-  async beginStartProject(): Promise<{ accepted: false; result: StartProjectResult } | { accepted: true; state: RuntimeState }> {
+  async beginStartProject(): Promise<{ accepted: false; result: StartProjectResult } | { accepted: true; launch: RuntimeLaunchPlan }> {
     await this.start();
     if (this.fatalOwnerDisposition) return { accepted: false, result: { runtime: this.runtimeState(), status: 'error', started: false, stopped: false, error: 'Runtime owner cannot Run again after reconstructed activation result append outcome became unknown; restart the server process.' } };
     if (this.status !== 'stopped') return { accepted: false, result: { runtime: this.runtimeState(), status: this.status, started: false, stopped: false, error: `Cannot start runtime from '${this.status}'.` } };
-    const chain = selectRunningCardChain(this.options.actorStore.list());
-    let leaf = chain.at(-1) ?? this.options.actorStore.read(PROJECT_CARD_ID)!;
-    if (chain.length === 0) leaf = this.options.actorStore.setStatus(PROJECT_CARD_ID, 'running');
-    this.preparedLeaf = leaf;
-    const at = this.now();
-    return { accepted: true, state: runtimeState(at, leaf) };
+    let chain = selectRunningCardChain(this.options.actorStore.list());
+    if (chain.length === 0) {
+      this.options.actorStore.setStatus(PROJECT_CARD_ID, 'running');
+      chain = selectRunningCardChain(this.options.actorStore.list());
+    }
+    if (chain.length === 0) throw new Error('Runtime preparation did not produce a running chain.');
+    const launch = { chain } as unknown as SupervisorLaunchPlan;
+    this.preparedLaunch = launch;
+    return { accepted: true, launch };
   }
 
-  launchStartedProject(_state: RuntimeState): void {
-    const leaf = this.preparedLeaf;
-    if (!leaf) throw new Error('Runtime launch has no prepared restart leaf.');
-    this.preparedLeaf = null;
+  launchStartedProject(launch: RuntimeLaunchPlan): RuntimeState {
+    const prepared = this.preparedLaunch;
+    if (!prepared || launch !== prepared) throw new Error('Runtime launch plan is foreign, stale, or already consumed.');
+    this.preparedLaunch = null;
     const chain = selectRunningCardChain(this.options.actorStore.list());
-    if (chain.at(-1)?.id !== leaf.id) throw new Error('Prepared runtime leaf changed before launch.');
+    if (chain.length !== prepared.chain.length || chain.some((card, index) => card.id !== prepared.chain[index]?.id)) throw new Error('Prepared runtime chain changed before launch.');
+    const installed = this.installRunningChain(chain);
+    const identity = {};
+    this.runIdentity = identity;
     this.status = 'running';
     this.runtimeGate.open();
     this.options.interventionBinding.markNotReady();
-    const identity = {};
-    this.runIdentity = identity;
-    this.runtimeProjectionChanged();
-    this.installRunningChain(identity, chain);
+    this.currentness.setChain(chain.map((card) => card.id));
+    void installed.rootSettlement.then(() => this.continueRunningChain(identity), (error) => this.handleRootRejection(identity, error));
+    installed.leaf.startPreparedProcessor();
+    const state = this.runtimeState();
+    if (!state) throw new Error('Runtime launch completed without an authoritative state projection.');
+    return state;
   }
 
-  beginPause(): { patch: Partial<RuntimeState>; settled: boolean } {
+  beginPause(): { settled: boolean } {
     if (this.status !== 'running') throw new Error(`Cannot pause runtime from '${this.status}'.`);
     this.status = 'pausing';
     this.runtimeGate.requestPause(() => {
@@ -172,13 +184,12 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       this.runtimeProjectionChanged();
     });
     if (this.status === 'pausing') this.runtimeProjectionChanged();
-    return { patch: { status: this.runtimeGate.isParked ? 'paused' : 'pausing', updated_at: this.now() }, settled: this.runtimeGate.isParked };
+    return { settled: this.runtimeGate.isParked };
   }
 
-  beginResume(current: RuntimeState): RuntimeState {
+  beginResume(): void {
     if (this.status !== 'paused') throw new Error(`Cannot resume runtime from '${this.status}'.`);
     this.status = 'running';
-    return { ...current, status: 'running', updated_at: this.now() };
   }
   finishResume(): void { this.runtimeGate.open(); this.options.interventionBinding.markNotReady(); this.runtimeProjectionChanged(); }
 
@@ -232,24 +243,25 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   }
 
   subscribe(options: SubscriptionOptions): Subscription { return this.eventBus.subscribe(options); }
-  getStatus() { const currentCardId = this.currentness.activeCardId(); return { status: this.status, currentCardId, goalCount: currentCardId ? 1 : 0, lastTickAt: null }; }
+  getStatus() { return { status: this.status, currentCardId: this.currentness.activeCardId(), pid: this.options.processIdentity.pid, startedAt: this.options.processIdentity.startedAt }; }
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
     const cards = [...this.cardActors.values()].flatMap((actor) => { const card = this.options.actorStore.read(actor.cardId); return card ? [{ cardId: actor.cardId, actorState: toPublicCardActorState(card.status) }] : []; });
     const agents = [...this.cardActors.values()].flatMap((actor) => actor.processor instanceof BaseMainLLMCardProcessorActor ? actor.processor.listLlmActors().map((agent) => { const identity = parseLlmActorId(agent.agentId); return { agentId: agent.agentId, role: identity.role, cardId: identity.cardId, phase: toPublicAgentPhase(agent.state()) }; }) : []);
-    return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', activeWork: 'none', cards, agents, diagnostics: [] };
+    return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', cards, agents };
   }
 
   private runtimeState(): RuntimeState | null {
-    if (this.fatalOwnerDisposition) return runtimeErrorState(this.now());
     const currentCardId = this.currentness.activeCardId();
-    return this.runIdentity && currentCardId ? runtimeState(this.now(), this.options.actorStore.read(currentCardId)!, this.status) : null;
+    if (Boolean(this.runIdentity) !== Boolean(currentCardId)) throw new Error('Runtime identity and active leaf presence disagree.');
+    if (!this.runIdentity || !currentCardId) return null;
+    return { status: this.status, project_id: 'project', pid: this.options.processIdentity.pid, started_at: this.options.processIdentity.startedAt, current_card_id: currentCardId, updated_at: this.now() };
   }
   private launchLeaf(identity: object, leaf: CardRecord, actor: CardActor): void {
     const caller = leaf.parent === null ? { kind: 'root' as const } : { kind: 'parent' as const, cardId: leaf.parent };
     void actor.restartRunning(caller).then(() => this.continueRunningChain(identity), (error) => this.handleRootRejection(identity, error));
   }
-  private installRunningChain(identity: object, chain: readonly CardRecord[]): void {
+  private installRunningChain(chain: readonly CardRecord[]): { readonly rootSettlement: Promise<unknown>; readonly leaf: CardActor } {
     if (chain.length === 0) throw new Error('Runtime launch requires a running chain.');
     const actors = chain.map((card, index) => {
       if (this.cardActors.has(card.id) || this.liveCardActors.has(card.id)) throw new Error(`Card '${card.id}' already has runtime ownership.`);
@@ -267,9 +279,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       rootSettlement = actor.installStructuralWait(actors[index + 1]!, caller);
     }
     if (this.liveCardActors.size !== chain.length || chain.some((card) => !this.liveCardActors.has(card.id))) throw new Error('Runtime running-chain ownership installation is incomplete.');
-    this.currentness.setChain(chain.map((card) => card.id));
-    void rootSettlement.then(() => this.continueRunningChain(identity), (error) => this.handleRootRejection(identity, error));
-    leaf.startPreparedProcessor();
+    return { rootSettlement, leaf };
   }
   private continueRunningChain(identity: object): void {
     if (this.runIdentity !== identity || this.status === 'closing') return;
@@ -318,8 +328,6 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   }
 }
 
-function runtimeState(at: string, card: CardRecord, status: RuntimeStatus = 'starting'): RuntimeState { const activeStatus = status === 'error' || status === 'stopped' ? 'starting' : status; return { status, project_id: 'project', pid: process.pid, started_at: at, active_card_run: { card_id: card.id, card_type: card.type, ownership: { kind: 'direct', source: 'project_root' }, runtime_status: activeStatus, phase: card.type === 'project' || card.type === 'goal' ? 'planner' : 'executor', caller_session_id: null, caller_tool_call_id: null, planner_session_id: null, executor_session_id: null, reviewer_session_id: null, started_at: at, last_turn_at: at }, updated_at: at, last_tick_at: null }; }
-function runtimeErrorState(at: string): RuntimeState { return { status: 'error', project_id: 'project', pid: process.pid, started_at: at, active_card_run: null, updated_at: at, last_tick_at: null }; }
 export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions): RuntimeControlMechanics { return new SupervisorRuntimeApi(options); }
 
 export class RuntimeControlConflictError extends Error {

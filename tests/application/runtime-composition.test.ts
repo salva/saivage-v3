@@ -32,14 +32,14 @@ function services(runtimeApiFactory: (deps: RuntimeApiFactoryDeps) => any, selec
   const readModelChanges = new ReadModelChangeBroadcaster();
   const appLogs = { projectRoot, changes: readModelChanges };
   return {
-    projectRoot, config: selectedConfig, configAuthority: testConfigAuthority(projectRoot), eventBus,
+    projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config: selectedConfig, configAuthority: testConfigAuthority(projectRoot), eventBus,
     eventLogger: createEventLog(projectRoot, appLogs, eventBus), errorLogger: createErrorLog(projectRoot, appLogs, eventBus), appLogs,
     cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges, runtimeApiFactory,
   };
 }
 
 function mechanics() {
-  return { start: async () => undefined, startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true }), pause: async () => ({ status: 'stopped' }), resume: async () => ({ status: 'stopped' }), stopProject: async () => ({ status: 'stopped', contained: false }), notifyCard: () => ({ ok: false }), cancelCard: async () => { throw new Error('unused'); }, subscribe: () => ({ unsubscribe() {} }), getStatus: () => ({ status: 'stopped', currentCardId: null, goalCount: 0, lastTickAt: null }), getRuntimeState: () => null, getActorRuntimeReadModel: () => ({ pauseMode: 'idle', activeWork: 'none', cards: [], agents: [], diagnostics: [] }), closeApplicationAdmission() {}, cleanupForApplicationStop: async () => undefined } as any;
+  return { start: async () => undefined, startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true }), pause: async () => ({ status: 'stopped' }), resume: async () => ({ status: 'stopped' }), stopProject: async () => ({ status: 'stopped', contained: false }), notifyCard: () => ({ ok: false }), cancelCard: async () => { throw new Error('unused'); }, subscribe: () => ({ unsubscribe() {} }), getStatus: () => ({ status: 'stopped', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }), getRuntimeState: () => null, getActorRuntimeReadModel: () => ({ pauseMode: 'idle', cards: [], agents: [] }), closeApplicationAdmission() {}, cleanupForApplicationStop: async () => undefined } as any;
 }
 
 describe('runtime compaction composition', () => {

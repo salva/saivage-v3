@@ -31,17 +31,7 @@ export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {
 }
 
 export function selectCurrentCardId(runtime: RuntimeState | null): string | null {
-  return runtime?.active_card_run?.card_id ?? null;
-}
-
-export function selectCurrentAgentSessionId(runtime: RuntimeState | null): string | null {
-  const run = runtime?.active_card_run ?? null;
-  if (!run) return null;
-  switch (run.phase) {
-    case 'planner': return run.planner_session_id ?? null;
-    case 'executor': return run.executor_session_id ?? null;
-    case 'reviewer': return run.reviewer_session_id ?? null;
-  }
+  return runtime?.current_card_id ?? null;
 }
 
 export function selectRuntimeStatusTone(runtime: RuntimeState | null): string {

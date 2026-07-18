@@ -9,7 +9,7 @@ const runtimeRunning = {
   project_id: 'project',
   pid: 4242,
   started_at: now,
-  active_card_run: null,
+  current_card_id: smokeCardId,
   updated_at: now,
 };
 
@@ -143,7 +143,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, parseOperatorResponse('runtime.getState', { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/status') {
-      return json(route, parseOperatorResponse('runtime.status', { runtime: 'running', currentCardId: smokeCardId, goalCount: 1, lastTickAt: null, pid: 4242, actorRuntime: { pauseMode: 'running', activeWork: 'model_invocation', cards: [{ cardId: smokeCardId, actorState: 'running' }], agents: [], diagnostics: [] }, restart_server_available: false }));
+      return json(route, parseOperatorResponse('runtime.status', { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running' }], agents: [] }, restart_server_available: false }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/cards/project/children') return json(route, rootChildren);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', { card, children: [] }));

@@ -31,7 +31,6 @@ import {
   selectRuntimeDetail,
   selectRuntimeModeLabel,
   selectRuntimeStatusLabel,
-  selectCurrentAgentSessionId,
   selectCurrentCardId,
   selectRuntimeSummary,
 } from './runtime-read-model';
@@ -64,7 +63,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'stopped');
   const isRunning = computed(() => status.value === 'running');
   const currentCardId = computed(() => selectCurrentCardId(runtime.value));
-  const currentAgentSessionId = computed(() => selectCurrentAgentSessionId(runtime.value));
   const commandDisabledReason = computed(() => {
     if (loading.value) return 'Runtime state is still loading.';
     if (unauthorized.value) return 'Runtime commands require a valid API token.';
@@ -175,7 +173,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     status,
     isRunning,
     currentCardId,
-    currentAgentSessionId,
     statusLabel,
     syncConnectionState,
     isStale,

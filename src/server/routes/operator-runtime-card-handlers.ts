@@ -57,21 +57,21 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
     'cards.diff': ({ params, query }) => getCardsReadModel().diffCard((params as unknown as { id: string }).id, query as unknown as { from?: number | 'last' | 'current'; to?: number | 'last' | 'current' }),
     'runtime.status': () => {
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime status.');
-      return { body: { ...buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
+      return { body: { ...buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
     },
     'runtime.pause': ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime pause.');
       options.runtimeApplication.runtimeControl.pause();
-      return { body: { ...buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
+      return { body: { ...buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
     },
     'runtime.resume': ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime resume.');
       options.runtimeApplication.runtimeControl.resume();
-      return { body: { ...buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
+      return { body: { ...buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
     },
     stop_project: async ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);

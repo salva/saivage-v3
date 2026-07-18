@@ -12,7 +12,7 @@ const originalCwd = process.cwd();
 afterEach(() => { process.chdir(originalCwd); jest.restoreAllMocks(); });
 
 function runtimeStatus(status: 'running' | 'paused') {
-  return { runtime: status, currentCardId: null, goalCount: 0, lastTickAt: null, restart_server_available: true, pid: process.pid, actorRuntime: { pauseMode: status, activeWork: 'none', cards: [], agents: [], diagnostics: [] } };
+  return { runtime: status, currentCardId: null, started_at: '2026-07-18T00:00:00.000Z', restart_server_available: true, pid: process.pid, actorRuntime: { pauseMode: status, cards: [], agents: [] } };
 }
 
 describe('Stage-I verified-live CLI delegation E2E', () => {

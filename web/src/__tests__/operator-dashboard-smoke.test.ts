@@ -38,7 +38,7 @@ function installOperatorApiFetch(): void {
           runtime: null,
         });
       case '/api/runtime/status':
-        return jsonResponse({ runtime: 'stopped', currentCardId: null, goalCount: 0, lastTickAt: null, restart_server_available: false, pid: 1, actorRuntime: { pauseMode: 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [] } });
+        return jsonResponse({ runtime: 'stopped', currentCardId: null, started_at: '2026-07-18T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime: { pauseMode: 'running', cards: [], agents: [] } });
       case '/api/cards/project/children':
         return jsonResponse({ card: cardView('project'), children: [] });
       case '/api/agents':

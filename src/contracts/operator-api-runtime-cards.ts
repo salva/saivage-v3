@@ -66,19 +66,16 @@ export const CardDiffBadRequestSchema = z.union([ValidationErrorSchema, InvalidC
 export const RuntimeStatusResponseSchema = z.object({
   runtime: runtimeStatusSchema,
   currentCardId: cardIdSchema.nullable(),
-  goalCount: z.number().int().nonnegative(),
-  lastTickAt: z.string().nullable(),
+  started_at: z.string().datetime(),
   restart_server_available: z.boolean(),
   pid: z.number().int().positive(),
   actorRuntime: z.object({
     pauseMode: actorPauseModeSchema,
-    activeWork: z.enum(['none', 'model_invocation', 'shutdown', 'unknown']),
-    cards: z.array(z.object({ cardId: cardIdSchema, actorState: publicCardActorStateSchema })),
-    agents: z.array(z.object({ agentId: z.string(), role: llmActorRoleSchema, cardId: cardIdSchema, phase: publicAgentPhaseSchema })),
-    diagnostics: z.array(z.string()),
-  }),
+    cards: z.array(z.object({ cardId: cardIdSchema, actorState: publicCardActorStateSchema }).strict()),
+    agents: z.array(z.object({ agentId: z.string(), role: llmActorRoleSchema, cardId: cardIdSchema, phase: publicAgentPhaseSchema }).strict()),
+  }).strict(),
   serverAvailability: ServerAvailabilitySchema.optional(),
-});
+}).strict();
 
 export const StopProjectResponseSchema = z.object({ status: z.literal('stopped'), contained: z.boolean() }).strict();
 export const RuntimeControlConflictSchema = z.object({ code: z.literal('runtime_control_conflict'), message: z.string().min(1) }).strict();
@@ -87,25 +84,25 @@ export const RestartServerResponseSchema = z.object({ status: z.literal('restart
 export const RestartUnavailableErrorSchema = z.object({ code: z.literal('restart_unavailable'), message: z.literal('restart unavailable: operator authentication disabled') }).strict();
 
 export const RuntimeCardRunsResponseSchema = z.object({
-  active_card_run: z.unknown().nullable(),
+  current_card_id: cardIdSchema.nullable(),
   active_breadcrumb: z.array(z.object({
     card_id: cardIdSchema,
     card_type: z.string(),
     title: z.string(),
     status_text: z.string().optional(),
-  })),
+  }).strict()),
   dormant_planners: z.array(z.object({
     goal_card_id: cardIdSchema,
     planner_session_id: z.string(),
     latest_self_report: z.record(z.string(), z.unknown()).nullable(),
-  })),
+  }).strict()),
   cards_with_pending_corrections: z.array(z.object({
     card_id: cardIdSchema,
     status: cardStatusSchema,
     note_count: z.number().int().nonnegative(),
     last_note_at: z.string().nullable(),
-  })),
-});
+  }).strict()),
+}).strict();
 
 export type HealthLivenessResponse = z.infer<typeof HealthLivenessResponseSchema>;
 export type HealthReadinessResponse = z.infer<typeof HealthReadinessResponseSchema>;

@@ -14,6 +14,7 @@ import { AuthPolicy } from '../auth-policy.js';
 import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
+import type { RuntimeProcessIdentity } from '../../runtime/lock.js';
 
 export interface ServerServices {
   projectRoot: string;
@@ -36,6 +37,7 @@ export interface ServerServices {
 export async function createServerServices(input: {
   environment: Environment;
   terminal: AppTerminalRegistration;
+  processIdentity: RuntimeProcessIdentity;
   restartPort?: RestartPort;
 }): Promise<ServerServices> {
   const { environment, terminal } = input;
@@ -62,7 +64,7 @@ export async function createServerServices(input: {
   terminal.registerAdmissionCloser('websocket-admission', () => liveSyncSocket.closeAdmission());
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, appLogs, cardStore, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, configAuthority: environment.configAuthority, eventBus, eventLogger, errorLogger, appLogs, cardStore, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());

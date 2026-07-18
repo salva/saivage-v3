@@ -95,10 +95,10 @@ describe('reviewer rework completion E2E', () => {
 
     const prepared = await runtime.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
-    runtime.launchStartedProject(prepared.state);
+    runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => runtime.getStatus().status === 'stopped');
 
-    expect(runtime.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null, goalCount: 0 });
+    expect(runtime.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(runtime.getRuntimeState()).toBeNull();
     expect(cards.read('project')).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'Approved after concrete remediation.' } } });
     expect(plannerCalls).toBe(4);

@@ -2,10 +2,10 @@ import { describe, it, expect } from '@jest/globals';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 
 const baseRuntimeState = () => ({
-  status: 'stopped' as const,
+  status: 'running' as const,
   project_id: 'project' as const,
   started_at: '2026-05-23T00:00:00.000Z',
-  active_card_run: null,
+  current_card_id: 'project',
   updated_at: '2026-05-23T00:00:00.000Z',
 });
 

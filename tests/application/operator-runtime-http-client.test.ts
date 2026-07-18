@@ -31,7 +31,7 @@ describe('OperatorRuntimeHttpClient', () => {
   });
 
   it('uses the canonical method and path for every delegated operation', async () => {
-    const status = { runtime: 'stopped', currentCardId: null, goalCount: 0, lastTickAt: null, restart_server_available: true, pid: process.pid, actorRuntime: { pauseMode: 'idle', activeWork: 'none', cards: [], agents: [], diagnostics: [] } };
+    const status = { runtime: 'stopped', currentCardId: null, started_at: '2026-07-18T00:00:00.000Z', restart_server_available: true, pid: process.pid, actorRuntime: { pauseMode: 'idle', cards: [], agents: [] } };
     const responses = [status, status, status, { status: 'stopped', contained: true }, { status: 'restart_scheduled' }];
     const request = jest.fn<typeof fetch>(async () => new Response(JSON.stringify(responses.shift()), { status: 200 }));
     const client = new OperatorRuntimeHttpClient(request);

@@ -7,6 +7,9 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { list_processes_tool, pause_runtime, resume_runtime, start_project, stop_project } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { get_status } from '../../src/tools/analyst-card-tools.js';
+import { CardService } from '../../src/cards/card-service.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
 
 describe('analyst runtime tools', () => {
   function controlContext(overrides: Record<string, unknown> = {}): ToolContext {
@@ -16,7 +19,7 @@ describe('analyst runtime tools', () => {
         pause: jest.fn(),
         resume: jest.fn(),
         stopProject: jest.fn(async () => ({ status: 'stopped', contained: true })),
-        getStatus: jest.fn(() => ({ status: 'running', currentCardId: null, goalCount: 0, lastTickAt: null })),
+        getStatus: jest.fn(() => ({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
         cancelCard: jest.fn(),
         ...overrides,
       },
@@ -33,14 +36,19 @@ describe('analyst runtime tools', () => {
     expect(failure.runtimeControl!.startProject).toHaveBeenCalledWith();
   });
 
+  it('propagates launch failure without manufacturing successful Analyst data', async () => {
+    const context = controlContext({ startProject: jest.fn(async () => { throw new Error('launch failed'); }) });
+    await expect(start_project(context, {})).rejects.toThrow('launch failed');
+  });
+
   it('delegates Pause, Resume, and Stop without arguments and preserves status results', async () => {
-    const paused = controlContext({ getStatus: jest.fn(() => ({ status: 'paused', currentCardId: null, goalCount: 0, lastTickAt: null })) });
+    const paused = controlContext({ getStatus: jest.fn(() => ({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })) });
     await expect(pause_runtime(paused, {})).resolves.toEqual({ success: true, data: { status: 'paused' } });
     expect(paused.runtimeControl!.pause).toHaveBeenCalledWith();
 
     const getStatus = jest.fn()
-      .mockReturnValueOnce({ status: 'paused', currentCardId: null, goalCount: 0, lastTickAt: null })
-      .mockReturnValueOnce({ status: 'running', currentCardId: null, goalCount: 0, lastTickAt: null });
+      .mockReturnValueOnce({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })
+      .mockReturnValueOnce({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' });
     const resumed = controlContext({ getStatus });
     await expect(resume_runtime(resumed, {})).resolves.toEqual({ success: true, data: { status: 'running' } });
     expect(resumed.runtimeControl!.resume).toHaveBeenCalledWith();
@@ -52,7 +60,7 @@ describe('analyst runtime tools', () => {
   });
 
   it('does not delegate Resume while runtime status is error', async () => {
-    const getStatus = jest.fn(() => ({ status: 'error' as const, currentCardId: null, goalCount: 0, lastTickAt: null }));
+    const getStatus = jest.fn(() => ({ status: 'error' as const, currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }));
     const context = controlContext({ getStatus });
     await expect(resume_runtime(context, {})).resolves.toEqual({
       success: false,
@@ -76,5 +84,15 @@ describe('analyst runtime tools', () => {
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }
+  });
+
+  it('reports absent runtime separately from the stopped runtime summary', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-status-'));
+    try {
+      initProjectTree(projectRoot);
+      const processRunner = createTestProcessRunner(projectRoot);
+      const result = await get_status({ projectRoot, store: new CardService(projectRoot), processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});
+      expect(result).toMatchObject({ success: true, data: { runtime: null, runtimeSummary: { status: 'stopped', currentCardId: null } } });
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 });

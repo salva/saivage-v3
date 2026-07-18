@@ -124,7 +124,7 @@ describe('dependency-completion activation admission E2E', () => {
     const cardActorLookup = jest.spyOn(internals, 'cardActor');
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
 
     await settleWithin(bRejected.promise, 'initial B rejection');
     expect(firstDependentToolResult).toEqual({
@@ -138,6 +138,7 @@ describe('dependency-completion activation admission E2E', () => {
     expect(supervisor.getActorRuntimeReadModel().cards.some(({ cardId }) => cardId === dependent.id)).toBe(false);
     expect(supervisor.getActorRuntimeReadModel().agents.some(({ cardId }) => cardId === dependent.id)).toBe(false);
     expect(supervisor.getStatus().currentCardId).toBe(parent.id);
+    expect(supervisor.getRuntimeState()?.current_card_id).toBe(parent.id);
     expect(selectRunningCardChain(cards.list()).map(({ id }) => id)).toEqual(['project', parent.id]);
     expect(dependentCalls).toBe(0);
     expect(readConversation(projectRoot, `executor:${dependent.id}`).physicalRows).toEqual([]);
@@ -156,6 +157,7 @@ describe('dependency-completion activation admission E2E', () => {
     expect(cards.read(dependent.id)?.status).toBe('running');
     expect(selectRunningCardChain(cards.list()).map(({ id }) => id)).toEqual(['project', parent.id, dependent.id]);
     expect(supervisor.getStatus().currentCardId).toBe(dependent.id);
+    expect(supervisor.getRuntimeState()?.current_card_id).toBe(dependent.id);
     expect(internals.liveCardActors.get(dependent.id)?.cardId).toBe(dependent.id);
     expect(dependentCalls).toBe(1);
 

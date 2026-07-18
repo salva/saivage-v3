@@ -56,7 +56,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
 
     const prepared = await runtime.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
-    runtime.launchStartedProject(prepared.state);
+    runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => inputs.length === 1);
     expect(runtime.getActorRuntimeReadModel().cards.map((entry) => entry.cardId).sort()).toEqual(['project', child.id].sort());
     expect(runtime.getActorRuntimeReadModel().agents).toEqual([expect.objectContaining({ role: 'executor', cardId: child.id })]);
@@ -67,7 +67,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     expect(inputs).toHaveLength(1);
     const paused = runtime.getRuntimeState();
     if (!paused) throw new Error('Paused runtime state missing.');
-    runtime.beginResume(paused);
+    runtime.beginResume();
     runtime.finishResume();
     await waitUntil(() => inputs.length === 2);
     expect(inputs[1]!.inputId).not.toBe(inputs[0]!.inputId);
@@ -78,7 +78,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
 
     const restarted = await runtime.beginStartProject();
     if (!restarted.accepted) throw new Error('Restart Run was not accepted.');
-    runtime.launchStartedProject(restarted.state);
+    runtime.launchStartedProject(restarted.launch);
     await waitUntil(() => inputs.length === 3);
     expect(inputs[2]!.sessionId).toBe(`executor:${child.id}`);
     expect(inputs[2]!.inputId).not.toBe(inputs[1]!.inputId);
@@ -111,7 +111,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     const runtime = supervisor(projectRoot, cards, provider);
     const prepared = await runtime.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
-    runtime.launchStartedProject(prepared.state);
+    runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => typeof releaseTerminal === 'function');
 
     const cancellation = runtime.cancelCard('project', 'operator cancelled subtree');

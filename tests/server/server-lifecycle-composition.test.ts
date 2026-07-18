@@ -51,7 +51,7 @@ describe('server lifecycle composition', () => {
       writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), validConfigYaml());
       const environment = await loadEnvironment(['node', 'test', '--project-root', projectRoot], { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined });
       const terminal = createAppTerminalCoordinator();
-      const services = await createServerServices({ environment, terminal });
+      const services = await createServerServices({ environment, terminal, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' } });
       const order: string[] = [];
       const closeRuntimeAdmission = services.runtimeApplication.closeRuntimeAdmission.bind(services.runtimeApplication);
       const runtimeAdmissionClose = jest.spyOn(services.runtimeApplication, 'closeRuntimeAdmission').mockImplementation(() => {
@@ -117,7 +117,7 @@ describe('server lifecycle composition', () => {
       writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), validConfigYaml());
       const environment = await loadEnvironment(['node', 'test', '--project-root', projectRoot], { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined });
 
-      await expect(createServerServices({ environment, terminal })).rejects.toThrow(rejection.message);
+      await expect(createServerServices({ environment, terminal, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' } })).rejects.toThrow(rejection.message);
       expect(markers).toEqual(['allocation-started']);
 
       expect((await terminal.stop()).warnings).toEqual([]);

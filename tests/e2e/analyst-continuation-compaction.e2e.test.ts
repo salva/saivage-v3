@@ -76,6 +76,7 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
     const appLogs = { projectRoot, changes: readModelChanges };
     const cardStore = new CardService(projectRoot, eventBus, readModelChanges);
     const application = createRuntimeApplication({
+      processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' },
       projectRoot,
       config,
       configAuthority: testConfigAuthority(projectRoot),

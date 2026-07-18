@@ -51,6 +51,7 @@ export interface RuntimeLockConfig {
 
 declare const runtimeLifecycleLockHandleBrand: unique symbol;
 export interface RuntimeLifecycleLockHandle { readonly [runtimeLifecycleLockHandleBrand]: never }
+export interface RuntimeProcessIdentity { readonly pid: number; readonly startedAt: string }
 
 interface RuntimeLifecycleLockOwnership {
   active: boolean;
@@ -301,6 +302,7 @@ export function assertRuntimeLifecycleLock(handle: RuntimeLifecycleLockHandle, p
   if (ownership.canonicalProjectRoot !== canonical) throw new Error(`Runtime lifecycle lock belongs to '${ownership.canonicalProjectRoot}', not '${canonical}'.`);
 }
 
-export function runtimeLifecycleLockRecord(handle: RuntimeLifecycleLockHandle): RuntimeLockOwnerRecord {
-  return requireOwnership(handle).record;
+export function runtimeProcessIdentity(handle: RuntimeLifecycleLockHandle): RuntimeProcessIdentity {
+  const record = requireOwnership(handle).record;
+  return { pid: record.pid, startedAt: record.started_at };
 }

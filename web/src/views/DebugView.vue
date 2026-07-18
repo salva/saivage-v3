@@ -23,7 +23,6 @@
               <div class="debug-grid-item"><span class="dg-key">PID:</span><span class="dg-value">{{ runtime.pid }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Started:</span><span class="dg-value">{{ fmtDate(runtime.started_at) }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
-              <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
             <ViewState v-else state="empty" title="No runtime state." />
           </section>
@@ -54,7 +53,6 @@
             <div class="operator-runtime-summary">
               <div class="debug-grid-item"><span class="dg-key">Status:</span><StatusBadge :status="statusForRuntimeStatus(runtimeStatusLabel)" /></div>
               <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
-              <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
 
             <StatusBanner v-if="runtimeRefreshError" tone="warning" :message="runtimeRefreshError" />
@@ -374,7 +372,6 @@ const {
   selectedTimelineKinds,
   runtimeStatusLabel,
   currentCardId,
-  currentAgentSessionId,
   operatorPanelBusy,
   sortedProcesses,
   timelineKindOptions,

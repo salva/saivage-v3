@@ -9,7 +9,7 @@ import {
   selectSortedProcesses,
   selectTimelineKindOptions,
 } from '../stores/debug-read-model';
-import { selectCurrentAgentSessionId, selectCurrentCardId } from '../stores/runtime-read-model';
+import { selectCurrentCardId } from '../stores/runtime-read-model';
 
 export interface ErrorSourceEntry { source: string; errors: DebugError[] }
 export type DebugTabId = 'state' | 'operator' | 'errors' | 'timeline' | 'agents' | 'mcp' | 'processes' | 'supervision';
@@ -31,7 +31,6 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
   const runtimeStatusLabel = computed(() => selectRuntimeStatusLabel(runtimeStore.runtime));
   const runtimeStatusTone = computed(() => selectRuntimeStatusTone(runtimeStore.runtime));
   const currentCardId = computed(() => selectCurrentCardId(runtimeStore.runtime));
-  const currentAgentSessionId = computed(() => selectCurrentAgentSessionId(runtimeStore.runtime));
   const operatorPanelBusy = computed(() => runtimeStore.loading || runtimeStore.refreshing);
   const sortedProcesses = computed(() => selectSortedProcesses(debugStore.processes));
   const timelineKindOptions = computed(() => selectTimelineKindOptions(debugStore.sortedTimeline));
@@ -49,7 +48,6 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
     runtimeStatusLabel,
     runtimeStatusTone,
     currentCardId,
-    currentAgentSessionId,
     operatorPanelBusy,
     sortedProcesses,
     timelineKindOptions,

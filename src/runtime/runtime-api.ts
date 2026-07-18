@@ -31,8 +31,8 @@ export interface RuntimeApi {
   getStatus(): {
     status: RuntimeStatus;
     currentCardId: string | null;
-    goalCount: number;
-    lastTickAt: string | null;
+    pid: number;
+    startedAt: string;
   };
   getRuntimeState(): RuntimeState | null;
   getActorRuntimeReadModel(): ActorRuntimeReadModel;

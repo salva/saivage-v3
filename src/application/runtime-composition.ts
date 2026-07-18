@@ -31,9 +31,11 @@ import { RuntimeControlService, type RuntimeControlApplicationPort, type Runtime
 import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
+import type { RuntimeProcessIdentity } from '../runtime/lock.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
+  processIdentity: RuntimeProcessIdentity;
   eventBus: EventBus;
   cardStore: CardService;
   interventionBinding: RuntimeInterventionBinding;
@@ -68,6 +70,7 @@ export interface RuntimeApplication {
 
 export interface RuntimeApplicationServices {
   projectRoot: string;
+  processIdentity: RuntimeProcessIdentity;
   config: SaivageConfig;
   configAuthority: ResolvedConfigAuthority;
   eventBus: EventBus;
@@ -165,7 +168,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
-  const runtimeMechanics = runtimeFactory({ projectRoot, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
+  const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
   const runtimeControl = new RuntimeControlService({ projectRoot, interventionBinding, mechanics: runtimeMechanics });
   const runtimeComposition = createComposedRuntimeApi({
     runtimeApi: runtimeControl,

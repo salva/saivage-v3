@@ -7,9 +7,10 @@ import { registerServerRoutes } from './composition/route-composition.js';
 import { createServerServices } from './composition/server-services.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import type { AppTerminalRegistration } from '../boot/app.js';
+import type { RuntimeProcessIdentity } from '../runtime/lock.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
-export interface CreateServerOptions { environment: Environment; terminal: AppTerminalRegistration; restartPort?: RestartPort; }
+export interface CreateServerOptions { environment: Environment; terminal: AppTerminalRegistration; processIdentity: RuntimeProcessIdentity; restartPort?: RestartPort; }
 export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; mcpManager: McpManager; runtimeApplication: RuntimeApplication; }
 export function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
 export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) console.warn(`⚠  Binding to ${resolvedHost} without SAIVAGE_API_TOKEN. All API endpoints are unauthenticated.`); }
@@ -18,7 +19,7 @@ function getServerConfig(environment: Environment): ServerConfig { return { host
 export async function createServer(options: CreateServerOptions): Promise<ServerInstance> {
   const environment = options.environment;
   const serverConfig = getServerConfig(environment);
-  const services = await createServerServices({ environment, terminal: options.terminal, restartPort: options.restartPort });
+  const services = await createServerServices({ environment, terminal: options.terminal, processIdentity: options.processIdentity, restartPort: options.restartPort });
 
   registerServerRoutes({
     fastify: services.fastify,

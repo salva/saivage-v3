@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -53,6 +53,11 @@ describe('operator API response contracts', () => {
   });
 
   it('projects process-local runtime without traversing the card inventory', async () => {
+    const store = app.server.runtimeApplication.cardStore;
+    const list = jest.spyOn(store, 'list');
+    const listChildren = jest.spyOn(store, 'listChildren');
+    const ancestors = jest.spyOn(store, 'getAncestors');
+    const history = jest.spyOn(store, 'listCardHistory');
     const response = await app.server.fastify.inject({ method: 'GET', url: '/api/state' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
@@ -61,6 +66,13 @@ describe('operator API response contracts', () => {
       runtime: expect.any(Object),
     });
     expect(response.json()).not.toHaveProperty('cardIndex');
+    const status = await app.server.fastify.inject({ method: 'GET', url: '/api/runtime/status' });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({ currentCardId: null, pid: process.pid, started_at: expect.any(String) });
+    expect(list).not.toHaveBeenCalled();
+    expect(listChildren).not.toHaveBeenCalled();
+    expect(ancestors).not.toHaveBeenCalled();
+    expect(history).not.toHaveBeenCalled();
   });
 
   it('serves root hierarchy and detail as separate resources', async () => {

@@ -94,7 +94,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     const res = await request.get('/api/runtime/card-runs');
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body).toHaveProperty('active_card_run');
+    expect(body).toHaveProperty('current_card_id');
     expect(Array.isArray(body.active_breadcrumb)).toBe(true);
     expect(Array.isArray(body.dormant_planners)).toBe(true);
     expect(Array.isArray(body.cards_with_pending_corrections)).toBe(true);

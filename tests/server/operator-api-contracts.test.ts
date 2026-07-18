@@ -5,10 +5,10 @@ import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContra
 import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
 
 const runtimeState = {
-  status: 'stopped',
+  status: 'running',
   project_id: 'project',
   started_at: '2026-01-01T00:00:00.000Z',
-  active_card_run: null,
+  current_card_id: 'project',
   updated_at: '2026-01-01T00:00:01.000Z',
   pid: 123,
 };
@@ -33,11 +33,10 @@ describe('operator API runtime contract without runtime ledgers', () => {
     const status = parseOperatorResponse('runtime.status', {
       runtime: 'running',
       currentCardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      goalCount: 1,
-      lastTickAt: null,
+      started_at: '2026-01-01T00:00:00.000Z',
       restart_server_available: false,
       pid: 123,
-      actorRuntime: { pauseMode: 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [], recovery: null },
+      actorRuntime: { pauseMode: 'running', cards: [], agents: [] },
     });
     expect(status).not.toHaveProperty('lastCommand');
     expect(status).not.toHaveProperty('activeRun');
@@ -48,6 +47,16 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] } })).toThrow();
     expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
     expect(operatorApiContracts['runtime.status'].success.keyof().options).not.toEqual(expect.arrayContaining(['lastCommand', 'activeRun', 'latestRun']));
+    for (const removed of ['active_card_run', 'last_tick_at']) expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, [removed]: null } })).toThrow();
+    const validStatus = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [], agents: [] } };
+    for (const removed of ['goalCount', 'lastTickAt']) expect(() => parseOperatorResponse('runtime.status', { ...validStatus, [removed]: null })).toThrow();
+    for (const removed of ['activeWork', 'diagnostics']) expect(() => parseOperatorResponse('runtime.status', { ...validStatus, actorRuntime: { ...validStatus.actorRuntime, [removed]: removed === 'diagnostics' ? [] : 'none' } })).toThrow();
+  });
+
+  it('accepts only current_card_id on the runtime card-runs contract', () => {
+    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_planners: [], cards_with_pending_corrections: [] };
+    expect(parseOperatorResponse('runtime.cardRuns', response)).toEqual(response);
+    expect(() => parseOperatorResponse('runtime.cardRuns', { ...response, active_card_run: null })).toThrow();
   });
 
   it('retains concrete runtime response schemas without a runtime summary contract', () => {
@@ -60,7 +69,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(stateSchema.shape).not.toHaveProperty('runtimeSummary');
 
     const statusSchema = operatorApiContracts['runtime.status'].success;
-    expect(statusSchema.keyof().options).toEqual(['runtime', 'currentCardId', 'goalCount', 'lastTickAt', 'restart_server_available', 'pid', 'actorRuntime', 'serverAvailability']);
+    expect(statusSchema.keyof().options).toEqual(['runtime', 'currentCardId', 'started_at', 'restart_server_available', 'pid', 'actorRuntime', 'serverAvailability']);
     expect(statusSchema.shape).not.toHaveProperty('summary');
     expect(statusSchema.shape).not.toHaveProperty('runtimeSummary');
   });

@@ -118,8 +118,10 @@ describe('failed child activation lifecycle E2E', () => {
     supervisor = runtime(projectRoot, cards, provider);
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     await parentAfterFailure.promise;
+    expect(supervisor.getStatus().currentCardId).toBe(parent.id);
+    expect(supervisor.getRuntimeState()?.current_card_id).toBe(parent.id);
 
     const internals = supervisor as unknown as RuntimeInternals;
     const failed = cards.read(failedChild.id)!;
@@ -139,6 +141,8 @@ describe('failed child activation lifecycle E2E', () => {
 
     continueParent.resolve();
     await siblingAdmitted.promise;
+    expect(supervisor.getStatus().currentCardId).toBe(sibling.id);
+    expect(supervisor.getRuntimeState()?.current_card_id).toBe(sibling.id);
     const runningChain = selectRunningCardChain(cards.list()).map((card) => card.id);
     expect(runningChain).toEqual(['project', parent.id, sibling.id]);
     expect(cards.read(failedChild.id)?.status).toBe('failed');
@@ -181,7 +185,7 @@ describe('failed child activation lifecycle E2E', () => {
     const supervisor = runtime(projectRoot, cards, provider, processRunner);
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => cards.read(child.id)?.status === 'failed');
 
     expect(cards.read(child.id)).toMatchObject({ status: 'failed', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'failed', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
@@ -206,7 +210,7 @@ describe('failed child activation lifecycle E2E', () => {
     const supervisor = runtime(projectRoot, cards, { completeTurn: async () => { throw new Error('malformed provider envelope'); } });
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
     expect(cards.read('project')).toMatchObject({ status: 'failed', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'failed', summary: expect.stringContaining('failed without ProviderTurnFailure metadata') }, error: expect.stringContaining('failed without ProviderTurnFailure metadata') } });

@@ -12,22 +12,24 @@ export interface RuntimeControlApplicationPort {
   cancelCard(cardId: string, reason: string): ReturnType<RuntimeApi['cancelCard']>;
 }
 
+declare const runtimeLaunchPlanBrand: unique symbol;
+export interface RuntimeLaunchPlan { readonly [runtimeLaunchPlanBrand]: never }
+
 export interface RuntimeControlMechanics extends Omit<RuntimeApi, 'pause' | 'resume' | 'startProject' | 'stopProject'> {
   closeApplicationAdmission(): void;
   cleanupForApplicationStop(): Promise<void>;
   stopProject(): Promise<StopProjectResult>;
   beginStartProject(): Promise<
     | { readonly accepted: false; readonly result: StartProjectResult }
-    | { readonly accepted: true; readonly state: RuntimeState }
+    | { readonly accepted: true; readonly launch: RuntimeLaunchPlan }
   >;
-  launchStartedProject(state: RuntimeState): void;
-  beginPause(): { readonly patch: Partial<RuntimeState>; readonly settled: boolean };
-  beginResume(current: RuntimeState): RuntimeState;
+  launchStartedProject(launch: RuntimeLaunchPlan): RuntimeState;
+  beginPause(): { readonly settled: boolean };
+  beginResume(): void;
   finishResume(): void;
 }
 
 export class RuntimeControlService implements RuntimeApi {
-  private currentState: RuntimeState | null = null;
   constructor(private readonly options: {
     projectRoot: string;
     interventionBinding: RuntimeInterventionBinding;
@@ -49,10 +51,8 @@ export class RuntimeControlService implements RuntimeApi {
       if (!prepared.accepted) {
         return prepared.result;
       }
-      const runtime = prepared.state;
-      this.currentState = runtime;
+      const runtime = this.requireMechanics().launchStartedProject(prepared.launch);
       const result: StartProjectResult = { runtime, status: runtime.status, started: true, stopped: false };
-      this.requireMechanics().launchStartedProject(runtime);
       return result;
     } catch (error) {
       throw error;
@@ -64,7 +64,6 @@ export class RuntimeControlService implements RuntimeApi {
       const mechanics = this.requireMechanics();
       const prepared = mechanics.beginPause();
       this.options.interventionBinding.markNotReady();
-      if (this.currentState) this.currentState = { ...this.currentState, ...prepared.patch };
       if (prepared.settled) this.options.interventionBinding.markPausedReady();
     } catch (error) {
       throw error;
@@ -73,12 +72,9 @@ export class RuntimeControlService implements RuntimeApi {
 
   resume(): void {
     try {
-      const current = this.currentState;
-      if (!current) throw new Error('Runtime state is unavailable');
       const mechanics = this.requireMechanics();
-      const next = mechanics.beginResume(current);
+      mechanics.beginResume();
       this.options.interventionBinding.markNotReady();
-      this.currentState = next;
       mechanics.finishResume();
     } catch (error) {
       throw error;
@@ -87,7 +83,6 @@ export class RuntimeControlService implements RuntimeApi {
 
   async stopProject(): Promise<StopProjectResult> {
     const result = await this.requireMechanics().stopProject();
-    if (result.contained) this.currentState = null;
     this.options.interventionBinding.markStoppedReady();
     return result;
   }

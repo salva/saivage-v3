@@ -3,7 +3,7 @@ import { basename, resolve } from 'node:path';
 import { loadEnvironment, type Environment } from '../config/index.js';
 import { publishInitialProjectCard } from '../persistence/card-files.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/generated-state.js';
-import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock } from '../runtime/lock.js';
+import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity } from '../runtime/lock.js';
 import type { CardRecord } from '../schemas/index.js';
 import { startServer, type ServerInstance } from '../server/server.js';
 import { createRestartPort } from './restart-port.js';
@@ -147,6 +147,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   const prelock = prelockStartupInputs(options.argv, env);
   const terminal = createAppTerminalCoordinator();
   const lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: prelock.projectRoot, mode: 'bound' });
+  const processIdentity = runtimeProcessIdentity(lifecycleLock);
   terminal.registerCleanupLeaf('lifecycle-lock', () => releaseRuntimeLifecycleLock(lifecycleLock));
   let environment: Environment;
   let server: ServerInstance;
@@ -161,7 +162,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       onAcknowledgedRestart: () => terminal.stop(),
       exit: (code) => process.exit(code),
     });
-    server = await startServer({ environment, terminal, restartPort });
+    server = await startServer({ environment, terminal, restartPort, processIdentity });
     const address = server.fastify.server.address();
     if (address === null || typeof address === 'string') throw new Error('Server did not publish a TCP control address.');
     const dialHost = environment.server.host === '0.0.0.0' || environment.server.host === '::' ? '127.0.0.1' : environment.server.host;

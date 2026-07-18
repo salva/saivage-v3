@@ -21,6 +21,7 @@ export const unusedSummarizerProvider: SummarizerProviderPort = {
 };
 
 export const testAutonomousCompaction = {
+  processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' },
   compactor: testCompactor,
   compactionConfig: testCompactionPolicy,
   summarizerProvider: unusedSummarizerProvider,

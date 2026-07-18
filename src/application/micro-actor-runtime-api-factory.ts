@@ -17,9 +17,11 @@ import type { InvocationRequest } from '../agents/invocation-service.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
+import type { RuntimeProcessIdentity } from '../runtime/lock.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
+  processIdentity: RuntimeProcessIdentity;
   eventBus: EventBus;
   cardStore: CardService & ProjectRootCardReader;
   interventionBinding: RuntimeInterventionBinding;
@@ -40,6 +42,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
 export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps): RuntimeControlMechanics {
   return createSupervisorRuntimeApi({
     projectRoot: deps.projectRoot,
+    processIdentity: deps.processIdentity,
     eventBus: deps.eventBus,
     rootCards: deps.cardStore,
     actorStore: deps.cardStore,

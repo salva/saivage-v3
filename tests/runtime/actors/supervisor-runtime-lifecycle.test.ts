@@ -61,7 +61,7 @@ function projectionSnapshot(supervisor: SupervisorRuntimeApi, intervention: Runt
   const actorRuntime = supervisor.getActorRuntimeReadModel();
   return {
     status: supervisor.getStatus(),
-    runtimeCardId: supervisor.getRuntimeState()?.active_card_run?.card_id ?? null,
+    runtimeCardId: supervisor.getRuntimeState()?.current_card_id ?? null,
     cards: actorRuntime.cards.map(({ cardId }) => cardId),
     agents: actorRuntime.agents.map(({ agentId, phase }) => ({ agentId, phase })),
     readiness: intervention.interventionReadiness(),
@@ -87,7 +87,7 @@ async function startRunningRoot(projectRoot: string) {
   });
   const prepared = await supervisor.beginStartProject();
   if (!prepared.accepted) throw new Error('runtime start was not accepted');
-  supervisor.launchStartedProject(prepared.state);
+  supervisor.launchStartedProject(prepared.launch);
   await new Promise<void>((resolve) => setImmediate(resolve));
   const internals = supervisor as unknown as SupervisorInternals;
   const identity = internals.runIdentity;
@@ -126,12 +126,16 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     });
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
+    expect(Object.keys(prepared)).toEqual(['accepted', 'launch']);
+    expect(supervisor.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
+    expect(supervisor.getRuntimeState()).toBeNull();
     snapshots.length = 0;
 
-    supervisor.launchStartedProject(prepared.state);
-    expect(snapshots.slice(0, 3)).toMatchObject([
-      { status: { status: 'running', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'not_ready' },
-      { status: { status: 'running', currentCardId: null }, runtimeCardId: null, cards: ['project'], agents: [], readiness: 'not_ready' },
+    const launched = supervisor.launchStartedProject(prepared.launch);
+    expect(launched).toEqual(supervisor.getRuntimeState());
+    expect(() => supervisor.launchStartedProject(prepared.launch)).toThrow('foreign, stale, or already consumed');
+    expect(snapshots).toMatchObject([
+      { status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: ['project'], agents: [], readiness: 'stopped' },
       { status: { status: 'running', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'], agents: [], readiness: 'not_ready' },
     ]);
 
@@ -177,12 +181,11 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const internals = supervisor as unknown as SupervisorInternals;
     internals.liveCardActors.set('unprojected-extra', { cardId: 'unprojected-extra' } as CardActor);
 
-    expect(() => supervisor.launchStartedProject(prepared.state)).toThrow('ownership installation is incomplete');
+    expect(() => supervisor.launchStartedProject(prepared.launch)).toThrow('ownership installation is incomplete');
     expect(snapshots.slice(1)).toMatchObject([
-      { status: { status: 'running', currentCardId: null }, runtimeCardId: null, cards: [] },
-      { status: { status: 'running', currentCardId: null }, runtimeCardId: null, cards: ['project'] },
+      { status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: ['project'] },
     ]);
-    expect(supervisor.getStatus()).toMatchObject({ status: 'running', currentCardId: null });
+    expect(supervisor.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(supervisor.getRuntimeState()).toBeNull();
     expect(supervisor.getActorRuntimeReadModel().cards.map(({ cardId }) => cardId)).toEqual(['project']);
   });
@@ -220,7 +223,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     });
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     const internals = supervisor as unknown as SupervisorInternals;
     const rootOwner = internals.cardActors.get('project')!;
     (supervisor as unknown as { releaseSettledActor(actor: CardActor): void }).releaseSettledActor(rootOwner);
@@ -241,17 +244,55 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const statuses: string[] = [];
     changes.subscribe({ runtimeChanged: () => statuses.push(supervisor.getStatus().status), cardProjectionChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
 
-    expect(supervisor.beginPause()).toMatchObject({ settled: false, patch: { status: 'pausing' } });
+    expect(supervisor.beginPause()).toEqual({ settled: false });
     const gate = (supervisor as unknown as { runtimeGate: import('../../../src/runtime/runtime-gate.js').RuntimeGate }).runtimeGate;
     const parked = gate.waitUntilOpen(new AbortController().signal);
     expect(statuses).toEqual(['pausing', 'paused']);
-    const current = supervisor.getRuntimeState();
-    if (!current) throw new Error('paused runtime state is missing');
-    supervisor.beginResume(current);
+    expect(supervisor.getRuntimeState()?.status).toBe('paused');
+    supervisor.beginResume();
     supervisor.finishResume();
     await parked;
     expect(statuses).toEqual(['pausing', 'paused', 'running']);
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+  });
+
+  it('keeps lifecycle identity stable while fresh state observations change', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-stable-identity-'));
+    const { supervisor } = await startRunningRoot(projectRoot);
+    const first = supervisor.getRuntimeState();
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const second = supervisor.getRuntimeState();
+    expect(first).toMatchObject({ pid: 4242, started_at: '2026-07-18T00:00:00.000Z', current_card_id: 'project' });
+    expect(second).toMatchObject({ pid: first?.pid, started_at: first?.started_at, current_card_id: 'project' });
+    expect(second?.updated_at).not.toBe(first?.updated_at);
+    await supervisor.stopProject();
+    expect(supervisor.getStatus()).toMatchObject({ pid: 4242, startedAt: '2026-07-18T00:00:00.000Z', currentCardId: null });
+  });
+
+  it('does not enumerate durable inventory to read status or runtime state', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-read-no-enumeration-'));
+    const { supervisor, cards } = await startRunningRoot(projectRoot);
+    const list = jest.spyOn(cards, 'list');
+    const listChildren = jest.spyOn(cards, 'listChildren');
+    const ancestors = jest.spyOn(cards, 'getAncestors');
+    const history = jest.spyOn(cards, 'listCardHistory');
+    expect(supervisor.getStatus().currentCardId).toBe('project');
+    expect(supervisor.getRuntimeState()?.current_card_id).toBe('project');
+    expect(list).not.toHaveBeenCalled();
+    expect(listChildren).not.toHaveBeenCalled();
+    expect(ancestors).not.toHaveBeenCalled();
+    expect(history).not.toHaveBeenCalled();
+    await supervisor.stopProject();
+  });
+
+  it('throws when runtime identity and active leaf presence disagree', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-currentness-mismatch-'));
+    initProjectTree(projectRoot);
+    const cards = new CardService(projectRoot);
+    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: async () => { throw new Error('unused'); } }, conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: new ReadModelChangeBroadcaster(), processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' } });
+    await supervisor.start();
+    (supervisor as unknown as SupervisorInternals).currentness.setChain(['project']);
+    expect(() => supervisor.getRuntimeState()).toThrow('Runtime identity and active leaf presence disagree.');
   });
 
   it('releases a naturally completed actor from both ownership maps and the actor read model', async () => {
@@ -278,7 +319,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     });
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     const runningVersion = cards.read('project')!.version_seq;
     await waitUntil(() => releaseTerminal !== undefined);
     const internals = supervisor as unknown as SupervisorInternals;
@@ -323,7 +364,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     });
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     const runningVersion = cards.read('project')!.version_seq;
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
@@ -381,7 +422,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
 
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => invocations.length === 1);
 
     const internals = supervisor as unknown as SupervisorInternals;
@@ -412,7 +453,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
 
     const restarted = await supervisor.beginStartProject();
     if (!restarted.accepted) throw new Error('runtime restart was not accepted');
-    supervisor.launchStartedProject(restarted.state);
+    supervisor.launchStartedProject(restarted.launch);
     await waitUntil(() => invocations.length === 2);
 
     const afterCardActors = new Map(internals.cardActors);
@@ -467,7 +508,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
 
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => parentInput !== null);
 
     const rows = readConversation(projectRoot, 'planner:project').physicalRows;
@@ -497,7 +538,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     ]);
     let executorCalls = 0; let parentCalls = 0;
     const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: async (input: LlmInvocationInput) => { if (input.role === 'executor') return complete(++executorCalls === 1 ? tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'Complete.' }) : tool('emit-done', 'emit_result', { status: 'done', summary: 'Child complete.' })); parentCalls += 1; throw new Error('parent provider must not run'); } }, conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' } });
-    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('Run rejected'); supervisor.launchStartedProject(prepared.state);
+    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('Run rejected'); supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
     expect(parentCalls).toBe(0);
     expect(readConversation(projectRoot, 'planner:project').physicalRows).toHaveLength(2);
@@ -551,7 +592,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     await supervisor.start();
     expect(provider.completeTurn).not.toHaveBeenCalled();
     expect([readConversation(projectRoot, 'planner:project').physicalRows.length, readConversation(projectRoot, `planner:${goal.id}`).physicalRows.length, readConversation(projectRoot, leafSession).physicalRows.length]).toEqual(initialRows);
-    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('Run rejected'); supervisor.launchStartedProject(prepared.state);
+    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('Run rejected'); supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => order.some((entry) => entry === 'planner:planner:project'));
     expect(order[0]).toBe(`executor:${leafSession}`);
     expect(order.findIndex((entry) => entry === `planner:planner:${goal.id}`)).toBeGreaterThan(order.lastIndexOf(`executor:${leafSession}`));
@@ -611,7 +652,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
 
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => executorCalls === 2);
     const internals = supervisor as unknown as SupervisorInternals & { preparedLeaf: unknown; runtimeGate: { isOpen: boolean } };
     const identity = internals.runIdentity;
@@ -655,7 +696,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(internals.cardActors.has(child.id)).toBe(false);
     expect(internals.liveCardActors.has(child.id)).toBe(false);
     expect(supervisor.getStatus()).toMatchObject({ status: 'error', currentCardId: goal.id });
-    expect(supervisor.getRuntimeState()).toMatchObject({ status: 'error', active_card_run: null });
+    expect(supervisor.getRuntimeState()).toMatchObject({ status: 'error', current_card_id: expect.any(String) });
     expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', cards: expect.arrayContaining([{ cardId: 'project', actorState: 'running' }, { cardId: goal.id, actorState: 'running' }]) });
     expect(intervention.interventionReadiness()).toBe('not_ready');
     expect(internals.runtimeGate.isOpen).toBe(false);
@@ -673,8 +714,8 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     await expect(supervisor.stopProject()).rejects.toEqual(expect.objectContaining({ code: 'runtime_control_conflict', message: 'Runtime owner cannot be stopped after reconstructed activation result append outcome became unknown; restart the server process.' }));
     read.mockClear(); list.mockClear(); setStatus.mockClear(); changes.runtimeChanged.mockClear();
     const restarted = await supervisor.beginStartProject();
-    expect(restarted).toMatchObject({ accepted: false, result: { status: 'error', started: false, stopped: false, error: 'Runtime owner cannot Run again after reconstructed activation result append outcome became unknown; restart the server process.', runtime: { status: 'error', active_card_run: null } } });
-    expect(read).not.toHaveBeenCalled(); expect(list).not.toHaveBeenCalled(); expect(setStatus).not.toHaveBeenCalled(); expect(changes.runtimeChanged).not.toHaveBeenCalled(); expect(internals.preparedLeaf).toBeNull(); expect(internals.runIdentity).toBe(identity);
+    expect(restarted).toMatchObject({ accepted: false, result: { status: 'error', started: false, stopped: false, error: 'Runtime owner cannot Run again after reconstructed activation result append outcome became unknown; restart the server process.', runtime: { status: 'error', current_card_id: expect.any(String) } } });
+    expect(read).not.toHaveBeenCalled(); expect(list).not.toHaveBeenCalled(); expect(setStatus).not.toHaveBeenCalled(); expect(changes.runtimeChanged).not.toHaveBeenCalled(); expect((internals as unknown as { preparedLaunch: unknown }).preparedLaunch).toBeNull(); expect(internals.runIdentity).toBe(identity);
     await expect(supervisor.cleanupForApplicationStop()).resolves.toBeUndefined();
   });
 
@@ -698,7 +739,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     }) };
     supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, eventBus: bus, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot, changes }, appLogs: { projectRoot }, readModelChanges: changes, processRunner, promptTemplates: { render: () => 'test prompt' } });
     const propagation = jest.spyOn(supervisor as unknown as { handleRootRejection(identity: object, error: unknown): void }, 'handleRootRejection');
-    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('Run 1 rejected'); supervisor.launchStartedProject(prepared.state);
+    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('Run 1 rejected'); supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => stopped !== null);
     await expect(stopped!).resolves.toEqual({ status: 'stopped', contained: true });
     await waitUntil(() => propagation.mock.calls.some(([, error]) => error === exactReason));
@@ -716,7 +757,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const run2ProcessRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
     jest.spyOn(run2ProcessRunner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
     const run2 = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: (input: LlmInvocationInput, signal: AbortSignal) => { run2Input = input; return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })); } }, conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, processRunner: run2ProcessRunner, promptTemplates: { render: () => 'test prompt' } });
-    const prepared2 = await run2.beginStartProject(); if (!prepared2.accepted) throw new Error('Run 2 rejected'); run2.launchStartedProject(prepared2.state);
+    const prepared2 = await run2.beginStartProject(); if (!prepared2.accepted) throw new Error('Run 2 rejected'); run2.launchStartedProject(prepared2.launch);
     await waitUntil(() => run2Input !== null);
     expect(readConversation(projectRoot, 'planner:project').physicalRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === callId)).toHaveLength(1);
     expect(run2Input!.providerConversation.messages.filter((row) => row.kind === 'tool_result' && row.tool_call_id === callId)).toHaveLength(1);
@@ -734,7 +775,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     let supervisor!: SupervisorRuntimeApi; let stopped: Promise<unknown> | null = null; let executorCalls = 0; let parentCalls = 0;
     bus.subscribe('card_history_appended', (event) => { if (event.payload.card_id === child.id && cards.read(child.id)?.status === 'done' && !stopped) stopped = supervisor.stopProject(); }, { propagateErrors: true });
     supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, eventBus: bus, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: async (input: LlmInvocationInput) => { if (input.role === 'executor') return complete(++executorCalls === 1 ? tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'Complete.' }) : tool('emit-done', 'emit_result', { status: 'done', summary: 'Child complete.' })); parentCalls += 1; throw new Error('parent must not run'); } }, conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, processRunner, promptTemplates: { render: () => 'test prompt' } });
-    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('Run 1 rejected'); supervisor.launchStartedProject(prepared.state);
+    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('Run 1 rejected'); supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => stopped !== null); await expect(stopped!).resolves.toEqual({ status: 'stopped', contained: true });
     expect(cards.read(child.id)?.status).toBe('done'); expect(cards.read('project')?.status).toBe('running'); expect(parentCalls).toBe(0);
     const callId = `activate-${child.id}`;
@@ -742,7 +783,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     let run2Input: LlmInvocationInput | null = null;
     const run2ProcessRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()); jest.spyOn(run2ProcessRunner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
     const run2 = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: (input: LlmInvocationInput, signal: AbortSignal) => { run2Input = input; return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })); } }, conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, processRunner: run2ProcessRunner, promptTemplates: { render: () => 'test prompt' } });
-    const prepared2 = await run2.beginStartProject(); if (!prepared2.accepted) throw new Error('Run 2 rejected'); run2.launchStartedProject(prepared2.state); await waitUntil(() => run2Input !== null);
+    const prepared2 = await run2.beginStartProject(); if (!prepared2.accepted) throw new Error('Run 2 rejected'); run2.launchStartedProject(prepared2.launch); await waitUntil(() => run2Input !== null);
     const result = readConversation(projectRoot, 'planner:project').physicalRows.find((row) => row.kind === 'tool_result' && row.tool_call_id === callId)!;
     expect(JSON.parse(result.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
     const internals2 = run2 as unknown as SupervisorInternals; expect([...internals2.cardActors.keys()]).toEqual(['project']);
@@ -759,7 +800,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const mcpManager = { getServerTools: () => [], findToolCapability: () => null, invokeTool: () => mcp.promise };
     const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()); jest.spyOn(processRunner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
     const run1 = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: async () => { run1ProviderCalls += 1; return complete(tool('mcp-pending', 'mcp_tool_call', { serverName: 'test', toolName: 'wait', args: {} })); } }, mcpManagerProvider: () => mcpManager, conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, processRunner, promptTemplates: { render: () => 'test prompt' } });
-    const prepared = await run1.beginStartProject(); if (!prepared.accepted) throw new Error('Run 1 rejected'); run1.launchStartedProject(prepared.state);
+    const prepared = await run1.beginStartProject(); if (!prepared.accepted) throw new Error('Run 1 rejected'); run1.launchStartedProject(prepared.launch);
     await waitUntil(() => readConversation(projectRoot, `executor:${child.id}`).physicalRows.some((row) => row.kind === 'tool_call' && row.tool_call_id === 'mcp-pending'));
     const stopping = run1.stopProject();
     mcp.resolve({ completed_after_stop: true });
@@ -771,7 +812,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const order: string[] = []; let executorCalls = 0; let parentInput: LlmInvocationInput | null = null;
     const run2ProcessRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()); jest.spyOn(run2ProcessRunner, 'terminateScopeTree').mockResolvedValue({ selected: [], stopped: [], failed: [] });
     const run2 = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: async (input: LlmInvocationInput, signal: AbortSignal) => { order.push(`${input.role}:${input.sessionId}`); if (input.role === 'executor') { executorCalls += 1; if (executorCalls === 1) { const recovered = input.providerConversation.messages.find((row) => row.kind === 'tool_result' && row.tool_call_id === 'mcp-pending')!; expect(JSON.parse(recovered.content)).toMatchObject({ success: false, data: { outcome_unknown: true } }); return complete(tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'Complete.' })); } return complete(tool('emit-done', 'emit_result', { status: 'done', summary: 'Child complete.' })); } parentInput = input; return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })); } }, conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, processRunner: run2ProcessRunner, promptTemplates: { render: () => 'test prompt' } });
-    const prepared2 = await run2.beginStartProject(); if (!prepared2.accepted) throw new Error('Run 2 rejected'); run2.launchStartedProject(prepared2.state); await waitUntil(() => parentInput !== null);
+    const prepared2 = await run2.beginStartProject(); if (!prepared2.accepted) throw new Error('Run 2 rejected'); run2.launchStartedProject(prepared2.launch); await waitUntil(() => parentInput !== null);
     expect(order[0]).toBe(`executor:executor:${child.id}`);
     const callId = `activate-${child.id}`;
     const parentResult = parentInput!.providerConversation.messages.find((row) => row.kind === 'tool_result' && row.tool_call_id === callId)!;
@@ -802,7 +843,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(internals.runIdentity).toBeNull();
     expect(internals.liveCardActors.size).toBe(0);
     expect(internals.cardActors.size).toBe(0);
-    expect(supervisor.getActorRuntimeReadModel()).toEqual({ pauseMode: 'idle', activeWork: 'none', cards: [], agents: [], diagnostics: [] });
+    expect(supervisor.getActorRuntimeReadModel()).toEqual({ pauseMode: 'idle', cards: [], agents: [] });
     expect(provider.completeTurn).not.toHaveBeenCalled();
   });
 
@@ -839,7 +880,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     });
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => terminalSignal !== null);
     const internals = supervisor as unknown as SupervisorInternals;
     const owner = internals.liveCardActors.get(child.id)!;
@@ -918,7 +959,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     });
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
-    supervisor.launchStartedProject(prepared.state);
+    supervisor.launchStartedProject(prepared.launch);
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     await expect(supervisor.stopProject()).rejects.toBeInstanceOf(RuntimeContainmentError);

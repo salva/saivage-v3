@@ -29,7 +29,6 @@
               <span class="status-key">Active card</span>
               <button class="mission-active-link" @click="goToCard(currentCardId)">
                 <span class="mission-active-title">{{ activeCardTitle }}</span>
-                <span class="mission-active-phase">{{ runtime?.active_card_run?.phase ?? 'active' }}</span>
               </button>
             </div>
           </section>

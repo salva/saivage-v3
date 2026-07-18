@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, readRuntimeLockStatus, releaseRuntimeLifecycleLock, runtimeLifecycleLockRecord, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
+import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, readRuntimeLockStatus, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 
 describe('five-way runtime lifecycle lock classification', () => {
@@ -15,7 +15,10 @@ describe('five-way runtime lifecycle lock classification', () => {
   it('publishes the sole strict control endpoint authority', () => {
     handle = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
     publishRuntimeControlEndpoint(handle, { origin: 'http://127.0.0.1:4321', auth: 'bearer' });
-    expect(readRuntimeLockStatus(root)).toEqual({ kind: 'live', record: runtimeLifecycleLockRecord(handle) });
+    const status = readRuntimeLockStatus(root);
+    expect(status.kind).toBe('live');
+    if (status.kind !== 'live') throw new Error('live lifecycle owner expected');
+    expect(runtimeProcessIdentity(handle)).toEqual({ pid: status.record.pid, startedAt: status.record.started_at });
   });
 
   it('distinguishes missing, dead, indeterminate, and malformed without removal', () => {
