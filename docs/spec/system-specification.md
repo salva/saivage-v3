@@ -14,7 +14,51 @@ One non-root creation attempt freshly admits its parent, then directly claims th
 
 Cards form a strict tree. Project and goal cards are planning cards; architecture, code, test, doc, data, research, and ops are terminal cards. Card type is chosen exactly once in the initial card row, and every later card version and the optional tombstone retain it. A card's planning/terminal role, processor, and eligible session identities therefore cannot change during its durable lifetime. Card statuses are `backlog | changed | running | blocked | done | failed | cancelled`. Running cards form one ancestor chain and only the deepest leaf performs work.
 
-In the Cards operator view, the opaque ID in `/cards/:id` is the sole selected-card authority. Hierarchy is loaded as immutable successful immediate-child slices keyed by stable parent ID, beginning with the `/api/cards/project/children` request; expansion requests only the selected node's exact children route. The client derives mutable one-based display paths from represented active sibling order. On a cold store, route reveal loads each required ancestor-parent slice in order and follows an edge only when the containing successful slice represents it. A retained successful slice is never refreshed by expansion, route reveal, live hints, or reconnect and remains the displayed snapshot until CardStore reset. Consequently, current detail may return 200 and remain visible while a retained stale ancestor slice leaves the selected tree row and Path unrevealed; detail 404 establishes only detail-resource absence and neither clears nor certifies hierarchy. Route-required reveal takes precedence over collapse intent only along represented edges. Hierarchy and route-selected detail loading/error state are independent, so detail loading or failure does not unmount or replace the tree. Desktop uses independently scrolling tree and detail panes with no combined Cards scroll, while mobile presents the tree or selected detail as one pane with Back returning to the tree.
+In the Cards operator view, the opaque ID in `/cards/:id` is the sole selected-card authority. CardStore is the singular Cards data and freshness owner: it owns disjoint immediate-child slices keyed by stable parent ID, route-selected detail, the three selected latest-closed authored-record slots, the mounted selected history list, its immutable selected entry, and its displayed current-relative diff. Bootstrap alone initiates the one ordinary `/api/cards/project/children` root request; Cards view mount does not duplicate it. Expansion requests only the selected node's exact children route, and the client derives mutable one-based display paths from represented active sibling order. Hierarchy and route-selected detail, records, history, and diff remain separate REST authorities, so one completion never merges or normalizes another.
+
+Cards freshness frames are strict exact targets; the broad `{t:'invalidate',resource:'cards'}` frame is invalid. The complete wire union is:
+
+```text
+{t:'invalidate',resource:'cards',scope:'children',card_id:<parent-id>}
+{t:'invalidate',resource:'cards',scope:'detail',card_id:<card-id>}
+{t:'invalidate',resource:'cards',scope:'history',card_id:<card-id>}
+{t:'invalidate',resource:'cards',scope:'diff',card_id:<card-id>}
+{t:'invalidate',resource:'cards',scope:'record',card_id:<card-id>,slot:'brief'|'status'|'review'}
+```
+
+`children.card_id` names the parent key of `GET /api/cards/:id/children`; `history` names descending card-version headers; `diff` names a displayed diff against current; and `record` names one latest closed authored slot. The mutation owner publishes targets only after successful canonical publication, according to this effect matrix:
+
+| Successful mutation effect | Exact Cards targets |
+| --- | --- |
+| Any actual current card-version change to `C` | `detail(C)`, `history(C)`, `diff(C)`, `children(C)`, and `children(P)` when `C` has active parent `P` |
+| Child link or reorder owned by parent `C` | the preceding version targets for `C`, including `children(C)` for membership/order and `children(P)` when `P` exists because `C`'s containing row changed |
+| Tombstone of `C` | `detail(C)`, `history(C)`, `diff(C)`, `children(C)`, `children(P)` when non-root, and `record(C,brief|status|review)` |
+| New latest closed authored slot for `C` | only `record(C,slot)` |
+
+No-op and reported write failure emit nothing. Creation's pre-link initial brief emits no record target; the successful parent link emits its parent-version targets. Authored open, edit, and discard do not change the exposed latest-closed projection and emit nothing; close emits only its exact record slot and never card-version history. Subtree deletion emits each successfully committed tombstone's targets from its preflight-known parent before attempting the next append. Targets do not cascade above the containing parent.
+
+An exact invalidation refreshes only an accepted loaded slice or the currently selected accepted and visible detail/record/history/diff scope. A reconnect takes one synchronous bounded snapshot of accepted hierarchy slices plus the selected accepted detail and record slots, mounted accepted history, and visible accepted current-relative diff, then refreshes each member once. It does not discover ancestors, preload branches, refresh hidden or unselected resources, or retry a scope already stale because its previous refresh failed. The initial socket open for each authentication/configuration identity is baseline-only; every `reconfigure()` resets this one-open suppression before replacing the connection. Bootstrap/token change reconfigures, resets CardStore, and starts exactly one ordinary root load whether that request is still pending or already accepted when the baseline socket opens. Later opens are reconnect-eligible.
+
+Each exact scope has one current request-owner object containing its `AbortController` and promise. A newer same-scope request immediately aborts and replaces it; success, rejection, and finalization may mutate state only while that exact owner remains current. Selected record reads pass their per-slot abort signal through the Files request and additionally require the same selected `{cardId,slot}` owner, so a completion after route change cannot affect the new card. Reset aborts and removes every owner before clearing accepted state. Refresh starts by marking only that accepted scope stale; success atomically replaces it and clears stale state. Failure retains the exact accepted data, marks only that scope `refresh-failed`, displays the error, and waits for its explicit exact Retry. Retry performs one immediate REST request, does not refresh siblings, and schedules no further work. There is no Cards polling, timer, automatic retry, trailing refresh, sequence ledger, acknowledgement, replay, persistent cache, or global refetch.
+
+Every displayed “Diff vs current” request has the singular identity `{cardId,fromSeq,to:'current'}` and serializes literal `?from=<positive-safe-integer>&to=current`. The numeric response `to` records which authoritative current version was compared; it never becomes a later request pivot. Diff refresh is therefore independent of detail completion order or failure.
+
+Current authored-record 404 handling depends only on HTTP status, slot, request phase, and the preceding accepted state; the client never parses backend error text:
+
+| Request state and outcome | CardStore result |
+| --- | --- |
+| Initial required `brief` 200 | accept content |
+| Initial required `brief` 404 | initial error, with no accepted value |
+| Initial optional `status`/`review` 200 | accept content |
+| Initial optional `status`/`review` 404 | successfully accept empty |
+| Any refresh 200 | accept returned content and clear stale/error |
+| Refresh 404 after accepted content, for any slot | retain exact content stale, expose the refresh error and exact Retry |
+| Refresh 404 after accepted empty optional `status`/`review` | accept unchanged empty successfully and clear transient stale/error |
+| Any non-404 refresh failure after accepted content or empty | retain that exact accepted state stale, expose the refresh error and exact Retry |
+
+An initial non-404 failure is an initial error; required `brief` has no accepted-empty state. This distinction follows the append-only latest-closed model: accepted closed content cannot disappear or revert on an active card, while tombstone/path opacity uses the same 404 as optional absence, so a refresh 404 cannot authorize discarding content. An optional slot already accepted empty still represents the same absence after another 404, so that refresh is successful unchanged-empty. Independently invalidated hierarchy/detail surfaces expose card inaccessibility without inventing or erasing authored content.
+
+On a cold store, route reveal loads each required ancestor-parent slice in order and follows an edge only when the containing accepted non-stale slice represents it. A stale or failed required slice stops traversal without consuming obsolete membership or auto-retrying. After a relevant ancestor slice is successfully replaced, CardsView invokes the existing reveal action once; that action may continue through newly represented idle descendants, sharing exact in-flight owners, and is bounded by the five-segment card-ID depth. An irrelevant branch replacement does nothing, and a failed-stale ancestor waits for explicit Retry. Current detail may remain visible while an absent or stale represented edge leaves the selected tree row and Path unrevealed; detail 404 establishes only detail-resource absence and neither clears nor certifies hierarchy. Route-required reveal takes precedence over collapse intent only along represented edges. Desktop uses independently scrolling tree and detail panes with no combined Cards scroll, while mobile presents the tree or selected detail as one pane with Back returning to the tree.
 
 Every card requires ordered `pending_notifications`. Notifications are allowed on backlog, changed, running, and blocked cards. Done, failed, and cancelled cards require an empty list and reject enqueue with `terminal_card`. Unrelated mutations preserve the list; terminal transitions clear it. Reopening a terminal card uses only the supported `setStatus('changed')` transition; no actor callback or lifecycle-repair authority exists. No `next_role`, retry count, reviewer phase, recovery cursor, or autonomous-round counter exists.
 
