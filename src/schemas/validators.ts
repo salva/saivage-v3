@@ -19,7 +19,7 @@ import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageI
 import { cardDepth, cardIdSchema, cardParentId } from './card-id.js';
 import { parseCanonicalContextCompaction } from './context-compaction.js';
 import { ConversationSessionIdSchema } from './conversation-session-id.js';
-export { canonicalUuidSchema, nonRootCardIdSchema } from './card-id.js';
+export { nonRootCardIdSchema } from './card-id.js';
 export { cardIdSchema };
 export { roundIdGrammar, assertRoundId, type RoundKind } from './round-id.js';
 

@@ -229,4 +229,4 @@ export {
   loggedEventSchemaByKind,
   loggedEventSchema,
 } from './validators.js';
-export { canonicalUuidSchema, cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './validators.js';
+export { cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './validators.js';

@@ -85,7 +85,7 @@ export class CardService {
   get namespace() { return { activeCardIds: () => this.list().map((card) => card.id), isActiveCardId: (cardId: string) => this.read(cardId) !== null }; }
 
   private state(): CardIndex {
-    const state = new CardIndex(this.maxDepth);
+    const state = new CardIndex();
     for (const card of listCards(this.projectRoot).sort((left, right) => left.depth - right.depth)) state.upsert(card);
     return state;
   }
