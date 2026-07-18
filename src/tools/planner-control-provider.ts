@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 
-import type { CardActivationAdmissionProjection, CardService, NewCardInput } from '../cards/card-api.js';
+import type { CardActivationAdmissionProjection, CardPatch, CardService, NewCardInput } from '../cards/card-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
 import { queueNotification } from '../notifications/index.js';
 import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
@@ -21,7 +21,7 @@ interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
   readActivationAdmission(cardId: string): CardActivationAdmissionProjection | null;
   create?(input: NewCardInput): CardRecord;
-  mutateCard?(cardId: string, changes: Partial<CardRecord>, ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): CardRecord;
+  mutateCard?(cardId: string, changes: CardPatch, ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): CardRecord;
   setStatus(cardId: string, status: 'changed' | 'running'): CardRecord;
   reorderChildren?(parentId: string, orderedChildIds: string[], ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): ReorderChildrenResult;
 }
@@ -216,8 +216,8 @@ function plannerCreatedType(value: string): { success: true; type: Exclude<CardT
   return { success: true, type: value as Exclude<CardType, 'project'> };
 }
 
-function plannerEditablePatch(record: z.infer<typeof editCardSchema>): Partial<CardRecord> {
-  const patch: Partial<CardRecord> = {};
+function plannerEditablePatch(record: z.infer<typeof editCardSchema>): CardPatch {
+  const patch: CardPatch = {};
   if (record.title !== undefined) patch.title = requireNonEmptyString(record.title, 'title');
   if (record.tags !== undefined) patch.tags = record.tags;
   if (record.priority !== undefined) patch.priority = record.priority;

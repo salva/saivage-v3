@@ -1,7 +1,7 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { BlockedResult, CardNotification, CardRecord, CardStatus, DoneResult, FailedResult, ReworkResult } from '../../schemas/index.js';
-import type { NewCardInput } from '../../cards/card-api.js';
+import type { CardPatch, NewCardInput } from '../../cards/card-api.js';
 import type { CardMutationContext } from '../../cards/lifecycle.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
@@ -70,9 +70,9 @@ export type ActorJoinOutcome =
 export interface CardActorStorePort {
   read(cardId: string): CardRecord | null;
   create?(input: NewCardInput): CardRecord;
-  mutateCard?(cardId: string, changes: Partial<CardRecord>, ctx: CardMutationContext): CardRecord;
+  mutateCard?(cardId: string, changes: CardPatch, ctx: CardMutationContext): CardRecord;
   setStatus(cardId: string, status: CardStatus): CardRecord;
-  commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
+  commitTerminalLifecyclePatch(cardId: string, changes: CardPatch): CardRecord;
   listChildren?(cardId: string): string[];
   readRecord(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection;
   closeRecord(cardId: string, filename: string, version: number, writer: import('../../schemas/index.js').AgentRole, cardVersionSeq: number): RecordProjection;
@@ -552,7 +552,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
   });
 }
 
-export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>, completedAt: string): Partial<CardRecord> {
+export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>, completedAt: string): CardPatch {
   const lifecycle = outcome.status === 'done'
     ? { status: 'done' as const, result: outcome.result, error: null, completed_at: completedAt }
     : outcome.status === 'failed'

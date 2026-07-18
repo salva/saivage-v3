@@ -68,9 +68,11 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     events.push('status-running');
     return card('running');
   });
+  const mutateCard = jest.fn<NonNullable<PlannerControlProviderContext['store']['mutateCard']>>((_cardId, changes) => card('backlog', changes));
   const store: PlannerControlProviderContext['store'] = {
     read: jest.fn((_cardId: string) => admission?.child ?? null),
     readActivationAdmission,
+    mutateCard,
     setStatus,
   };
   const provider = createPlannerControlProvider({
@@ -82,17 +84,29 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     cancelCard: async () => { throw new Error('unused'); },
     appLogs: testAppLogs('/test/planner-control'),
   });
+  const surface = buildInvocationSurface('planner', [provider]);
   return {
     actor,
     events,
     get,
     readActivationAdmission,
     setStatus,
-    invoke: () => invokeTool(buildInvocationSurface('planner', [provider]), 'activate_card', { card_id: CHILD }),
+    mutateCard,
+    surface,
+    invoke: () => invokeTool(surface, 'activate_card', { card_id: CHILD }),
   };
 }
 
 describe('planner activate_card dependency-completion admission', () => {
+  it('rejects type as an extra edit_card field before mutating the card', async () => {
+    const test = harness(projection(card()));
+
+    await expect(invokeTool(test.surface, 'edit_card', { card_id: CHILD, title: 'Retitle', type: 'test' }))
+      .resolves.toMatchObject({ success: false, error: expect.stringContaining('Unrecognized key') });
+    expect(test.mutateCard).not.toHaveBeenCalled();
+    expect(test.setStatus).not.toHaveBeenCalled();
+  });
+
   it('preserves missing-target and immediate-child failures before actor lookup', async () => {
     const missing = harness(null);
     await expect(missing.invoke()).resolves.toEqual({ success: false, error: `Child card '${CHILD}' not found.` });

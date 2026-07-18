@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardService } from '../../src/cards/card-service.js';
-import type { NewCardInput } from '../../src/cards/lifecycle.js';
+import type { CardPatch, NewCardInput } from '../../src/cards/lifecycle.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { EventBus } from '../../src/events/index.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
@@ -29,21 +29,38 @@ type PublicationSnapshot = {
   kind: 'card' | 'runtime';
   card: ReturnType<CardService['read']>;
   listedIds: string[];
+  byType: Record<string, string[]>;
 };
 
-function observableCardService(root: string): { cards: CardService; publications: PublicationSnapshot[] } {
+function observableCardService(root: string): { cards: CardService; publications: PublicationSnapshot[]; historyEvents: string[] } {
   const changes = new ReadModelChangeBroadcaster();
   const publications: PublicationSnapshot[] = [];
+  const historyEvents: string[] = [];
+  const eventBus = new EventBus();
+  eventBus.subscribe('card_history_appended', ({ payload }) => { historyEvents.push(payload.card_id); });
   let cards!: CardService;
+  const snapshot = (kind: PublicationSnapshot['kind']): PublicationSnapshot => {
+    const listed = cards.list();
+    const byType = listed.reduce<Record<string, string[]>>((index, card) => {
+      (index[card.type] ??= []).push(card.id);
+      return index;
+    }, {});
+    return {
+      kind,
+      card: cards.read(FIRST),
+      listedIds: listed.map(({ id }) => id),
+      byType,
+    };
+  };
   changes.subscribe({
-    cardStateChanged: () => publications.push({ kind: 'card', card: cards.read(FIRST), listedIds: cards.list().map(({ id }) => id) }),
-    runtimeChanged: () => publications.push({ kind: 'runtime', card: cards.read(FIRST), listedIds: cards.list().map(({ id }) => id) }),
+    cardStateChanged: () => publications.push(snapshot('card')),
+    runtimeChanged: () => publications.push(snapshot('runtime')),
     agentsChanged: () => undefined,
     conversationChanged: () => undefined,
   });
   const segments = [FIRST_SEGMENT, SECOND_SEGMENT, THIRD_SEGMENT];
-  cards = new CardService(root, undefined, changes, () => segments.shift()!);
-  return { cards, publications };
+  cards = new CardService(root, eventBus, changes, () => segments.shift()!);
+  return { cards, publications, historyEvents };
 }
 
 describe('CardService final reset-only contracts', () => {
@@ -229,16 +246,17 @@ describe('CardService final reset-only contracts', () => {
     cards.create(input());
     expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
     expect(publications.every(({ card, listedIds }) => card?.id === FIRST && listedIds.includes(FIRST))).toBe(true);
+    expect(publications.every(({ byType }) => byType.code?.includes(FIRST))).toBe(true);
 
     publications.length = 0;
     cards.deleteSubtrees([FIRST], { actor: 'runtime', surface: 'runtime' }, () => true);
     expect(publications).toEqual([
-      { kind: 'card', card: null, listedIds: ['project'] },
-      { kind: 'runtime', card: null, listedIds: ['project'] },
+      { kind: 'card', card: null, listedIds: ['project'], byType: { project: ['project'] } },
+      { kind: 'runtime', card: null, listedIds: ['project'], byType: { project: ['project'] } },
     ]);
   });
 
-  it('publishes runtime exactly once for each actual pruned status or type patch', () => {
+  it('publishes runtime exactly once for actual status patches and not ordinary edits', () => {
     const { cards, publications } = observableCardService(root);
     cards.create(input());
 
@@ -249,9 +267,9 @@ describe('CardService final reset-only contracts', () => {
 
     cards.setStatus(FIRST, 'backlog');
     publications.length = 0;
-    cards.update(FIRST, { type: 'test' });
-    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
-    expect(publications.every(({ card }) => card?.type === 'test')).toBe(true);
+    cards.update(FIRST, { title: 'Edited without changing runtime indexes' });
+    expect(publications.map(({ kind }) => kind)).toEqual(['card']);
+    expect(publications[0]?.card).toMatchObject({ type: 'code', title: 'Edited without changing runtime indexes' });
 
     cards.setStatus(FIRST, 'running');
     publications.length = 0;
@@ -260,7 +278,22 @@ describe('CardService final reset-only contracts', () => {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'complete' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' },
     });
     expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
-    expect(publications.every(({ card }) => card?.status === 'done' && card.type === 'test')).toBe(true);
+    expect(publications.every(({ card }) => card?.status === 'done' && card.type === 'code')).toBe(true);
+  });
+
+  it('rejects a forged type patch before append or success effects and preserves the readable stream', () => {
+    const { cards, publications, historyEvents } = observableCardService(root);
+    cards.create(input());
+    const initialHistoryEvents = historyEvents.length;
+    publications.length = 0;
+
+    expect(() => cards.update(FIRST, { type: 'test' } as unknown as CardPatch))
+      .toThrow("mutates immutable field 'type'");
+
+    expect(publications).toEqual([]);
+    expect(historyEvents).toHaveLength(initialHistoryEvents);
+    expect(cards.read(FIRST)).toMatchObject({ id: FIRST, type: 'code', version_seq: 1 });
+    expect(cards.listCardHistory(FIRST)).toEqual([]);
   });
 
   it('keeps no-op patches silent and real non-index updates card-only', () => {
@@ -277,15 +310,12 @@ describe('CardService final reset-only contracts', () => {
     expect(publications[0]?.card?.title).toBe('Updated title');
   });
 
-  it('publishes no post-success hints when create, update, or delete fails', () => {
+  it('publishes no post-success hints when create or delete fails', () => {
     const { cards, publications } = observableCardService(root);
     cards.create(input());
 
     publications.length = 0;
     expect(() => cards.create({ ...input(), depends_on: ['card-zzzzzzzzzzzzzzzzzzzzzzzzzzzz'] })).toThrow();
-    expect(publications).toEqual([]);
-
-    expect(() => cards.update(FIRST, { type: 'project' })).toThrow(/Cannot change card/);
     expect(publications).toEqual([]);
 
     expect(() => cards.deleteSubtrees(['project'], { actor: 'runtime', surface: 'runtime' }, () => true)).toThrow(/cannot be deleted/);
@@ -329,29 +359,14 @@ describe('CardService final reset-only contracts', () => {
     expect(afterFailure).toEqual(['close']);
   });
 
-  it.each([
-    { kind: 'type', value: 'architecture' },
-    { kind: 'type', value: 'code' },
-    { kind: 'type', value: 'test' },
-    { kind: 'type', value: 'doc' },
-    { kind: 'type', value: 'data' },
-    { kind: 'type', value: 'research' },
-    { kind: 'type', value: 'ops' },
-    { kind: 'status', value: 'blocked' },
-    { kind: 'status', value: 'done' },
-    { kind: 'status', value: 'failed' },
-    { kind: 'status', value: 'cancelled' },
-  ] as const)('rechecks fresh parent $kind admission before claiming a child namespace ($value)', ({ kind, value }) => {
+  it.each(['blocked', 'done', 'failed', 'cancelled'] as const)('rechecks fresh parent status admission before claiming a child namespace (%s)', (value) => {
     const initial = new CardService(root, undefined, undefined, () => FIRST_SEGMENT);
     const parent = initial.create({ ...input(), type: 'goal' });
     const identity = jest.fn(() => {
-      if (kind === 'type') initial.update(parent.id, { type: value });
-      else {
-        initial.setStatus(parent.id, 'running');
-        if (value === 'blocked') initial.commitTerminalLifecyclePatch(parent.id, { status: value, lifecycle: { status: value, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null } });
-        else if (value === 'cancelled') initial.setStatus(parent.id, value);
-        else initial.commitTerminalLifecyclePatch(parent.id, { status: value, lifecycle: value === 'done' ? { status: value, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } : { status: value, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-17T00:00:00.000Z' } });
-      }
+      initial.setStatus(parent.id, 'running');
+      if (value === 'blocked') initial.commitTerminalLifecyclePatch(parent.id, { status: value, lifecycle: { status: value, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null } });
+      else if (value === 'cancelled') initial.setStatus(parent.id, value);
+      else initial.commitTerminalLifecyclePatch(parent.id, { status: value, lifecycle: value === 'done' ? { status: value, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } : { status: value, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-17T00:00:00.000Z' } });
       return SECOND_SEGMENT;
     });
     const creating = new CardService(root, undefined, undefined, identity);

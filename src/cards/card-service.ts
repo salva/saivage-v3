@@ -48,6 +48,7 @@ import {
   removeCardNotifications,
   summarizeChangedFields,
   validateTransition,
+  type CardPatch,
   type CardMutationContext,
   type NewCardInput,
 } from './lifecycle.js';
@@ -61,7 +62,7 @@ export type CardActivationAdmissionProjection = {
   dependencies: Array<{ id: string; status: CardStatus }>;
 };
 
-export type { CardDiffEntry, CardMutationContext, NewCardInput, RecordProjection };
+export type { CardDiffEntry, CardMutationContext, CardPatch, NewCardInput, RecordProjection };
 
 function clone<T>(value: T): T { return structuredClone(value); }
 
@@ -173,22 +174,22 @@ export class CardService {
     return clone(card);
   }
 
-  update(id: string, changes: Partial<CardRecord>): CardRecord { return this.applyPatch(id, changes, 'update', { actor: 'runtime', surface: 'runtime', reason: 'update' }); }
-  mutateCard(id: string, changes: Partial<CardRecord>, ctx: CardMutationContext): CardRecord { return this.applyPatch(id, changes, 'mutate', ctx); }
-  commitTerminalLifecyclePatch(id: string, changes: Partial<CardRecord>): CardRecord { return this.applyPatch(id, changes, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' }); }
+  update(id: string, changes: CardPatch): CardRecord { return this.applyPatch(id, changes, 'update', { actor: 'runtime', surface: 'runtime', reason: 'update' }); }
+  mutateCard(id: string, changes: CardPatch, ctx: CardMutationContext): CardRecord { return this.applyPatch(id, changes, 'mutate', ctx); }
+  commitTerminalLifecyclePatch(id: string, changes: CardPatch): CardRecord { return this.applyPatch(id, changes, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' }); }
   setStatus(id: string, status: CardStatus): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); if (status === 'done' || status === 'failed') throw new Error(`setStatus does not support '${status}'.`); validateTransition(card.status, status); if (card.status === status) return card; return this.applyPatch(id, { status, lifecycle: buildSetStatusLifecycle(card, status) }, 'status', { actor: 'runtime', surface: 'runtime', reason: `status -> ${status}` }); }
   enqueueNotification(id: string, notification: CardNotification): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = enqueueCardNotification(card, notification); return this.applyPatch(id, { pending_notifications: next.pending_notifications }, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'notification enqueued' }); }
   removeNotifications(id: string, notificationIds: readonly string[]): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = removeCardNotifications(card, notificationIds); return this.applyPatch(id, { pending_notifications: next.pending_notifications }, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'notifications delivered' }); }
 
-  private applyPatch(id: string, changes: Partial<CardRecord>, kind: 'update' | 'status' | 'mutate' | 'depends', ctx: CardMutationContext): CardRecord {
+  private applyPatch(id: string, changes: CardPatch, kind: 'update' | 'status' | 'mutate' | 'depends', ctx: CardMutationContext): CardRecord {
     const existing = this.read(id); if (!existing) throw new Error(`Card '${id}' not found.`);
     const real = prunePartialPatch(existing, changes); if (Object.keys(real).length === 0) return existing;
-    const candidate = cardRecordSchema.parse(buildUpdatedCard(existing, real, new Date().toISOString(), { childCount: this.listChildren(id).length }, ctx));
+    const candidate = cardRecordSchema.parse(buildUpdatedCard(existing, real, new Date().toISOString(), ctx));
     if (real.depends_on && this.detectCycles(id, candidate.depends_on).length > 0) throw new Error(`Dependency cycle detected for '${id}'.`);
     const fields = collectChangedFields(existing, candidate, real);
     const history = historyEntry(existing, kind, ctx, fields, summarizeChangedFields(fields));
     publishCardVersion(this.projectRoot, candidate, history, this.cardAppendIo);
-    this.publishHistoryEffects(history, Object.hasOwn(real, 'status') || Object.hasOwn(real, 'type'));
+    this.publishHistoryEffects(history, Object.hasOwn(real, 'status'));
     return clone(candidate);
   }
 
@@ -201,7 +202,7 @@ export class CardService {
     orderedChildIds.forEach((id, position) => {
       const existing = childrenById.get(id)!;
       if (existing.position === position) return;
-      const candidate = cardRecordSchema.parse(buildUpdatedCard(existing, { position }, new Date().toISOString(), { childCount: readLinkedChildren(this.projectRoot, id).length }, ctx));
+      const candidate = cardRecordSchema.parse(buildUpdatedCard(existing, { position }, new Date().toISOString(), ctx));
       const history = historyEntry(existing, 'mutate', ctx, ['position'], 'position updated');
       publishCardVersion(this.projectRoot, candidate, history, this.cardAppendIo);
       this.publishHistoryEffects(history, false);

@@ -73,6 +73,19 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(contractsModule).not.toHaveProperty('DebugStateResponseSchema');
   });
 
+  it('keeps the operator card route inventory read-only', () => {
+    const cardRoutes = operatorRouteInventory().filter(({ path }) => path.startsWith('/api/cards'));
+
+    expect(cardRoutes).toEqual([
+      expect.objectContaining({ operationId: 'cards.list', method: 'GET', path: '/api/cards' }),
+      expect.objectContaining({ operationId: 'cards.get', method: 'GET', path: '/api/cards/:id' }),
+      expect.objectContaining({ operationId: 'cards.history.list', method: 'GET', path: '/api/cards/:id/history' }),
+      expect.objectContaining({ operationId: 'cards.history.get', method: 'GET', path: '/api/cards/:id/history/:seq' }),
+      expect.objectContaining({ operationId: 'cards.diff', method: 'GET', path: '/api/cards/:id/diff' }),
+    ]);
+    expect(cardRoutes.every(({ method }) => method === 'GET')).toBe(true);
+  });
+
   it('accepts only current availability component sources', () => {
     expect(AvailabilityComponentSourceSchema.safeParse('runtime-application').success).toBe(true);
     expect(AvailabilityComponentSourceSchema.safeParse('runtime-state').success).toBe(false);

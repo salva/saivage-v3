@@ -53,7 +53,7 @@ export function validateCardStream(rows: readonly CardStreamRow[], path: string,
       const childLink = row.history!.kind === 'child_link';
       const validLink = childLink && nextChildren.length === priorChildren.length + 1 && priorChildren.every((id, i) => nextChildren[i] === id);
       if (childLink ? !validLink : JSON.stringify(nextChildren) !== JSON.stringify(priorChildren)) throw new Error(`Card stream '${path}' has an invalid children transition.`);
-      for (const field of ['id', 'parent', 'depth', 'created_at', 'created_by'] as const) if (row.card[field] !== prior[field]) throw new Error(`Card stream '${path}' mutates immutable field '${field}'.`);
+      for (const field of ['id', 'type', 'parent', 'depth', 'created_at', 'created_by'] as const) if (row.card[field] !== prior[field]) throw new Error(`Card stream '${path}' mutates immutable field '${field}'.`);
       if (row.card.status !== prior.status) validateTransition(prior.status, row.card.status);
       if (childLink) {
         const mutable = new Set(['children', 'version_seq', 'updated_at']);

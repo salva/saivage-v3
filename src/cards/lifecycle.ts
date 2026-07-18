@@ -35,8 +35,9 @@ export interface NewCardInput {
   metadata?: import('../schemas/index.js').CardMetadata | null;
 }
 
+export type CardPatch = Partial<Omit<CardRecord, 'type'>>;
+
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
-  'type',
   'parent',
   'depends_on',
   'depth',
@@ -93,7 +94,6 @@ const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
 
 const TRACKED_FIELDS = [
   'title',
-  'type',
   'subtype',
   'parent',
   'tags',
@@ -164,9 +164,9 @@ export function summarizeChangedFields(changedFields: string[]): string {
 
 export function prunePartialPatch(
   existing: CardRecord,
-  changes: Partial<CardRecord>,
-): Partial<CardRecord> {
-  const pruned: Partial<CardRecord> = {};
+  changes: CardPatch,
+): CardPatch {
+  const pruned: CardPatch = {};
   for (const [key, value] of Object.entries(changes)) {
     if (value === undefined) continue;
     const current = (existing as unknown as Record<string, unknown>)[key];
@@ -176,27 +176,11 @@ export function prunePartialPatch(
   return pruned;
 }
 
-export interface MutablePatchFacts {
-  childCount: number;
-}
-
 export function validateMutablePatch(
   existing: CardRecord,
-  changes: Partial<CardRecord>,
-  facts: MutablePatchFacts,
+  changes: CardPatch,
   ctx?: CardMutationContext,
 ): number {
-  if ((changes as { type?: string }).type === 'plan') {
-    throw new Error('Cannot change card type to plan: planning state lives on goal cards.');
-  }
-  if (changes.type !== undefined && changes.type !== existing.type) {
-    if (existing.id === PROJECT_CARD_ID) {
-      throw new Error(`Cannot change the canonical project card '${PROJECT_CARD_ID}' to type '${changes.type}'.`);
-    }
-    if (changes.type === 'project') {
-      throw new Error(`Cannot change card '${existing.id}' to type 'project'. The project card must have canonical id '${PROJECT_CARD_ID}'.`);
-    }
-  }
   const changedKeys = Object.keys(changes);
   const changesLifecycleField = changedKeys.some((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
   const reopensLifecycle = changes.status !== undefined && changes.status !== existing.status && !LIFECYCLE_LOCKED_STATES.has(changes.status);
@@ -242,13 +226,6 @@ export function validateMutablePatch(
       }
     }
   }
-  if (changes.type !== undefined && changes.type !== existing.type && isTerminalType(changes.type as CardType)) {
-    if (facts.childCount > 0) {
-      throw new Error(
-        `Cannot change type of card '${existing.id}' to '${changes.type}' because it has ${facts.childCount} child(ren). Terminal cards cannot have children.`,
-      );
-    }
-  }
   if (changes.parent !== undefined && changes.parent !== existing.parent) {
     throw new Error("Field 'parent' cannot be changed via update/mutateCard; card reparenting is not supported.");
   }
@@ -257,12 +234,11 @@ export function validateMutablePatch(
 
 export function buildUpdatedCard(
   existing: CardRecord,
-  changes: Partial<CardRecord>,
+  changes: CardPatch,
   stamp: string,
-  facts: MutablePatchFacts,
   ctx?: CardMutationContext,
 ): CardRecord {
-  const newDepth = validateMutablePatch(existing, changes, facts, ctx);
+  const newDepth = validateMutablePatch(existing, changes, ctx);
   const newDependsOn =
     changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
   const status = changes.status ?? existing.status;
@@ -285,7 +261,7 @@ export function buildUpdatedCard(
 export function collectChangedFields(
   existing: CardRecord,
   candidate: CardRecord,
-  changes: Partial<CardRecord>,
+  changes: CardPatch,
 ): string[] {
   const changedFields: string[] = [];
   for (const f of TRACKED_FIELDS) {

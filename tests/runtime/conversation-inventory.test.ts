@@ -3,12 +3,14 @@ import { closeSync, ftruncateSync, fsyncSync, mkdirSync, mkdtempSync, openSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
+import type { CardPatch } from '../../src/cards/lifecycle.js';
 import { appendConversationBatch, listConversationSessionIds, readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { appendAnalystIngressBatch } from '../../src/runtime/actors/conversation-session.js';
 import { parseConversationSessionId, type ConversationSessionId } from '../../src/schemas/index.js';
+import { cardConversationFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 const io: GrowingFileIo = { read: readFileSync, open: openSync, write: writeSync, fsync: fsyncSync, truncate: ftruncateSync, close: closeSync };
@@ -34,6 +36,20 @@ describe('domain-derived conversation inventory', () => {
     mkdirSync(orphan, { recursive: true }); writeFileSync(join(orphan, 'executor.jsonl'), '{malformed}\n');
     expect(listConversationSessionIds(root)).toEqual([]);
     expect(() => readConversation(root, 'executor:card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb')).toThrow(/malformed/);
+  });
+
+  it('retains planner inventory and never discovers executor history after rejecting a forged type change', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-inventory-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root, undefined, undefined, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const plannerSession = parseConversationSessionId(`planner:${goal.id}`);
+    appendConversationBatch(root, [message(plannerSession, 'planner-goal')]);
+    writeFileSync(cardConversationFile(root, goal.id, 'executor'), '{complete-malformed}\n');
+
+    expect(() => cards.update(goal.id, { type: 'code' } as unknown as CardPatch))
+      .toThrow("mutates immutable field 'type'");
+    expect(listConversationSessionIds(root)).toEqual([plannerSession]);
+    expect(readConversation(root, plannerSession).physicalRows.map(({ id }) => id)).toEqual(['planner-goal']);
   });
 
   it('emits no effects for a complete outcome-unknown conversation append', () => {
