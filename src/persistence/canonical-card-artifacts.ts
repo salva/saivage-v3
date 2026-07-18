@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { cardHistoryEntrySchema, persistedCardRecordSchema, validatePersistedCardLifecycle, type CardHistoryEntry, type CardRecord } from '../schemas/index.js';
-import { cardIdSchema, cardSegmentSchema, childCardId, nextCardSegment } from '../schemas/card-id.js';
+import { cardIdSchema } from '../schemas/card-id.js';
 import { validateTransition } from '../cards/lifecycle.js';
 
 export const cardVersionArtifactSchema = z.object({
@@ -12,13 +12,8 @@ export const cardTombstoneSchema = z.object({
   kind: z.literal('card-tombstone'), format_version: z.literal(1), card_id: cardIdSchema,
   deleted_at: z.string().datetime(), final_card: persistedCardRecordSchema, deletion_history: cardHistoryEntrySchema,
 }).strict();
-export const cardChildReservationSchema = z.object({
-  kind: z.literal('card-child-reservation'), format_version: z.literal(1), card_id: cardIdSchema,
-  segment: cardSegmentSchema, child_id: cardIdSchema,
-}).strict();
-export const cardStreamRowSchema = z.discriminatedUnion('kind', [cardVersionArtifactSchema, cardChildReservationSchema, cardTombstoneSchema]);
+export const cardStreamRowSchema = z.discriminatedUnion('kind', [cardVersionArtifactSchema, cardTombstoneSchema]);
 export type CardVersionArtifact = z.infer<typeof cardVersionArtifactSchema>;
-export type CardChildReservation = z.infer<typeof cardChildReservationSchema>;
 export type CardTombstone = z.infer<typeof cardTombstoneSchema>;
 export type CardStreamRow = z.infer<typeof cardStreamRowSchema>;
 
@@ -34,10 +29,9 @@ export function parseCardVersionArtifact(raw: unknown, path: string, expected?: 
   return row;
 }
 
-export function validateCardStream(rows: readonly CardStreamRow[], path: string, cardId: string): { rows: CardStreamRow[]; artifacts: CardVersionArtifact[]; reservations: CardChildReservation[]; tombstone: CardTombstone | null; current: CardVersionArtifact } {
+export function validateCardStream(rows: readonly CardStreamRow[], path: string, cardId: string): { artifacts: CardVersionArtifact[]; tombstone: CardTombstone | null; current: CardVersionArtifact } {
   if (rows.length === 0) throw new Error(`Card stream '${path}' is empty.`);
   const artifacts: CardVersionArtifact[] = [];
-  const reservations: CardChildReservation[] = [];
   let tombstone: CardTombstone | null = null;
   for (const [index, raw] of rows.entries()) {
     if (raw.kind === 'card-tombstone') {
@@ -45,13 +39,6 @@ export function validateCardStream(rows: readonly CardStreamRow[], path: string,
       const prior = artifacts.at(-1)!.card;
       if (raw.card_id !== cardId || JSON.stringify(raw.final_card) !== JSON.stringify(prior) || raw.deletion_history.kind !== 'delete' || JSON.stringify(raw.deletion_history.snapshot) !== JSON.stringify(prior)) throw new Error(`Card stream '${path}' has an invalid tombstone.`);
       tombstone = raw;
-      continue;
-    }
-    if (raw.kind === 'card-child-reservation') {
-      if (tombstone || artifacts.length === 0 || raw.card_id !== cardId) throw new Error(`Card stream '${path}' has an invalid child reservation position or owner.`);
-      const expectedSegment = nextCardSegment(reservations.at(-1)?.segment);
-      if (raw.segment !== expectedSegment || raw.child_id !== childCardId(cardId, raw.segment)) throw new Error(`Card stream '${path}' has a non-sequential child reservation.`);
-      reservations.push(raw);
       continue;
     }
     const row = parseCardVersionArtifact(raw, path, { cardId, version: artifacts.length + 1 });
@@ -69,14 +56,11 @@ export function validateCardStream(rows: readonly CardStreamRow[], path: string,
       for (const field of ['id', 'type', 'parent', 'depth', 'created_at', 'created_by'] as const) if (row.card[field] !== prior[field]) throw new Error(`Card stream '${path}' mutates immutable field '${field}'.`);
       if (row.card.status !== prior.status) validateTransition(prior.status, row.card.status);
       if (childLink) {
-        const linkedChild = nextChildren.at(-1)!;
-        const preceding = rows[index - 1];
-        if (preceding?.kind !== 'card-child-reservation' || preceding.child_id !== linkedChild) throw new Error(`Card stream '${path}' links child '${linkedChild}' without an immediately preceding matching reservation.`);
         const mutable = new Set(['children', 'version_seq', 'updated_at']);
         for (const key of Object.keys(prior) as Array<keyof CardRecord>) if (!mutable.has(key) && JSON.stringify(row.card[key]) !== JSON.stringify(prior[key])) throw new Error(`Card stream '${path}' child-link row mutates '${String(key)}'.`);
       }
     }
     artifacts.push(row);
   }
-  return { rows: [...rows], artifacts, reservations, tombstone, current: artifacts.at(-1)! };
+  return { artifacts, tombstone, current: artifacts.at(-1)! };
 }

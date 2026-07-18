@@ -27,7 +27,6 @@ import {
   readCardArtifacts,
   readCardHistory,
   readLinkedChildren,
-  reserveChildCardId,
 } from '../persistence/card-files.js';
 import type { GrowingFileIo } from '../persistence/growing-file.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
@@ -147,7 +146,6 @@ export class CardService {
     const children = readLinkedChildren(this.projectRoot, parentBeforeClaim.id);
     const position = children.length === 0 ? 0 : Math.max(...children.map((card) => card.position)) + 1;
     const timestamp = new Date().toISOString();
-    const reservedId = reserveChildCardId(this.projectRoot, parentBeforeClaim.id, this.cardAppendIo);
     const cardInput: Omit<CardRecord, 'id'> = {
       type: input.type, parent: parentBeforeClaim.id, depth: parentBeforeClaim.depth + 1, position, children: [], title: input.title, status: input.status,
       subtype: input.subtype ?? null, tags: input.tags, priority: input.priority, urgency: input.urgency,
@@ -161,7 +159,7 @@ export class CardService {
       latest_self_report: input.latest_self_report ?? null, metadata: input.metadata ?? null,
       pending_notifications: [],
     };
-    const card = publishInitialCard(this.projectRoot, reservedId, cardInput, briefContentForNewCard(input), input.created_by === 'planner' ? 'planner' : 'analyst');
+    const card = publishInitialCard(this.projectRoot, cardInput, briefContentForNewCard(input), input.created_by === 'planner' ? 'planner' : 'analyst');
     const freshParent = this.read(parent.id);
     if (!freshParent || freshParent.children.includes(card.id)) throw new Error(`Parent '${parent.id}' changed during child publication.`);
     assertChildParentAdmission(freshParent, 'Cannot link a child under');

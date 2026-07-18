@@ -7,9 +7,11 @@ import { CardService } from '../../src/cards/card-service.js';
 import type { CardPatch, NewCardInput } from '../../src/cards/lifecycle.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { EventBus } from '../../src/events/index.js';
-import { cardStreamFile } from '../../src/persistence/layout.js';
+import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { publishInitialCard } from '../../src/persistence/card-files.js';
+import { replacementTempPath } from '../../src/persistence/replace-file.js';
 
 const FIRST_SEGMENT = 'a';
 const SECOND_SEGMENT = 'b';
@@ -67,7 +69,7 @@ describe('CardService final reset-only contracts', () => {
   beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'saivage-card-service-')); initProjectTree(root); });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  it('allocates durable parent-local spreadsheet identities', () => {
+  it('allocates parent-local spreadsheet identities', () => {
     const cards = new CardService(root);
     expect(cards.create({ ...input(), type: 'goal' }).id).toBe(FIRST);
     expect(cards.create(input()).id).toBe(SECOND);
@@ -140,7 +142,6 @@ describe('CardService final reset-only contracts', () => {
     // CardService freshly admitted the still-unlinked parent, and its second proof returned.
     expect(order).toEqual([
       'parent-link-open', 'parent-link-write', 'parent-link-fsync', 'parent-link-close',
-      'parent-link-open', 'parent-link-write', 'parent-link-fsync', 'parent-link-close',
       'history', 'card', 'runtime',
     ]);
   });
@@ -176,10 +177,11 @@ describe('CardService final reset-only contracts', () => {
     expect(cards.readActivationAdmission('project')).toMatchObject({ child: { id: 'project' }, dependencies: [] });
   });
 
-  it('rejects missing dependencies before reservation mutation', () => {
+  it('rejects missing dependencies before claiming a child namespace', () => {
     const cards = new CardService(root);
     expect(() => cards.create({ ...input(), depends_on: [SECOND] })).toThrow(`Dependency card '${SECOND}' does not exist.`);
     expect(readFileSync(cardStreamFile(root, 'project'), 'utf8').trim().split('\n')).toHaveLength(1);
+    expect(() => readFileSync(cardStreamFile(root, FIRST))).toThrow();
   });
 
   it('keeps allocation independent from sibling position', () => {
@@ -191,7 +193,7 @@ describe('CardService final reset-only contracts', () => {
     expect(cards.create(input(parent.id)).id).toBe(`${parent.id}-${THIRD_SEGMENT}`);
   });
 
-  it.each(['blocked', 'done', 'failed', 'cancelled'] as const)('rejects a %s parent before reserving its next child', (status) => {
+  it.each(['blocked', 'done', 'failed', 'cancelled'] as const)('rejects a %s parent before claiming its next child', (status) => {
     const cards = new CardService(root);
     const parent = cards.create({ ...input(), type: 'goal' });
     cards.setStatus(parent.id, 'running');
@@ -205,17 +207,48 @@ describe('CardService final reset-only contracts', () => {
     expect(() => cards.create(input(parent.id))).toThrow(/Cannot create a child under/);
     expect(readFileSync(cardStreamFile(root, parent.id), 'utf8')).toBe(rowsBefore);
     expect(cards.listChildren(parent.id)).toEqual([]);
+    expect(() => readFileSync(cardStreamFile(root, `${parent.id}-a`))).toThrow();
   });
 
-  it('consumes a reservation when child publication fails', () => {
+  it('treats an occupied candidate as consumed without changing it', () => {
     const orphan = join(root, '.saivage', 'cards', 'project', 'children', FIRST_SEGMENT);
     mkdirSync(join(root, '.saivage', 'cards', 'project', 'children'));
-    writeFileSync(orphan, 'occupied');
+    writeFileSync(orphan, 'opaque occupied candidate');
     const cards = new CardService(root);
 
-    expect(() => cards.create(input())).toThrow();
     expect(cards.create(input()).id).toBe(SECOND);
+    expect(readFileSync(orphan, 'utf8')).toBe('opaque occupied candidate');
     expect(cards.listChildren('project')).toEqual([SECOND]);
+  });
+
+  it('consumes a claimed namespace when initial publication fails', () => {
+    const project = new CardService(root).read('project')!;
+    const { id: _projectId, ...projectWithoutId } = project;
+    const timestamp = new Date().toISOString();
+    const cardInput = {
+      ...projectWithoutId,
+      type: 'code' as const,
+      parent: 'project',
+      depth: 1,
+      position: 0,
+      children: [],
+      title: 'Publication failure',
+      created_by: 'analyst' as const,
+      created_at: timestamp,
+      updated_at: timestamp,
+      version_seq: 1,
+    };
+    const tempId = '00000000-0000-4000-8000-000000000001';
+    const briefPath = cardRecordStreamFile(root, FIRST, 'brief');
+    const temporary = () => {
+      writeFileSync(replacementTempPath(briefPath, tempId), 'occupied publication temp');
+      return tempId;
+    };
+
+    expect(() => publishInitialCard(root, cardInput, 'Brief', 'analyst', temporary)).toThrow();
+    expect(readFileSync(replacementTempPath(briefPath, tempId), 'utf8')).toBe('occupied publication temp');
+    expect(new CardService(root).read(FIRST)).toBeNull();
+    expect(new CardService(root).create(input()).id).toBe(SECOND);
   });
 
   it('propagates malformed canonical card artifacts', () => {
@@ -372,67 +405,12 @@ describe('CardService final reset-only contracts', () => {
       truncate(fd, length) { record('truncate'); ftruncateSync(fd, length); },
       close(fd) { record('close'); closeSync(fd); },
     };
-    let fsyncs = 0;
-    io.fsync = (fd) => {
-      record('fsync');
-      fsyncSync(fd);
-      fsyncs += 1;
-      if (fsyncs === 2) {
-        failed = true;
-        throw new Error('parent link fsync');
-      }
-    };
     const cards = new CardService(root, eventBus, changes, io);
     expect(() => cards.create(input())).toThrow('parent link fsync');
     expect(publications).toEqual([]);
     expect(events).not.toHaveBeenCalled();
-    expect(operations).toEqual(['open', 'write', 'fsync', 'close', 'open', 'write', 'fsync', 'close']);
-    expect(afterFailure).toEqual(['close']);
-  });
-
-  it('does nothing after the first reservation append reports an outcome-unknown failure', () => {
-    const eventBus = new EventBus();
-    const events = jest.fn();
-    eventBus.subscribe('card_history_appended', (event) => { events(event); });
-    const changes = new ReadModelChangeBroadcaster();
-    const cardChanged = jest.fn();
-    const runtimeChanged = jest.fn();
-    changes.subscribe({ cardStateChanged: cardChanged, runtimeChanged, agentsChanged() {}, conversationChanged() {} });
-    const operations: string[] = [];
-    const afterFailure: string[] = [];
-    let failed = false;
-    const record = (operation: string) => {
-      operations.push(operation);
-      if (failed) afterFailure.push(operation);
-    };
-    const tracedRead = ((...args: unknown[]) => {
-      record('read');
-      return Reflect.apply(readFileSync, undefined, args);
-    }) as typeof readFileSync;
-    const tracedWrite = ((...args: unknown[]) => {
-      record('write');
-      return Reflect.apply(writeSync, undefined, args);
-    }) as typeof writeSync;
-    const io: GrowingFileIo = {
-      read: tracedRead,
-      open(path, flags) { record('open'); return openSync(path, flags); },
-      write: tracedWrite,
-      fsync(fd) {
-        record('fsync');
-        fsyncSync(fd);
-        failed = true;
-        throw new Error('reservation fsync');
-      },
-      truncate(fd, length) { record('truncate'); ftruncateSync(fd, length); },
-      close(fd) { record('close'); closeSync(fd); },
-    };
-
-    expect(() => new CardService(root, eventBus, changes, io).create(input())).toThrow('reservation fsync');
     expect(operations).toEqual(['open', 'write', 'fsync', 'close']);
     expect(afterFailure).toEqual(['close']);
-    expect(events).not.toHaveBeenCalled();
-    expect(cardChanged).not.toHaveBeenCalled();
-    expect(runtimeChanged).not.toHaveBeenCalled();
   });
 
 });

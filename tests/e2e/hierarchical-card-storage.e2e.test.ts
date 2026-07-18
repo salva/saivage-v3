@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
@@ -32,11 +32,14 @@ describe('reset-only hierarchical card storage', () => {
     cards.updateDependsOn(survivor.id, [], context);
     const deleted = cards.deleteSubtrees([dependency.id, dependent.id], context, () => true);
     expect(deleted.deleted.indexOf(dependent.id)).toBeLessThan(deleted.deleted.indexOf(dependency.id));
+    mkdirSync(join(root, '.saivage', 'cards', 'project', 'children', 'z'));
 
     const restarted = new CardService(root);
     expect(restarted.read(goal.id)).not.toBeNull();
     expect(restarted.read(dependency.id)).toBeNull();
     expect(restarted.readRecord(goal.id, 'brief.md', 1).recordUrl).toContain('&v=1');
+    expect(restarted.read('card-z')).toBeNull();
+    expect(restarted.list().map(({ id }) => id)).not.toContain('card-z');
     expect(readConversation(root, dependencySession).physicalRows.map(({ id }) => id)).toEqual(['message']);
     appendConversationBatch(root, [row(dependencySession, 'after-tombstone')]);
     expect(readConversation(root, dependencySession).physicalRows.map(({ id }) => id)).toEqual(['message', 'after-tombstone']);

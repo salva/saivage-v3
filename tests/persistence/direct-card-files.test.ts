@@ -22,10 +22,10 @@ describe('exact hierarchical card files', () => {
     expect(readFileSync(cardStreamFile(root, child.id), 'utf8').trim().split('\n')).toHaveLength(1);
   });
 
-  it('fails on a complete malformed reservation row in the exact parent stream', () => {
+  it('fails on a complete unsupported row kind in the exact parent stream', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const path = cardStreamFile(root, 'project');
-    const malformed = { version: 1, type: 'rows', rows: [{ kind: 'card-child-reservation', format_version: 1, card_id: 'project', segment: 'a', child_id: 'card-a', extra: true }] };
+    const malformed = { version: 1, type: 'rows', rows: [{ kind: 'unsupported-card-row', format_version: 1, card_id: 'project' }] };
     writeFileSync(path, `${readFileSync(path, 'utf8')}${JSON.stringify(malformed)}\n`);
 
     expect(() => readCard(root, 'project')).toThrow(/malformed/);
