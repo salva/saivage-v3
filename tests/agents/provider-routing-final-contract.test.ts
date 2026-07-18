@@ -5,6 +5,7 @@ import { Account, Provider, ProviderRegistry } from '../../src/agents/provider.j
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { buildProviderRoutingReadModel } from '../../src/agents/provider-routing-read-model.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 function config() {
   return saivageConfigSchema.parse({
@@ -14,6 +15,7 @@ function config() {
       second: { priority: 20, models: ['m1-equivalent', 'm3'] },
     },
     compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'first', account: 'primary', model: 'm1' } },
+    card_processes: DEFAULT_CARD_PROCESSES,
   });
 }
 

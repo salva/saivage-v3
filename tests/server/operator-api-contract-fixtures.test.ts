@@ -9,6 +9,8 @@ import { appendConversationBatch } from '../../src/persistence/conversation-file
 import { cardStreamFile } from '../../src/persistence/layout.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import * as YAML from 'yaml';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 let projectRoot: string;
 let app: App;
@@ -26,7 +28,7 @@ beforeEach(async () => {
   projectRoot = mkdtempSync(join(tmpdir(), 'saivage-operator-api-contract-'));
   initProjectTree(projectRoot);
   const port = await availablePort();
-  writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), `models:\n  default: [test-model]\n  max_tokens:\n    analyst: 200\nproviders:\n  test:\n    models: [test-model]\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: test\n    account: null\n    model: test-model\nruntime:\n  continuous_improvement: false\nserver:\n  host: 127.0.0.1\n  port: ${port}\n`);
+  writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), YAML.stringify({ models: { default: ['test-model'], max_tokens: { analyst: 200 } }, providers: { test: { models: ['test-model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } }, card_processes: DEFAULT_CARD_PROCESSES, runtime: { continuous_improvement: false }, server: { host: '127.0.0.1', port } }));
   app = await startApp({
     argv: ['node', 'test', 'start', '--project-root', projectRoot],
     env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined },

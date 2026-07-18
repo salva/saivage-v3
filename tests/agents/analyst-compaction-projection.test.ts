@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { EventBus } from '../../src/events/index.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
@@ -221,7 +222,7 @@ function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Pr
   initProjectTree(projectRoot);
   const runner = createTestProcessRunner(projectRoot);
   const eventBus = new EventBus();
-  const config = saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 20480, summarizer_candidate: { provider: 'test', account: null, model: 'model' } } });
+  const config = saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 20480, summarizer_candidate: { provider: 'test', account: null, model: 'model' } }, card_processes: DEFAULT_CARD_PROCESSES });
   const { enabled: _enabled, summarizer_candidate: _candidate, ...compactionPolicy } = config.compaction;
   const summarizerProvider = { completeTurn: summary, projectProviderExchanges: jest.fn() };
   const scheduleRestart = jest.fn();

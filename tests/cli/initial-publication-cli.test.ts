@@ -18,6 +18,7 @@ import { run } from '../../src/cli.js';
 import { readCard } from '../../src/persistence/card-files.js';
 import { resetOwnedGeneratedRoots } from '../../src/persistence/layout.js';
 import { createProjectIdentity, readProjectIdentity } from '../../src/persistence/project-identity.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 const roots: string[] = [];
 const originalCwd = process.cwd();
@@ -44,6 +45,7 @@ function writeValidConfig(root: string): void {
       input_budget_tokens: 1000,
       summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
     },
+    card_processes: DEFAULT_CARD_PROCESSES,
     runtime: { continuous_improvement: false },
     server: { host: '127.0.0.1', port: 8080 },
   }));

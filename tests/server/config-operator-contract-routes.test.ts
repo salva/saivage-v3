@@ -14,6 +14,7 @@ import { testAppLogs } from '../helpers/app-logs.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { buildProviderRoutingReadModel } from '../../src/agents/provider-routing-read-model.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 function testConfig(): SaivageConfig {
   return {
@@ -34,6 +35,7 @@ function testConfig(): SaivageConfig {
     runtime: {},
     security: {},
     compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: 'primary', model: 'test-model' } },
+    card_processes: DEFAULT_CARD_PROCESSES,
   } as unknown as SaivageConfig;
 }
 
@@ -53,6 +55,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         providers: testConfig().providers,
         server: { host: '127.0.0.1', port: 8080 },
         compaction: testConfig().compaction,
+        card_processes: DEFAULT_CARD_PROCESSES,
       });
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
@@ -78,6 +81,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         models: testConfig().models,
         providers: testConfig().providers,
         compaction: testConfig().compaction,
+        card_processes: DEFAULT_CARD_PROCESSES,
       });
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
@@ -185,6 +189,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         models: { default: ['test-model'], max_tokens: { analyst: 201 } },
         providers: testConfig().providers,
         compaction: testConfig().compaction,
+        card_processes: DEFAULT_CARD_PROCESSES,
       });
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 

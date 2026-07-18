@@ -18,6 +18,8 @@ import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
+import type { CompiledCardProcesses } from '../runtime/card-process/card-process-config.js';
+import type { ProcessPromptRegistry } from '../runtime/card-process/process-prompt-registry.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
@@ -27,6 +29,8 @@ export interface MicroActorRuntimeApiFactoryDeps {
   interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
+  cardProcesses: CompiledCardProcesses;
+  processPrompts: ProcessPromptRegistry;
   compactionPolicy: AutonomousCompactionPolicy;
   compactor: CompactorPort;
   summarizerProvider: SummarizerProviderPort;

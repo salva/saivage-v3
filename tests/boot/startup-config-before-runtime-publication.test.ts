@@ -8,6 +8,7 @@ import { publishInitialProjectCard as publishCanonicalProjectCard } from '../../
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/index.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 const readProjectCardOrAssertInitialPublicationAllowed = jest.fn<(...args: any[]) => any>();
 const publishInitialProjectCard = jest.fn<(...args: any[]) => any>();
@@ -37,6 +38,7 @@ function writeConfig(root: string, analystMaxTokens: number): void {
       input_budget_tokens: 1000,
       summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
     },
+    card_processes: DEFAULT_CARD_PROCESSES,
     runtime: { continuous_improvement: false },
     server: { host: '127.0.0.1', port: 8080 },
   }));

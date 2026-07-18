@@ -23,12 +23,18 @@ function assertPromptTree(root) {
   if (!existsSync(root) || !statSync(root).isDirectory()) {
     throw new Error(`Prompt defaults directory is missing: ${relative(repoRoot, root)}`);
   }
-  const expected = activePromptPairs.map(([cardType, role]) => join(cardType, `${role}.md`)).sort();
+  const planningProcessPrompts = ['plan', 'recover', 'review', 'correct-plan-result', 'correct-review-result', 'plan-to-review', 'review-to-plan', 'stopped-recovery'];
+  const terminalProcessPrompts = ['execute', 'correct-execution-result', 'stopped-recovery'];
+  const expected = [
+    ...activePromptPairs.map(([cardType, role]) => join(cardType, `${role}.md`)),
+    ...['project', 'goal'].flatMap((cardType) => planningProcessPrompts.map((id) => join(cardType, 'process', `${id}.md`))),
+    ...['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'].flatMap((cardType) => terminalProcessPrompts.map((id) => join(cardType, 'process', `${id}.md`))),
+  ].sort();
   const actual = walkFiles(root);
   if (actual.length !== expected.length || actual.some((file, index) => file !== expected[index])) {
     throw new Error(`Prompt defaults directory must contain exactly: ${expected.join(', ')}`);
   }
-  for (const file of actual) {
+  for (const file of activePromptPairs.map(([cardType, role]) => join(cardType, `${role}.md`))) {
     tokenizePromptTemplate(file, join(root, file));
   }
   createPromptTemplateRegistry({ defaultRoot: root });

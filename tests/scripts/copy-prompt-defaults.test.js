@@ -38,6 +38,20 @@ function writeFixtureTree(root) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `${cardType}/${role} {{toolList}}`);
   }
+  for (const cardType of ['project', 'goal']) {
+    for (const id of ['plan', 'recover', 'review', 'correct-plan-result', 'correct-review-result', 'plan-to-review', 'review-to-plan', 'stopped-recovery']) {
+      const path = join(root, cardType, 'process', `${id}.md`);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, `${cardType}/${id}`);
+    }
+  }
+  for (const cardType of ['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops']) {
+    for (const id of ['execute', 'correct-execution-result', 'stopped-recovery']) {
+      const path = join(root, cardType, 'process', `${id}.md`);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, `${cardType}/${id}`);
+    }
+  }
 }
 
 function assertTreesEqual(sourceRoot, outputRoot) {

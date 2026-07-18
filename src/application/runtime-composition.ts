@@ -33,6 +33,8 @@ import type { SummarizerProviderPort } from '../runtime/actors/compaction/summar
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
+import { cardTypesForProcess, compileCardProcesses, describeNodeResultContract, type CompiledCardProcesses } from '../runtime/card-process/card-process-config.js';
+import { createProcessPromptRegistry, type ProcessPromptRegistry } from '../runtime/card-process/process-prompt-registry.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -42,6 +44,8 @@ export interface RuntimeApiFactoryDeps {
   interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
+  cardProcesses: CompiledCardProcesses;
+  processPrompts: ProcessPromptRegistry;
   compactionPolicy: AutonomousCompactionPolicy;
   compactor: CompactorPort;
   summarizerProvider: SummarizerProviderPort;
@@ -172,9 +176,28 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     defaultRoot: bundledPromptDefaultsRoot(),
     overrideRoot: join(projectRoot, '.saivage', 'config', 'prompts'),
   });
+  const cardProcesses = compileCardProcesses(config.card_processes);
+  const processPrompts = createProcessPromptRegistry(cardProcesses, {
+    defaultRoot: bundledPromptDefaultsRoot(),
+    overrideRoot: join(projectRoot, '.saivage', 'config', 'prompts'),
+  });
+  for (const process of [cardProcesses.planning, cardProcesses.terminal]) {
+    for (const cardType of cardTypesForProcess(process)) {
+      for (const node of process.nodes.values()) {
+        promptTemplates.validateProcessNode(cardType, node.role, {
+          cardId: 'startup-validation-card',
+          cardTitle: 'Startup prompt validation',
+          cardBrief: 'Startup validates the effective role template before actor construction.',
+          cardType,
+          contractDescription: describeNodeResultContract(node),
+          toolList: '- startup-validation: no runtime tool invocation',
+        });
+      }
+    }
+  }
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
-  const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
+  const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
   const runtimeControl = new RuntimeControlService({ projectRoot, interventionBinding, mechanics: runtimeMechanics });
   const runtimeComposition = createComposedRuntimeApi({
     runtimeApi: runtimeControl,

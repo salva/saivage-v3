@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,6 +12,7 @@ import { EventBus } from '../../src/events/index.js';
 import { createErrorLog, createEventLog } from '../../src/observability/index.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -21,6 +22,7 @@ function config(candidate = { provider: 'test', account: null as string | null, 
     models: { default: ['org/summary/model'], max_tokens: { analyst: 2000 } },
     providers: { test: { models: ['org/summary/model'] } },
     compaction: { enabled: true, input_budget_tokens: 10000, summarizer_candidate: candidate },
+    card_processes: DEFAULT_CARD_PROCESSES,
   });
 }
 
@@ -58,6 +60,8 @@ describe('runtime compaction composition', () => {
     const app = createRuntimeApplication(services(runtimeApiFactory));
 
     expect(runtimeApiFactory).toHaveBeenCalledTimes(1);
+    expect(deps.cardProcesses.planning.nodes.get('plan')?.outcomes).toEqual(['complete_direct', 'admit_review', 'blocked', 'failed']);
+    expect(deps.processPrompts.get('goal', 'plan' as any)).toContain('current planning step');
     expect(deps.compactionPolicy).toEqual({ input_budget_tokens: 10000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim' });
     expect(app.analystDeps.compactionPolicy).toBe(deps.compactionPolicy);
     expect(app.analystDeps.compactor).toBe(deps.compactor);
@@ -73,5 +77,15 @@ describe('runtime compaction composition', () => {
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ candidateChain: [{ provider: 'test', account: null, model: 'org/summary/model' }] }));
     deps.summarizerProvider.projectProviderExchanges('summary:test', 'id', [], []);
     expect(project).toHaveBeenCalledWith('summary:test', 'id', [], []);
+  });
+
+  it('rejects an incompatible effective role override before runtime actor construction', () => {
+    const runtimeApiFactory = jest.fn(() => mechanics());
+    const selected = services(runtimeApiFactory);
+    const path = join(selected.projectRoot, '.saivage', 'config', 'prompts', 'goal', 'planner.md');
+    mkdirSync(join(selected.projectRoot, '.saivage', 'config', 'prompts', 'goal'), { recursive: true });
+    writeFileSync(path, 'Old override: use emit_result with status done, blocked, or failed.');
+    expect(() => createRuntimeApplication(selected)).toThrow(new RegExp(`goal\\/planner.*${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    expect(runtimeApiFactory).not.toHaveBeenCalled();
   });
 });

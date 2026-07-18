@@ -10,6 +10,9 @@ import {
   type PromptTemplateVariables,
 } from '../../../src/utils/prompt-api.js';
 import { activePromptPairs, type PromptCardTypeKey } from '../../../src/schemas/index.js';
+import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
+import { cardProcessesSchema } from '../../../src/agents/config-schema.js';
+import { compileCardProcesses, describeNodeResultContract } from '../../../src/runtime/card-process/card-process-config.js';
 
 const activePairs = activePromptPairs;
 
@@ -167,6 +170,107 @@ describe('PromptTemplateRegistry', () => {
       } finally {
         rmSync(defaultRoot, { recursive: true, force: true });
       }
+    }
+  });
+
+  it('validates and renders all eleven bundled process-role templates with generated contract authority', () => {
+    const registry = createPromptTemplateRegistry({ defaultRoot: 'src/prompts' });
+    const sentinel = 'SENTINEL CONTRACT: outcome is alpha-route | beta-route; summary is required.';
+    const processPairs = activePairs.filter((pair) => pair[1] !== 'analyst');
+    expect(processPairs).toHaveLength(11);
+    for (const [cardType, role] of processPairs) {
+      const rendered = registry.validateProcessNode(cardType, role, variables(role, { cardType, contractDescription: sentinel }));
+      expect(rendered.split(sentinel)).toHaveLength(2);
+      expect(rendered).toContain('sole authority');
+      expect(rendered).not.toMatch(/emit_result[^\n]*\bstatus\b/i);
+      expect(rendered).not.toMatch(/terminal statuses?/i);
+      expect(rendered).not.toMatch(/report[^\n]*\bdone\b[^\n]*\bblocked\b[^\n]*\bfailed\b/i);
+    }
+  });
+
+  it('rejects zero/two contract placeholders and each finite obsolete directive with exact effective identity and path', () => {
+    const badTemplates = [
+      'planner without contract',
+      '{{contractDescription}} and {{contractDescription}}',
+      '{{contractDescription}}\nUse emit_result with status done, blocked, or failed.',
+      '{{contractDescription}}\nUse only terminal statuses done, rework, blocked, or failed.',
+      '{{contractDescription}}\nReport honestly with done, blocked, or failed.',
+    ];
+    for (const bad of badTemplates) {
+      const defaultRoot = withDefaults((root) => writePrompt(root, 'goal', 'planner', bad));
+      try {
+        const registry = createPromptTemplateRegistry({ defaultRoot });
+        expect(() => registry.validateProcessNode('goal', 'planner', variables('planner'))).toThrow(/goal\/planner/);
+        expect(() => registry.validateProcessNode('goal', 'planner', variables('planner'))).toThrow(new RegExp(defaultRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      } finally {
+        rmSync(defaultRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('accepts a corrected override and falls back to the bundled current template after override removal', () => {
+    const overrideRoot = mkdtempSync(join(tmpdir(), 'saivage-role-cutover-'));
+    try {
+      writePrompt(overrideRoot, 'goal', 'planner', 'Current override {{contractDescription}} {{cardId}}');
+      const overridden = createPromptTemplateRegistry({ defaultRoot: 'src/prompts', overrideRoot });
+      expect(overridden.validateProcessNode('goal', 'planner', variables('planner'))).toContain('Current override Contract text');
+      rmSync(join(overrideRoot, 'goal', 'planner.md'));
+      const bundled = createPromptTemplateRegistry({ defaultRoot: 'src/prompts', overrideRoot });
+      expect(bundled.validateProcessNode('goal', 'planner', variables('planner'))).toContain('sole authority');
+    } finally {
+      rmSync(overrideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('renders distinct planner/reviewer contracts and two sequential executor-node contracts without base topology claims', () => {
+    const processSource = cardProcessesSchema.parse(structuredClone(DEFAULT_CARD_PROCESSES));
+    processSource.terminal.nodes = {
+      implement: {
+        role: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: [],
+        edges: {
+          implementation_ready: { target: { node: 'verify' }, prompt: 'execute' },
+          blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } },
+        },
+      },
+      verify: {
+        role: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: [],
+        edges: {
+          verified: { target: { terminal: 'DONE' } },
+          blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } },
+        },
+      },
+    };
+    for (const port of ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const) processSource.terminal.entries[port].node = 'implement';
+    const compiled = compileCardProcesses(processSource);
+    const registry = createPromptTemplateRegistry({ defaultRoot: 'src/prompts' });
+    const planner = describeNodeResultContract(compiled.planning.nodes.get('plan')!);
+    const reviewer = describeNodeResultContract(compiled.planning.nodes.get('review')!);
+    expect(registry.validateProcessNode('goal', 'planner', variables('planner', { contractDescription: planner }))).toContain('complete_direct | admit_review | blocked | failed');
+    expect(registry.validateProcessNode('goal', 'reviewer', variables('reviewer', { contractDescription: reviewer }))).toContain('approved | revision_required | blocked | failed');
+    for (const cardType of ['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const) {
+      const implementContract = describeNodeResultContract(compiled.terminal.nodes.get('implement')!);
+      const verifyContract = describeNodeResultContract(compiled.terminal.nodes.get('verify')!);
+      const implement = registry.validateProcessNode(cardType, 'executor', variables('executor', { cardType, contractDescription: implementContract }));
+      const verify = registry.validateProcessNode(cardType, 'executor', variables('executor', { cardType, contractDescription: verifyContract }));
+      for (const rendered of [implement, verify]) {
+        expect(rendered).toContain('current configured executor node step');
+        expect(rendered).not.toContain('Execute the card once for the current activation');
+        expect(rendered).not.toMatch(/only executor step|completes? the card/i);
+      }
+      expect(implement).toContain('implementation_ready | blocked | failed');
+      expect(implement).not.toContain('verified | blocked | failed');
+      expect(verify).toContain('verified | blocked | failed');
+      expect(verify).not.toContain('implementation_ready | blocked | failed');
+    }
+  });
+
+  it('keeps the finite bundled source inventory free of old result directives and the executor one-pass sentence', () => {
+    for (const [cardType, role] of activePairs.filter(([, role]) => role !== 'analyst')) {
+      const source = readFileSync(join('src/prompts', cardType, `${role}.md`), 'utf8');
+      expect(source).not.toMatch(/emit_result[^\n]*\bstatus\b/i);
+      expect(source).not.toMatch(/terminal statuses?[^\n]*(?:done|rework|blocked|failed)/i);
+      expect(source).not.toMatch(/report[^\n]*\bdone\b[^\n]*\bblocked\b[^\n]*\bfailed\b/i);
+      if (role === 'executor') expect(source).not.toContain('Execute the card once for the current activation');
     }
   });
 });

@@ -9,6 +9,7 @@ import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { ManagedProcessGroupRegistry, type ManagedProcessPlatform } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testConfigAuthority } from '../helpers/canonical-project.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 const roots: string[] = [];
 
@@ -24,6 +25,7 @@ function baseConfig(mcpServers: Record<string, unknown>): Record<string, unknown
     models: { default: ['test-model'], max_tokens: { analyst: 200 } },
     providers: { test: { priority: 10, models: ['test-model'], apiKey: 'synthetic-secret' } },
     compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } },
+    card_processes: DEFAULT_CARD_PROCESSES,
     mcpServers,
   };
 }

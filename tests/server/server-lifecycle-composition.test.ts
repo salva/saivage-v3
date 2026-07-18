@@ -9,6 +9,8 @@ import { loadEnvironment } from '../../src/config/environment.js';
 import { McpManager } from '../../src/mcp/manager-api.js';
 import { createServerServices } from '../../src/server/composition/server-services.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import * as YAML from 'yaml';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 function config(): SaivageConfig {
   return {
@@ -19,6 +21,7 @@ function config(): SaivageConfig {
     mcpServers: {},
     runtime: { continuousImprovement: false },
     compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } },
+    card_processes: DEFAULT_CARD_PROCESSES,
   } as unknown as SaivageConfig;
 }
 
@@ -134,5 +137,5 @@ describe('server lifecycle composition', () => {
 });
 
 function validConfigYaml(): string {
-  return 'models:\n  default: [test-model]\n  max_tokens:\n    analyst: 200\nproviders:\n  test:\n    models: [test-model]\ncompaction:\n  enabled: true\n  input_budget_tokens: 1000\n  summarizer_candidate:\n    provider: test\n    account: null\n    model: test-model\nruntime:\n  continuous_improvement: false\n';
+  return YAML.stringify({ models: { default: ['test-model'], max_tokens: { analyst: 200 } }, providers: { test: { models: ['test-model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } }, card_processes: DEFAULT_CARD_PROCESSES, runtime: { continuous_improvement: false } });
 }

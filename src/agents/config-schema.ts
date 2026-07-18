@@ -177,6 +177,49 @@ const mcpServerEntrySchema = z.object({
   autostart: z.boolean().default(true),
 });
 
+const processTerminalPortSchema = z.enum(['DONE', 'BLOCKED', 'FAILED']);
+const processEntrySchema = z.object({
+  node: z.string(),
+  prompt: z.string().optional(),
+}).strict();
+const stoppedProcessEntrySchema = z.object({
+  node: z.string(),
+  prompt: z.string(),
+}).strict();
+const processEdgeTargetSchema = z.union([
+  z.object({ node: z.string() }).strict(),
+  z.object({ terminal: processTerminalPortSchema }).strict(),
+]);
+const processEdgeSchema = z.object({
+  target: processEdgeTargetSchema,
+  prompt: z.string().optional(),
+}).strict();
+const processRecordSchema = z.object({
+  name: z.enum(['brief.md', 'status.md', 'review.md']),
+  updated: z.boolean().default(false),
+}).strict();
+const processNodeSchema = z.object({
+  role: z.enum(['planner', 'reviewer', 'executor']),
+  prompt: z.string(),
+  correction_prompt: z.string(),
+  records: z.array(processRecordSchema).default([]),
+  edges: z.record(z.string(), processEdgeSchema),
+}).strict();
+const cardProcessSchema = z.object({
+  entries: z.object({
+    BACKLOG: processEntrySchema,
+    CHANGED: processEntrySchema,
+    BLOCKED: processEntrySchema,
+    STOPPED: stoppedProcessEntrySchema,
+  }).strict(),
+  nodes: z.record(z.string(), processNodeSchema),
+}).strict();
+
+export const cardProcessesSchema = z.object({
+  planning: cardProcessSchema,
+  terminal: cardProcessSchema,
+}).strict();
+
 // ── Full Config Schema ────────────────────────────────────────
 
 export const saivageConfigSchema = z.object({
@@ -186,6 +229,7 @@ export const saivageConfigSchema = z.object({
   runtime: runtimeSectionSchema.default({}),
   security: securitySectionSchema.default({}),
   compaction: compactionSectionSchema,
+  card_processes: cardProcessesSchema,
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
 }).strict().superRefine((value, ctx) => {
   const maxTokens = value.models.max_tokens ?? {};
@@ -211,6 +255,8 @@ export type SaivageConfig = z.infer<typeof saivageConfigSchema>;
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
+export type CardProcessesSource = z.infer<typeof cardProcessesSchema>;
+export type CardProcessSource = CardProcessesSource['planning'];
 
 // ── Model Params ──────────────────────────────────────────────
 

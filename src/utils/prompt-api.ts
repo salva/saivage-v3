@@ -14,6 +14,10 @@ export interface PromptTemplateRegistry {
   render(cardType: PromptCardTypeKey, role: AgentRoleKey, variables: PromptTemplateVariables): string;
 }
 
+export interface ProcessRolePromptTemplateRegistry extends PromptTemplateRegistry {
+  validateProcessNode(cardType: Exclude<PromptCardTypeKey, 'analyst'>, role: Exclude<AgentRoleKey, 'analyst'>, variables: PromptTemplateVariables): string;
+}
+
 export interface PromptTemplateRegistryOptions {
   defaultRoot?: string;
   overrideRoot?: string;
@@ -167,9 +171,23 @@ function renderTokens(cardType: PromptCardTypeKey, role: AgentRoleKey, tokens: r
   return output;
 }
 
-export function createPromptTemplateRegistry(options: PromptTemplateRegistryOptions = {}): PromptTemplateRegistry {
+const OBSOLETE_PROCESS_DIRECTIVES: readonly RegExp[] = Object.freeze([
+  /emit_result[^\n]*(?:\bstatus\b|\bdone\b[^\n]*\bblocked\b[^\n]*\bfailed\b)/i,
+  /terminal statuses?[^\n]*(?:\bdone\b|\brework\b|\bblocked\b|\bfailed\b)/i,
+  /report[^\n]*\bdone\b[^\n]*\bblocked\b[^\n]*\bfailed\b/i,
+]);
+
+function validateProcessTemplate(cardType: PromptCardTypeKey, role: AgentRoleKey, path: string, template: string, tokens: readonly TemplateToken[]): void {
+  const contractCount = tokens.filter((token) => token.kind === 'placeholder' && token.key === 'contractDescription').length;
+  if (contractCount !== 1) throw new PromptTemplateRenderError(cardType, role, path, `effective process-role template must contain {{contractDescription}} exactly once; found ${contractCount}`);
+  if (OBSOLETE_PROCESS_DIRECTIVES.some((pattern) => pattern.test(template))) {
+    throw new PromptTemplateRenderError(cardType, role, path, 'effective process-role template contains an obsolete emit_result terminal directive');
+  }
+}
+
+export function createPromptTemplateRegistry(options: PromptTemplateRegistryOptions = {}): ProcessRolePromptTemplateRegistry {
   const defaultRoot = options.defaultRoot ?? bundledDefaultsRoot();
-  const tokensByPair = new Map<string, readonly TemplateToken[]>();
+  const templatesByPair = new Map<string, { readonly path: string; readonly template: string; readonly tokens: readonly TemplateToken[] }>();
 
   for (const [cardType, role] of activePromptPairs) {
     const path = effectiveTemplatePath(defaultRoot, options.overrideRoot, cardType, role);
@@ -179,16 +197,22 @@ export function createPromptTemplateRegistry(options: PromptTemplateRegistryOpti
     }
     const tokens = tokenizeTemplate(cardType, role, template);
     validatePlaceholders(cardType, role, tokens);
-    tokensByPair.set(pairKey(cardType, role), tokens);
+    templatesByPair.set(pairKey(cardType, role), Object.freeze({ path, template, tokens }));
   }
 
   return Object.freeze({
     render(cardType: PromptCardTypeKey, role: AgentRoleKey, variables: PromptTemplateVariables): string {
-      const tokens = tokensByPair.get(pairKey(cardType, role));
-      if (tokens === undefined) {
+      const effective = templatesByPair.get(pairKey(cardType, role));
+      if (effective === undefined) {
         throw new PromptTemplateRenderError(cardType, role, pairKey(cardType, role), 'inactive prompt pair');
       }
-      return renderTokens(cardType, role, tokens, variables);
+      return renderTokens(cardType, role, effective.tokens, variables);
+    },
+    validateProcessNode(cardType: Exclude<PromptCardTypeKey, 'analyst'>, role: Exclude<AgentRoleKey, 'analyst'>, variables: PromptTemplateVariables): string {
+      const effective = templatesByPair.get(pairKey(cardType, role));
+      if (effective === undefined) throw new PromptTemplateRenderError(cardType, role, pairKey(cardType, role), 'inactive prompt pair');
+      validateProcessTemplate(cardType, role, effective.path, effective.template, effective.tokens);
+      return renderTokens(cardType, role, effective.tokens, variables);
     },
   });
 }

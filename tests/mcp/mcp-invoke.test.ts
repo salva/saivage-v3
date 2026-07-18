@@ -7,6 +7,7 @@ import { InvalidArgumentsError, McpInvokeError, McpManager, ServerNotRunningErro
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testConfigAuthority } from '../helpers/canonical-project.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 const roots: string[] = [];
 const managers: McpManager[] = [];
@@ -20,7 +21,7 @@ function root(): string {
 function writeConfig(projectRoot: string, mcpServers: Record<string, unknown>): void {
   mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
   writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), YAML.stringify({
-    models: { default: ['test-model'], max_tokens: { analyst: 200 } }, providers: { test: { models: ['test-model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } }, server: { host: '127.0.0.1', port: 8080 }, mcpServers,
+    models: { default: ['test-model'], max_tokens: { analyst: 200 } }, providers: { test: { models: ['test-model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } }, card_processes: DEFAULT_CARD_PROCESSES, server: { host: '127.0.0.1', port: 8080 }, mcpServers,
   }));
 }
 
