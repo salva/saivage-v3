@@ -152,6 +152,24 @@ describe('two-kind card stream validation', () => {
     expect(rows.map((row) => row.kind)).toEqual(['card-version', 'card-tombstone']);
     expect(validated.tombstone?.final_card.type).toBe('code');
 
+    const changedHistoryCardId = structuredClone(rows);
+    const cardIdTombstone = changedHistoryCardId.at(-1)!;
+    if (cardIdTombstone.kind !== 'card-tombstone') throw new Error('Expected a terminal tombstone.');
+    cardIdTombstone.deletion_history.card_id = 'card-z';
+    expect(() => validateCardStream(changedHistoryCardId, path, card.id)).toThrow(/invalid tombstone/);
+
+    const changedHistoryTime = structuredClone(rows);
+    const timeTombstone = changedHistoryTime.at(-1)!;
+    if (timeTombstone.kind !== 'card-tombstone') throw new Error('Expected a terminal tombstone.');
+    timeTombstone.deletion_history.changed_at = '2000-01-01T00:00:00.000Z';
+    expect(() => validateCardStream(changedHistoryTime, path, card.id)).toThrow(/invalid tombstone/);
+
+    const changedHistoryVersion = structuredClone(rows);
+    const versionTombstone = changedHistoryVersion.at(-1)!;
+    if (versionTombstone.kind !== 'card-tombstone') throw new Error('Expected a terminal tombstone.');
+    versionTombstone.deletion_history.version_seq = versionTombstone.final_card.version_seq + 1;
+    expect(() => validateCardStream(changedHistoryVersion, path, card.id)).toThrow(/invalid tombstone/);
+
     const changedType = structuredClone(rows);
     const tombstone = changedType.at(-1)!;
     if (tombstone.kind !== 'card-tombstone') throw new Error('Expected a terminal tombstone.');

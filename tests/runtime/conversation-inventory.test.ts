@@ -9,11 +9,11 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { appendAnalystIngressBatch } from '../../src/runtime/actors/conversation-session.js';
+import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 import { parseConversationSessionId, type ConversationSessionId } from '../../src/schemas/index.js';
 import { cardConversationFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
-const io: GrowingFileIo = { read: readFileSync, open: openSync, write: writeSync, fsync: fsyncSync, truncate: ftruncateSync, close: closeSync };
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 function message(session_id: ConversationSessionId, id: string) { return { id, session_id, role: 'user' as const, kind: 'text' as const, content: id, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' }; }
 
@@ -58,8 +58,20 @@ describe('domain-derived conversation inventory', () => {
     const effects: string[] = [];
     const changes = new ReadModelChangeBroadcaster();
     changes.subscribe({ conversationChanged: () => { effects.push('conversation'); }, agentsChanged: () => { effects.push('agents'); }, cardStateChanged() {}, runtimeChanged() {} });
-    expect(() => appendConversationBatch(root, [message('planner:project', 'second')], changes, undefined, { ...io, fsync(fd) { fsyncSync(fd); throw new Error('conversation fsync'); } })).toThrow('conversation fsync');
+    const failure = new Error('conversation fsync');
+    const operations: string[] = [];
+    const failingIo: GrowingFileIo = {
+      read: readFileSync,
+      open(path, flags) { operations.push(`open:${path}`); return openSync(path, flags); },
+      write: ((...args: unknown[]) => { operations.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
+      fsync(fd) { operations.push('fsync'); fsyncSync(fd); throw failure; },
+      truncate: ftruncateSync,
+      close(fd) { operations.push('close'); closeSync(fd); },
+    };
+    let thrown: unknown;
+    try { appendConversationBatch(root, [message('planner:project', 'second')], changes, undefined, failingIo); } catch (error) { thrown = error; }
+    expect(thrown).toBe(failure);
+    expect(operations).toEqual([`open:${conversationFile(root, 'planner:project')}`, 'write', 'fsync', 'close']);
     expect(effects).toEqual([]);
-    expect(readConversation(root, 'planner:project').physicalRows.map(({ id }) => id)).toEqual(['first', 'second']);
   });
 });

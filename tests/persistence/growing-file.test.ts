@@ -30,21 +30,72 @@ describe('strict growing-file boundaries', () => {
 
   it('treats partial append and complete-line fsync failure as outcome unknown without retry', () => {
     const partialPath = target(); publishFirstEnvelope(partialPath, serializeGrowingEnvelope([{ value: 1 }], row));
+    const partialFailure = new Error('partial');
+    const partialOperations: string[] = [];
     let writes = 0;
-    const partialWrite = ((fd: number, bytes: Uint8Array, offset: number, length: number) => { writes += 1; if (writes === 1) return writeSync(fd, bytes, offset, Math.floor(length / 2)); throw new Error('partial'); }) as typeof writeSync;
-    expect(() => appendEnvelope(partialPath, serializeGrowingEnvelope([{ value: 2 }], row), { ...io, write: partialWrite })).toThrow('partial');
-    expect(writes).toBe(2);
-    expect(readCanonicalGrowingFile(partialPath, row)).toEqual([{ value: 1 }]);
+    const partialWrite = ((fd: number, bytes: Uint8Array, offset: number, length: number) => {
+      writes += 1;
+      if (writes === 1) { partialOperations.push('write:short'); return writeSync(fd, bytes, offset, Math.floor(length / 2)); }
+      partialOperations.push('write:error');
+      throw partialFailure;
+    }) as typeof writeSync;
+    const partialIo: GrowingFileIo = {
+      read: readFileSync,
+      open(path, flags) { partialOperations.push(`open:${path}`); return openSync(path, flags); },
+      write: partialWrite,
+      fsync(fd) { partialOperations.push('fsync'); fsyncSync(fd); },
+      truncate: ftruncateSync,
+      close(fd) { partialOperations.push('close'); closeSync(fd); },
+    };
+    let partialThrown: unknown;
+    try { appendEnvelope(partialPath, serializeGrowingEnvelope([{ value: 2 }], row), partialIo); } catch (error) { partialThrown = error; }
+    expect(partialThrown).toBe(partialFailure);
+    expect(partialOperations).toEqual([`open:${partialPath}`, 'write:short', 'write:error', 'close']);
 
     const completePath = target(); publishFirstEnvelope(completePath, serializeGrowingEnvelope([{ value: 1 }], row));
-    expect(() => appendEnvelope(completePath, serializeGrowingEnvelope([{ value: 2 }], row), { ...io, fsync() { throw new Error('fsync'); } })).toThrow('fsync');
-    expect(readCanonicalGrowingFile(completePath, row)).toEqual([{ value: 1 }, { value: 2 }]);
+    const fsyncFailure = new Error('fsync');
+    const completeOperations: string[] = [];
+    const completeIo: GrowingFileIo = {
+      read: readFileSync,
+      open(path, flags) { completeOperations.push(`open:${path}`); return openSync(path, flags); },
+      write: ((...args: unknown[]) => { completeOperations.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
+      fsync() { completeOperations.push('fsync'); throw fsyncFailure; },
+      truncate: ftruncateSync,
+      close(fd) { completeOperations.push('close'); closeSync(fd); },
+    };
+    let fsyncThrown: unknown;
+    try { appendEnvelope(completePath, serializeGrowingEnvelope([{ value: 2 }], row), completeIo); } catch (error) { fsyncThrown = error; }
+    expect(fsyncThrown).toBe(fsyncFailure);
+    expect(completeOperations).toEqual([`open:${completePath}`, 'write', 'fsync', 'close']);
   });
 
-  it('exposes post-rename parent-open failure as outcome unknown', () => {
-    const path = target(); let opens = 0;
-    const replacement: ReplacementFileIo = { open(...args) { opens += 1; if (opens === 2) throw new Error('parent open'); return openSync(...args); }, write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync };
-    expect(() => publishFirstEnvelope(path, serializeGrowingEnvelope([{ value: 1 }], row), () => '22222222-2222-4222-8222-222222222222', replacement)).toThrow('parent open');
-    expect(readCanonicalGrowingFile(path, row)).toEqual([{ value: 1 }]);
+  it('stops after a post-rename parent-open failure with an unknown outcome', () => {
+    const path = target();
+    const parent = join(path, '..');
+    const temporaryId = '22222222-2222-4222-8222-222222222222';
+    const temporary = join(parent, `.stream.jsonl.${temporaryId}.saivage-tmp`);
+    const failure = new Error('parent open');
+    const operations: string[] = [];
+    let opens = 0;
+    const replacement: ReplacementFileIo = {
+      open(...args) {
+        opens += 1;
+        operations.push(`open:${args[0]}`);
+        if (opens === 2) throw failure;
+        return openSync(...args);
+      },
+      write: ((...args: unknown[]) => { operations.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
+      fsync(fd) { operations.push('fsync'); fsyncSync(fd); },
+      close(fd) { operations.push('close'); closeSync(fd); },
+      rename(source, destination) { operations.push(`rename:${source}->${destination}`); renameSync(source, destination); },
+    };
+    let thrown: unknown;
+    try { publishFirstEnvelope(path, serializeGrowingEnvelope([{ value: 1 }], row), () => temporaryId, replacement); } catch (error) { thrown = error; }
+    expect(thrown).toBe(failure);
+    expect(operations).toEqual([
+      `open:${temporary}`, 'write', 'fsync', 'close',
+      `rename:${temporary}->${path}`,
+      `open:${parent}`,
+    ]);
   });
 });

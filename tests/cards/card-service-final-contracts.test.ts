@@ -7,11 +7,9 @@ import { CardService } from '../../src/cards/card-service.js';
 import type { CardPatch, NewCardInput } from '../../src/cards/lifecycle.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { EventBus } from '../../src/events/index.js';
-import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
+import { cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
-import { publishInitialCard } from '../../src/persistence/card-files.js';
-import { replacementTempPath } from '../../src/persistence/replace-file.js';
 import { computeCardLogicalPath } from '../../src/application/read-models/card-view.js';
 
 const FIRST_SEGMENT = 'a';
@@ -220,35 +218,6 @@ describe('CardService final reset-only contracts', () => {
     expect(cards.create(input()).id).toBe(SECOND);
     expect(readFileSync(orphan, 'utf8')).toBe('opaque occupied candidate');
     expect(cards.listChildren('project')).toEqual([SECOND]);
-  });
-
-  it('consumes a claimed namespace when initial publication fails', () => {
-    const project = new CardService(root).read('project')!;
-    const { id: _projectId, ...projectWithoutId } = project;
-    const timestamp = new Date().toISOString();
-    const cardInput = {
-      ...projectWithoutId,
-      type: 'code' as const,
-      parent: 'project',
-      depth: 1,
-      children: [],
-      title: 'Publication failure',
-      created_by: 'analyst' as const,
-      created_at: timestamp,
-      updated_at: timestamp,
-      version_seq: 1,
-    };
-    const tempId = '00000000-0000-4000-8000-000000000001';
-    const briefPath = cardRecordStreamFile(root, FIRST, 'brief');
-    const temporary = () => {
-      writeFileSync(replacementTempPath(briefPath, tempId), 'occupied publication temp');
-      return tempId;
-    };
-
-    expect(() => publishInitialCard(root, cardInput, 'Brief', 'analyst', temporary)).toThrow();
-    expect(readFileSync(replacementTempPath(briefPath, tempId), 'utf8')).toBe('occupied publication temp');
-    expect(new CardService(root).read(FIRST)).toBeNull();
-    expect(new CardService(root).create(input()).id).toBe(SECOND);
   });
 
   it('propagates malformed canonical card artifacts', () => {

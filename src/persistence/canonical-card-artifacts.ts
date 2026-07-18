@@ -48,7 +48,8 @@ export function validateCardStream(rows: readonly CardStreamRow[], path: string,
     if (raw.kind === 'card-tombstone') {
       if (cardId === 'project' || index !== rows.length - 1 || artifacts.length === 0) throw new Error(`Card stream '${path}' has an invalid tombstone position.`);
       const prior = artifacts.at(-1)!.card;
-      if (raw.card_id !== cardId || JSON.stringify(raw.final_card) !== JSON.stringify(prior) || raw.deletion_history.kind !== 'delete' || JSON.stringify(raw.deletion_history.snapshot) !== JSON.stringify(prior)) throw new Error(`Card stream '${path}' has an invalid tombstone.`);
+      if (raw.card_id !== cardId || JSON.stringify(raw.final_card) !== JSON.stringify(prior) || raw.deletion_history.kind !== 'delete' || JSON.stringify(raw.deletion_history.snapshot) !== JSON.stringify(prior)
+        || raw.deletion_history.card_id !== raw.card_id || raw.deletion_history.changed_at !== raw.deleted_at || raw.deletion_history.version_seq !== raw.final_card.version_seq) throw new Error(`Card stream '${path}' has an invalid tombstone.`);
       tombstone = raw;
       continue;
     }
