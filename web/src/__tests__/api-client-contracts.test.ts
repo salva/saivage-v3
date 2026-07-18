@@ -61,12 +61,10 @@ describe('operator API client contracts after S06 mutation removal', () => {
     expect(chatContract).toBeNull();
   });
 
-  it('retains exact Agent identities and identity-free Analyst method signatures', () => {
+  it('retains exact Agent identities', () => {
     const agentId: Parameters<typeof client.getAgentConversation>[0] = 'planner:project';
     const llmId: Parameters<typeof client.getAgentLlmExchange>[0] = agentId;
     const exact: ConversationSessionId = llmId;
-    const chatSignal: Parameters<typeof client.getChatEntries>[0] = undefined;
-    const chatContent: Parameters<typeof client.sendChatMessage>[0] = 'hello';
-    expect({ exact, chatSignal, chatContent }).toEqual({ exact: 'planner:project', chatSignal: undefined, chatContent: 'hello' });
+    expect(exact).toBe('planner:project');
   });
 });

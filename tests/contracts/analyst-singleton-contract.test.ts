@@ -3,7 +3,9 @@ import { describe, expect, it } from '@jest/globals';
 import {
   ChatEntriesResponseSchema,
   ChatListResponseSchema,
+  ChatSessionParamsSchema,
   ChatSendResponseSchema,
+  chatOperatorApiContracts,
 } from '../../src/contracts/operator-api-chats.js';
 import {
   AnalystToolInvokedContentSchema,
@@ -17,6 +19,16 @@ const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other
 const timestamp = '2026-07-17T00:00:00.000Z';
 
 describe('singleton Analyst contracts', () => {
+  it('admits only the singleton Analyst identity in chat route params', () => {
+    expect(ChatSessionParamsSchema.parse({ sessionId: 'analyst:global' })).toEqual({ sessionId: 'analyst:global' });
+    expect(ChatSessionParamsSchema.safeParse({ sessionId: 'planner:project' }).success).toBe(false);
+  });
+
+  it('does not declare handler-owned not-found outcomes for parameterized chat operations', () => {
+    expect(chatOperatorApiContracts['chats.get'].response).not.toHaveProperty('404');
+    expect(chatOperatorApiContracts['chats.send'].response).not.toHaveProperty('404');
+  });
+
   it('encodes literal analyst:global in chat and WebSocket success contracts', () => {
     expect(ChatListResponseSchema.parse({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: timestamp }] }).sessions[0]!.id).toBe('analyst:global');
     expect(ChatEntriesResponseSchema.parse({ sessionId: 'analyst:global', entries: [entry()] }).sessionId).toBe('analyst:global');

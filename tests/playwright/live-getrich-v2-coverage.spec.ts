@@ -183,12 +183,13 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(typeof body.error).toBe('string');
   });
 
-  test('POST /api/chats/:id for a non-canonical session returns 404', async ({ request }) => {
+  test('POST /api/chats/:id for a non-canonical session returns 400 ValidationError', async ({ request }) => {
     const res = await request.post('/api/chats/does-not-exist', { data: { content: 'hi' } });
-    expect(res.status()).toBe(404);
+    expect(res.status()).toBe(400);
     const body = await res.json();
-    expect(typeof body.error).toBe('string');
-    expect(body.sessionId).toBe('does-not-exist');
+    expect(body.error).toBe('ValidationError');
+    expect(body.issues).toEqual(expect.arrayContaining([expect.objectContaining({ path: 'sessionId' })]));
+    expect(body).not.toHaveProperty('sessionId');
   });
 
   test('GET /api/cards/:id for an unknown card returns 404', async ({ request }) => {

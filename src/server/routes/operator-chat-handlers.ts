@@ -43,19 +43,15 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
       const sessions = agentReadModel().listSessions().sessions.filter((session) => session.id === GLOBAL_ANALYST_SESSION_ID);
       return { body: { sessions } };
     },
-    'chats.get': ({ params }) => {
-      const sessionId = (params as unknown as { sessionId: string }).sessionId;
-      if (sessionId !== GLOBAL_ANALYST_SESSION_ID) return { statusCode: 404, body: { error: 'Only the canonical analyst chat is available.', sessionId } };
-      const response = agentReadModel().getConversation(sessionId);
+    'chats.get': () => {
+      const response = agentReadModel().getConversation(GLOBAL_ANALYST_SESSION_ID);
       if (response.statusCode === 404) return { body: { sessionId: GLOBAL_ANALYST_SESSION_ID, entries: [] } };
       if (response.statusCode) return response;
       if (!('entries' in response.body)) return response;
       return { body: { sessionId: GLOBAL_ANALYST_SESSION_ID, entries: response.body.entries } };
     },
-    'chats.send': async ({ params, body, reply }) => {
-      const sessionId = (params as unknown as { sessionId: string }).sessionId;
+    'chats.send': async ({ body, reply }) => {
       const requestBody = body as { content?: string; workspaceContext?: unknown };
-      if (sessionId !== GLOBAL_ANALYST_SESSION_ID) return { statusCode: 404, body: { error: 'Only the canonical analyst chat is available.', sessionId } };
       if (!requestBody.content) return { statusCode: 400, body: { error: 'Message content is required' } };
       let workspaceContext: ChatWorkspaceContext | undefined;
       if (requestBody.workspaceContext !== undefined) {

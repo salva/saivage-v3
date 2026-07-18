@@ -10,7 +10,7 @@ import {
 import { AgentConversationEntrySchema } from './operator-api-agents.js';
 import { AnalystConversationSessionIdSchema } from '../schemas/index.js';
 
-export const ChatSessionParamsSchema = z.object({ sessionId: z.string().min(1) });
+export const ChatSessionParamsSchema = z.object({ sessionId: AnalystConversationSessionIdSchema });
 export const ChatWorkspaceContextSchema = z.object({
   view: z.string().nullable(),
   entityId: z.string().nullable(),
@@ -68,7 +68,7 @@ export const chatOperatorApiContracts = {
     params: ChatSessionParamsSchema,
     success: ChatEntriesResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: ChatEntriesResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ApiErrorSchema },
+    response: { 200: ChatEntriesResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ChatEntriesResponse',
   },
@@ -80,7 +80,7 @@ export const chatOperatorApiContracts = {
     body: ChatSendRequestSchema,
     success: ChatSendResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: ChatSendResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ApiErrorSchema },
+    response: { 200: ChatSendResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ChatSendResponse',
   },
