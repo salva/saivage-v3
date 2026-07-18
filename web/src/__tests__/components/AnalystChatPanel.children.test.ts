@@ -42,12 +42,11 @@ describe('AnalystChatPanel on-screen children', () => {
     const pinia = createPinia();
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
     const cards = useCardStore();
-    cards.cards = [
-      cardView(CHILD_TWO_ID, { title: 'Second' }),
-      cardView('project', { children: [CHILD_ONE_ID, CHILD_TWO_ID, CHILD_ZERO_ID], title: 'Parent' }),
-      cardView(CHILD_ZERO_ID, { title: 'Zero' }),
+    cards.hierarchySlicesByParentId = { project: { parent: cardView('project', { children: [CHILD_ONE_ID, CHILD_TWO_ID, CHILD_ZERO_ID], title: 'Parent' }), children: [
       cardView(CHILD_ONE_ID, { title: 'First' }),
-    ];
+      cardView(CHILD_TWO_ID, { title: 'Second' }),
+      cardView(CHILD_ZERO_ID, { title: 'Zero' }),
+    ] } };
     const workspaceRoute = useWorkspaceRouteStore();
     workspaceRoute.view = 'cards';
     workspaceRoute.entityId = 'project';
@@ -65,7 +64,7 @@ describe('AnalystChatPanel on-screen children', () => {
     const pinia = createPinia();
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
     const cards = useCardStore();
-    cards.cards = [cardView('project', { children: [CHILD_ZERO_ID] }), cardView(CHILD_ZERO_ID, { title: 'Zero' })];
+    cards.hierarchySlicesByParentId = { project: { parent: cardView('project', { children: [CHILD_ZERO_ID] }), children: [cardView(CHILD_ZERO_ID, { title: 'Zero' })] } };
     const workspaceRoute = useWorkspaceRouteStore();
     workspaceRoute.view = 'dashboard';
     workspaceRoute.entityId = 'project';

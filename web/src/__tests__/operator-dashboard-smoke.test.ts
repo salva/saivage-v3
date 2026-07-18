@@ -6,12 +6,13 @@ import App from '../App.vue';
 import { createOperatorRouter } from '../router';
 import dashboardSource from '../views/DashboardView.vue?raw';
 import appShellSource from '../components/layout/AppShell.vue?raw';
+import { cardView } from './card-view-fixtures';
 
 const originalFetch = globalThis.fetch;
 
 const routeSmokeCases = [
   { path: '/dashboard', root: '[data-testid="route-dashboard"]', bodyText: /Runtime Console/i },
-  { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /No cards available|Could not load cards/i },
+  { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /Project/i },
   { path: '/agents', root: '[data-testid="route-agents"]', bodyText: /Could not load agents|No agent sessions recorded yet/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata/i },
   { path: '/debug', root: '[data-testid="route-debug"]', bodyText: /State|Errors|Timeline/i },
@@ -34,12 +35,11 @@ function installOperatorApiFetch(): void {
           projectRoot: '/workspace/smoke',
           projectId: 'operator-route-smoke',
           runtime: null,
-          cardIndex: { total: 0, byStatus: {}, byType: {} },
         });
       case '/api/runtime/status':
         return jsonResponse({ runtime: 'stopped', currentCardId: null, goalCount: 0, lastTickAt: null, restart_server_available: false, pid: 1, actorRuntime: { pauseMode: 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [] } });
-      case '/api/cards':
-        return jsonResponse({ cards: [], total: 0 });
+      case '/api/cards/project/children':
+        return jsonResponse({ card: cardView('project'), children: [] });
       case '/api/agents':
         return jsonResponse({ sessions: [] });
       case '/api/files':

@@ -11,29 +11,33 @@
     >
       <template #list>
         <div class="cards-md__tree">
-          <ViewState v-if="collectionLoading" state="loading" title="Loading cards" />
-          <ViewState v-else-if="collectionError" state="error" title="Could not load cards" :message="collectionError" />
+          <ViewState v-if="rootLoadState.status === 'loading' || rootLoadState.status === 'idle'" state="loading" title="Loading cards" />
+          <ViewState v-else-if="rootLoadState.status === 'error'" state="error" title="Could not load cards" :message="rootLoadState.error ?? undefined">
+            <template #action><button type="button" @click="retryRoot">Retry</button></template>
+          </ViewState>
           <CardsTreeView
             v-else
-            :cards="orderedCards"
             :tree="orderedCardTree"
             :expanded-ids="effectiveExpandedTreeIds"
+            :forced-expanded-ids="representedSelectedAncestorIds"
             :selected-card-id="currentCardId"
+            :load-state-for="cardStore.childrenLoadState"
             @toggle="toggleTreeNode"
+            @retry="retryChildren"
             @select="selectCard"
           />
         </div>
       </template>
 
       <template #detail>
-        <CardDetailView v-if="currentCardId" :card-id="currentCardId" @navigate="handleNavigate" />
+        <CardDetailView v-if="currentCardId" :card-id="currentCardId" />
       </template>
     </EntityInspectorShell>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useCardStore } from '../stores/cards';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
@@ -46,25 +50,26 @@ const route = useRoute();
 const router = useRouter();
 
 const cardStore = useCardStore();
-const {
-  orderedCards,
-  orderedCardTree,
-  collectionLoading,
-  collectionError,
-  effectiveExpandedTreeIds,
-  toggleTreeNode,
-} = useCardBrowserReadModel(cardStore);
-
 const currentCardId = computed<string | null>(() => {
   const id = route.params.id as string;
   return id || null;
 });
 
-function selectCard(id: string): void {
-  router.push({ name: 'card-detail', params: { id } });
-}
+const {
+  orderedCardTree,
+  rootLoadState,
+  effectiveExpandedTreeIds,
+  representedSelectedAncestorIds,
+  toggleTreeNode,
+} = useCardBrowserReadModel(cardStore, () => currentCardId.value);
 
-function handleNavigate(id: string): void {
+onMounted(() => { void cardStore.ensureRoot().catch(() => {}); });
+watch(currentCardId, (id) => { if (id) void cardStore.ensureRouteVisible(id); }, { immediate: true });
+
+function retryRoot(): void { void cardStore.retryChildren('project').catch(() => {}); }
+function retryChildren(id: string): void { void cardStore.retryChildren(id).catch(() => {}); }
+
+function selectCard(id: string): void {
   router.push({ name: 'card-detail', params: { id } });
 }
 

@@ -1,18 +1,16 @@
 import { basename } from 'node:path';
 import type { CardService } from '../../cards/card-api.js';
-import type { CardHistoryEntry, CardLifecycleState, CardRecord, CardView } from '../../schemas/index.js';
+import { positiveSafeIntegerSchema, type CardHistoryEntry, type CardRecord } from '../../schemas/index.js';
 import { allowedActions } from '../../permissions/index.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
-import type { ServerAvailability } from '../../contracts/index.js';
-import { orderedCardsForTree, toCardView } from './card-view.js';
+import type { OperatorCard, ServerAvailability } from '../../contracts/index.js';
+import { toCardOperatorSummary } from './card-view.js';
 
 export type ReadModelResult<T> = { statusCode?: number; body: T };
 
-type CardReadModel = CardView & { lifecycle: CardLifecycleState };
-
-function withOperatorAllowedActions(store: CardService, card: CardRecord): CardReadModel {
-  return toCardView(store, { ...card, allowedActions: allowedActions('operator', card.lifecycle.status) });
+export function toOperatorCard(card: CardRecord): OperatorCard {
+  return { ...card, allowedActions: allowedActions('operator', card.lifecycle.status), operator_summary: toCardOperatorSummary(card) };
 }
 
 function redactValue<T>(value: T, source = 'cards-read-model'): T {
@@ -34,10 +32,6 @@ function historyHeader(entry: CardHistoryEntry) {
   };
 }
 
-function isMissingCardHistory(error: unknown, id: string): boolean {
-  return error instanceof Error && error.message === `Card '${id}' does not exist.`;
-}
-
 export class CardsReadModelService {
   constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly runtime: Pick<RuntimeApi, 'getRuntimeState'>) {}
 
@@ -45,63 +39,44 @@ export class CardsReadModelService {
     const projectId = basename(this.projectRoot);
     const identity = { projectRoot: this.projectRoot, projectId };
     const state = this.runtime.getRuntimeState();
-    const cards = this.store.list();
-    const byStatus: Record<string, number> = {};
-    const byType: Record<string, number> = {};
-    for (const card of cards) { byStatus[card.status] = (byStatus[card.status] || 0) + 1; byType[card.type] = (byType[card.type] || 0) + 1; }
-    return { body: { ...identity, runtime: state, cardIndex: { total: cards.length, byStatus, byType }, ...(serverAvailability ? { serverAvailability } : {}) } };
+    return { body: { ...identity, runtime: state, ...(serverAvailability ? { serverAvailability } : {}) } };
   }
 
-  listCards() {
-    const cards = orderedCardsForTree(this.store).map((card) => withOperatorAllowedActions(this.store, card));
-    return { body: { cards, total: cards.length } };
+  getChildren(id: string): ReadModelResult<unknown> {
+    const result = this.store.getCardChildren(id);
+    if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
+    return { body: { card: toOperatorCard(result.value.parent), children: result.value.activeChildren.map(toOperatorCard) } };
   }
 
   getCard(id: string): ReadModelResult<unknown> {
-    const card = this.store.read(id);
-    if (!card) return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    const cardView = withOperatorAllowedActions(this.store, card);
-    return { body: { card: cardView, children: this.store.listChildren(id).map((childId) => this.store.read(childId)).filter((c): c is CardRecord => c !== null).map((child) => withOperatorAllowedActions(this.store, child)) } };
+    const result = this.store.getCardDetail(id);
+    if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
+    return { body: { card: toOperatorCard(result.value) } };
   }
 
   listHistory(id: string): ReadModelResult<unknown> {
-    try {
-      const history = this.store.listCardHistory(id).map((entry) => redactValue(historyHeader(entry)));
-      return { body: { history, total: history.length } };
-    } catch (error) {
-      if (isMissingCardHistory(error, id)) return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-      throw error;
-    }
+    const result = this.store.listCardHistory(id);
+    if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
+    const history = result.value.map((entry) => redactValue(historyHeader(entry)));
+    return { body: { history, total: history.length } };
   }
 
-  getHistoryEntry(id: string, seqRaw: string): ReadModelResult<unknown> {
-    const seq = Number.parseInt(seqRaw, 10);
-    if (!Number.isInteger(seq) || seq <= 0) return { statusCode: 400, body: { error: 'Invalid version sequence', version_seq: seqRaw } };
-    let history: CardHistoryEntry[];
-    try { history = this.store.listCardHistory(id); }
-    catch (error) { if (isMissingCardHistory(error, id)) return { statusCode: 404, body: { error: 'Card not found', cardId: id } }; throw error; }
-    const entry = history.find((candidate) => candidate.version_seq === seq);
-    if (!entry) return { statusCode: 404, body: { error: 'Card history entry not found', cardId: id, version_seq: seq } };
-    return { body: { entry: redactValue(entry) } };
+  getHistoryEntry(id: string, versionSeq: number): ReadModelResult<unknown> {
+    if (!positiveSafeIntegerSchema.safeParse(versionSeq).success) return { statusCode: 400, body: { error: 'Invalid version sequence', version_seq: versionSeq } };
+    const result = this.store.getCardHistoryEntry(id, versionSeq);
+    if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
+    if (result.kind === 'history-entry-not-found') return { statusCode: 404, body: { error: 'Card history entry not found', cardId: id, version_seq: versionSeq } };
+    return { body: { entry: redactValue(result.value) } };
   }
 
-  diffCard(id: string, query: { from?: string; to?: string }): ReadModelResult<unknown> {
-    const card = this.store.read(id);
-    let latest: number;
-    if (card) latest = card.version_seq;
-    else {
-      try { latest = Math.max(...this.store.listCardHistory(id).map((entry) => entry.version_seq)); }
-      catch (error) { if (isMissingCardHistory(error, id)) return { statusCode: 404, body: { error: 'Card not found', cardId: id } }; throw error; }
+  diffCard(id: string, query: { from?: number | 'last' | 'current'; to?: number | 'last' | 'current' }): ReadModelResult<unknown> {
+    for (const pivot of [query.from, query.to]) {
+      if (pivot !== undefined && pivot !== 'last' && pivot !== 'current' && !positiveSafeIntegerSchema.safeParse(pivot).success) return { statusCode: 400, body: { error: 'Invalid diff pivot' } };
     }
-    const resolve = (raw: string | undefined, fallback: number): number => {
-      if (raw === undefined) return fallback;
-      if (raw === 'last' || raw === 'current') return latest;
-      return Number.parseInt(raw, 10);
-    };
-    const to = resolve(query.to, latest);
-    const from = resolve(query.from, Math.max(1, to - 1));
-    if (from <= 0 || to <= 0 || from > to) return { statusCode: 400, body: { error: 'Invalid diff pivots', from, to } };
-    try { return { body: { diff: redactValue(this.store.diffCard(id, from, to)), from, to, card_id: id } }; }
-    catch (err) { const message = err instanceof Error ? err.message : String(err); return { statusCode: message.includes('not found') || message.includes('has no version') ? 404 : 500, body: { error: message.includes('not found') || message.includes('has no version') ? 'Card diff source not found' : 'Failed to diff card', message } }; }
+    const result = this.store.diffCardHistory(id, { fromSeq: query.from, toSeq: query.to });
+    if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
+    if (result.kind === 'invalid-pivots') return { statusCode: 400, body: { error: 'Invalid diff pivots', from: result.from, to: result.to } };
+    if (result.kind === 'diff-source-not-found') return { statusCode: 404, body: { error: 'Card diff source not found', cardId: id, from: result.from, to: result.to, missing_version_seq: result.missingVersionSeq } };
+    return { body: { diff: redactValue(result.diff), from: result.from, to: result.to, card_id: id } };
   }
 }

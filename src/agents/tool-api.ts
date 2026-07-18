@@ -1,11 +1,8 @@
 export {
   create_card,
   delete_card,
-  diff_card,
   get_card,
-  get_card_history_entry,
   get_tree,
-  list_card_history,
   list_cards,
   reorder_child,
 } from '../tools/analyst-card-tools.js';

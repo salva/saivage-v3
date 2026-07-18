@@ -5,7 +5,7 @@ import type {
   AgentSessionSummary,
   CardHistoryEntry,
   CardHistoryHeader,
-  CardView as ContractCardView,
+  OperatorCard,
   ChatSession,
   ChatWorkspaceContext,
   ControlActionSurface,
@@ -179,14 +179,13 @@ export interface FreshnessState {
 
 
 
-export type CardRecord = ContractCardView & { notes?: NoteRecord[] };
-export type CardListResponse = OperatorApiSuccess<'cards.list'>;
+export type CardRecord = OperatorCard & { notes?: NoteRecord[] };
+export type CardChildrenResponse = OperatorApiSuccess<'cards.children'>;
 export type CardDetailResponse = OperatorApiSuccess<'cards.get'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
 export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
 export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[]; };
 export type RuntimeStateResponse = Omit<OperatorApiSuccess<'runtime.getState'>, 'runtime'> & { runtime: RuntimeState | null };
-export type CardIndex = RuntimeStateResponse['cardIndex'];
 export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
 export type RuntimeStatusRuntime = RuntimeStatusResponse['runtime'];
 export type RuntimeStatusActorRuntime = RuntimeStatusResponse['actorRuntime'];

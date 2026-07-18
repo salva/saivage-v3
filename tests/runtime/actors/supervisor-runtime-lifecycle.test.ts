@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { CardService } from '../../../src/cards/card-service.js';
 import { RuntimeInterventionBinding } from '../../../src/application/intervention-readiness.js';
 import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
-import { CardsReadModelService } from '../../../src/application/read-models/cards-read-model.js';
 import { ManagedProcessGroupRegistry } from '../../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import type { CardActor } from '../../../src/runtime/actors/card-actor.js';
@@ -31,6 +30,7 @@ function deferred<T>() {
 function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { result, provider_exchanges: [] }; }
 function tool(id: string, name: string, args: object): LlmCompleteResult { return { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }; }
 async function waitUntil(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error('condition not reached'); }
+function history(cards: CardService, cardId: string) { const result = cards.listCardHistory(cardId); if (result.kind !== 'found') throw new Error(`missing ${cardId}`); return result.value; }
 
 function appendInterruptedCall(projectRoot: string, cardId: string, childCardId: string, ordinal: string): void {
   const sessionId = `planner:${cardId}` as const;
@@ -54,19 +54,16 @@ type ProjectionSnapshot = {
   runtimeCardId: string | null;
   cards: string[];
   agents: Array<{ agentId: string; phase: string }>;
-  index: { total: number; byStatus: Record<string, number>; byType: Record<string, number> };
   readiness: string;
 };
 
-function projectionSnapshot(projectRoot: string, cards: CardService, supervisor: SupervisorRuntimeApi, intervention: RuntimeInterventionBinding): ProjectionSnapshot {
+function projectionSnapshot(supervisor: SupervisorRuntimeApi, intervention: RuntimeInterventionBinding): ProjectionSnapshot {
   const actorRuntime = supervisor.getActorRuntimeReadModel();
-  const index = new CardsReadModelService(projectRoot, cards, supervisor).getRuntimeState().body.cardIndex;
   return {
     status: supervisor.getStatus(),
     runtimeCardId: supervisor.getRuntimeState()?.active_card_run?.card_id ?? null,
     cards: actorRuntime.cards.map(({ cardId }) => cardId),
     agents: actorRuntime.agents.map(({ agentId, phase }) => ({ agentId, phase })),
-    index,
     readiness: intervention.interventionReadiness(),
   };
 }
@@ -116,7 +113,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     let supervisor!: SupervisorRuntimeApi;
     const snapshots: ProjectionSnapshot[] = [];
     changes.subscribe({
-      runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)),
+      runtimeChanged: () => snapshots.push(projectionSnapshot(supervisor, intervention)),
       cardStateChanged: () => undefined,
       agentsChanged: () => undefined,
       conversationChanged: () => undefined,
@@ -159,7 +156,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     let supervisor!: SupervisorRuntimeApi;
     const snapshots: ProjectionSnapshot[] = [];
     changes.subscribe({
-      runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)),
+      runtimeChanged: () => snapshots.push(projectionSnapshot(supervisor, intervention)),
       cardStateChanged: () => undefined,
       agentsChanged: () => undefined,
       conversationChanged: () => undefined,
@@ -176,7 +173,6 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(snapshots[0]).toMatchObject({
       status: { status: 'stopped', currentCardId: null },
       runtimeCardId: null,
-      index: { total: 1, byStatus: { running: 1 }, byType: { project: 1 } },
     });
     const internals = supervisor as unknown as SupervisorInternals;
     internals.liveCardActors.set('unprojected-extra', { cardId: 'unprojected-extra' } as CardActor);
@@ -215,7 +211,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const intervention = new RuntimeInterventionBinding();
     let supervisor!: SupervisorRuntimeApi;
     const snapshots: ProjectionSnapshot[] = [];
-    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention,
       provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
@@ -273,7 +269,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     }) };
     let supervisor!: SupervisorRuntimeApi;
     const snapshots: ProjectionSnapshot[] = [];
-    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention, provider,
       conversations: { projectRoot }, appLogs: { projectRoot },
@@ -295,7 +291,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
     expect(cards.read('project')).toMatchObject({ status: 'done', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'done', summary: 'Complete.' } } });
-    expect(cards.listCardHistory('project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
+    expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(internals.liveCardActors.has('project')).toBe(false);
     expect(internals.cardActors.has('project')).toBe(false);
     expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [], agents: [] });
@@ -319,7 +315,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     }) };
     let supervisor!: SupervisorRuntimeApi;
     const snapshots: ProjectionSnapshot[] = [];
-    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(projectRoot, cards, supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(supervisor, intervention)), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention, provider,
       conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
@@ -332,8 +328,8 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
     expect(cards.read('project')).toMatchObject({ status: 'failed', version_seq: runningVersion + 1 });
-    expect(cards.listCardHistory('project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
-    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'stopped', index: { byStatus: { failed: 1 } } });
+    expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
+    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'stopped' });
   });
 
   it('rejects stale settled-actor release without changing current ownership', async () => {
@@ -629,8 +625,8 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const goalSettle = jest.spyOn(goalOwner, 'settleClaimedCancellation');
     const selectNotifications = jest.spyOn(goalOwner, 'listPendingNotifications');
     const removeNotifications = jest.spyOn(cards, 'removeNotifications');
-    const rootHistoryBefore = cards.listCardHistory('project').length;
-    const goalHistoryBefore = cards.listCardHistory(goal.id).length;
+    const rootHistoryBefore = history(cards, 'project').length;
+    const goalHistoryBefore = history(cards, goal.id).length;
     const propagation = jest.spyOn(supervisor as unknown as { handleRootRejection(identity: object, error: unknown): void }, 'handleRootRejection');
     cardRead = jest.spyOn(cards, 'read');
     published.mockClear(); conversationChanged.mockClear(); changes.runtimeChanged.mockClear();
@@ -651,8 +647,8 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(selectNotifications).not.toHaveBeenCalled();
     expect(removeNotifications).not.toHaveBeenCalled();
     expect(cards.read(goal.id)!.pending_notifications.map(({ id }) => id)).toContain('fatal-retained-notification');
-    expect(cards.listCardHistory('project')).toHaveLength(rootHistoryBefore);
-    expect(cards.listCardHistory(goal.id)).toHaveLength(goalHistoryBefore);
+    expect(history(cards, 'project')).toHaveLength(rootHistoryBefore);
+    expect(history(cards, goal.id)).toHaveLength(goalHistoryBefore);
     expect(internals.runIdentity).toBe(identity);
     expect(internals.cardActors.get('project')).toBe(rootOwner); expect(internals.liveCardActors.get('project')).toBe(rootOwner);
     expect(internals.cardActors.get(goal.id)).toBe(goalOwner); expect(internals.liveCardActors.get(goal.id)).toBe(goalOwner);
@@ -900,7 +896,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
       expect(callerSettled).toBe(true);
     }
     expect(cards.read(child.id)).toMatchObject({ status: 'done', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'done', summary: 'Accepted result.' } } });
-    expect(cards.listCardHistory(child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
+    expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     consoleError.mockRestore();
   });
 

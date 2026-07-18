@@ -83,7 +83,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { useLiveSyncStore } from '../stores/liveSync';
-import { selectLinkedChildren, useCardStore } from '../stores/cards';
+import { useCardStore } from '../stores/cards';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
@@ -113,10 +113,10 @@ const {
   isStale, unauthorized,
 } = storeToRefs(fileStore);
 
-const activeCardId = computed<string | null>(() => cardsStore.currentCard?.id ?? null);
-const cardChildren = computed<CardRecord[]>(() => {
+const activeCardId = computed<string | null>(() => cardsStore.selectedDetail?.cardId ?? null);
+const cardChildren = computed<readonly CardRecord[]>(() => {
   const id = activeCardId.value;
-  return id ? selectLinkedChildren([...cardsStore.cards], id) : [];
+  return id ? cardsStore.loadedChildrenFor(id) ?? [] : [];
 });
 const activeRoot = computed<FileRoot>(() => route.query.root === 'output' ? 'output' : 'meta');
 const activeRootPath = computed(() => activeRoot.value === 'meta' ? '.saivage' : '.saivage/work');

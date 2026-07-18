@@ -6,6 +6,7 @@ import { replaceFile, type PublicationTemporaryIdFactory, type ReplacementFileIo
 export interface GrowingFileIo {
   read: typeof readFileSync; open: typeof openSync; write: typeof writeSync; fsync: typeof fsyncSync; truncate: typeof ftruncateSync; close: typeof closeSync;
 }
+export interface CanonicalReadInstrumentation { readonly onRead: (path: string) => void }
 const growingFileIo: GrowingFileIo = { read: readFileSync, open: openSync, write: writeSync, fsync: fsyncSync, truncate: ftruncateSync, close: closeSync };
 
 const envelopeSchema = z.object({
@@ -40,7 +41,8 @@ export function parseGrowingFile<Row>(path: string, content: string, rowSchema: 
   return rows;
 }
 
-export function readCanonicalGrowingFile<Row>(path: string, rowSchema: z.ZodType<Row>, io: GrowingFileIo = growingFileIo): Row[] {
+export function readCanonicalGrowingFile<Row>(path: string, rowSchema: z.ZodType<Row>, io: GrowingFileIo = growingFileIo, instrumentation?: CanonicalReadInstrumentation): Row[] {
+  instrumentation?.onRead(path);
   let bytes = io.read(path);
   if (bytes.byteLength > 0 && bytes[bytes.byteLength - 1] !== 0x0a) {
     const finalNewline = bytes.lastIndexOf(0x0a);

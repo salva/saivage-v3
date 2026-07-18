@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import {
-  cardViewSchema,
+  operatorCardSchema,
   cardStatusSchema,
-  cardActionSchema,
   cardHistoryEntrySchema,
   cardHistoryHeaderSchema,
   runtimeStateSchema,
   cardIdSchema,
+  positiveSafeIntegerSchema,
 } from '../schemas/index.js';
 import {
   ApiErrorSchema,
@@ -21,21 +21,13 @@ import { ServerAvailabilitySchema } from './operator-api-availability.js';
 import { actorPauseModeSchema, llmActorRoleSchema, publicAgentPhaseSchema, publicCardActorStateSchema } from '../schemas/actor-vocabulary.js';
 import { runtimeStatusSchema } from '../schemas/index.js';
 
-export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
-  cardId: cardIdSchema.optional(),
-});
-
-export const CardPermissionFieldsSchema = z.object({ allowedActions: z.array(cardActionSchema).optional() });
+export const CardNotFoundErrorSchema = z.object({ error: z.literal('Card not found'), cardId: cardIdSchema }).strict();
+export const CardHistoryEntryNotFoundErrorSchema = z.object({ error: z.literal('Card history entry not found'), cardId: cardIdSchema, version_seq: positiveSafeIntegerSchema }).strict();
+export const CardDiffSourceNotFoundErrorSchema = z.object({ error: z.literal('Card diff source not found'), cardId: cardIdSchema, from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema, missing_version_seq: positiveSafeIntegerSchema }).strict();
+export const CardHistoryEntryNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, CardHistoryEntryNotFoundErrorSchema]);
+export const CardDiffNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, CardDiffSourceNotFoundErrorSchema]);
 
 export const CardIdParamsSchema = z.object({ id: cardIdSchema });
-
-export const CardIndexSummarySchema = z.object({
-  total: z.number().int().nonnegative(),
-  byStatus: z.record(z.string(), z.number().int().nonnegative()),
-  byType: z.record(z.string(), z.number().int().nonnegative()),
-});
-
-
 
 export const HealthLivenessResponseSchema = z.object({ status: z.literal('ok'), version: z.string(), project: z.string() });
 export const HealthReadinessResponseSchema = z.object({ status: z.enum(['ready', 'not_ready']), serverAvailability: ServerAvailabilitySchema.optional() });
@@ -45,33 +37,30 @@ export const RuntimeGetStateResponseSchema = z.object({
   projectRoot: z.string().min(1),
   projectId: z.string().min(1),
   runtime: runtimeStateSchema.nullable(),
-  cardIndex: CardIndexSummarySchema,
   serverAvailability: ServerAvailabilitySchema.optional(),
-});
+}).strict();
 
-export const CardListResponseSchema = z.object({
-  cards: z.array(cardViewSchema),
-  total: z.number().int().nonnegative(),
-});
+export const OperatorCardSchema = operatorCardSchema;
 
-export const CardDetailCardSchema = cardViewSchema;
-
-export const CardDetailResponseSchema = z.object({
-  card: CardDetailCardSchema,
-  children: z.array(cardViewSchema),
-});
+export const CardChildrenResponseSchema = z.object({ card: OperatorCardSchema, children: z.array(OperatorCardSchema) }).strict();
+export const CardDetailResponseSchema = z.object({ card: OperatorCardSchema }).strict();
 
 export const CardHistoryParamsSchema = z.object({ id: cardIdSchema });
-export const CardHistoryEntryParamsSchema = z.object({ id: cardIdSchema, seq: z.string().min(1) });
+export const canonicalPositiveSafeIntegerStringSchema = z.string().regex(/^[1-9][0-9]*$/).superRefine((raw, ctx) => {
+  if (!positiveSafeIntegerSchema.safeParse(Number(raw)).success) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Expected a canonical positive safe integer.' });
+}).transform(Number);
+export const CardHistoryEntryParamsSchema = z.object({ id: cardIdSchema, seq: canonicalPositiveSafeIntegerStringSchema });
 const diffPivotSchema = z.union([
   z.literal('last'),
   z.literal('current'),
-  z.string().regex(/^[1-9][0-9]*$/, 'positive integer or "last"/"current"'),
+  canonicalPositiveSafeIntegerStringSchema,
 ]);
 export const CardDiffQuerySchema = z.object({ from: diffPivotSchema.optional(), to: diffPivotSchema.optional() });
 export const CardHistoryListResponseSchema = z.object({ history: z.array(cardHistoryHeaderSchema), total: z.number().int().nonnegative() });
 export const CardHistoryEntryResponseSchema = z.object({ entry: cardHistoryEntrySchema });
-export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: z.number().int().positive(), to: z.number().int().positive(), card_id: cardIdSchema });
+export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema, card_id: cardIdSchema }).strict();
+export const InvalidCardDiffPivotsErrorSchema = z.object({ error: z.literal('Invalid diff pivots'), from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema }).strict();
+export const CardDiffBadRequestSchema = z.union([ValidationErrorSchema, InvalidCardDiffPivotsErrorSchema]);
 
 
 export const RuntimeStatusResponseSchema = z.object({
@@ -121,7 +110,8 @@ export const RuntimeCardRunsResponseSchema = z.object({
 export type HealthLivenessResponse = z.infer<typeof HealthLivenessResponseSchema>;
 export type HealthReadinessResponse = z.infer<typeof HealthReadinessResponseSchema>;
 export type RuntimeGetStateResponse = z.infer<typeof RuntimeGetStateResponseSchema>;
-export type CardListResponse = z.infer<typeof CardListResponseSchema>;
+export type OperatorCard = z.infer<typeof OperatorCardSchema>;
+export type CardChildrenResponse = z.infer<typeof CardChildrenResponseSchema>;
 export type CardDetailResponse = z.infer<typeof CardDetailResponseSchema>;
 export type CardHistoryListResponse = z.infer<typeof CardHistoryListResponseSchema>;
 export type CardHistoryEntryResponse = z.infer<typeof CardHistoryEntryResponseSchema>;
@@ -163,15 +153,16 @@ export const runtimeCardsOperatorApiContracts = {
     ...operatorSessionContract,
     successSchemaName: 'RuntimeGetStateResponse',
   },
-  'cards.list': {
-    operationId: 'cards.list',
+  'cards.children': {
+    operationId: 'cards.children',
     method: 'GET',
-    path: '/api/cards',
-    success: CardListResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: CardListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
+    path: '/api/cards/:id/children',
+    params: CardIdParamsSchema,
+    success: CardChildrenResponseSchema,
+    error: CardNotFoundErrorSchema,
+    response: { 200: CardChildrenResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardNotFoundErrorSchema, 500: ApiErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'CardListResponse',
+    successSchemaName: 'CardChildrenResponse',
   },
   'cards.get': {
     operationId: 'cards.get',
@@ -202,8 +193,8 @@ export const runtimeCardsOperatorApiContracts = {
     path: '/api/cards/:id/history/:seq',
     params: CardHistoryEntryParamsSchema,
     success: CardHistoryEntryResponseSchema,
-    error: CardNotFoundErrorSchema,
-    response: { 200: CardHistoryEntryResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardNotFoundErrorSchema, 500: ApiErrorSchema },
+    error: CardHistoryEntryNotFoundUnionSchema,
+    response: { 200: CardHistoryEntryResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardHistoryEntryNotFoundUnionSchema, 500: ApiErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'CardHistoryEntryResponse',
   },
@@ -214,8 +205,8 @@ export const runtimeCardsOperatorApiContracts = {
     params: CardHistoryParamsSchema,
     query: CardDiffQuerySchema,
     success: CardDiffResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: CardDiffResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ApiErrorSchema },
+    error: CardDiffNotFoundUnionSchema,
+    response: { 200: CardDiffResponseSchema, 400: CardDiffBadRequestSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardDiffNotFoundUnionSchema, 500: ApiErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'CardDiffResponse',
   },

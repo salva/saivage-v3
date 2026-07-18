@@ -30,7 +30,6 @@ const router = createRouter({
     { path: '/dashboard', name: 'dashboard', component: { template: '<div>dashboard</div>' } },
     { path: '/cards', name: 'cards', component: { template: '<div>cards</div>' } },
     { path: '/cards/:id', name: 'card-detail', component: { template: '<div>card</div>' } },
-    { path: '/timeline', name: 'timeline', component: { template: '<div>timeline</div>' } },
     { path: '/agents', name: 'agents', component: { template: '<div>agents</div>' } },
     { path: '/agents/:id', name: 'agent-detail', component: { template: '<div>agent detail</div>' } },
     { path: '/files', name: 'files', component: { template: '<div>files</div>' } },

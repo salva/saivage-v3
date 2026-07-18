@@ -16,11 +16,13 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     expect(typeof body).toBe('object');
   });
 
-  test('cards.list returns an array', async ({ request }) => {
-    const res = await request.get('/api/cards');
-    expect(res.status(), `GET /api/cards — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
+  test('root card hierarchy returns only the project and immediate children', async ({ request }) => {
+    const res = await request.get('/api/cards/project/children');
+    expect(res.status(), `GET /api/cards/project/children — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
     const body = await res.json();
-    expect(Array.isArray(body.cards)).toBe(true);
+    expect(body.card.id).toBe('project');
+    expect(Array.isArray(body.children)).toBe(true);
+    expect(body.children.every((child: { parent: string }) => child.parent === 'project')).toBe(true);
   });
 
   test('chats.list returns sessions including the analyst session', async ({ request }) => {

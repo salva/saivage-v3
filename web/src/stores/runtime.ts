@@ -1,8 +1,7 @@
 /**
  * Pinia store for runtime state.
  *
- * Tracks the Saivage runtime snapshot,
- * card index, and lifecycle status.
+ * Tracks the Saivage runtime snapshot and lifecycle status.
  * Live updates are driven by SyncClient invalidation + REST refetch.
  */
 
@@ -11,7 +10,6 @@ import { ref, computed, readonly } from 'vue';
 import type {
   RuntimeState,
   RuntimeStatus,
-  CardIndex,
   ServerAvailability,
   FreshnessState,
   ActionableErrorEnvelope,
@@ -49,7 +47,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const runtime = ref<RuntimeState | null>(null);
   const projectRoot = ref<string | null>(null);
   const projectId = ref<string | null>(null);
-  const cardIndex = ref<CardIndex>({ total: 0, byStatus: {}, byType: {} });
   const serverAvailability = ref<ServerAvailability | null>(null);
   const loading = ref(false);
   const refreshing = ref(false);
@@ -82,10 +79,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const statusLabel = computed<string>(() => selectRuntimeStatusLabel(runtime.value));
   const syncConnectionState = computed(() => useSyncStore().connectionState ?? 'offline');
 
-  const doneGoals = computed<number>(() => cardIndex.value.byStatus['done'] ?? 0);
-  const failedBlocked = computed<number>(
-    () => (cardIndex.value.byStatus['failed'] ?? 0) + (cardIndex.value.byStatus['blocked'] ?? 0),
-  );
   const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ statusLabel: statusLabel.value }));
   const availabilityDetail = computed(() => selectAvailabilityDetail(serverAvailability.value));
   const runtimeDetail = computed(() => selectRuntimeDetail({
@@ -136,7 +129,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
       projectRoot.value = response.projectRoot;
       projectId.value = response.projectId;
       applyRuntimeSummaryFromState(response.runtime);
-      cardIndex.value = response.cardIndex;
       serverAvailability.value = response.serverAvailability ?? null;
       restartServerAvailable.value = liveStatus.restart_server_available;
       markRestSync();
@@ -169,7 +161,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     runtime: readonly(runtime),
     projectRoot: readonly(projectRoot),
     projectId: readonly(projectId),
-    cardIndex: readonly(cardIndex),
     serverAvailability: readonly(serverAvailability),
     lastActionableError: readonly(lastActionableError),
     restartServerAvailable: readonly(restartServerAvailable),
@@ -187,8 +178,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     currentAgentSessionId,
     statusLabel,
     syncConnectionState,
-    doneGoals,
-    failedBlocked,
     isStale,
     runtimeModeLabel,
     availabilityDetail,

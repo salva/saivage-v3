@@ -61,37 +61,36 @@ describe('exact hierarchical card files', () => {
     cards.deleteSubtrees([parent.id], { actor: 'analyst', surface: 'runtime', reason: 'test deletion' }, () => true);
 
     expect(readCard(root, parent.id)).toBeNull();
-    expect(() => cards.listCardHistory(parent.id)).toThrow(`Card '${parent.id}' does not exist.`);
-    expect(() => cards.getCardAt(parent.id, 1)).toThrow(`Card '${parent.id}' does not exist.`);
-    expect(() => cards.diffCard(parent.id, 1, 2)).toThrow(`Card '${parent.id}' does not exist.`);
+    expect(cards.listCardHistory(parent.id)).toEqual({ kind: 'card-not-found' });
+    expect(cards.getCardHistoryEntry(parent.id, 1)).toEqual({ kind: 'card-not-found' });
+    expect(cards.diffCardHistory(parent.id, { fromSeq: 1, toSeq: 2 })).toEqual({ kind: 'card-not-found' });
     expect(() => cards.readRecord(parent.id, 'brief.md')).toThrow(`Card '${parent.id}' does not exist.`);
 
     writeFileSync(cardStreamFile(root, child.id), '{complete-malformed}\n');
     expect(readCard(root, child.id)).toBeNull();
-    expect(() => cards.listCardHistory(child.id)).toThrow(`Card '${child.id}' does not exist.`);
+    expect(cards.listCardHistory(child.id)).toEqual({ kind: 'card-not-found' });
   });
 
-  it('requires the exact brief for the active root', () => {
+  it('does not couple a card-only read to the active root brief', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     rmSync(cardRecordStreamFile(root, 'project', 'brief'));
-    expect(() => readCard(root, 'project')).toThrow();
+    expect(readCard(root, 'project')?.id).toBe('project');
   });
 
-  it('requires exact briefs for active ancestors before touching the target', () => {
+  it('does not read ancestor briefs while proving an active target path', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     writeFileSync(cardRecordStreamFile(root, parent.id, 'brief'), '{complete-malformed}\n');
-    writeFileSync(cardStreamFile(root, child.id), '{prospective-target-must-not-be-read}\n');
-    expect(() => readCard(root, child.id)).toThrow(/brief\.jsonl/);
+    expect(readCard(root, child.id)?.id).toBe(child.id);
   });
 
-  it('requires the exact brief for an active target', () => {
+  it('does not couple a card-only target read to its brief', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     rmSync(cardRecordStreamFile(root, child.id, 'brief'));
-    expect(() => readCard(root, child.id)).toThrow();
+    expect(readCard(root, child.id)?.id).toBe(child.id);
   });
 });

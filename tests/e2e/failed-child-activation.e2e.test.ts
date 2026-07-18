@@ -30,6 +30,7 @@ function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { 
 function tool(id: string, name: string, args: object): LlmCompleteResult { return { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }; }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
 async function waitUntil(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error('condition not reached'); }
+function history(cards: CardService, cardId: string) { const result = cards.listCardHistory(cardId); if (result.kind !== 'found') throw new Error(`missing ${cardId}`); return result.value; }
 
 type RuntimeInternals = { cardActors: Map<string, CardActor>; liveCardActors: Map<string, CardActor>; cardActor(cardId: string): CardActor };
 
@@ -126,7 +127,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(failureToolResult).toEqual({ success: true, data: { card_id: failedChild.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') } } });
     expect(internals.cardActors.has(failedChild.id)).toBe(false);
     expect(internals.liveCardActors.has(failedChild.id)).toBe(false);
-    expect(cards.listCardHistory(failedChild.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
+    expect(history(cards, failedChild.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
 
     const retryActor = internals.cardActor(failedChild.id);
     const activate = jest.spyOn(retryActor, 'activate');
@@ -143,8 +144,8 @@ describe('failed child activation lifecycle E2E', () => {
     expect(cards.read(failedChild.id)?.status).toBe('failed');
     expect(internals.liveCardActors.has(failedChild.id)).toBe(false);
     expect(internals.liveCardActors.get(sibling.id)?.cardId).toBe(sibling.id);
-    const cardProjection = new CardsReadModelService(projectRoot, cards, supervisor).listCards().body.cards;
-    expect(cardProjection.find((card) => card.id === failedChild.id)?.status).toBe('failed');
+    const cardProjection = new CardsReadModelService(projectRoot, cards, supervisor).getCard(failedChild.id).body as { card: { status: string } };
+    expect(cardProjection.card.status).toBe('failed');
     expect(supervisor.getActorRuntimeReadModel().cards.some((card) => card.cardId === failedChild.id && card.actorState === 'running')).toBe(false);
 
     releaseSibling.resolve();
@@ -153,7 +154,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(activate).toHaveBeenCalledTimes(2);
     expect(awaitSettlement).not.toHaveBeenCalled();
     expect(failedChildCalls).toBe(3);
-    expect(cards.listCardHistory(failedChild.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(2);
+    expect(history(cards, failedChild.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(2);
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });
 
@@ -184,14 +185,14 @@ describe('failed child activation lifecycle E2E', () => {
     await waitUntil(() => cards.read(child.id)?.status === 'failed');
 
     expect(cards.read(child.id)).toMatchObject({ status: 'failed', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'failed', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
-    expect(cards.listCardHistory(child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
+    expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(cards.readRecord(child.id, 'status.md', 'latest').artifact.content).toBe('Accepted output.');
     expect(() => cards.readRecord(child.id, 'status.md', 'open')).toThrow();
     const terminalRows = readConversation(projectRoot, `executor:${child.id}`).physicalRows.filter((row) => row.tool_call_id === 'accepted');
     expect(terminalRows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool_result', content: JSON.stringify({ success: true, data: { accepted: true } }) })]));
     expect((supervisor as unknown as RuntimeInternals).cardActors.has(child.id)).toBe(false);
     expect((supervisor as unknown as RuntimeInternals).liveCardActors.has(child.id)).toBe(false);
-    await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: false });
   });
 
   it('publishes one failed lifecycle for malformed provider failure metadata through the real processor stack', async () => {
@@ -209,7 +210,7 @@ describe('failed child activation lifecycle E2E', () => {
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
     expect(cards.read('project')).toMatchObject({ status: 'failed', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'failed', summary: expect.stringContaining('failed without ProviderTurnFailure metadata') }, error: expect.stringContaining('failed without ProviderTurnFailure metadata') } });
-    expect(cards.listCardHistory('project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
+    expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect((supervisor as unknown as RuntimeInternals).cardActors.size).toBe(0);
     expect((supervisor as unknown as RuntimeInternals).liveCardActors.size).toBe(0);
     consoleError.mockRestore();

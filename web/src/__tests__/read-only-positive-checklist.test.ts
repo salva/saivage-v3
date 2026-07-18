@@ -5,7 +5,6 @@ import dashboardViewSource from '../views/DashboardView.vue?raw';
 import filesViewSource from '../views/FilesView.vue?raw';
 import agentsViewSource from '../views/AgentsView.vue?raw';
 import debugViewSource from '../views/DebugView.vue?raw';
-import timelineViewSource from '../views/TimelineView.vue?raw';
 import cardDetailSource from '../components/cards/CardDetailView.vue?raw';
 import cardsTreeSource from '../components/cards/CardsTreeView.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
@@ -13,6 +12,8 @@ import debugAgentDetailSource from '../components/agents/DebugAgentDetail.vue?ra
 import analystChatPanelSource from '../components/chat/AnalystChatPanel.vue?raw';
 import agentTimelineSource from '../composables/useAgentTimeline.ts?raw';
 import CodeBlock from '../components/content/CodeBlock.vue';
+import routerSource from '../router.ts?raw';
+import appShellSource from '../components/layout/AppShell.vue?raw';
 
 const removedMutationTokens = new RegExp([
   'createCard',
@@ -61,8 +62,8 @@ describe('read-only positive checklist', () => {
       ['cards', '-filters'].join(''),
     ].join('|'));
     expect(cardsViewSource).not.toMatch(removedCardsFilters);
-    expect(timelineViewSource).toContain('CardsTimelineView');
-    expect(timelineViewSource).not.toContain('Back to Card Tree');
+    expect(routerSource).not.toContain('/timeline');
+    expect(appShellSource).not.toContain("id: 'timeline'");
 
     // DashboardView: runtime refresh and passive navigation links remain while start/stop controls are gone.
     expect(dashboardViewSource).toContain('@click="refreshRuntime"');
@@ -114,7 +115,7 @@ describe('read-only positive checklist', () => {
     expect(cardDetailSource).toContain('CardRecordsSection');
     expect(cardDetailSource).toContain('CardConversationsSection');
     expect(cardDetailSource).toContain('Version history');
-    expect(cardDetailSource).toContain('@click="navigateCard(dispatch.targetCardId)"');
+    expect(cardDetailSource).toContain('hierarchyPathFor');
     expect(cardsTreeSource).toContain("emit('toggle', node.card.id)");
     expect(cardsTreeSource).toContain("emit('select', node.card.id)");
 

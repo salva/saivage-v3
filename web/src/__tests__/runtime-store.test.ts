@@ -14,7 +14,6 @@ vi.mock('../api/client', () => ({
     projectRoot: '/fixture',
     projectId: 'fixture-project',
     runtime: null,
-    cardIndex: { total: 0, byStatus: {}, byType: {} },
   })),
   getRuntimeStatus: vi.fn(async () => ({ restart_server_available: false })),
   stopProject: vi.fn(async () => ({ status: 'stopped', contained: false })),
@@ -57,6 +56,6 @@ describe('runtime store S06 read-only projection', () => {
 
     await expect(store.fetchState()).resolves.toBeUndefined();
     expect(store.projectRoot).toBe('/fixture');
-    expect(store.cardIndex.total).toBe(0);
+    expect(store).not.toHaveProperty('cardIndex');
   });
 });

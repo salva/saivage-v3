@@ -46,8 +46,7 @@ describe('DashboardView S06 read-only contract', () => {
     const firstId = `${goalId}-bbbbbbbbbbbbbbbbbbbbbbbbbbbb`;
     const secondId = `${goalId}-cccccccccccccccccccccccccccc`;
     const goal = cardView(goalId, { type: 'goal', children: [secondId, firstId] });
-    cardsStore.cards = [cardView(firstId), goal, cardView(secondId)];
-    cardsStore.currentCard = goal;
+    cardsStore.hierarchySlicesByParentId = { [goalId]: { parent: goal, children: [cardView(secondId), cardView(firstId)] } };
 
     const model = useDashboardReadModel({
       cardsStore,
@@ -55,7 +54,7 @@ describe('DashboardView S06 read-only contract', () => {
         statusLabel: ref('running'),
         isStale: ref(false),
         unauthorized: ref(false),
-        cardIndex: ref({ total: 3, byStatus: { running: 3 }, byType: { goal: 1, code: 2 } }),
+        currentCardId: ref(goalId),
       },
     });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CardRecord, ContentReview, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView } from '../api/types';
-import { filterTimelineByKinds, selectCardStatusEntries, selectDoctorIssuesBySeverity, selectErrorsBySource, selectFailedChecks, selectOperatorDataFreshnessLabel, selectReviewsByStatus, selectSortedProcesses, selectSortedTimeline, selectTimelineDerivedErrors } from '../stores/debug-read-model';
+import type { ContentReview, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView } from '../api/types';
+import { filterTimelineByKinds, selectDoctorIssuesBySeverity, selectErrorsBySource, selectFailedChecks, selectOperatorDataFreshnessLabel, selectReviewsByStatus, selectSortedProcesses, selectSortedTimeline, selectTimelineDerivedErrors } from '../stores/debug-read-model';
 
 function process(overrides: Partial<ProcessView>): ProcessView {
   return {
@@ -31,11 +31,7 @@ describe('debug-read-model', () => {
     expect([...selectErrorsBySource(errors).keys()]).toEqual(['session-a']);
   });
 
-  it('projects status bars, timeline filters, freshness, and process ordering', () => {
-    expect(selectCardStatusEntries([{ status: 'done' }, { status: 'done' }, { status: 'blocked' } as Partial<CardRecord> as CardRecord])).toEqual([
-      { status: 'done', count: 2 },
-      { status: 'blocked', count: 1 },
-    ]);
+  it('projects timeline filters, freshness, and process ordering', () => {
     expect(filterTimelineByKinds([{ kind: 'a', timestamp: '1' }, { kind: 'b', timestamp: '2' }], ['b']).map((event) => event.kind)).toEqual(['b']);
     expect(selectOperatorDataFreshnessLabel('2025-01-01T00:00:00Z', new Date('2025-01-01T00:00:30Z').getTime())).toBe('fresh');
     expect(selectSortedProcesses([process({ id: 'old', status: 'exited' }), process({ id: 'run', status: 'running' })]).map((entry) => entry.id)).toEqual(['run', 'old']);

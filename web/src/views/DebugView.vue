@@ -28,37 +28,6 @@
             <ViewState v-else state="empty" title="No runtime state." />
           </section>
 
-          <section class="debug-section">
-            <h4 class="debug-section-title">Cards ({{ cardsTotal }} total)</h4>
-            <ViewState v-if="cardsLoading" state="loading" title="Loading cards..." />
-            <ViewState v-else-if="cardsError" state="error" title="Failed to load cards" :message="cardsError" />
-            <StatusBanner v-if="cardsRefreshing" tone="stale" message="Refreshing cards…" />
-            <StatusBanner v-else-if="cardsRefreshError" tone="warning" :message="cardsRefreshError" />
-            <div class="card-summary-bars">
-              <div v-for="entry in cardStatusEntries" :key="entry.status" class="csb-row">
-                <span class="csb-label">{{ entry.status }}</span>
-                <div class="csb-track"><div class="csb-fill" :class="'s-' + entry.status" :style="{ width: (entry.count / maxStatusCount) * 100 + '%' }"></div></div>
-                <span class="csb-count">{{ entry.count }}</span>
-              </div>
-            </div>
-            <div class="debug-card-list">
-              <div v-for="card in cards" :key="card.id" class="dc-item" :class="'dc-' + card.status">
-                <span class="dc-type">{{ card.type[0].toUpperCase() }}</span>
-                <span class="dc-title">{{ card.title }}</span>
-                <span class="dc-status" :class="'s-' + card.status">{{ card.status }}</span>
-                <span v-if="card.depends_on.length" class="dc-deps">{{ card.depends_on.length }}</span>
-                <section class="card-children-section" data-testid="debug-view-card-children" v-if="childrenForCard(card.id).length > 0">
-                  <ul data-testid="debug-card-children-list">
-                    <li v-for="child in childrenForCard(card.id)" :key="child.id" data-testid="debug-card-children-item">
-                      <span class="title">{{ child.title }}</span>
-                      <span class="status">{{ child.status }}</span>
-                    </li>
-                  </ul>
-                </section>
-              </div>
-            </div>
-            <ViewState v-if="!cardsLoading && !cardsError && cards.length === 0" state="empty" title="No cards." />
-          </section>
       </div>
 
       <div v-if="localActiveTab === 'operator'" class="debug-tab-content">
@@ -358,7 +327,6 @@ import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
 import { useLiveSyncStore } from '../stores/liveSync';
-import { useCardStore } from '../stores/cards';
 import { useRuntimeStore } from '../stores/runtime';
 import { useAgentStore } from '../stores/agents';
 import type { ConversationSessionId } from '../api/contracts';
@@ -378,7 +346,6 @@ import type { DebugTimelineEvent, ProcessView } from '../types/view-models';
 
 const debugStore = useDebugStore();
 const liveSyncStore = useLiveSyncStore();
-const cardsStore = useCardStore();
 const runtimeStore = useRuntimeStore();
 const agentStore = useAgentStore();
 const mcpStore = useMcpStore();
@@ -397,10 +364,6 @@ const {
   error: runtimeError, refreshError: runtimeRefreshError, lastFetchedAt: runtimeLastFetchedAt,
 } = storeToRefs(runtimeStore);
 const {
-  cards, total: cardsTotal, collectionLoading: cardsLoading, collectionRefreshing: cardsRefreshing,
-  collectionError: cardsError, collectionRefreshError: cardsRefreshError,
-} = storeToRefs(cardsStore);
-const {
   sessions, sessionsLoaded, sessionsLoading, sessionsRefreshing,
   sessionsError, sessionsRefreshError, sessionsUnauthorized,
 } = storeToRefs(agentStore);
@@ -416,11 +379,8 @@ const {
   sortedProcesses,
   timelineKindOptions,
   filteredTimeline,
-  cardStatusEntries,
-  maxStatusCount,
   errorSourceEntries,
-  childrenForCard,
-} = useDebugReadModel(debugStore, runtimeStore, cardsStore);
+} = useDebugReadModel(debugStore, runtimeStore);
 
 const operatorDataFreshnessLabel = computed(() => selectOperatorDataFreshnessLabel(runtimeLastFetchedAt.value));
 async function refreshOperatorControl(): Promise<void> { await runtimeStore.fetchState().catch(() => {}); }
@@ -520,31 +480,6 @@ onUnmounted(() => {
 .operator-note-time { margin-left:auto; font-size:11px; color:var(--text-muted); }
 .operator-note-body { font-size:13px; color:var(--text); white-space:pre-wrap; word-break:break-word; margin-bottom:8px; }
 .operator-note-meta { display:flex; gap:12px; flex-wrap:wrap; font-size:11px; color:var(--text-muted); margin-bottom:10px; }
-.card-summary-bars { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
-.csb-row { display:grid; grid-template-columns:80px 1fr 40px; gap:8px; align-items:center; }
-.csb-label { font-size:11px; color:var(--text-muted); text-transform:capitalize; text-align:right; }
-.csb-track { height:6px; background:var(--surface-3); border-radius:3px; overflow:hidden; }
-.csb-fill { height:100%; border-radius:3px; }
-.csb-fill.s-backlog { background:var(--text-muted); }
-.csb-fill.s-running { background:var(--accent); }
-.csb-fill.s-blocked { background:var(--warn); }
-.csb-fill.s-done { background:var(--accent); }
-.csb-fill.s-failed { background:var(--danger); }
-.csb-fill.s-cancelled { background:var(--border-strong); }
-.csb-count { font-size:11px; color:var(--text); font-family:'SF Mono',monospace; }
-.debug-card-list { display:flex; flex-direction:column; gap:2px; }
-.dc-item { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:4px 8px; border-radius:4px; font-size:12px; }
-.dc-item:hover { background:var(--surface-1); }
-.dc-type { width:18px; text-align:center; font-family:'SF Mono',monospace; font-size:10px; font-weight:600; color:var(--text-muted); }
-.dc-title { flex:1; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.dc-status { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; }
-.dc-status.s-backlog { color:var(--text); background:var(--surface-3); }
-.dc-status.s-running { color:var(--accent-2); background:var(--entry-user-bg); }
-.dc-status.s-blocked { color:var(--warn); background:var(--entry-warn-bg); }
-.dc-status.s-done { color:var(--accent); background:var(--entry-accent-bg); }
-.dc-status.s-failed { color:var(--danger); background:var(--entry-danger-bg); }
-.dc-status.s-cancelled { color:var(--border-strong); background:var(--surface-3); }
-.dc-deps { font-size:10px; color:var(--border-strong); }
 .errors-list { display:flex; flex-direction:column; gap:16px; }
 .error-source-title { font-size:12px; font-weight:600; color:var(--text-muted); margin:0 0 6px 0; }
 .error-item { padding:8px 12px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; margin-bottom:6px; border-left:3px solid transparent; }

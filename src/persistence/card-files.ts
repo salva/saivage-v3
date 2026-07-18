@@ -4,7 +4,7 @@ import { cardDepth, cardIdSchema, cardIdSegments, cardParentId, childCardId, nex
 import { cardHistoryEntrySchema, cardRecordSchema, type CardHistoryEntry, type CardRecord } from '../schemas/index.js';
 import { cardStreamRowSchema, parseCardVersionArtifact, validateCardStream, type CardTombstone, type CardVersionArtifact } from './canonical-card-artifacts.js';
 import { recordVersionArtifactSchema, validateRecordStream } from './canonical-record-artifacts.js';
-import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from './growing-file.js';
+import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { validateParsedCards } from '../cards/validator.js';
@@ -16,27 +16,24 @@ function requireDirectory(path: string): void {
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Canonical card path '${path}' must be a real directory.`);
 }
 
-function exactStream(projectRoot: string, cardId: string): CardArtifactIndex {
+function exactStream(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardArtifactIndex {
   const path = cardStreamFile(projectRoot, cardId);
-  const rows = readCanonicalGrowingFile(path, cardStreamRowSchema);
+  const rows = readCanonicalGrowingFile(path, cardStreamRowSchema, undefined, instrumentation);
   return validateCardStream(rows, path, cardId);
 }
 
-function validateRequiredBrief(projectRoot: string, cardId: string): void {
-  const path = cardRecordStreamFile(projectRoot, cardId, 'brief');
-  validateRecordStream(readCanonicalGrowingFile(path, recordVersionArtifactSchema), path, cardId, 'brief');
-}
+export type CardTargetRead<T> = { readonly kind: 'found'; readonly value: T } | { readonly kind: 'card-not-found' };
+export type CardHistoryEntryRead = CardTargetRead<CardHistoryEntry> | { readonly kind: 'history-entry-not-found'; readonly versionSeq: number };
 
-function readLinkedArtifacts(projectRoot: string, targetId: string): CardArtifactIndex | null {
+export function proveActiveCardPath(projectRoot: string, targetId: string, instrumentation?: CanonicalReadInstrumentation): CardArtifactIndex | null {
   cardIdSchema.parse(targetId);
   const segments = cardIdSegments(targetId);
   let currentId = 'project';
   let namespace = cardNamespace(projectRoot, currentId);
   try { requireDirectory(namespace); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
-  let artifacts = exactStream(projectRoot, currentId);
+  let artifacts = exactStream(projectRoot, currentId, instrumentation);
   if (artifacts.tombstone) throw new Error('The project card cannot be tombstoned.');
-  validateRequiredBrief(projectRoot, currentId);
   for (const segment of segments) {
     const nextId = childCardId(currentId, segment);
     if (!artifacts.current.card.children.includes(nextId)) return null;
@@ -44,42 +41,54 @@ function readLinkedArtifacts(projectRoot: string, targetId: string): CardArtifac
     requireDirectory(childrenPath);
     namespace = join(childrenPath, segment);
     requireDirectory(namespace);
-    artifacts = exactStream(projectRoot, nextId);
+    artifacts = exactStream(projectRoot, nextId, instrumentation);
     if (artifacts.tombstone) return null;
-    validateRequiredBrief(projectRoot, nextId);
     currentId = nextId;
   }
   return artifacts;
 }
 
-export function readCard(projectRoot: string, cardId: string): CardRecord | null { return readLinkedArtifacts(projectRoot, cardId)?.current.card ?? null; }
+export function readCard(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardRecord | null { return proveActiveCardPath(projectRoot, cardId, instrumentation)?.current.card ?? null; }
+export function readCardDetail(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
+  const target = proveActiveCardPath(projectRoot, cardId, instrumentation);
+  return target ? { kind: 'found', value: target.current.card } : { kind: 'card-not-found' };
+}
 export interface LinkedChildrenProjection { readonly parent: CardRecord; readonly activeChildren: CardRecord[] }
-export function readLinkedChildrenProjection(projectRoot: string, parentId: string): LinkedChildrenProjection {
-  const parent = readCard(projectRoot, parentId);
-  if (!parent) throw new Error(`Parent card '${parentId}' does not exist.`);
-  return {
-    parent,
-    activeChildren: parent.children.flatMap((id) => { const child = readCard(projectRoot, id); return child ? [child] : []; }),
-  };
+export function readCardHierarchy(projectRoot: string, parentId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<LinkedChildrenProjection> {
+  const target = proveActiveCardPath(projectRoot, parentId, instrumentation);
+  if (!target) return { kind: 'card-not-found' };
+  const parent = target.current.card;
+  const activeChildren: CardRecord[] = [];
+  for (const id of parent.children) {
+    requireDirectory(cardNamespace(projectRoot, id));
+    const child = exactStream(projectRoot, id, instrumentation);
+    if (!child.tombstone) activeChildren.push(child.current.card);
+  }
+  return { kind: 'found', value: { parent, activeChildren } };
 }
-export function readLinkedChildren(projectRoot: string, parentId: string): CardRecord[] {
-  return readLinkedChildrenProjection(projectRoot, parentId).activeChildren;
+export function readLinkedChildrenProjection(projectRoot: string, parentId: string, instrumentation?: CanonicalReadInstrumentation): LinkedChildrenProjection {
+  const result = readCardHierarchy(projectRoot, parentId, instrumentation);
+  if (result.kind === 'card-not-found') throw new Error(`Parent card '${parentId}' does not exist.`);
+  return result.value;
 }
-export function readCardArtifacts(projectRoot: string, cardId: string): CardArtifactIndex {
-  const artifacts = readLinkedArtifacts(projectRoot, cardId);
+export function readLinkedChildren(projectRoot: string, parentId: string, instrumentation?: CanonicalReadInstrumentation): CardRecord[] {
+  return readLinkedChildrenProjection(projectRoot, parentId, instrumentation).activeChildren;
+}
+export function readCardArtifacts(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardArtifactIndex {
+  const artifacts = proveActiveCardPath(projectRoot, cardId, instrumentation);
   if (!artifacts) throw new Error(`Card '${cardId}' does not exist.`);
   return artifacts;
 }
 
 export function listCards(projectRoot: string): CardRecord[] {
-  const root = readLinkedArtifacts(projectRoot, 'project');
+  const root = proveActiveCardPath(projectRoot, 'project');
   if (!root) return [];
   const cards: CardRecord[] = [];
   const visit = (artifacts: CardArtifactIndex): void => {
     const card = artifacts.current.card;
     cards.push(card);
     for (const childId of card.children) {
-      const child = readLinkedArtifacts(projectRoot, childId);
+      const child = proveActiveCardPath(projectRoot, childId);
       if (child) visit(child);
     }
   };
@@ -88,8 +97,22 @@ export function listCards(projectRoot: string): CardRecord[] {
   return cards;
 }
 
-export function readCardHistory(projectRoot: string, cardId: string): CardHistoryEntry[] {
-  return readCardArtifacts(projectRoot, cardId).artifacts.flatMap((row) => row.history ? [row.history] : []);
+function historyFrom(index: CardArtifactIndex): CardHistoryEntry[] {
+  return index.artifacts.flatMap((row) => row.history ? [row.history] : []).reverse();
+}
+export function readCardHistoryList(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardHistoryEntry[]> {
+  const target = proveActiveCardPath(projectRoot, cardId, instrumentation);
+  return target ? { kind: 'found', value: historyFrom(target) } : { kind: 'card-not-found' };
+}
+export function readCardHistoryEntry(projectRoot: string, cardId: string, versionSeq: number, instrumentation?: CanonicalReadInstrumentation): CardHistoryEntryRead {
+  const target = proveActiveCardPath(projectRoot, cardId, instrumentation);
+  if (!target) return { kind: 'card-not-found' };
+  const entry = historyFrom(target).find((candidate) => candidate.version_seq === versionSeq);
+  return entry ? { kind: 'found', value: entry } : { kind: 'history-entry-not-found', versionSeq };
+}
+export function readCardDiffIndex(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardArtifactIndex> {
+  const target = proveActiveCardPath(projectRoot, cardId, instrumentation);
+  return target ? { kind: 'found', value: target } : { kind: 'card-not-found' };
 }
 
 function initialBrief(cardId: string, content: string, writer: 'analyst' | 'planner', stamp: string) {

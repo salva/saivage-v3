@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createServer as createNetServer } from 'node:net';
 import { startApp, type App } from '../../src/boot/app.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import { cardStreamFile } from '../../src/persistence/layout.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
@@ -51,15 +52,57 @@ describe('operator API response contracts', () => {
     expect(response.json()).toMatchObject({ status: 'ready', serverAvailability: expect.any(Object) });
   });
 
-  it('projects the canonical root card and process-local runtime', async () => {
+  it('projects process-local runtime without traversing the card inventory', async () => {
     const response = await app.server.fastify.inject({ method: 'GET', url: '/api/state' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       projectRoot,
       projectId: expect.any(String),
-      cardIndex: { total: 1 },
       runtime: expect.any(Object),
     });
+    expect(response.json()).not.toHaveProperty('cardIndex');
+  });
+
+  it('serves root hierarchy and detail as separate resources', async () => {
+    const hierarchy = await app.server.fastify.inject({ method: 'GET', url: '/api/cards/project/children' });
+    expect(hierarchy.statusCode).toBe(200);
+    expect(hierarchy.json()).toMatchObject({ card: { id: 'project' }, children: [] });
+    expect(hierarchy.json().card).not.toHaveProperty('logical_path');
+    const detail = await app.server.fastify.inject({ method: 'GET', url: '/api/cards/project' });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json()).toMatchObject({ card: { id: 'project' } });
+    expect(detail.json()).not.toHaveProperty('children');
+    expect((await app.server.fastify.inject({ method: 'GET', url: '/api/cards' })).statusCode).toBe(404);
+  });
+
+  it('rejects noncanonical history sequence syntax before card persistence reads', async () => {
+    const stream = cardStreamFile(projectRoot, 'project');
+    writeFileSync(stream, `${readFileSync(stream, 'utf8')}{complete-malformed}\n`);
+    for (const seq of ['0', '+1', '-1', '1.0', '1suffix', '01', '1e2', '9007199254740992']) {
+      const response = await app.server.fastify.inject({ method: 'GET', url: `/api/cards/project/history/${encodeURIComponent(seq)}` });
+      expect(response.statusCode).toBe(400);
+    }
+    for (const from of ['0', '+1', '-1', '1.0', '1suffix', '01', '1e2', '9007199254740992']) {
+      const response = await app.server.fastify.inject({ method: 'GET', url: `/api/cards/project/diff?from=${encodeURIComponent(from)}` });
+      expect(response.statusCode).toBe(400);
+      const toResponse = await app.server.fastify.inject({ method: 'GET', url: `/api/cards/project/diff?to=${encodeURIComponent(from)}` });
+      expect(toResponse.statusCode).toBe(400);
+    }
+  });
+
+  it('returns exact typed card-history absence variants', async () => {
+    const target = await app.server.fastify.inject({ method: 'GET', url: '/api/cards/card-a/history' });
+    expect(target.statusCode).toBe(404);
+    expect(target.json()).toEqual({ error: 'Card not found', cardId: 'card-a' });
+    const entry = await app.server.fastify.inject({ method: 'GET', url: '/api/cards/project/history/1' });
+    expect(entry.statusCode).toBe(404);
+    expect(entry.json()).toEqual({ error: 'Card history entry not found', cardId: 'project', version_seq: 1 });
+    const diff = await app.server.fastify.inject({ method: 'GET', url: '/api/cards/project/diff?from=1&to=2' });
+    expect(diff.statusCode).toBe(404);
+    expect(diff.json()).toEqual({ error: 'Card diff source not found', cardId: 'project', from: 1, to: 2, missing_version_seq: 2 });
+    const bothMissing = await app.server.fastify.inject({ method: 'GET', url: '/api/cards/project/diff?from=2&to=3' });
+    expect(bothMissing.statusCode).toBe(404);
+    expect(bothMissing.json()).toEqual({ error: 'Card diff source not found', cardId: 'project', from: 2, to: 3, missing_version_seq: 2 });
   });
 
   it('does not register the removed debug runtime start route', async () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import * as contractsModule from '../../src/contracts/index.js';
 import * as operatorApiModule from '../../src/contracts/operator-api.js';
 import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, type OperatorApiBody } from '../../src/contracts/operator-api.js';
+import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
 
 const runtimeState = {
   status: 'stopped',
@@ -28,7 +29,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('parses runtime state/status without command/run/activation projections', () => {
-    expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } }).runtime).toEqual(runtimeState);
+    expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState }).runtime).toEqual(runtimeState);
     const status = parseOperatorResponse('runtime.status', {
       runtime: 'running',
       currentCardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -44,7 +45,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('rejects removed runtime ledger fields and public schema exports are absent', () => {
-    expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] }, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] } })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
     expect(operatorApiContracts['runtime.status'].success.keyof().options).not.toEqual(expect.arrayContaining(['lastCommand', 'activeRun', 'latestRun']));
   });
 
@@ -53,7 +55,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(contractsModule).not.toHaveProperty('RuntimeSummarySchema');
 
     const stateSchema = operatorApiContracts['runtime.getState'].success;
-    expect(stateSchema.keyof().options).toEqual(['projectRoot', 'projectId', 'runtime', 'cardIndex', 'serverAvailability']);
+    expect(stateSchema.keyof().options).toEqual(['projectRoot', 'projectId', 'runtime', 'serverAvailability']);
     expect(stateSchema.shape).not.toHaveProperty('summary');
     expect(stateSchema.shape).not.toHaveProperty('runtimeSummary');
 
@@ -77,13 +79,45 @@ describe('operator API runtime contract without runtime ledgers', () => {
     const cardRoutes = operatorRouteInventory().filter(({ path }) => path.startsWith('/api/cards'));
 
     expect(cardRoutes).toEqual([
-      expect.objectContaining({ operationId: 'cards.list', method: 'GET', path: '/api/cards' }),
+      expect.objectContaining({ operationId: 'cards.children', method: 'GET', path: '/api/cards/:id/children' }),
       expect.objectContaining({ operationId: 'cards.get', method: 'GET', path: '/api/cards/:id' }),
       expect.objectContaining({ operationId: 'cards.history.list', method: 'GET', path: '/api/cards/:id/history' }),
       expect.objectContaining({ operationId: 'cards.history.get', method: 'GET', path: '/api/cards/:id/history/:seq' }),
       expect.objectContaining({ operationId: 'cards.diff', method: 'GET', path: '/api/cards/:id/diff' }),
     ]);
     expect(cardRoutes.every(({ method }) => method === 'GET')).toBe(true);
+  });
+
+  it('uses one canonical positive safe integer wire grammar', () => {
+    for (const value of [1, Number.MAX_SAFE_INTEGER]) expect(positiveSafeIntegerSchema.parse(value)).toBe(value);
+    for (const value of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) expect(positiveSafeIntegerSchema.safeParse(value).success).toBe(false);
+    const accepted = ['1', String(Number.MAX_SAFE_INTEGER)];
+    for (const raw of accepted) {
+      expect(contractsModule.canonicalPositiveSafeIntegerStringSchema.parse(raw)).toBe(Number(raw));
+      expect(contractsModule.CardHistoryEntryParamsSchema.parse({ id: 'project', seq: raw }).seq).toBe(Number(raw));
+      expect(contractsModule.CardDiffQuerySchema.parse({ from: raw, to: raw })).toEqual({ from: Number(raw), to: Number(raw) });
+    }
+    for (const raw of ['', '0', '+1', '-1', '1.0', '1.5', '1suffix', ' 1', '1 ', '01', '1e2', '１', '9007199254740992']) {
+      expect(contractsModule.canonicalPositiveSafeIntegerStringSchema.safeParse(raw).success).toBe(false);
+      expect(contractsModule.CardHistoryEntryParamsSchema.safeParse({ id: 'project', seq: raw }).success).toBe(false);
+      expect(contractsModule.CardDiffQuerySchema.safeParse({ from: raw }).success).toBe(false);
+      expect(contractsModule.CardDiffQuerySchema.safeParse({ to: raw }).success).toBe(false);
+    }
+    expect(contractsModule.CardDiffQuerySchema.parse({ from: 'last', to: 'current' })).toEqual({ from: 'last', to: 'current' });
+  });
+
+  it('keeps card, history-entry, and diff-source 404 contracts exact and disjoint', () => {
+    const card = { error: 'Card not found', cardId: 'project' };
+    const entry = { error: 'Card history entry not found', cardId: 'project', version_seq: 1 };
+    const diff = { error: 'Card diff source not found', cardId: 'project', from: 1, to: 2, missing_version_seq: 1 };
+    expect(contractsModule.CardNotFoundErrorSchema.parse(card)).toEqual(card);
+    expect(contractsModule.CardHistoryEntryNotFoundUnionSchema.parse(entry)).toEqual(entry);
+    expect(contractsModule.CardDiffNotFoundUnionSchema.parse(diff)).toEqual(diff);
+    expect(contractsModule.CardHistoryEntryNotFoundUnionSchema.safeParse(diff).success).toBe(false);
+    expect(contractsModule.CardDiffNotFoundUnionSchema.safeParse(entry).success).toBe(false);
+    for (const invalid of [{ error: 'Card not found' }, { ...card, message: 'missing' }, { error: 'anything', message: 'missing' }]) {
+      expect(contractsModule.CardNotFoundErrorSchema.safeParse(invalid).success).toBe(false);
+    }
   });
 
   it('accepts only current availability component sources', () => {

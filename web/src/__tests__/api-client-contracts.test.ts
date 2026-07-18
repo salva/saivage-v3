@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as client from '../api/client';
 import type { ConversationSessionId, OperatorApiSuccess } from '../api/contracts';
-import type { CardListResponse, ChatResponse, McpToolsResponse, RuntimeStateResponse } from '../api/types';
+import type { CardChildrenResponse, ChatResponse, McpToolsResponse, RuntimeStateResponse } from '../api/types';
 
 const removedMutationExports = [
   'createCard',
@@ -20,7 +20,7 @@ const removedMutationExports = [
 ] as const;
 
 const preservedReadAndBoundedWriteExports = [
-  'listCards',
+  'getCardChildren',
   'getCard',
   'getRuntimeState',
   'getRuntimeStatus',
@@ -45,12 +45,12 @@ describe('operator API client contracts after S06 mutation removal', () => {
   });
 
   it('uses shared operator contract aliases for approved public responses', () => {
-    const cards = null as unknown as CardListResponse;
+    const cards = null as unknown as CardChildrenResponse;
     const runtime = null as unknown as RuntimeStateResponse;
     const mcp = null as unknown as McpToolsResponse;
     const chat = null as unknown as ChatResponse;
 
-    const cardsContract: OperatorApiSuccess<'cards.list'> = cards;
+    const cardsContract: OperatorApiSuccess<'cards.children'> = cards;
     const runtimeContract: OperatorApiSuccess<'runtime.getState'> = runtime;
     const mcpContract: OperatorApiSuccess<'mcp.tools'> = mcp;
     const chatContract: OperatorApiSuccess<'chats.send'> = chat;

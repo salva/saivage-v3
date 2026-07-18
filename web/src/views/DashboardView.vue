@@ -23,7 +23,7 @@
         <ViewState v-else-if="errorMsg" state="error" title="Failed to load runtime" :message="errorMsg" />
 
         <template v-else>
-          <section v-if="lastActionableError || currentCardId || doneGoals || failedBlocked" class="status-section mission-summary">
+          <section v-if="lastActionableError || currentCardId" class="status-section mission-summary">
             <StatusBanner v-if="lastActionableError" tone="danger" :title="lastActionableError.message" :message="`Next: ${lastActionableError.nextAction}`" role="alert" />
             <div v-if="currentCardId" class="mission-active">
               <span class="status-key">Active card</span>
@@ -31,11 +31,6 @@
                 <span class="mission-active-title">{{ activeCardTitle }}</span>
                 <span class="mission-active-phase">{{ runtime?.active_card_run?.phase ?? 'active' }}</span>
               </button>
-            </div>
-            <div class="mission-stats">
-              <span class="mission-stat success"><strong>{{ doneGoals }}</strong> done</span>
-              <span class="mission-stat" :class="{ danger: failedBlocked }"><strong>{{ failedBlocked }}</strong> failed/blocked</span>
-              <span class="mission-stat"><strong>{{ cardIndex.total }}</strong> total</span>
             </div>
           </section>
 
@@ -72,24 +67,6 @@
             </div>
           </section>
 
-          <section class="status-section">
-            <h3 class="section-label">Recent History</h3>
-            <div class="status-grid history-grid">
-              <div class="status-item">
-                <span class="status-key">Done Goals</span>
-                <span class="status-value success">{{ doneGoals }}</span>
-              </div>
-              <div class="status-item">
-                <span class="status-key">Failed/Blocked</span>
-                <span class="status-value" :class="failedBlocked ? 'danger' : ''">{{ failedBlocked }}</span>
-              </div>
-              <div class="status-item">
-                <span class="status-key">Total Cards</span>
-                <span class="status-value">{{ cardIndex.total }}</span>
-              </div>
-            </div>
-          </section>
-
           <section class="status-section child-of-goal-panel" data-testid="dashboard-child-of-goal-panel">
             <h3 class="section-label">Displayed Card Children</h3>
             <ul data-testid="child-of-goal-list" class="child-of-goal-list">
@@ -101,18 +78,6 @@
             <div v-if="goalChildren.length === 0" class="status-value dim list-empty">none</div>
           </section>
 
-          <section class="status-section">
-            <h3 class="section-label">Card Index</h3>
-            <div class="index-bars">
-              <div v-for="(count, name) in cardIndex.byType" :key="name" class="index-bar-row">
-                <span class="index-label">{{ name }}</span>
-                <div class="index-bar-track">
-                  <div class="index-bar-fill" :style="{ width: barWidth(count) }"></div>
-                </div>
-                <span class="index-count">{{ count }}</span>
-              </div>
-            </div>
-          </section>
         </template>
       </div>
     </Panel>
@@ -139,12 +104,9 @@ const router = useRouter();
 
 const {
   runtime,
-  cardIndex,
   loading: runtimeLoading,
   statusLabel,
   currentCardId,
-  doneGoals,
-  failedBlocked,
   isStale: runtimeIsStale,
   unauthorized: runtimeUnauthorized,
   lastActionableError,
@@ -166,12 +128,12 @@ async function restartServer(): Promise<void> {
   try { await runtimeStore.restartServer(); } catch (error) { errorMsg.value = error instanceof Error ? error.message : String(error); }
 }
 
-const { goalChildren, runtimeBannerMessage, runtimeBannerClass, barWidth } = useDashboardReadModel({
+const { goalChildren, runtimeBannerMessage, runtimeBannerClass } = useDashboardReadModel({
   runtimeRefs: {
     statusLabel,
     isStale: runtimeIsStale,
     unauthorized: runtimeUnauthorized,
-    cardIndex,
+    currentCardId,
   },
   cardsStore,
 });
@@ -180,7 +142,7 @@ const runtimeBannerTone = computed<Tone>(() => runtimeBannerClass.value === 'run
 const activeCardTitle = computed(() => {
   const id = currentCardId.value;
   if (!id) return id ?? 'none';
-  const card = cardsStore.cards.find((c) => c.id === id);
+  const card = cardsStore.hierarchyCardById(id);
   return card?.title ?? id;
 });
 

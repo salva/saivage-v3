@@ -316,7 +316,7 @@ describe('CardService final reset-only contracts', () => {
     expect(publications).toEqual([]);
     expect(historyEvents).toHaveLength(initialHistoryEvents);
     expect(cards.read(FIRST)).toMatchObject({ id: FIRST, type: 'code', version_seq: 1 });
-    expect(cards.listCardHistory(FIRST)).toEqual([]);
+    expect(cards.listCardHistory(FIRST)).toEqual({ kind: 'found', value: [] });
   });
 
   it('rejects forged children patches before no-op pruning on every generic patch path', () => {
@@ -353,7 +353,10 @@ describe('CardService final reset-only contracts', () => {
     expect(readFileSync(cardStreamFile(root, second.id), 'utf8')).toBe(secondBefore);
     const restarted = new CardService(root);
     expect(restarted.listChildren(parent.id)).toEqual([second.id, first.id]);
-    expect(restarted.listCardHistory(parent.id).at(-1)).toMatchObject({ kind: 'mutate', changed_fields: ['children'], change_summary: 'children reordered' });
+    const history = restarted.listCardHistory(parent.id);
+    expect(history.kind).toBe('found');
+    if (history.kind !== 'found') throw new Error('expected history');
+    expect(history.value[0]).toMatchObject({ kind: 'mutate', changed_fields: ['children'], change_summary: 'children reordered' });
     expect(computeCardLogicalPath(restarted, restarted.read(second.id)!)).toBe('1.1');
     expect(computeCardLogicalPath(restarted, restarted.read(first.id)!)).toBe('1.2');
   });

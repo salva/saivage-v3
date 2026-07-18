@@ -22,7 +22,6 @@ export function startAppBootstrap(): void {
     refetch: runtimeStore.refetch,
     onRefetch: runtimeStore.markWsSync,
   });
-  syncStore.registerResource({ resource: 'cards', scope: 'core', refetch: cardStore.refetch });
   syncStore.registerResource({
     resource: 'agents',
     scope: 'core',
@@ -32,14 +31,15 @@ export function startAppBootstrap(): void {
 
   syncStore.connect();
   runtimeStore.refetch().catch(() => {});
-  cardStore.refetch().catch(() => {});
+  cardStore.ensureRoot().catch(() => {});
   agentStore.fetchSessions().catch(() => {});
 
   window.addEventListener(AUTH_TOKEN_CHANGED_EVENT, () => {
     authStore.refresh();
     syncStore.reconfigure();
     runtimeStore.refetch().catch(() => {});
-    cardStore.refetch().catch(() => {});
+    cardStore.reset();
+    cardStore.ensureRoot().catch(() => {});
     agentStore.refetch().catch(() => {});
   });
 }

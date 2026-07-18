@@ -18,7 +18,7 @@ describe('CardHistoryPanel', () => {
     pinia = createPinia();
     setActivePinia(pinia);
     const store = useCardStore();
-    store.currentCard = { id: '11111111-1111-4111-8111-111111111111', version_seq: 3 } as any;
+    store.selectedDetail = { cardId: '11111111-1111-4111-8111-111111111111', card: { id: '11111111-1111-4111-8111-111111111111', version_seq: 3 } as any };
   });
 
   it('renders success path with history list, entry details, and diff rows', async () => {

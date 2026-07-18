@@ -17,7 +17,7 @@ describe('CardHistoryPanel order', () => {
     vi.clearAllMocks();
     pinia = createPinia();
     setActivePinia(pinia);
-    useCardStore().currentCard = { id: '11111111-1111-4111-8111-111111111111', version_seq: 4 } as any;
+    useCardStore().selectedDetail = { cardId: '11111111-1111-4111-8111-111111111111', card: { id: '11111111-1111-4111-8111-111111111111', version_seq: 4 } as any };
   });
 
   it('renders snapshot child arrays in backend order without resorting', async () => {

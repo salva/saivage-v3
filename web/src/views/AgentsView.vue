@@ -109,7 +109,7 @@ function backToAgents(): void { void router.push({ name: 'agents' }); }
 function goToCard(id: string): void { void router.push({ name: 'card-detail', params: { id } }); }
 function cardTitle(id: string | null | undefined): string {
   if (!id) return '';
-  const card = cardStore.cards.find((c) => c.id === id);
+  const card = cardStore.hierarchyCardById(id);
   return card?.title ?? id;
 }
 

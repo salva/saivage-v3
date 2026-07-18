@@ -24,21 +24,15 @@ describe('DebugView S06 diagnostic-only integration contract', () => {
     expect(source).not.toMatch(/NotificationsPanel/);
   });
 
-  it('adds read-only per-card child rendering through the debug read-model composable', () => {
-    expect(source).toContain('data-testid="debug-view-card-children"');
-    expect(source).toContain('data-testid="debug-card-children-list"');
-    expect(source).toContain('childrenForCard(card.id)');
-    expect(source).not.toContain('cardsStore.childrenOf(card.id)');
-
-    const start = source.indexOf('<section class="card-children-section"');
-    const end = source.indexOf('</section>', start);
-    const childSection = source.slice(start, end);
-    expect(childSection).not.toMatch(/@click|@submit|@drag|createCard|updateCard|deleteCard/);
+  it('does not present loaded card slices as a global Debug inventory', () => {
+    expect(source).not.toContain('debug-view-card-children');
+    expect(source).not.toContain('childrenForCard(card.id)');
+    expect(source).not.toContain('cardStatusEntries');
   });
 
   it('derives core rows from domain owners and performs no copied agent-list read', () => {
     expect(source).toContain('useRuntimeStore');
-    expect(source).toContain('useCardStore');
+    expect(source).not.toContain('useCardStore');
     expect(source).toContain('useAgentStore');
     expect(source).toContain('validExplicitAgentSessionId');
     expect(source).toContain('effectiveAgentSessionId');

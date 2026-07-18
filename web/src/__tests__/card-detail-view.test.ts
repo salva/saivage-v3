@@ -3,15 +3,14 @@ import detailSource from '../components/cards/CardDetailView.vue?raw';
 import recordsSource from '../components/cards/CardRecordsSection.vue?raw';
 
 describe('CardDetailView S06 read-only detail contract', () => {
-  it('retains refresh, dispatch navigation, and record-output affordances', () => {
-    expect(detailSource).toContain('Refresh card');
+  it('retains detail retry and separate record-output affordances', () => {
     expect(detailSource).toContain('reloadDetail');
-    expect(detailSource).toContain('navigateCard(dispatch.targetCardId)');
-    expect(detailSource).toContain('navigateCard(dispatch.parentCardId)');
+    expect(detailSource).not.toContain('dispatch.targetCardId');
+    expect(detailSource).not.toContain('dispatch.parentCardId');
   });
 
   it('renders loading and failure from selected-detail state only', () => {
-    expect(detailSource).toContain('v-if="currentDetailLoading"');
+    expect(detailSource).toContain('v-if="selectedDetailLoading"');
     expect(detailSource).toContain('v-else-if="detailError"');
     expect(detailSource).not.toMatch(/\bloading,\s*\n/);
   });

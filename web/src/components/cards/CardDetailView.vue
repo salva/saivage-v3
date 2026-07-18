@@ -1,6 +1,6 @@
 <template>
   <div class="card-detail-container">
-    <ViewState v-if="currentDetailLoading" state="loading" title="Loading card" message="Fetching the latest card detail." />
+    <ViewState v-if="selectedDetailLoading" state="loading" title="Loading card" message="Fetching the latest card detail." />
     <StatusBanner v-else-if="detailError" tone="danger" :title="detailErrorTitle" :message="detailError.message">
       <template #action><button type="button" class="banner-action" @click="reloadDetail">Retry</button></template>
     </StatusBanner>
@@ -8,7 +8,7 @@
       <EntityHeader
         data-testid="card-detail-highlight"
         :title="currentCard.title"
-        :subtitle="currentCard.logical_path"
+        :subtitle="hierarchyPath"
         :type="labelForCardType(currentCard.type)"
         :status="cardUiStatus(currentCard.status, reason)"
       >
@@ -38,27 +38,6 @@
         </div>
       </Section>
 
-      <Section v-if="dispatches && (dispatches.outgoing.length || dispatches.incoming.length)" title="Dispatch summary">
-        <div v-if="dispatches.outgoing.length" class="list-block">
-          <div class="section-key">Outgoing</div>
-          <div v-for="dispatch in dispatches.outgoing" :key="dispatch.dispatchId" class="verification-row">
-            <button type="button" class="pill card-ref-button" @click="navigateCard(dispatch.targetCardId)">{{ dispatch.targetCardId }}</button>
-            <StatusBadge :status="dispatchUiStatus(dispatch.status)" />
-            <span v-if="dispatch.outcome" class="badge subtle">{{ dispatch.outcome }}</span>
-            <span class="dispatch-summary">{{ dispatch.summary || 'No completion summary recorded.' }}</span>
-          </div>
-        </div>
-        <div v-if="dispatches.incoming.length" class="list-block">
-          <div class="section-key">Incoming</div>
-          <div v-for="dispatch in dispatches.incoming" :key="dispatch.dispatchId" class="verification-row">
-            <button type="button" class="pill card-ref-button" @click="navigateCard(dispatch.parentCardId)">{{ dispatch.parentCardId }}</button>
-            <StatusBadge :status="dispatchUiStatus(dispatch.status)" />
-            <span v-if="dispatch.outcome" class="badge subtle">{{ dispatch.outcome }}</span>
-            <span class="dispatch-summary">{{ dispatch.summary || 'No completion summary recorded.' }}</span>
-          </div>
-        </div>
-      </Section>
-
       <Section v-if="currentCard.lifecycle?.result" title="Result">
         <details class="result-disclosure">
           <summary class="result-summary">Raw result JSON ({{ resultSize }})</summary>
@@ -70,7 +49,7 @@
         <summary class="disclosure-summary">Metadata</summary>
         <div class="meta-grid">
           <div class="meta-item"><span class="meta-key">ID</span><span class="meta-value mono">{{ currentCard.id }}</span></div>
-          <div v-if="currentCard.logical_path" class="meta-item"><span class="meta-key">Path</span><span class="meta-value mono">{{ currentCard.logical_path }}</span></div>
+          <div v-if="hierarchyPath" class="meta-item"><span class="meta-key">Path</span><span class="meta-value mono">{{ hierarchyPath }}</span></div>
           <div class="meta-item"><span class="meta-key">Created</span><span class="meta-value" :title="timestampTitle(currentCard.created_at)">{{ fmtDate(currentCard.created_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value" :title="timestampTitle(currentCard.updated_at)">{{ fmtDate(currentCard.updated_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Type</span><span class="meta-value">{{ labelForCardType(currentCard.type) }}</span></div>
@@ -107,7 +86,6 @@ import CardConversationsSection from './CardConversationsSection.vue';
 import Section from '../ui/Section.vue';
 import EntityHeader from '../ui/EntityHeader.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
-import StatusBadge from '../ui/StatusBadge.vue';
 import ViewState from '../ui/ViewState.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 import DocumentFrame from '../content/DocumentFrame.vue';
@@ -116,19 +94,20 @@ import { formatJson } from '../../utils/format-json';
 
 const log = createLogger('comp:card-detail');
 const props = defineProps<{ cardId: string }>();
-const emit = defineEmits<{ navigate: [id: string] }>();
 const cardStore = useCardStore();
 const {
-  currentCard,
-  currentLifecycle: lifecycle,
-  currentDispatches: dispatches,
-  currentDetailError,
-  currentDetailFreshness,
-  currentCardHasStaleWarning,
-  currentDetailLoading,
+  selectedDetail,
+  selectedLifecycle: lifecycle,
+  selectedDetailError,
+  selectedDetailLoading,
 } = storeToRefs(cardStore);
 
-const detailError = computed<DetailErrorState | null>(() => currentDetailError.value);
+const currentCard = computed(() => selectedDetail.value?.card ?? null);
+const detailError = computed<DetailErrorState | null>(() => selectedDetailError.value);
+const hierarchyPath = computed(() => {
+  const path = cardStore.hierarchyPathFor(props.cardId);
+  return path || null;
+});
 
 const historyOpen = ref(false);
 
@@ -150,9 +129,6 @@ function cardUiStatus(status: CardStatus, description?: string): UiStatus {
   return { label: status, tone: toneForCardStatus(status), description };
 }
 
-function dispatchUiStatus(status: string): UiStatus {
-  return { label: status, tone: status === 'completed' ? 'success' : 'neutral' };
-}
 
 const reason = computed(() => lifecycle.value?.explanation || statusExplainer(currentCard.value?.status ?? 'backlog'));
 const PROBLEMATIC: ReadonlySet<CardStatus> = new Set(['failed', 'blocked', 'cancelled']);
@@ -164,12 +140,11 @@ const reasonLine = computed(() => {
 
 const bannerSeverity = computed<'danger' | 'warning' | null>(() => {
   if (lifecycle.value?.error || currentCard.value?.lifecycle?.error) return 'danger';
-  if (currentDetailFreshness.value.isStale || currentCardHasStaleWarning.value) return 'warning';
   return null;
 });
 const bannerMessage = computed(() => {
   if (bannerSeverity.value === 'danger') return `Card error: ${lifecycle.value?.error || currentCard.value?.lifecycle?.error}`;
-  return 'This card detail may be stale. Refresh to reload canonical card data.';
+  return '';
 });
 
 const resultSize = computed(() => {
@@ -187,7 +162,6 @@ const detailErrorTitle = computed(() => {
     default: return 'Card detail error';
   }
 });
-function navigateCard(id: string): void { emit('navigate', id); }
 async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } }
 
 onMounted(async () => {
@@ -213,23 +187,8 @@ function actionLabel(action: string): string {
 .status-banner.tone-warning { background:var(--entry-warn-bg); color:var(--warn); }
 .banner-action { padding:3px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; font:inherit; font-size:11px; }
 
-.section-key { font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; }
-.pill-list { display:flex; flex-wrap:wrap; gap:8px; }
-.children-list { display:flex; flex-direction:column; gap:6px; }
-.child-row { text-align:left; cursor:pointer; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; padding:8px 12px; font:inherit; color:var(--text); }
-.child-card-main { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-.child-card-title { display:block; color:var(--text-muted); font-size:12px; margin-top:2px; }
-.output-path { font-family:'SF Mono',monospace; font-size:12px; }
-
 .notes-list { display:flex; flex-direction:column; gap:8px; }
 .note-item.note-handled { opacity:0.65; }
-
-.list-block { margin-bottom:10px; }
-.list-block:last-child { margin-bottom:0; }
-.verification-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 0; }
-.dispatch-summary { color:var(--text-muted); font-size:12px; }
-.badge.subtle { color:var(--text-muted); font-size:11px; padding:2px 8px; border-radius:4px; background:var(--surface-3); border:1px solid var(--border); }
-.pill { padding:6px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; }
 
 .result-disclosure > summary { list-style:none; cursor:pointer; font-size:12px; color:var(--text-muted); }
 .result-disclosure > summary::-webkit-details-marker { display:none; }

@@ -1,81 +1,34 @@
-import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { describe, expect, it } from 'vitest';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
-import { buildTree } from '../stores/cards';
+import type { CardTreeNode, ChildrenLoadState } from '../stores/cards';
 import { cardView } from './card-view-fixtures';
 
-const GOAL_ID = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const LEAF_ID = `${GOAL_ID}-bbbbbbbbbbbbbbbbbbbbbbbbbbbb`;
+const loaded = (): ChildrenLoadState => ({ status: 'loaded', error: null });
+const node = (id: string, path: string | null, children: readonly CardTreeNode[] = []): CardTreeNode => ({ card: cardView(id, { title: id, children: children.map((child) => child.card.id) }), logicalPath: path, childNodes: children });
 
-describe('CardsTreeView', () => {
-  it('renders children in committed parent children order from scrambled input', () => {
-    const childIds = [
-      'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-      'card-cccccccccccccccccccccccccccc',
-    ];
-    const root = cardView('project', { children: childIds });
-    const low = cardView(childIds[0], { title: 'Zulu low', priority: 1 });
-    const high = cardView(childIds[1], { title: 'Alpha high', priority: 99 });
-    const mid = cardView(childIds[2], { title: 'Middle', priority: 50 });
-    const cards = [mid, root, high, low];
-    const wrapper = mount(CardsTreeView, { props: { cards, tree: buildTree(cards), expandedIds: new Set(['project']), selectedCardId: null } });
-
-    expect(wrapper.findAll('.node-title').map((node) => node.text())).toEqual(['Project', 'Zulu low', 'Alpha high', 'Middle']);
+describe('CardsTreeView hierarchy slices', () => {
+  it('renders immutable slice order and locally derived paths', () => {
+    const tree = [node('project', null, [node('card-b', '1'), node('card-a', '2')])];
+    const wrapper = mount(CardsTreeView, { props: { tree, expandedIds: new Set(['project']), forcedExpandedIds: new Set<string>(), selectedCardId: null, loadStateFor: loaded } });
+    expect(wrapper.findAll('.node-title').map((entry) => entry.text())).toEqual(['project', 'card-b', 'card-a']);
+    expect(wrapper.findAll('.node-path').map((entry) => entry.text())).toEqual(['1', '2']);
   });
 
-  it('reveals selected ancestors while selecting only the exact row and preserving its status ball', async () => {
-    const root = cardView('project', { children: [GOAL_ID] });
-    const goal = cardView(GOAL_ID, { type: 'goal', title: 'Goal', children: [LEAF_ID] });
-    const leaf = cardView(LEAF_ID, { title: 'Selected leaf', status: 'blocked' });
-    const wrapper = mount(CardsTreeView, {
-      props: { cards: [root, goal, leaf], tree: buildTree([root, goal, leaf]), expandedIds: new Set<string>(), selectedCardId: leaf.id },
-    });
+  it('shows node-local loading and retry paths', async () => {
+    const states: Record<string, ChildrenLoadState> = { project: loaded(), 'card-a': { status: 'error', error: 'branch failed' } };
+    const tree = [node('project', null, [node('card-a', '1')])];
+    const wrapper = mount(CardsTreeView, { props: { tree, expandedIds: new Set(['project']), forcedExpandedIds: new Set<string>(), selectedCardId: null, loadStateFor: (id) => states[id] ?? { status: 'idle', error: null } } });
+    expect(wrapper.text()).toContain('branch failed');
+    await wrapper.find('.node-retry').trigger('click');
+    expect(wrapper.emitted('retry')).toEqual([['card-a']]);
+  });
 
-    expect(wrapper.findAll('.node-title').map((node) => node.text())).toEqual(['Project', 'Goal', 'Selected leaf']);
+  it('selects only a represented exact row and route-forces represented ancestors', () => {
+    const tree = [node('project', null, [node('card-a', '1', [node('card-a-b', '1.1')])])];
+    const wrapper = mount(CardsTreeView, { props: { tree, expandedIds: new Set(['project', 'card-a']), forcedExpandedIds: new Set(['project', 'card-a']), selectedCardId: 'card-a-b', loadStateFor: loaded } });
     expect(wrapper.findAll('.tree-node.selected')).toHaveLength(1);
-    const selected = wrapper.find('.tree-node.selected');
-    expect(selected.attributes('aria-current')).toBe('true');
-    expect(selected.text()).toContain('Selected leaf');
-    expect(selected.find('.state-ball').classes()).toContain('card-status-blocked');
-    expect(wrapper.findAll('.tree-node').filter((row) => !row.classes().includes('selected')).every((row) => row.attributes('aria-current') === undefined)).toBe(true);
-
-    const forcedToggles = wrapper.findAll('button.node-toggle');
-    expect(forcedToggles).toHaveLength(2);
-    expect(forcedToggles.every((toggle) => toggle.attributes('disabled') !== undefined)).toBe(true);
-    expect(forcedToggles.map((toggle) => toggle.attributes('aria-label'))).toEqual([
-      'Project: Expanded to show selected card',
-      'Goal: Expanded to show selected card',
-    ]);
-    await forcedToggles[0].trigger('click');
-    expect(wrapper.emitted('toggle')).toBeUndefined();
-    expect(wrapper.emitted('select')).toBeUndefined();
-  });
-
-  it('uses explicit expansion for an actionable ancestor and resumes collapse when reveal ends', async () => {
-    const root = cardView('project', { children: [GOAL_ID] });
-    const leaf = cardView(GOAL_ID, { title: 'Leaf' });
-    const wrapper = mount(CardsTreeView, {
-      props: { cards: [root, leaf], tree: buildTree([root, leaf]), expandedIds: new Set(['project']), selectedCardId: leaf.id },
-    });
-
-    const toggle = wrapper.find('button.node-toggle');
-    expect(toggle.attributes('disabled')).toBeUndefined();
-    expect(toggle.attributes('aria-label')).toBe('Collapse Project');
-    await toggle.trigger('click');
-    expect(wrapper.emitted('toggle')).toEqual([['project']]);
-
-    await wrapper.setProps({ expandedIds: new Set<string>() });
-    expect(wrapper.find('button.node-toggle').attributes('disabled')).toBeDefined();
-    expect(wrapper.find('.node-title').text()).toBe('Project');
-    expect(wrapper.findAll('.node-title').map((node) => node.text())).toContain('Leaf');
-
-    await wrapper.setProps({ selectedCardId: null });
-    expect(wrapper.findAll('.node-title').map((node) => node.text())).toEqual(['Project']);
-  });
-
-  it('uses unconditional empty-list copy', () => {
-    const wrapper = mount(CardsTreeView, { props: { cards: [], tree: [], expandedIds: new Set<string>(), selectedCardId: null } });
-    expect(wrapper.text()).toBe('No cards available.');
+    expect(wrapper.find('.tree-node.selected').text()).toContain('card-a-b');
+    expect(wrapper.findAll('.node-toggle').slice(0, 2).every((toggle) => toggle.attributes('disabled') !== undefined)).toBe(true);
   });
 });

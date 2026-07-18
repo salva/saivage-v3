@@ -118,21 +118,6 @@ export async function get_status(ctx: ToolContext, _params: Record<string, never
   } catch (err) { return toolFailureFromError(err); }
 }
 
-export async function list_card_history(ctx: ToolContext, params: { cardId: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); if (!store.read(params.cardId)) return toolFailure(`Card '${params.cardId}' not found.`, { cardId: params.cardId }); const entries = store.listCardHistory(params.cardId).map((entry) => ({ card_id: entry.card_id, version_seq: entry.version_seq, changed_at: entry.changed_at, changed_by_actor: entry.changed_by_actor, changed_by_surface: entry.changed_by_surface, change_reason: entry.change_reason, changed_fields: entry.changed_fields, change_summary: entry.change_summary })); return { success: true, data: entries }; }
-  catch (err) { return toolFailureFromError(err); }
-}
-
-export async function get_card_history_entry(ctx: ToolContext, params: { cardId: string; version_seq: number }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const entry = store.listCardHistory(params.cardId).find((candidate) => candidate.version_seq === params.version_seq); if (!entry) return toolFailure(`Card '${params.cardId}' has no history entry for version ${params.version_seq}.`, { cardId: params.cardId, version_seq: params.version_seq }); return { success: true, data: entry }; }
-  catch (err) { return toolFailureFromError(err); }
-}
-
-export async function diff_card(ctx: ToolContext, params: { cardId: string; fromSeq?: number; toSeq?: number }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const card = store.read(params.cardId); if (!card) return toolFailure(`Card '${params.cardId}' not found.`, { cardId: params.cardId }); const toSeq = params.toSeq ?? card.version_seq; const fromSeq = params.fromSeq ?? Math.max(1, toSeq - 1); return { success: true, data: { card_id: params.cardId, from_version_seq: fromSeq, to_version_seq: toSeq, diff: store.diffCard(params.cardId, fromSeq, toSeq) } }; }
-  catch (err) { return toolFailureFromError(err); }
-}
-
 export async function reorder_child(ctx: ToolContext, params: { parentId: string; orderedChildIds: string[] }, signal?: AbortSignal): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, lifecycle: 'intervention_ready', recheck: recheckReorderChildren, commit: commitReorderChildren }, signal);
 }

@@ -144,6 +144,16 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     expect(body.card.id).toBe('project');
     expect(body.card.type).toBe('project');
     expect(typeof body.card.version_seq).toBe('number');
+    expect(body).not.toHaveProperty('children');
+  });
+
+  test('GET /api/cards/project/children returns the bounded root slice', async ({ request }) => {
+    const res = await request.get('/api/cards/project/children');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.card.id).toBe('project');
+    expect(Array.isArray(body.children)).toBe(true);
+    expect(body.children.every((child: { parent: string }) => child.parent === 'project')).toBe(true);
   });
 
   test('GET /api/cards/:id/history returns the history buffer with total', async ({ request }) => {
@@ -193,11 +203,11 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
   });
 
   test('GET /api/cards/:id for an unknown card returns 404', async ({ request }) => {
-    const res = await request.get('/api/cards/this-card-does-not-exist');
+    const res = await request.get('/api/cards/card-zzzzzz');
     expect(res.status()).toBe(404);
     const body = await res.json();
     expect(typeof body.error).toBe('string');
-    expect(body.cardId).toBe('this-card-does-not-exist');
+    expect(body).toEqual({ error: 'Card not found', cardId: 'card-zzzzzz' });
   });
 
   test('GET /api/agents/:id for an unknown session returns 404', async ({ request }) => {
@@ -265,7 +275,7 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
   });
 
   test('PUT on a GET-only route returns API-route-not-found 404', async ({ request }) => {
-    const res = await request.put('/api/cards', { data: {} });
+    const res = await request.put('/api/cards/project/children', { data: {} });
     expect(res.status()).toBe(404);
     const body = await res.json();
     expect(body.error).toMatch(/route not found/i);
@@ -347,19 +357,18 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(texts.some((t) => t.includes(`${marker}-b`))).toBe(true);
   });
 
-  test('GET /api/cards lists cards with id/type/version_seq descriptors', async ({ request }) => {
-    const res = await request.get('/api/cards');
+  test('GET /api/cards/project/children returns immediate descriptors without a global inventory', async ({ request }) => {
+    const res = await request.get('/api/cards/project/children');
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(Array.isArray(body.cards)).toBe(true);
-    expect(typeof body.total).toBe('number');
-    expect(body.cards.length).toBeGreaterThan(0);
-    for (const card of body.cards) {
+    expect(body.card.id).toBe('project');
+    expect(Array.isArray(body.children)).toBe(true);
+    for (const card of body.children) {
       expect(typeof card.id).toBe('string');
       expect(typeof card.type).toBe('string');
       expect(typeof card.version_seq).toBe('number');
     }
-    expect(body.cards.some((c: { id: string }) => c.id === 'project')).toBe(true);
+    expect(body).not.toHaveProperty('total');
   });
 
   test('GET /api/state exposes minimal runtime state without runtime ledgers', async ({ request }) => {
@@ -367,6 +376,7 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(typeof body.runtime).toBe('object');
+    expect(body).not.toHaveProperty('cardIndex');
     expect(body.runtime).not.toHaveProperty('runtime_runs');
     expect(body.runtime).not.toHaveProperty('runtime_activations');
     expect(body.runtime).not.toHaveProperty('runtime_commands');

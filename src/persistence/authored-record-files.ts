@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 import type { AgentRole } from '../schemas/index.js';
 import { authoredRecordSlotValues, parseRecordVersionArtifact, recordVersionArtifactSchema, validateRecordStream, type AuthoredRecordSlot, type RecordVersionArtifact } from './canonical-record-artifacts.js';
 import { readCard } from './card-files.js';
-import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from './growing-file.js';
+import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
 import { cardRecordStreamFile } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 
@@ -17,10 +17,10 @@ function projection(artifact: RecordVersionArtifact): RecordProjection {
   const filename = `${artifact.slot}.md`;
   return Object.freeze({ cardId: artifact.card_id, filename, slot: artifact.slot, version: artifact.version, recordUrl: `record:///${filename}?card=${encodeURIComponent(artifact.card_id)}&v=${artifact.version}`, artifact });
 }
-function rows(projectRoot: string, cardId: string, slot: AuthoredRecordSlot): RecordVersionArtifact[] {
-  if (!readCard(projectRoot, cardId)) throw new Error(`Card '${cardId}' does not exist.`);
+function rows(projectRoot: string, cardId: string, slot: AuthoredRecordSlot, instrumentation?: CanonicalReadInstrumentation): RecordVersionArtifact[] {
+  if (!readCard(projectRoot, cardId, instrumentation)) throw new Error(`Card '${cardId}' does not exist.`);
   const path = cardRecordStreamFile(projectRoot, cardId, slot);
-  try { return validateRecordStream(readCanonicalGrowingFile(path, recordVersionArtifactSchema), path, cardId, slot); }
+  try { return validateRecordStream(readCanonicalGrowingFile(path, recordVersionArtifactSchema, undefined, instrumentation), path, cardId, slot); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT' && slot !== 'brief') return [];
     throw error;
@@ -34,8 +34,8 @@ function append(projectRoot: string, artifact: RecordVersionArtifact, temporary?
   if (prior.length === 0) publishFirstEnvelope(path, bytes, temporary); else appendEnvelope(path, bytes, io);
   return projection(artifact);
 }
-export function readAuthoredRecord(projectRoot: string, cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest'): RecordProjection {
-  const slot = slotFor(filename); const all = rows(projectRoot, cardId, slot);
+export function readAuthoredRecord(projectRoot: string, cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection {
+  const slot = slotFor(filename); const all = rows(projectRoot, cardId, slot, instrumentation);
   let artifact: RecordVersionArtifact | undefined;
   if (version === 'open') artifact = all.at(-1)?.state === 'open' ? all.at(-1) : undefined;
   else if (version === 'latest') artifact = [...all].reverse().find((row) => row.state === 'closed');

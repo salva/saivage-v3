@@ -1,4 +1,4 @@
-import { cardViewSchema } from '@saivage/schemas';
+import { operatorCardSchema } from '@saivage/schemas';
 import type { CardRecord } from '../api/types';
 
 type CardOverrides = Partial<Omit<CardRecord, 'id' | 'parent' | 'depth'>>;
@@ -31,7 +31,7 @@ export function cardView(id: string, overrides: CardOverrides = {}): CardRecord 
   const status = overrides.status ?? 'backlog';
   const lifecycle = overrides.lifecycle ?? lifecycleFor(status);
   const { parent, depth } = identityFor(id);
-  return cardViewSchema.parse({
+  return operatorCardSchema.parse({
     id,
     type: id === 'project' ? 'project' : 'code',
     parent,
@@ -50,7 +50,7 @@ export function cardView(id: string, overrides: CardOverrides = {}): CardRecord 
     depends_on: [],
     related: [],
     pending_notifications: [],
-    logical_path: id === 'project' ? null : '1',
+    allowedActions: [],
     operator_summary: {
       lifecycleStatus: lifecycle.status,
       terminal: ['done', 'failed', 'cancelled'].includes(lifecycle.status),

@@ -1,10 +1,9 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardService } from '../../src/cards/card-service.js';
-import { CardHistoryReader } from '../../src/cards/history-reader.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardRefView, toCardView } from '../../src/application/read-models/card-view.js';
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -21,11 +20,18 @@ describe('direct card history and operator read models', () => {
     const first = cards.create({ type: 'goal', parent: 'project', title: 'First by position', brief: 'One', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const second = cards.create({ type: 'code', parent: 'project', title: 'Second by position', brief: 'Two', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.mutateCard(first.id, { title: 'Updated title' }, { actor: 'analyst', surface: 'web-chat', reason: 'rename' });
-    const history = new CardHistoryReader({ projectRoot: root });
-
-    expect(history.listCardHistory(first.id).map((entry) => entry.version_seq)).toEqual([1]);
-    expect(history.getCardAt(first.id, 1).title).toBe('First by position');
-    expect(history.diffCard(first.id, 1, 2)).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'title', before: 'First by position', after: 'Updated title' })]));
+    const history = cards.listCardHistory(first.id);
+    expect(history.kind).toBe('found');
+    if (history.kind !== 'found') throw new Error('expected card history');
+    expect(history.value.map((entry) => entry.version_seq)).toEqual([1]);
+    const entry = cards.getCardHistoryEntry(first.id, 1);
+    expect(entry.kind).toBe('found');
+    if (entry.kind !== 'found') throw new Error('expected history entry');
+    expect(entry.value.snapshot.title).toBe('First by position');
+    const diff = cards.diffCardHistory(first.id, { fromSeq: 1, toSeq: 2 });
+    expect(diff.kind).toBe('found');
+    if (diff.kind !== 'found') throw new Error('expected card diff');
+    expect(diff.diff).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'title', before: 'First by position', after: 'Updated title' })]));
     expect(orderedCardsForTree(cards).map((card) => card.id)).toEqual(['project', first.id, second.id]);
     expect(computeCardLogicalPath(cards, first)).toBe('1');
     expect(computeCardLogicalPath(cards, second)).toBe('2');
@@ -44,7 +50,24 @@ describe('direct card history and operator read models', () => {
 
     expect(readModel.getCard(card.id)).toMatchObject({ statusCode: 404 });
     expect(readModel.listHistory(card.id)).toMatchObject({ statusCode: 404 });
-    expect(readModel.getHistoryEntry(card.id, '2')).toMatchObject({ statusCode: 404 });
-    expect(readModel.diffCard(card.id, { from: '1', to: '2' })).toMatchObject({ statusCode: 404 });
+    expect(readModel.getHistoryEntry(card.id, 2)).toMatchObject({ statusCode: 404 });
+    expect(readModel.diffCard(card.id, { from: 1, to: 2 })).toMatchObject({ statusCode: 404 });
+  });
+
+  it('rejects invalid application sequences before invoking CardService', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-history-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const entry = jest.spyOn(cards, 'getCardHistoryEntry');
+    const diff = jest.spyOn(cards, 'diffCardHistory');
+    const readModel = new CardsReadModelService(root, cards, { getRuntimeState: () => { throw new Error('unused'); } });
+    for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(readModel.getHistoryEntry('project', invalid)).toMatchObject({ statusCode: 400 });
+      expect(readModel.diffCard('project', { from: invalid })).toMatchObject({ statusCode: 400 });
+      expect(readModel.diffCard('project', { to: invalid })).toMatchObject({ statusCode: 400 });
+    }
+    expect(entry).not.toHaveBeenCalled();
+    expect(diff).not.toHaveBeenCalled();
+    expect(readModel.getHistoryEntry('project', 1)).toMatchObject({ statusCode: 404 });
+    expect(entry).toHaveBeenCalledWith('project', 1);
   });
 });

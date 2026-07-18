@@ -47,14 +47,14 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       return { statusCode: ready ? 200 : 503, body: { status: ready ? 'ready' : 'not_ready', ...(serverAvailability ? { serverAvailability } : {}) } };
     },
     'runtime.getState': () => getCardsReadModel().getRuntimeState(options.serverAvailabilityProvider?.()),
-    'cards.list': () => getCardsReadModel().listCards(),
+    'cards.children': ({ params }) => getCardsReadModel().getChildren((params as unknown as { id: string }).id),
     'cards.get': ({ params }) => getCardsReadModel().getCard((params as unknown as { id: string }).id),
     'cards.history.list': ({ params }) => getCardsReadModel().listHistory((params as unknown as { id: string }).id),
     'cards.history.get': ({ params }) => {
-      const { id, seq } = params as unknown as { id: string; seq: string };
+      const { id, seq } = params as unknown as { id: string; seq: number };
       return getCardsReadModel().getHistoryEntry(id, seq);
     },
-    'cards.diff': ({ params, query }) => getCardsReadModel().diffCard((params as unknown as { id: string }).id, query as unknown as { from?: string; to?: string }),
+    'cards.diff': ({ params, query }) => getCardsReadModel().diffCard((params as unknown as { id: string }).id, query as unknown as { from?: number | 'last' | 'current'; to?: number | 'last' | 'current' }),
     'runtime.status': () => {
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime status.');
       return { body: { ...buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };

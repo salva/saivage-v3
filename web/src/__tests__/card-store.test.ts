@@ -1,238 +1,169 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { setActivePinia, createPinia } from 'pinia';
-import type { CardRecord, CardListResponse, CardDetailResponse, LiveSyncInvalidateFrame, LiveSyncSubscribedFrame, WsConnectionState } from '../api/types';
-import type { WsConnectionManager, WsSyncFrameHandler } from '../api/websocket';
+import { createPinia, setActivePinia } from 'pinia';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CardChildrenResponse, CardDetailResponse, CardRecord } from '../api/types';
 
 vi.mock('../api/client', () => ({
-  listCards: vi.fn(), getCard: vi.fn(),
-  ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.name='ApiError'; this.status=status; this.body=body; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
+  getCardChildren: vi.fn(),
+  getCard: vi.fn(),
+  listCardHistory: vi.fn(),
+  getCardHistoryEntry: vi.fn(),
+  getCardDiff: vi.fn(),
+  ApiError: class extends Error { status = 500; body = {}; get isUnauthorized() { return false; } get isNotFound() { return false; } },
 }));
 
-import { getCard, listCards, ApiError } from '../api/client';
+import { getCard, getCardChildren } from '../api/client';
 import { useCardStore } from '../stores/cards';
-import { SyncClient } from '../sync/client';
 import { cardView } from './card-view-fixtures';
 
-function setupStore() { setActivePinia(createPinia()); vi.clearAllMocks(); return useCardStore(); }
-function makeCard(overrides: Partial<CardRecord> = {}): CardRecord {
-  const id = overrides.id ?? 'project';
-  const rest = { ...overrides };
-  delete rest.id;
-  delete rest.parent;
-  delete rest.depth;
-  return cardView(id, { status: 'running', title: `Card ${id}`, priority: 5, created_by: 'user', ...rest });
-}
-function mlr(cards: CardRecord[], total?: number): CardListResponse { return { cards, total: total ?? cards.length }; }
-function mdr(card: CardRecord, children: CardRecord[] = []): CardDetailResponse { return { card, children }; }
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
-  return { promise, resolve, reject };
-}
+const A = 'card-a';
+const AB = 'card-a-b';
+const AC = 'card-a-c';
+const B = 'card-b';
+const card = (id: string, overrides: Partial<CardRecord> = {}) => cardView(id, overrides);
+const childrenResponse = (parent: CardRecord, children: CardRecord[]): CardChildrenResponse => ({ card: parent, children });
+const deferred = <T>() => { let resolve!: (value: T) => void; let reject!: (error: unknown) => void; const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; }); return { promise, resolve, reject }; };
+const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 
-const A_ID = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const B_ID = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-const A_CHILD_B_ID = `${A_ID}-bbbbbbbbbbbbbbbbbbbbbbbbbbbb`;
-const A_CHILD_C_ID = `${A_ID}-cccccccccccccccccccccccccccc`;
-const A = makeCard({ id: A_ID, parent: 'project', depth: 1, title: 'Alpha' });
-const B = makeCard({ id: B_ID, parent: 'project', depth: 1, title: 'Beta' });
+describe('lazy CardStore', () => {
+  beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks(); });
 
-function createSyncHarness() {
-  const syncHandlers = new Set<WsSyncFrameHandler>();
-  const conn: WsConnectionManager = {
-    state: { value: 'offline' as WsConnectionState },
-    sessionId: { value: null },
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    reconfigure: vi.fn(),
-    sendMessage: vi.fn(),
-    sendRaw: vi.fn(() => true),
-    onEvent: vi.fn(() => () => undefined),
-    onSyncFrame: vi.fn((handler) => { syncHandlers.add(handler); return () => syncHandlers.delete(handler); }),
-    onOpen: vi.fn(() => () => undefined),
-    onState: vi.fn(() => () => undefined),
-  };
-  return {
-    conn,
-    emitSync(frame: LiveSyncInvalidateFrame | LiveSyncSubscribedFrame) {
-      for (const handler of syncHandlers) handler(frame);
-    },
-  };
-}
-
-describe('useCardStore evidence support', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
-  afterEach(() => { vi.restoreAllMocks(); });
-
-  it('keeps the newer linked collection authoritative when a Cards invalidation overlaps an old list', async () => {
-    const s = setupStore();
-    const harness = createSyncHarness();
-    const client = new SyncClient(harness.conn);
-    const oldList = deferred<CardListResponse>();
-    const newList = deferred<CardListResponse>();
-    const projectBefore = makeCard({ id: 'project', children: [A_ID] });
-    const projectAfter = makeCard({ id: 'project', children: [A_ID] });
-    const parentBefore = makeCard({ ...A, children: [] });
-    const parentAfter = makeCard({ ...A, children: [A_CHILD_B_ID] });
-    const linkedChild = makeCard({ id: A_CHILD_B_ID, parent: A_ID, depth: 2, title: 'New linked child' });
-    vi.mocked(listCards)
-      .mockReturnValueOnce(oldList.promise)
-      .mockReturnValueOnce(newList.promise);
-    client.register({ resource: 'cards', scope: 'core', refetch: s.refetch });
-    client.start();
-
-    const oldRefetch = s.refetch();
-    expect(listCards).toHaveBeenCalledTimes(1);
-    expect(s.collectionLoading).toBe(true);
-
-    harness.emitSync({ t: 'invalidate', resource: 'cards' });
-    expect(listCards).toHaveBeenCalledTimes(2);
-
-    newList.resolve(mlr([projectAfter, parentAfter, linkedChild], 3));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(s.cards.map((card) => card.id)).toEqual(['project', A_ID, A_CHILD_B_ID]);
-    expect(s.total).toBe(3);
-    expect(s.collectionLoading).toBe(false);
-    expect(s.collectionRefreshing).toBe(false);
-    expect(s.collectionError).toBeNull();
-    expect(s.collectionRefreshError).toBeNull();
-    expect(s.orderedCardTree[0].card.id).toBe('project');
-    expect(s.orderedCardTree[0].childNodes[0].card.id).toBe(A_ID);
-    expect(s.orderedCardTree[0].childNodes[0].childNodes[0].card.id).toBe(A_CHILD_B_ID);
-    expect(s.cards[1].children).toEqual([A_CHILD_B_ID]);
-
-    oldList.resolve(mlr([projectBefore, parentBefore], 2));
-    await expect(oldRefetch).resolves.toBeUndefined();
-    expect(s.cards.map((card) => card.id)).toEqual(['project', A_ID, A_CHILD_B_ID]);
-    expect(s.total).toBe(3);
-    expect(s.collectionLoading).toBe(false);
-    expect(s.collectionRefreshing).toBe(false);
-    expect(s.collectionError).toBeNull();
-    expect(s.collectionRefreshError).toBeNull();
-    expect(s.orderedCardTree[0].childNodes[0].childNodes[0].card.id).toBe(A_CHILD_B_ID);
+  it('loads root and expansions once and derives paths from committed slice order', async () => {
+    vi.mocked(getCardChildren)
+      .mockResolvedValueOnce(childrenResponse(card('project', { children: [B, A] }), [card(B, { title: 'B' }), card(A, { title: 'A', children: [AC, AB] })]))
+      .mockResolvedValueOnce(childrenResponse(card(A, { children: [AC, AB] }), [card(AC), card(AB)]));
+    const store = useCardStore();
+    await store.ensureRoot();
+    await store.ensureChildren(A);
+    await store.ensureChildren(A);
+    expect(vi.mocked(getCardChildren).mock.calls.map(([id]) => id)).toEqual(['project', A]);
+    expect(store.hierarchyPathFor(B)).toBe('1');
+    expect(store.hierarchyPathFor(A)).toBe('2');
+    expect(store.hierarchyPathFor(AC)).toBe('2.1');
+    expect(store.hierarchyPathFor(AB)).toBe('2.2');
   });
 
-  it('stores backend card detail and derives local lifecycle view state', async () => {
-    const s = setupStore();
-    const child = makeCard({ id: A_CHILD_B_ID, parent: A.id, depth: 2, status: 'running' });
-    const parent = makeCard({ ...A, children: [child.id] });
-    vi.mocked(getCard).mockResolvedValue(mdr(parent, [child]));
-    await s.fetchCardDetail(A.id);
-    expect(s.currentCard?.id).toBe(A.id);
-    expect(s.currentChildren.map((card) => card.id)).toEqual([A_CHILD_B_ID]);
-    expect(s.currentLifecycle?.status).toBe('running');
-    expect(s.currentLifecycle?.childCounts.running).toBe(1);
-    expect(s.currentDispatches).toBeNull();
-    expect(s.currentDetailFreshness.isStale).toBe(false);
+  it('exposes only settled node-local errors for explicit retry', async () => {
+    vi.mocked(getCardChildren)
+      .mockRejectedValueOnce(new Error('branch failed'))
+      .mockResolvedValueOnce(childrenResponse(card(A), []));
+    const store = useCardStore();
+    await expect(store.ensureChildren(A)).rejects.toThrow('branch failed');
+    expect(store.childrenLoadState(A)).toEqual({ status: 'error', error: 'branch failed' });
+    await store.ensureChildren(A);
+    expect(getCardChildren).toHaveBeenCalledTimes(1);
+    await store.retryChildren(A);
+    expect(getCardChildren).toHaveBeenCalledTimes(2);
+    expect(store.childrenLoadState(A)).toEqual({ status: 'loaded', error: null });
+    expect(() => store.retryChildren(A)).toThrow("Children for 'card-a' are not in error state.");
   });
 
-  it('records structured unauthorized detail error', async () => {
-    const s = setupStore();
-    vi.mocked(getCard).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
-    await expect(s.fetchCardDetail(A.id)).rejects.toBeTruthy();
-    expect(s.currentDetailError).toEqual({ kind: 'unauthorized', status: 401, message: 'Unauthorized' });
+  it('shares the exact same-parent owner promise and isolates different parents', async () => {
+    const root = deferred<CardChildrenResponse>();
+    const branch = deferred<CardChildrenResponse>();
+    vi.mocked(getCardChildren).mockImplementation((id) => id === 'project' ? root.promise : branch.promise);
+    const store = useCardStore();
+    const first = store.ensureChildren('project');
+    const owner = store.childrenRequestOwnersByParentId.get('project')!;
+    const second = store.ensureChildren('project');
+    const other = store.ensureChildren(A);
+    expect(first).toBe(owner.promise);
+    expect(second).toBe(owner.promise);
+    expect(store.childrenRequestOwnersByParentId.get('project')).toBe(owner);
+    expect(owner.promise).toBe(store.childrenRequestOwnersByParentId.get('project')!.promise);
+    expect(getCardChildren).toHaveBeenCalledTimes(0);
+    expect(other).not.toBe(first);
+    root.resolve(childrenResponse(card('project'), []));
+    branch.resolve(childrenResponse(card(A), []));
+    await Promise.all([first, second, other]);
   });
 
-  it('confines pending and failed detail state to detail while preserving the canonical collection state', async () => {
-    const s = setupStore();
-    s.cards = [A, B];
-    s.collectionLoading = false;
-    s.collectionRefreshing = true;
-    s.collectionError = 'existing collection error';
-    s.collectionRefreshError = 'existing refresh error';
-    const canonicalCards = s.cards;
-    const canonicalA = s.cards[0];
-    const request = deferred<CardDetailResponse>();
-    vi.mocked(getCard).mockReturnValue(request.promise);
+  it.each(['success', 'rejection'] as const)('excludes old %s and finalizer after reset and a new same-parent owner', async (outcome) => {
+    const oldRequest = deferred<CardChildrenResponse>();
+    const nextRequest = deferred<CardChildrenResponse>();
+    vi.mocked(getCardChildren).mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(nextRequest.promise);
+    const store = useCardStore();
+    const oldPromise = store.ensureRoot();
+    const oldOwner = store.childrenRequestOwnersByParentId.get('project')!;
+    store.reset();
+    expect(oldOwner.controller.signal.aborted).toBe(true);
+    expect(store.childrenRequestOwnersByParentId.get('project')).toBeUndefined();
+    const nextPromise = store.ensureRoot();
+    const nextOwner = store.childrenRequestOwnersByParentId.get('project')!;
+    expect(nextOwner).not.toBe(oldOwner);
+    if (outcome === 'success') oldRequest.resolve(childrenResponse(card('project', { title: 'old' }), []));
+    else oldRequest.reject(new Error('old failure'));
+    if (outcome === 'success') await oldPromise; else await expect(oldPromise).resolves.toBeUndefined();
+    expect(store.childrenRequestOwnersByParentId.get('project')).toBe(nextOwner);
+    expect(store.childrenLoadState('project').status).toBe('loading');
+    expect(store.hierarchySlicesByParentId.project).toBeUndefined();
+    nextRequest.resolve(childrenResponse(card('project', { title: 'new' }), []));
+    await nextPromise;
+    expect(store.hierarchySlicesByParentId.project.parent.title).toBe('new');
+  });
 
-    const detailPromise = s.fetchCardDetail(A.id);
-    expect(s.currentDetailLoading).toBe(true);
-    expect(s.currentDetailError).toBeNull();
-    expect(s.cards).toBe(canonicalCards);
-    expect(s.cards[0]).toBe(canonicalA);
-    expect({
-      loading: s.collectionLoading,
-      refreshing: s.collectionRefreshing,
-      error: s.collectionError,
-      refreshError: s.collectionRefreshError,
-    }).toEqual({
-      loading: false,
-      refreshing: true,
-      error: 'existing collection error',
-      refreshError: 'existing refresh error',
+  it('keeps hierarchy and selected detail disjoint in both completion orders', async () => {
+    for (const order of ['detail-first', 'children-first'] as const) {
+      setActivePinia(createPinia());
+      const detail = deferred<CardDetailResponse>();
+      const hierarchy = deferred<CardChildrenResponse>();
+      vi.mocked(getCard).mockReturnValueOnce(detail.promise);
+      vi.mocked(getCardChildren).mockReturnValueOnce(hierarchy.promise);
+      const store = useCardStore();
+      const detailPromise = store.fetchCardDetail('project');
+      const hierarchyPromise = store.ensureRoot();
+      const resolveDetail = () => detail.resolve({ card: card('project', { title: 'detail title' }) });
+      const resolveHierarchy = () => hierarchy.resolve(childrenResponse(card('project', { title: 'tree title' }), [card(A)]));
+      if (order === 'detail-first') { resolveDetail(); await detailPromise; resolveHierarchy(); await hierarchyPromise; }
+      else { resolveHierarchy(); await hierarchyPromise; resolveDetail(); await detailPromise; }
+      expect(store.selectedDetail?.card.title).toBe('detail title');
+      expect(store.orderedCardTree[0]?.card.title).toBe('tree title');
+    }
+  });
+
+  it('supersedes route reveal without cancelling shared work or issuing the obsolete next request', async () => {
+    const root = deferred<CardChildrenResponse>();
+    vi.mocked(getCardChildren).mockImplementation(async (id) => {
+      if (id === 'project') return root.promise;
+      if (id === B) return childrenResponse(card(B, { children: [] }), []);
+      throw new Error(`unexpected ${id}`);
     });
-
-    request.reject(new Error('detail unavailable'));
-    await expect(detailPromise).rejects.toThrow('detail unavailable');
-    expect(s.currentDetailLoading).toBe(false);
-    expect(s.currentDetailError).toEqual({ kind: 'network', status: null, message: 'detail unavailable' });
-    expect(s.cards).toBe(canonicalCards);
-    expect(s.cards[0]).toBe(canonicalA);
-    expect(s.collectionLoading).toBe(false);
-    expect(s.collectionRefreshing).toBe(true);
-    expect(s.collectionError).toBe('existing collection error');
-    expect(s.collectionRefreshError).toBe('existing refresh error');
+    const store = useCardStore();
+    const revealA = store.ensureRouteVisible(AB);
+    await flush();
+    const owner = store.childrenRequestOwnersByParentId.get('project')!;
+    const revealB = store.ensureRouteVisible(B);
+    root.resolve(childrenResponse(card('project', { children: [A, B] }), [card(A, { children: [AB] }), card(B)]));
+    await Promise.all([revealA, revealB]);
+    expect(owner.controller.signal.aborted).toBe(false);
+    expect(vi.mocked(getCardChildren).mock.calls.map(([id]) => id)).toEqual(['project']);
+    expect(store.childrenLoadState('project').status).toBe('loaded');
   });
 
-  it.each(['success', 'rejection'] as const)('keeps B authoritative through stale A %s and cleanup', async (staleOutcome) => {
-    const s = setupStore();
-    const requestA = deferred<CardDetailResponse>();
-    const requestB = deferred<CardDetailResponse>();
-    vi.mocked(getCard)
-      .mockReturnValueOnce(requestA.promise)
-      .mockReturnValueOnce(requestB.promise);
-
-    const promiseA = s.fetchCardDetail(A.id);
-    const promiseB = s.fetchCardDetail(B.id);
-    expect(s.currentDetailLoading).toBe(true);
-    expect(s.currentCard).toBeNull();
-
-    if (staleOutcome === 'success') requestA.resolve(mdr(A));
-    else requestA.reject(new Error('stale A failed'));
-    if (staleOutcome === 'success') await promiseA;
-    else await expect(promiseA).resolves.toBeUndefined();
-
-    expect(s.currentDetailLoading).toBe(true);
-    expect(s.currentCard).toBeNull();
-    expect(s.currentDetailError).toBeNull();
-
-    requestB.resolve(mdr(B));
-    await promiseB;
-    expect(s.currentDetailLoading).toBe(false);
-    expect(s.currentCard?.id).toBe(B.id);
-    expect(s.currentDetailError).toBeNull();
+  it('checks supersession again after a later ancestor await', async () => {
+    const branch = deferred<CardChildrenResponse>();
+    vi.mocked(getCardChildren).mockImplementation(async (id) => {
+      if (id === 'project') return childrenResponse(card('project', { children: [A, B] }), [card(A, { children: [AB] }), card(B)]);
+      if (id === A) return branch.promise;
+      throw new Error(`unexpected ${id}`);
+    });
+    const store = useCardStore();
+    await store.ensureRoot();
+    const oldReveal = store.ensureRouteVisible('card-a-b-c');
+    await flush();
+    await store.ensureRouteVisible(B);
+    branch.resolve(childrenResponse(card(A, { children: [AB] }), [card(AB, { children: ['card-a-b-c'] })]));
+    await oldReveal;
+    expect(vi.mocked(getCardChildren).mock.calls.map(([id]) => id)).toEqual(['project', A]);
+    expect(store.childrenLoadState(A).status).toBe('loaded');
+    expect(store.childrenLoadState(AB).status).toBe('idle');
   });
 
-  it('lets only B publish its detail error and clear detail loading', async () => {
-    const s = setupStore();
-    const requestA = deferred<CardDetailResponse>();
-    const requestB = deferred<CardDetailResponse>();
-    vi.mocked(getCard)
-      .mockReturnValueOnce(requestA.promise)
-      .mockReturnValueOnce(requestB.promise);
-
-    const promiseA = s.fetchCardDetail(A.id);
-    const promiseB = s.fetchCardDetail(B.id);
-    requestA.resolve(mdr(A));
-    await promiseA;
-    expect(s.currentDetailLoading).toBe(true);
-    expect(s.currentCard).toBeNull();
-
-    requestB.reject(new Error('B failed'));
-    await expect(promiseB).rejects.toThrow('B failed');
-    expect(s.currentDetailLoading).toBe(false);
-    expect(s.currentCard).toBeNull();
-    expect(s.currentDetailError).toEqual({ kind: 'network', status: null, message: 'B failed' });
-  });
-
-  it('reports per-card stale notifications through isStale', () => {
-    const s = setupStore();
-    s.setCardStaleNotification(A.id, true);
-    s.setCardStaleNotification(B_ID, false);
-    expect(s.isStale(A.id)).toBe(true);
-    expect(s.isStale(B_ID)).toBe(false);
-    expect(s.isStale(A_CHILD_C_ID)).toBe(false);
+  it('stops on a retained loaded slice that omits the route edge', async () => {
+    vi.mocked(getCardChildren).mockResolvedValue(childrenResponse(card('project', { children: [B] }), [card(B)]));
+    const store = useCardStore();
+    await store.ensureRoot();
+    await store.ensureRouteVisible(AB);
+    expect(getCardChildren).toHaveBeenCalledTimes(1);
+    expect(store.hierarchySlicesByParentId.project.children.map((entry) => entry.id)).toEqual([B]);
   });
 });

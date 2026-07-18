@@ -29,7 +29,6 @@ function makeRouter() {
       { path: '/dashboard', name: 'dashboard', component: { template: '<div>dashboard</div>' } },
       { path: '/cards', name: 'cards', component: { template: '<div>cards</div>' } },
       { path: '/cards/:id', name: 'card-detail', component: { template: '<div>card</div>' } },
-      { path: '/timeline', name: 'timeline', component: { template: '<div>timeline</div>' } },
       { path: '/agents', name: 'agents', component: { template: '<div>agents</div>' } },
       { path: '/files', name: 'files', component: { template: '<div>files</div>' } },
       { path: '/debug', name: 'debug', component: { template: '<div>debug</div>' } },
@@ -71,7 +70,7 @@ describe('AppShell API auth banner', () => {
     expect(wrapper.find('[data-testid="api-auth-banner"]').exists()).toBe(false);
     expect(sessionStorage.getItem(API_AUTH_DISMISSED_SESSION_KEY)).toBe('true');
 
-    window.dispatchEvent(new CustomEvent(API_AUTH_REQUIRED_EVENT, { detail: { status: 401, path: '/api/cards' } }));
+    window.dispatchEvent(new CustomEvent(API_AUTH_REQUIRED_EVENT, { detail: { status: 401, path: '/api/cards/project/children' } }));
     await flushPromises();
     expect(wrapper.find('[data-testid="api-auth-banner"]').exists()).toBe(false);
     wrapper.unmount();

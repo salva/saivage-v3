@@ -7,7 +7,7 @@
  */
 
 import type {
-  CardListResponse,
+  CardChildrenResponse,
   CardDetailResponse,
   RuntimeStateResponse,
   AgentConversationResponse,
@@ -176,27 +176,27 @@ export function issueWebSocketTicket(): Promise<OperatorApiSuccess<'auth.wsTicke
   return operatorRequest('auth.wsTicket');
 }
 
-export function listCards(signal?: AbortSignal): Promise<CardListResponse> {
-  return operatorRequest('cards.list', { signal });
+export function getCardChildren(id: string, signal?: AbortSignal): Promise<CardChildrenResponse> {
+  return operatorRequest('cards.children', { params: { id }, signal });
 }
 
 export function getCard(id: string, signal?: AbortSignal): Promise<CardDetailResponse> {
   return operatorRequest('cards.get', { params: { id }, signal }) as Promise<CardDetailResponse>;
 }
 
-export function listCardHistory(id: string): Promise<CardHistoryListResponse> {
-  return operatorRequest('cards.history.list', { params: { id } });
+export function listCardHistory(id: string, signal?: AbortSignal): Promise<CardHistoryListResponse> {
+  return operatorRequest('cards.history.list', { params: { id }, signal });
 }
 
-export function getCardHistoryEntry(id: string, seq: number): Promise<CardHistoryEntryResponse> {
-  return operatorRequest('cards.history.get', { params: { id, seq: String(seq) } });
+export function getCardHistoryEntry(id: string, seq: number, signal?: AbortSignal): Promise<CardHistoryEntryResponse> {
+  return operatorRequest('cards.history.get', { params: { id, seq }, signal });
 }
 
-export function getCardDiff(id: string, from: number, to: number): Promise<CardDiffResponse> {
+export function getCardDiff(id: string, from: number, to: number, signal?: AbortSignal): Promise<CardDiffResponse> {
   return operatorRequest('cards.diff', { params: { id }, query: {
     from: String(from),
     to: String(to),
-  } }) as Promise<CardDiffResponse>;
+  }, signal }) as Promise<CardDiffResponse>;
 }
 
 

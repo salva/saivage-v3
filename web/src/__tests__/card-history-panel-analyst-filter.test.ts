@@ -17,7 +17,7 @@ describe('CardHistoryPanel analyst filter', () => {
     vi.clearAllMocks();
     pinia = createPinia();
     setActivePinia(pinia);
-    useCardStore().currentCard = { id: '11111111-1111-4111-8111-111111111111', version_seq: 3 } as any;
+    useCardStore().selectedDetail = { cardId: '11111111-1111-4111-8111-111111111111', card: { id: '11111111-1111-4111-8111-111111111111', version_seq: 3 } as any };
   });
 
   it('filters down to analyst-authored entries only', async () => {
@@ -45,7 +45,7 @@ describe('CardHistoryPanel analyst filter affordance', () => {
     vi.clearAllMocks();
     pinia = createPinia();
     setActivePinia(pinia);
-    useCardStore().currentCard = { id: '11111111-1111-4111-8111-111111111111', version_seq: 2 } as any;
+    useCardStore().selectedDetail = { cardId: '11111111-1111-4111-8111-111111111111', card: { id: '11111111-1111-4111-8111-111111111111', version_seq: 2 } as any };
   });
 
   it('explains the analyst filter and changes label when active', async () => {

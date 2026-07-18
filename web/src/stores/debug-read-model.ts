@@ -1,6 +1,5 @@
-import type { CardRecord, ContentReview, DebugError, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView, RuntimeState } from '../api/types';
+import type { ContentReview, DebugError, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView, RuntimeState } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
-import { selectLinkedChildren } from './cards';
 import { selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel, selectRuntimeStatusTone as selectSharedRuntimeStatusTone } from './runtime-read-model';
 import { eventKindValues } from '@saivage/schemas/event-catalog';
 
@@ -112,26 +111,6 @@ export function selectOperatorDataFreshnessLabel(lastFetchedAt: string | null, n
   return ageMs > OPERATOR_STALE_AGE_MS ? 'stale' : 'fresh';
 }
 
-export interface CardStatusEntry { status: string; count: number }
-
-export function selectCardStatusEntries(cards: ReadonlyArray<{ status: string }>): CardStatusEntry[] {
-  const counts: Record<string, number> = {};
-  for (const card of cards) counts[card.status] = (counts[card.status] || 0) + 1;
-  return Object.entries(counts).map(([status, count]) => ({ status, count }));
-}
-
-export function selectMaxStatusCount(entries: CardStatusEntry[]): number {
-  return Math.max(...entries.map((entry) => entry.count), 1);
-}
-
-export interface DebugCardChildrenProjection {
-  cardId: string;
-  children: CardRecord[];
-}
-
-export function selectDebugCardChildren(cards: CardRecord[], debugCardIds: string[]): DebugCardChildrenProjection[] {
-  return debugCardIds.map((cardId) => ({ cardId, children: selectLinkedChildren(cards, cardId) }));
-}
 
 export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {
   const label = selectSharedRuntimeStatusLabel(runtime);

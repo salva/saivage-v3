@@ -20,10 +20,8 @@ const card = {
   depth: 1,
   children: [],
   title: 'Synthetic dashboard smoke card',
-  description: 'Exercise operator dashboard surfaces without provider calls.',
   status: 'done',
   lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
-  logical_path: '1',
   operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
   tags: ['smoke'],
   priority: 90,
@@ -33,9 +31,8 @@ const card = {
   updated_at: now,
   depends_on: [],
   related: [],
-  acceptance: 'Synthetic acceptance only.',
   pending_notifications: [],
-  result: { summary: 'synthetic result', checks: ['docs:verify', 'typecheck'] },
+  allowedActions: [],
   version_seq: 3,
 };
 
@@ -50,36 +47,12 @@ const projectCard = {
   priority: 50,
   status: 'running',
   lifecycle: { status: 'running', result: null, error: null, completed_at: null },
-  logical_path: null,
   operator_summary: { lifecycleStatus: 'running', terminal: false, blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
-  result: null,
   version_seq: 1,
 };
 
-const cardList = parseOperatorResponse('cards.list', { cards: [projectCard, card], total: 2 });
-const cardDetail = parseOperatorResponse('cards.get', {
-  card,
-  children: [],
-  lifecycle: {
-    status: 'done',
-    terminal: true,
-    phase: 'completed',
-    explanation: 'Synthetic card completed.',
-    completionState: 'marked-done',
-    error: null,
-    startedAt: now,
-    completedAt: now,
-    durationMs: 1000,
-    childCounts: { backlog: 0, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0 },
-    hasActiveChildren: false,
-    hasBlockingChildren: false,
-    dependencyIds: [],
-    blockedByDependencyIds: [],
-  },
-  review: { status: 'passed', review: null, evidenceStatus: 'recorded', summary: 'Synthetic review passed.' },
-  planning: { status: 'done', summary: 'Synthetic planning done.', blockedReason: null, createdCardIds: [], updatedCardIds: [], reviewSummary: null, hasUnfinishedChildWork: false, plannerDeclaredDone: true },
-  dispatches: { outgoing: [], incoming: [] },
-});
+const rootChildren = parseOperatorResponse('cards.children', { card: projectCard, children: [card] });
+const cardDetail = parseOperatorResponse('cards.get', { card });
 
 const sessions = [
   { id: 'analyst:global', role: 'analyst', status: 'active', started_at: now, completed_at: null, model: 'synthetic-model' },
@@ -167,12 +140,13 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, { ticket: 'synthetic-ws-ticket', expiresAt: '2026-05-19T12:05:00.000Z' });
     }
     if (request.method() === 'GET' && url.pathname === '/api/state') {
-      return json(route, parseOperatorResponse('runtime.getState', { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning, cardIndex: { total: 2, byStatus: { running: 1, done: 1 }, byType: { project: 1, code: 1 } } }));
+      return json(route, parseOperatorResponse('runtime.getState', { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/status') {
       return json(route, parseOperatorResponse('runtime.status', { runtime: 'running', currentCardId: smokeCardId, goalCount: 1, lastTickAt: null, pid: 4242, actorRuntime: { pauseMode: 'running', activeWork: 'model_invocation', cards: [{ cardId: smokeCardId, actorState: 'running' }], agents: [], diagnostics: [] }, restart_server_available: false }));
     }
-    if (request.method() === 'GET' && url.pathname === '/api/cards') return json(route, cardList);
+    if (request.method() === 'GET' && url.pathname === '/api/cards/project/children') return json(route, rootChildren);
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', { card, children: [] }));
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}`) return json(route, cardDetail);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history`) return json(route, { history: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/3`) return json(route, { entry: { ...card, snapshot: card } });

@@ -11,10 +11,10 @@ const card = {
   type: 'code',
   parent: 'project',
   depth: 1,
+  children: [],
   title: 'Synthetic dashboard smoke card',
   status: 'done',
   lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
-  logical_path: '1',
   operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
   tags: ['smoke'],
   priority: 90,
@@ -25,39 +25,9 @@ const card = {
   depends_on: [],
   related: [],
   pending_notifications: [],
+  allowedActions: [],
   version_seq: 3,
 } as const;
-
-const baseChild = {
-  type: 'code',
-  parent: smokeCardId,
-  depth: 2,
-  status: 'done',
-  lifecycle: {
-    status: 'done',
-    result: { kind: 'done', summary: 'Synthetic child done result.' },
-    error: null,
-    completed_at: now,
-  },
-  tags: [],
-  priority: 50,
-  urgency: 'normal',
-  created_by: 'planner',
-  created_at: now,
-  updated_at: now,
-  depends_on: [],
-  related: [],
-  pending_notifications: [],
-  version_seq: 1,
-  operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
-} as const;
-
-const children = Array.from({ length: 40 }, (_, index) => ({
-  ...baseChild,
-  id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-  title: `Synthetic child card ${index + 1} for hierarchy overflow`,
-  logical_path: `1.${index + 1}`,
-}));
 
 test('desktop card detail keeps all content reachable inside the bounded detail scroller', async ({ page }) => {
   const pageErrors: string[] = [];
@@ -74,7 +44,6 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
       contentType: 'application/json',
       body: JSON.stringify(parseOperatorResponse('cards.get', {
         card,
-        children,
       })),
     });
   });
