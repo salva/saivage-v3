@@ -12,6 +12,19 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('direct card history and operator read models', () => {
+  it('projects stopped through hierarchy, detail, history, and operator actions without changing response shapes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-history-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    cards.setStatus(card.id, 'running');
+    cards.stopRunningForRecovery(card.id);
+    const readModel = new CardsReadModelService(root, cards, { getRuntimeState: () => null });
+
+    expect(readModel.getCard(card.id)).toMatchObject({ body: { card: { status: 'stopped', lifecycle: { status: 'stopped' }, allowedActions: ['card.start', 'card.cancel', 'card.delete'], operator_summary: { terminal: false, blocked: false, hasError: false } } } });
+    expect(readModel.getChildren('project')).toMatchObject({ body: { children: [{ id: card.id, status: 'stopped' }] } });
+    expect(cards.listCardHistory(card.id)).toMatchObject({ kind: 'found', value: [expect.objectContaining({ snapshot: expect.objectContaining({ status: 'running' }) }), expect.objectContaining({ snapshot: expect.objectContaining({ status: 'backlog' }) })] });
+  });
+
   it('reads immutable versions newest-first, diffs facts, and derives display paths from hierarchy order rather than ID text', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-history-'));
     roots.push(root);

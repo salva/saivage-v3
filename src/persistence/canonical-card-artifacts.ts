@@ -73,7 +73,16 @@ export function validateCardStream(rows: readonly CardStreamRow[], path: string,
         && priorChildren.every((id) => nextChildren.includes(id));
       if (childLink ? !validLink : reorder ? !validReorder : !sameChildren) throw new Error(`Card stream '${path}' has an invalid children transition.`);
       for (const field of ['id', 'type', 'parent', 'depth', 'created_at', 'created_by'] as const) if (row.card[field] !== prior[field]) throw new Error(`Card stream '${path}' mutates immutable field '${field}'.`);
-      if (row.card.status !== prior.status) validateTransition(prior.status, row.card.status);
+      if (row.card.status !== prior.status) {
+        const narrowRecoveryTransition = row.history!.kind === 'status'
+          && row.history!.changed_by_actor === 'runtime'
+          && row.history!.changed_by_surface === 'runtime'
+          && sameValues(row.history!.changed_fields, ['status', 'lifecycle'])
+          && ((prior.status === 'running' && row.card.status === 'stopped' && row.history!.change_reason === 'recovery stopped lifecycle')
+            || (prior.status === 'stopped' && row.card.status === 'running' && row.history!.change_reason === 'STOPPED activation'));
+        if (narrowRecoveryTransition) assertOnlyCardFieldsChanged(path, prior, row.card, new Set(['status', 'lifecycle', 'version_seq', 'updated_at']), 'narrow recovery lifecycle');
+        else validateTransition(prior.status, row.card.status);
+      }
       if (childLink) {
         assertOnlyCardFieldsChanged(path, prior, row.card, new Set(['children', 'version_seq', 'updated_at']), 'child-link');
       } else if (reorder) {

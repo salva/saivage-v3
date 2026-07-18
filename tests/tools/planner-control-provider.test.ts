@@ -75,7 +75,7 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     events.push('status-running');
     return card('running');
   });
-  const mutateCard = jest.fn<NonNullable<PlannerControlProviderContext['store']['mutateCard']>>((_cardId, changes) => card('backlog', changes));
+  const mutateCard = jest.fn<NonNullable<PlannerControlProviderContext['store']['mutateCard']>>((_cardId, changes) => card(admission?.child.status ?? 'backlog', changes));
   const reorderChildren = jest.fn<NonNullable<PlannerControlProviderContext['store']['reorderChildren']>>(() => options.reorderResult ?? { ok: true, changed: 2 });
   const beginStructuralWait = jest.fn<PlannerControlProviderContext['beginStructuralWait']>((relationship) => { events.push('relationship-installed'); return relationship; });
   const endStructuralWait = jest.fn<PlannerControlProviderContext['endStructuralWait']>(() => { events.push('relationship-cleared'); });
@@ -161,6 +161,15 @@ describe('planner activate_card dependency-completion admission', () => {
       .resolves.toMatchObject({ success: false, error: expect.stringContaining('Unrecognized key') });
     expect(test.mutateCard).not.toHaveBeenCalled();
     expect(test.setStatus).not.toHaveBeenCalled();
+  });
+
+  it('edits an immediate stopped child without reopening it as changed', async () => {
+    const test = harness(projection(card('stopped')));
+
+    await expect(invokeTool(test.surface, 'edit_card', { card_id: CHILD, title: 'Retitle stopped work' }))
+      .resolves.toMatchObject({ success: true, data: { card: { status: 'stopped', title: 'Retitle stopped work' } } });
+    expect(test.setStatus).not.toHaveBeenCalled();
+    expect(test.mutateCard).toHaveBeenCalledWith(CHILD, { title: 'Retitle stopped work' }, { actor: 'planner', surface: 'runtime', reason: 'planner edit_card' });
   });
 
   it.each([

@@ -1,8 +1,12 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { DefaultAnalystCardMutationService } from '../../src/application/analyst-mutation-services.js';
-import type { CardService } from '../../src/cards/card-api.js';
+import { DefaultAnalystBriefRecordMutationService, DefaultAnalystCardMutationService } from '../../src/application/analyst-mutation-services.js';
+import { CardService } from '../../src/cards/card-service.js';
 import type { CardRecord } from '../../src/schemas/index.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
 
 const FIRST = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const SECOND = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -31,6 +35,40 @@ describe('analyst card mutation service deletion', () => {
 
     expect(service.delete([FIRST, SECOND])).toEqual({ success: false, error: `Card '${SECOND}' cannot be deleted` });
     expect(deleteSubtrees).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('analyst stopped card mutations', () => {
+  it('admits stopped as dormant for existing create, cancel, delete, and reorder surfaces', () => {
+    const stopped = { id: FIRST, type: 'goal', parent: 'project', status: 'stopped' } as CardRecord;
+    const store = {
+      read: jest.fn((id: string) => id === FIRST ? stopped : null),
+      getDescendantIds: jest.fn(() => []),
+      listChildren: jest.fn(() => []),
+    } as unknown as CardService;
+    const service = new DefaultAnalystCardMutationService(store, 'web-chat');
+
+    expect(service.validateCreate({ type: 'code', parent: FIRST, title: 'child', brief: 'brief' })).toEqual({ allowed: true });
+    expect(service.validateCancel(FIRST)).toEqual({ allowed: true });
+    expect(service.validateDelete([FIRST])).toEqual({ allowed: true });
+    expect(service.validateReorder(FIRST, [])).toEqual({ allowed: true });
+  });
+
+  it('writes a stopped brief and preserves stopped lifecycle', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-stopped-brief-'));
+    try {
+      initProjectTree(root);
+      const cards = new CardService(root);
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped work', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      cards.setStatus(card.id, 'running');
+      cards.stopRunningForRecovery(card.id);
+      const service = new DefaultAnalystBriefRecordMutationService(root, cards, () => ({ ok: true, notificationId: 'n' }));
+
+      expect(service.write(`record:///brief.md?card=${card.id}&v=next`, '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew')).toMatchObject({ success: true });
+      expect(cards.read(card.id)).toMatchObject({ status: 'stopped', lifecycle: { status: 'stopped' } });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

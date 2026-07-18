@@ -39,6 +39,7 @@ export type CardLifecycleState =
   | { status: 'backlog'; result: null; error: null; completed_at: null }
   | { status: 'running'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'changed'; result: CardResult | null; error: string | null; completed_at: null }
+  | { status: 'stopped'; result: null; error: null; completed_at: null }
   | { status: 'done'; result: DoneResult; error: null; completed_at: string }
   | { status: 'failed'; result: FailedResult; error: string; completed_at: string }
   | { status: 'blocked'; result: BlockedResult | ReworkResult; error: string; completed_at: null }
@@ -101,6 +102,7 @@ export const cardLifecycleStateSchema: z.ZodType<CardLifecycleState> = z.discrim
   z.object({ status: z.literal('backlog'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('running'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('changed'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
+  z.object({ status: z.literal('stopped'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('done'), result: doneResultSchema, error: z.null(), completed_at: timestampSchema }).strict(),
   z.object({ status: z.literal('failed'), result: failedLifecycleResultSchema, error: nonEmptyStringSchema, completed_at: timestampSchema }).strict(),
   z.object({ status: z.literal('blocked'), result: blockedLifecycleResultSchema, error: nonEmptyStringSchema, completed_at: z.null() }).strict(),

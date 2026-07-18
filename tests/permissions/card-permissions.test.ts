@@ -34,4 +34,13 @@ describe('permission-by-state matrix', () => {
     expect(allowedActions('operator', 'failed')).toContain('card.restart');
     expect(allowedActions('operator', 'running')).not.toContain('card.restart');
   });
+
+  it('classifies stopped exhaustively for every role', () => {
+    expect(allowedActions('planner', 'stopped')).toEqual(['card.start', 'card.cancel', 'card.delete']);
+    expect(allowedActions('operator', 'stopped')).toEqual(['card.start', 'card.cancel', 'card.delete']);
+    expect(allowedActions('analyst', 'stopped')).toEqual(['card.create', 'card.cancel', 'card.delete', 'card.reorder_child']);
+    expect(allowedActions('executor', 'stopped')).toEqual([]);
+    expect(allowedActions('reviewer', 'stopped')).toEqual([]);
+    expect(decide({ role: 'planner', action: 'card.restart', targetState: 'stopped' })).toEqual({ allowed: false, reason: 'wrong_state' });
+  });
 });

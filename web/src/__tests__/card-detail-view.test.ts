@@ -59,6 +59,18 @@ describe('CardDetailView S06 read-only detail contract', () => {
     store.selectedDetail = null; store.selectedDetailError = { kind: 'network', status: null, message: 'temporary outage' }; await nextTick(); expect(wrapper.text()).toContain('Network error'); expect(wrapper.text()).toContain('temporary outage'); expect(wrapper.get('button').text()).toBe('Retry');
   });
 
+  it('presents stopped as inactive recovery history without problematic styling or controls', async () => {
+    const pinia = createPinia(); setActivePinia(pinia); const store = useCardStore(); vi.spyOn(store, 'fetchCardDetail').mockResolvedValue();
+    const wrapper = mount(CardDetailView, { props: { cardId: 'card-a' }, global: { plugins: [pinia], stubs: { CardRecordsSection: true, CardConversationsSection: true } } });
+    store.selectedCardId = 'card-a';
+    store.selectedDetail = { cardId: 'card-a', card: cardView('card-a', { status: 'stopped', allowedActions: ['card.start', 'card.cancel', 'card.delete'] }) };
+    await nextTick();
+    expect(wrapper.text()).toContain('stopped');
+    expect(wrapper.text()).toContain('prior live process was discarded');
+    expect(wrapper.text()).not.toContain('Restart');
+    expect(wrapper.get('.card-entity__reason').classes()).toContain('tone-text-neutral');
+  });
+
   it('surfaces record outputs through the dedicated records section', () => {
     expect(detailSource).toContain('<CardRecordsSection :card-id="currentCard.id" />');
     expect(recordsSource).toContain('DocumentFrame');

@@ -33,7 +33,7 @@ export const activePromptPairs = [
   ['analyst', 'analyst'] as const,
 ] as const satisfies readonly PromptSlot[];
 
-export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled'] as const;
+export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'stopped', 'done', 'failed', 'cancelled'] as const;
 export type CardStatus = typeof cardStatusValues[number];
 
 

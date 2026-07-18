@@ -22,6 +22,7 @@ export const cardStatusTone: Record<CardStatus, Tone> = {
   running: 'active',
   blocked: 'warning',
   changed: 'warning',
+  stopped: 'neutral',
   done: 'success',
   failed: 'danger',
   cancelled: 'neutral',

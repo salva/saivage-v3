@@ -117,6 +117,10 @@ export function propagateAnalystBriefEdit(store: PropagationStore, editedCardId:
   if (edited.status === 'running') {
     flipped = [];
     notifyRecipients = [editedCardId];
+  } else if (edited.status === 'stopped') {
+    const path = ancestorPathIncludingEdited(store, editedCardId);
+    flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;
+    notifyRecipients = analystBriefEditedCardAndAncestorRecipients(store, path, editedCardId);
   } else if (edited.status === 'backlog') {
     const path = ancestorPathExcludingEdited(store, editedCardId);
     flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;

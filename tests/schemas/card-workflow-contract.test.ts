@@ -25,11 +25,18 @@ describe('card workflow contract', () => {
     expect(cardRecordSchema.safeParse({ ...base, status, lifecycle: { status, result: null, error: null, completed_at: null } }).success).toBe(false);
   });
 
-  test.each(['backlog', 'changed', 'running', 'blocked'] as const)('%s preserves pending notifications', (status) => {
+  test.each(['backlog', 'changed', 'running', 'blocked', 'stopped'] as const)('%s preserves pending notifications', (status) => {
     const lifecycle = status === 'blocked'
       ? { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'later', blocker_cause: 'generic' }, error: 'blocked', completed_at: null }
       : { status, result: null, error: null, completed_at: null };
     expect(cardRecordSchema.safeParse({ ...base, status, lifecycle }).success).toBe(true);
+  });
+
+  test('accepts only the exact stopped lifecycle shape', () => {
+    const stopped = { ...base, status: 'stopped', lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } };
+    expect(persistedCardRecordSchema.parse(stopped)).toMatchObject({ status: 'stopped', lifecycle: { status: 'stopped' } });
+    expect(persistedCardRecordSchema.safeParse({ ...stopped, lifecycle: { ...stopped.lifecycle, error: 'old failure' } }).success).toBe(false);
+    expect(persistedCardRecordSchema.safeParse({ ...stopped, lifecycle: { ...stopped.lifecycle, status: 'running' } }).success).toBe(false);
   });
 
   test('enqueue and exact removal preserve order and unrelated notifications', () => {

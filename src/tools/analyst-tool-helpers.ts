@@ -33,7 +33,7 @@ export function defaultParentForCreate(store: CardService, type: CardType): stri
   if (type === 'goal') return PROJECT_CARD_ID;
   const activeGoals = store
     .list()
-    .filter((card) => card.type === 'goal' && ['running', 'backlog', 'blocked'].includes(card.status))
+    .filter((card) => card.type === 'goal' && ['running', 'backlog', 'blocked', 'stopped'].includes(card.status))
     .sort((a, b) => a.priority - b.priority);
   if (activeGoals.length === 1) return activeGoals[0].id;
   const allGoals = store

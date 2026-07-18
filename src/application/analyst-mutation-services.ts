@@ -248,7 +248,7 @@ export class DefaultAnalystBriefRecordMutationService implements AnalystBriefRec
     }
     const card = this.store.read(target.cardId);
     if (!card) throw new Error(`Card '${target.cardId}' not found.`);
-    if (!['backlog', 'done', 'failed', 'running'].includes(card.status)) throw new Error(`Analyst brief edits require target card status backlog, done, failed, or running. Current status is ${card.status}.`);
+    if (!['backlog', 'stopped', 'done', 'failed', 'running'].includes(card.status)) throw new Error(`Analyst brief edits require target card status backlog, stopped, done, failed, or running. Current status is ${card.status}.`);
     try { this.store.readRecord(target.cardId, 'brief.md', 'open'); throw new Error(`Cannot write '${target.recordUrl}': latest brief.md version is open.`); } catch (error) { if (error instanceof Error && error.message.startsWith('Cannot write')) throw error; }
     return { cardId: target.cardId, recordUrl: target.recordUrl };
   }

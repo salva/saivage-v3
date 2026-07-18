@@ -91,8 +91,12 @@ describe('analyst runtime tools', () => {
     try {
       initProjectTree(projectRoot);
       const processRunner = createTestProcessRunner(projectRoot);
-      const result = await get_status({ projectRoot, store: new CardService(projectRoot), processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});
-      expect(result).toMatchObject({ success: true, data: { runtime: null, runtimeSummary: { status: 'stopped', currentCardId: null } } });
+      const cards = new CardService(projectRoot);
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      cards.setStatus(card.id, 'running');
+      cards.stopRunningForRecovery(card.id);
+      const result = await get_status({ projectRoot, store: cards, processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});
+      expect(result).toMatchObject({ success: true, data: { runtime: null, runtimeSummary: { status: 'stopped', currentCardId: null }, statusCounts: { stopped: 1 }, counts: { stopped: 1 } } });
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 });

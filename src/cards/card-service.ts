@@ -45,6 +45,8 @@ import {
   assertGenericCardPatch,
   briefContentForNewCard,
   buildSetStatusLifecycle,
+  buildActivatedStoppedLifecycle,
+  buildStoppedLifecycle,
   buildUpdatedCard,
   canTransition,
   collectChangedFields,
@@ -233,9 +235,28 @@ export class CardService {
   }
 
   update(id: string, changes: CardPatch): CardRecord { return this.applyPatch(id, changes, 'update', { actor: 'runtime', surface: 'runtime', reason: 'update' }); }
-  mutateCard(id: string, changes: CardPatch, ctx: CardMutationContext): CardRecord { return this.applyPatch(id, changes, 'mutate', ctx); }
+  mutateCard(id: string, changes: CardPatch, ctx: CardMutationContext): CardRecord {
+    const card = this.read(id);
+    if (!card) throw new Error(`Card '${id}' not found.`);
+    if (changes.status !== undefined && ((card.status === 'running' && changes.status === 'stopped') || (card.status === 'stopped' && changes.status === 'running'))) {
+      throw new Error(`Generic card mutation cannot transition '${card.status}' to '${changes.status}'.`);
+    }
+    return this.applyPatch(id, changes, 'mutate', ctx);
+  }
   commitTerminalLifecyclePatch(id: string, changes: CardPatch): CardRecord { return this.applyPatch(id, changes, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' }); }
   setStatus(id: string, status: CardStatus): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); if (status === 'done' || status === 'failed') throw new Error(`setStatus does not support '${status}'.`); validateTransition(card.status, status); if (card.status === status) return card; return this.applyPatch(id, { status, lifecycle: buildSetStatusLifecycle(card, status) }, 'status', { actor: 'runtime', surface: 'runtime', reason: `status -> ${status}` }); }
+  stopRunningForRecovery(id: string): CardRecord {
+    const card = this.read(id);
+    if (!card) throw new Error(`Card '${id}' not found.`);
+    if (card.status !== 'running') throw new Error(`Card '${id}' must be running before recovery can stop it.`);
+    return this.applyPatch(id, { status: 'stopped', lifecycle: buildStoppedLifecycle() }, 'status', { actor: 'runtime', surface: 'runtime', reason: 'recovery stopped lifecycle' });
+  }
+  activateStopped(id: string): CardRecord {
+    const card = this.read(id);
+    if (!card) throw new Error(`Card '${id}' not found.`);
+    if (card.status !== 'stopped') throw new Error(`Card '${id}' must be stopped before it can be activated through STOPPED.`);
+    return this.applyPatch(id, { status: 'running', lifecycle: buildActivatedStoppedLifecycle() }, 'status', { actor: 'runtime', surface: 'runtime', reason: 'STOPPED activation' });
+  }
   enqueueNotification(id: string, notification: CardNotification): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = enqueueCardNotification(card, notification); return this.applyPatch(id, { pending_notifications: next.pending_notifications }, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'notification enqueued' }); }
   removeNotifications(id: string, notificationIds: readonly string[]): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = removeCardNotifications(card, notificationIds); return this.applyPatch(id, { pending_notifications: next.pending_notifications }, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'notifications delivered' }); }
 

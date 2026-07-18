@@ -176,6 +176,27 @@ describe('CardService final reset-only contracts', () => {
     expect(cards.readActivationAdmission('project')).toMatchObject({ child: { id: 'project' }, dependencies: [] });
   });
 
+  it('uses only the narrow source-checked running and stopped lifecycle operations', () => {
+    const cards = new CardService(root);
+    const parent = cards.create({ ...input(), type: 'goal' });
+
+    expect(() => cards.stopRunningForRecovery(parent.id)).toThrow(/must be running/);
+    cards.setStatus(parent.id, 'running');
+    expect(() => cards.setStatus(parent.id, 'stopped')).toThrow(/Invalid transition/);
+    expect(() => cards.mutateCard(parent.id, { status: 'stopped', lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } }, { actor: 'runtime', surface: 'runtime', reason: 'status -> stopped' })).toThrow(/Generic card mutation/);
+
+    expect(cards.stopRunningForRecovery(parent.id)).toMatchObject({ status: 'stopped', lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } });
+    expect(() => cards.stopRunningForRecovery(parent.id)).toThrow(/must be running/);
+    expect(() => cards.setStatus(parent.id, 'running')).toThrow(/Invalid transition/);
+    expect(() => cards.mutateCard(parent.id, { status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null } }, { actor: 'runtime', surface: 'runtime', reason: 'status -> running' })).toThrow(/Generic card mutation/);
+
+    cards.mutateCard(parent.id, { title: 'Edited while stopped' }, { actor: 'analyst', surface: 'web-chat', reason: 'stopped edit' });
+    expect(cards.read(parent.id)).toMatchObject({ status: 'stopped', title: 'Edited while stopped' });
+    expect(cards.create(input(parent.id))).toMatchObject({ parent: parent.id, status: 'backlog' });
+    expect(cards.activateStopped(parent.id)).toMatchObject({ status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null } });
+    expect(() => cards.activateStopped(parent.id)).toThrow(/must be stopped/);
+  });
+
   it('rejects missing dependencies before claiming a child namespace', () => {
     const cards = new CardService(root);
     expect(() => cards.create({ ...input(), depends_on: [SECOND] })).toThrow(`Dependency card '${SECOND}' does not exist.`);
@@ -225,13 +246,14 @@ describe('CardService final reset-only contracts', () => {
     expect(() => new CardService(root).readActivationAdmission('project')).toThrow();
   });
 
-  it.each(['backlog', 'running', 'changed', 'blocked'] as const)('preserves notifications while %s remains unresolved', (status) => {
+  it.each(['backlog', 'running', 'changed', 'blocked', 'stopped'] as const)('preserves notifications while %s remains unresolved', (status) => {
     const cards = new CardService(root);
     cards.create(input());
     if (status !== 'backlog') {
       cards.setStatus(FIRST, 'running');
       if (status === 'changed') cards.setStatus(FIRST, 'changed');
       if (status === 'blocked') cards.commitTerminalLifecyclePatch(FIRST, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'wait' }, error: 'wait', completed_at: null } });
+      if (status === 'stopped') cards.stopRunningForRecovery(FIRST);
     }
     cards.enqueueNotification(FIRST, { id: 'n1', content: 'new facts', created_at: '2026-07-15T00:00:00.000Z' });
     expect(cards.read(FIRST)?.pending_notifications.map(({ id }) => id)).toEqual(['n1']);

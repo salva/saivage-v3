@@ -130,6 +130,7 @@ function statusExplainer(status: CardStatus): string {
     running: 'Running. Status records may be incomplete until the active work finishes.',
     blocked: 'Blocked. Check blockers, tool errors, review findings, and notes before retrying.',
     changed: 'Changed; needs planner attention before completion can proceed.',
+    stopped: 'Stopped after its prior live process was discarded. It remains inactive until explicitly activated.',
     done: 'Marked done. Review status and review records before treating it as accepted.',
     failed: 'Failed. Inspect error, status records, and agent/review context.',
     cancelled: 'Cancelled; should not be treated as completed work.',
@@ -146,7 +147,7 @@ const reason = computed(() => lifecycle.value?.explanation || statusExplainer(cu
 const PROBLEMATIC: ReadonlySet<CardStatus> = new Set(['failed', 'blocked', 'cancelled']);
 const reasonLine = computed(() => {
   const status = currentCard.value?.status;
-  if (!status || !PROBLEMATIC.has(status)) return '';
+  if (!status || (status !== 'stopped' && !PROBLEMATIC.has(status))) return '';
   return lifecycle.value?.explanation || statusExplainer(status);
 });
 

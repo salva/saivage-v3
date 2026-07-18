@@ -55,7 +55,7 @@ const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
   'latest_self_report',
 ]);
 
-const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>(['backlog']);
+const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>(['backlog', 'stopped']);
 
 const LIFECYCLE_LOCKED_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'done',
@@ -85,6 +85,7 @@ const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
   running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog'],
   blocked: ['backlog', 'running', 'changed', 'cancelled'],
   changed: ['backlog', 'running', 'cancelled'],
+  stopped: ['cancelled'],
   done: ['changed'],
   failed: ['cancelled', 'changed'],
   cancelled: [],
@@ -154,6 +155,14 @@ export function buildSetStatusLifecycle(
   }
 }
 
+export function buildStoppedLifecycle(): Extract<CardLifecycleState, { status: 'stopped' }> {
+  return { status: 'stopped', result: null, error: null, completed_at: null };
+}
+
+export function buildActivatedStoppedLifecycle(): Extract<CardLifecycleState, { status: 'running' }> {
+  return { status: 'running', result: null, error: null, completed_at: null };
+}
+
 export function summarizeChangedFields(changedFields: string[]): string {
   if (changedFields.length === 0) return 'card updated';
   return `${changedFields.join(', ')} updated`;
@@ -192,7 +201,7 @@ export function validateMutablePatch(
     ctx?.surface === 'runtime' &&
     ctx.actor === 'runtime' &&
     typeof ctx.reason === 'string' &&
-    ctx.reason.startsWith('status -> ');
+    (ctx.reason.startsWith('status -> ') || ctx.reason === 'recovery stopped lifecycle' || ctx.reason === 'STOPPED activation');
 
   if (changesLifecycleField && !explicitLifecycleWrite && !explicitStatusTransition) {
     const fields = changedKeys.filter((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));

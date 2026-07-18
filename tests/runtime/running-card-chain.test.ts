@@ -21,4 +21,11 @@ describe('running card restart selection', () => {
     expect(() => selectRunningCardChain([root, left, right])).toThrow('strict ancestor chain');
     expect(() => selectRunningCardChain([left])).toThrow('no running parent');
   });
+
+  it('excludes stopped linked history from active chain membership', () => {
+    const root = card('project', null, 'project', 'running');
+    const stopped = card('card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'project', 'goal', 'stopped');
+    expect(selectRunningCardChain([root, stopped]).map((entry) => entry.id)).toEqual(['project']);
+    expect(selectRunningCardChain([card('project', null, 'project', 'stopped'), stopped])).toEqual([]);
+  });
 });
