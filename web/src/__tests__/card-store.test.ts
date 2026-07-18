@@ -12,7 +12,7 @@ vi.mock('../api/client', () => ({
   ApiError: class extends Error { body = {}; constructor(public status: number, text: string) { super(text); } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
 }));
 
-import { ApiError, getCard, getCardChildren, getCardDiff, getFileContent } from '../api/client';
+import { ApiError, getCard, getCardChildren, getCardDiff, getCardHistoryEntry, getFileContent, listCardHistory } from '../api/client';
 import { useCardStore } from '../stores/cards';
 import { cardView } from './card-view-fixtures';
 
@@ -20,6 +20,7 @@ const A = 'card-a';
 const AB = 'card-a-b';
 const AC = 'card-a-c';
 const B = 'card-b';
+const now = '2026-07-18T00:00:00.000Z';
 const card = (id: string, overrides: Partial<CardRecord> = {}) => cardView(id, overrides);
 const childrenResponse = (parent: CardRecord, children: CardRecord[]): CardChildrenResponse => ({ card: parent, children });
 const deferred = <T>() => { let resolve!: (value: T) => void; let reject!: (error: unknown) => void; const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; }); return { promise, resolve, reject }; };
@@ -119,6 +120,104 @@ describe('lazy CardStore', () => {
       expect(store.selectedDetail?.card.title).toBe('detail title');
       expect(store.orderedCardTree[0]?.card.title).toBe('tree title');
     }
+  });
+
+  it('makes an initial detail 404 terminal and suppresses selected-card retry, invalidation, and reconnect reads', async () => {
+    vi.mocked(getCard).mockRejectedValue(new ApiError(404, 'Card not found', {}));
+    const store = useCardStore();
+    await store.fetchCardDetail(A);
+    expect(store.selectedCardId).toBe(A);
+    expect(store.selectedDetail).toBeNull();
+    expect(store.selectedDetailError).toEqual({ kind: 'not-found', status: 404, message: 'Card not found' });
+    expect(store.selectedDetailFreshness).toEqual({ refreshing: false, stale: false, staleReason: null, refreshError: null });
+    expect(store.cardRecords.brief.accepted).toBeNull();
+    expect(store.cardHistoryVisible).toBe(false);
+    expect(() => store.retryCardDetail()).toThrow('Detail is not retryable.');
+    const calls = { detail: vi.mocked(getCard).mock.calls.length, file: vi.mocked(getFileContent).mock.calls.length, history: vi.mocked(listCardHistory).mock.calls.length, entry: vi.mocked(getCardHistoryEntry).mock.calls.length, diff: vi.mocked(getCardDiff).mock.calls.length };
+    store.onInvalidate({ resource: 'cards', scope: 'detail', card_id: A });
+    for (const slot of ['brief', 'status', 'review'] as const) store.onInvalidate({ resource: 'cards', scope: 'record', card_id: A, slot });
+    store.onInvalidate({ resource: 'cards', scope: 'history', card_id: A });
+    store.onInvalidate({ resource: 'cards', scope: 'diff', card_id: A });
+    store.onReconnect(); await flush();
+    expect({ detail: vi.mocked(getCard).mock.calls.length, file: vi.mocked(getFileContent).mock.calls.length, history: vi.mocked(listCardHistory).mock.calls.length, entry: vi.mocked(getCardHistoryEntry).mock.calls.length, diff: vi.mocked(getCardDiff).mock.calls.length }).toEqual(calls);
+  });
+
+  it('tears down the complete selected-card scope on refresh 404 while preserving independent hierarchy', async () => {
+    vi.mocked(getCard).mockResolvedValueOnce({ card: card(A, { title: 'accepted detail' }) });
+    vi.mocked(getCardChildren).mockResolvedValue(childrenResponse(card('project', { children: [A] }), [card(A)]));
+    vi.mocked(getFileContent).mockResolvedValue({ path: '', size: 1, contentType: 'text/markdown', content: 'accepted record', redacted: false, sensitivity: 'normal', version: 1, modifiedAt: now });
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ card_id: A, version_seq: 1 } as any], total: 1 });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: A, version_seq: 1 } as any });
+    vi.mocked(getCardDiff).mockResolvedValue({ card_id: A, from: 1, to: 2, diff: [{ field: 'title', before: 'old', after: 'new' }] });
+    const store = useCardStore();
+    await store.ensureRoot(); await store.fetchCardDetail(A); await store.loadCardRecords(A); await store.openCardHistory(A); await store.selectCardHistoryVersion(A, 1);
+    const hierarchySlice = store.hierarchySlicesByParentId.project;
+    const hierarchyState = store.childrenLoadStateById.project;
+
+    const pendingBrief = deferred<any>(); const pendingHistory = deferred<any>(); const pendingEntry = deferred<any>(); const pendingDiff = deferred<any>(); const detail404 = deferred<CardDetailResponse>();
+    vi.mocked(getFileContent).mockReturnValueOnce(pendingBrief.promise);
+    vi.mocked(listCardHistory).mockReturnValueOnce(pendingHistory.promise);
+    vi.mocked(getCardHistoryEntry).mockReturnValueOnce(pendingEntry.promise);
+    vi.mocked(getCardDiff).mockReturnValueOnce(pendingDiff.promise);
+    vi.mocked(getCard).mockReturnValueOnce(detail404.promise);
+    const briefRefresh = store.refreshRecord('brief', 'invalidated');
+    const historyRefresh = store.refreshHistory('invalidated');
+    const versionRefresh = store.selectCardHistoryVersion(A, 1);
+    const detailRefresh = store.refreshCardDetail('invalidated');
+    store.cardRecords.status = { ...store.cardRecords.status, stale: true, staleReason: 'refresh-failed', refreshError: 'accepted status error' };
+    store.cardRecords.review = { ...store.cardRecords.review, error: 'accepted review error' };
+    store.cardHistoryError = { kind: 'network', status: null, message: 'accepted history error' };
+    store.cardHistoryEntryError = { kind: 'server', status: 503, message: 'accepted entry error' };
+    store.cardHistoryDiffError = { kind: 'network', status: null, message: 'accepted diff error' };
+    const briefSignal = vi.mocked(getFileContent).mock.calls.at(-1)![1]!;
+    const historySignal = vi.mocked(listCardHistory).mock.calls.at(-1)![1]!;
+    const entrySignal = vi.mocked(getCardHistoryEntry).mock.calls.at(-1)![2]!;
+    const diffSignal = vi.mocked(getCardDiff).mock.calls.at(-1)![1]!;
+    detail404.reject(new ApiError(404, 'Card not found', {})); await detailRefresh;
+
+    expect([briefSignal, historySignal, entrySignal, diffSignal].every((signal) => signal.aborted)).toBe(true);
+    expect(store.selectedCardId).toBe(A); expect(store.selectedDetail).toBeNull(); expect(store.selectedDetailError?.kind).toBe('not-found');
+    expect(store.selectedDetailFreshness).toEqual({ refreshing: false, stale: false, staleReason: null, refreshError: null });
+    for (const slot of ['brief', 'status', 'review'] as const) expect(store.cardRecords[slot]).toEqual({ slot, loading: false, error: null, accepted: null, refreshing: false, stale: false, staleReason: null, refreshError: null });
+    expect(store.cardHistory).toEqual([]); expect(store.cardHistoryVisible).toBe(false); expect(store.cardHistoryLoading).toBe(false); expect(store.cardHistoryError).toBeNull();
+    expect(store.cardHistoryFreshness).toEqual({ refreshing: false, stale: false, staleReason: null, refreshError: null });
+    expect(store.cardHistorySelectedSeq).toBeNull(); expect(store.cardHistoryEntry).toBeNull(); expect(store.cardHistoryEntryLoading).toBe(false); expect(store.cardHistoryEntryError).toBeNull();
+    expect(store.cardHistoryDiff).toEqual([]); expect(store.cardHistoryDiffKey).toBeNull(); expect(store.cardHistoryDiffLoading).toBe(false); expect(store.cardHistoryDiffError).toBeNull(); expect(store.cardHistoryDiffFreshness).toEqual({ refreshing: false, stale: false, staleReason: null, refreshError: null });
+    expect(store.hierarchySlicesByParentId.project).toBe(hierarchySlice); expect(store.childrenLoadStateById.project).toBe(hierarchyState);
+
+    pendingBrief.resolve({ path: '', size: 1, contentType: 'text/markdown', content: 'late', redacted: false, sensitivity: 'normal' });
+    pendingHistory.resolve({ history: [{ card_id: A, version_seq: 9 }], total: 1 }); pendingEntry.resolve({ entry: { card_id: A, version_seq: 9 } }); pendingDiff.reject(new Error('late diff'));
+    await Promise.all([briefRefresh, historyRefresh, versionRefresh]);
+    expect(store.selectedDetailError?.kind).toBe('not-found'); expect(store.cardRecords.brief.accepted).toBeNull(); expect(store.cardHistory).toEqual([]); expect(store.cardHistoryEntry).toBeNull(); expect(store.cardHistoryDiff).toEqual([]);
+
+    const selectedCalls = () => [vi.mocked(getCard).mock.calls.length, vi.mocked(getFileContent).mock.calls.length, vi.mocked(listCardHistory).mock.calls.length, vi.mocked(getCardHistoryEntry).mock.calls.length, vi.mocked(getCardDiff).mock.calls.length];
+    const before = selectedCalls();
+    store.onInvalidate({ resource: 'cards', scope: 'detail', card_id: A });
+    for (const slot of ['brief', 'status', 'review'] as const) store.onInvalidate({ resource: 'cards', scope: 'record', card_id: A, slot });
+    store.onInvalidate({ resource: 'cards', scope: 'history', card_id: A }); store.onInvalidate({ resource: 'cards', scope: 'diff', card_id: A });
+    const childrenBefore = vi.mocked(getCardChildren).mock.calls.length;
+    store.onInvalidate({ resource: 'cards', scope: 'children', card_id: 'project' }); await flush();
+    store.onReconnect(); await flush();
+    expect(selectedCalls()).toEqual(before); expect(vi.mocked(getCardChildren).mock.calls.length).toBe(childrenBefore + 2);
+  });
+
+  it('preserves a newer selected scope when a superseded detail request later returns 404', async () => {
+    const obsolete = deferred<CardDetailResponse>();
+    vi.mocked(getCard).mockReturnValueOnce(obsolete.promise).mockResolvedValueOnce({ card: card(B, { title: 'new detail' }) });
+    vi.mocked(getFileContent).mockResolvedValue({ path: '', size: 1, contentType: 'text/markdown', content: 'new record', redacted: false, sensitivity: 'normal' });
+    const store = useCardStore(); const old = store.fetchCardDetail(A); await store.fetchCardDetail(B); await store.loadCardRecords(B);
+    obsolete.reject(new ApiError(404, 'old missing', {})); await old;
+    expect(store.selectedCardId).toBe(B); expect(store.selectedDetail?.card.title).toBe('new detail'); expect(store.cardRecords.brief.accepted).toMatchObject({ kind: 'content', content: 'new record' }); expect(store.selectedDetailError).toBeNull();
+  });
+
+  it('clears route selection and pending reveal without clearing accepted hierarchy', async () => {
+    const pendingRoot = deferred<CardChildrenResponse>(); vi.mocked(getCardChildren).mockReturnValueOnce(pendingRoot.promise);
+    const store = useCardStore(); store.hierarchySlicesByParentId = { project: { parent: card('project', { children: [A] }), children: [card(A)] } }; store.childrenLoadStateById = { project: { status: 'loaded', error: null, ...{ refreshing: false, stale: false, staleReason: null, refreshError: null } } };
+    store.selectedCardId = A; const slices = store.hierarchySlicesByParentId;
+    const reveal = store.ensureRouteVisible(AB); await flush(); const states = store.childrenLoadStateById; store.clearCardSelection();
+    expect(store.selectedCardId).toBeNull(); expect(store.hierarchySlicesByParentId).toBe(slices); expect(store.childrenLoadStateById).toBe(states);
+    pendingRoot.resolve(childrenResponse(card(A), [card(AB)])); await reveal;
+    expect(vi.mocked(getCardChildren)).toHaveBeenCalledTimes(1);
   });
 
   it('supersedes route reveal without cancelling shared work or issuing the obsolete next request', async () => {

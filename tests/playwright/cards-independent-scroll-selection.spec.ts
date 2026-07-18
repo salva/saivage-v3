@@ -9,6 +9,7 @@ const sourceId = 'card-a';
 const goalId = 'card-b';
 const targetId = 'card-b-c';
 const newId = 'card-b-d';
+const obsoleteId = 'card-z-z';
 
 function card(id: string, title: string, children: string[] = [], status: 'backlog' | 'running' | 'blocked' = 'backlog') {
   return {
@@ -40,14 +41,14 @@ const newlyLinked = card(newId, 'Current detail outside retained slice');
 const project = card('project', 'Cards fixture project', [sourceId, goalId, ...overflow.map((entry) => entry.id)], 'running');
 
 type RecordReply = { status: number; content?: string };
-type Fixture = { requests: string[]; omitNewEdge: boolean; missingDetails: Set<string>; detailDelay: Map<string, Promise<void>>; hierarchyDelay: Map<string, Promise<void>>; recordDelay: Map<string, Promise<void>>; recordReplies: Map<string, RecordReply[]> };
+type Fixture = { requests: string[]; omitNewEdge: boolean; missingDetails: Set<string>; detailDelay: Map<string, Promise<void>>; hierarchyDelay: Map<string, Promise<void>>; recordDelay: Map<string, Promise<void>>; historyDelay: Map<string, Promise<void>>; recordReplies: Map<string, RecordReply[]> };
 async function json(route: Route, payload: unknown, status = 200) { await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) }); }
 
 async function install(page: Page): Promise<Fixture> {
   await page.addInitScript((value) => localStorage.setItem('saivage_api_token', value), token);
   await installOperatorWebSocketShim(page);
   await installOperatorRestRoutes(page);
-  const fixture: Fixture = { requests: [], omitNewEdge: false, missingDetails: new Set(), detailDelay: new Map(), hierarchyDelay: new Map(), recordDelay: new Map(), recordReplies: new Map() };
+  const fixture: Fixture = { requests: [], omitNewEdge: false, missingDetails: new Set(), detailDelay: new Map(), hierarchyDelay: new Map(), recordDelay: new Map(), historyDelay: new Map(), recordReplies: new Map() };
   await page.route('**/api/cards**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -62,6 +63,7 @@ async function install(page: Page): Promise<Fixture> {
       return json(route, parseOperatorResponse('cards.children', { card: parent, children: fixture.omitNewEdge ? [target] : [target, newlyLinked] }));
     }
     if (url.pathname === `/api/cards/${targetId}/history`) {
+      await fixture.historyDelay.get(targetId);
       return json(route, parseOperatorResponse('cards.history.list', { history: [{
         entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: targetId, version_seq: 1,
         changed_at: now, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'fixture history',
@@ -170,14 +172,59 @@ test('retained stale slice can leave current detail visible without row or Path'
   expect(fixture.requests).not.toContain(`GET /api/cards/${newId}/children`);
 });
 
-test('detail 404 leaves represented hierarchy and successful slices unchanged', async ({ page }) => {
+test('direct obsolete card URL explains terminal absence, retains the tree, and preserves explicit history recovery', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   const fixture = await install(page);
-  fixture.missingDetails.add(targetId);
-  await page.goto(`/cards/${targetId}`);
-  await expect(selected(page)).toContainText('Deep linked target');
-  await expect(page.locator('.status-banner__title')).toHaveText('Card not found');
-  await expect(selected(page)).toContainText('Deep linked target');
-  expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${goalId}/children`)).toHaveLength(1);
+  fixture.missingDetails.add(obsoleteId);
+  await page.goto(`/cards/${obsoleteId}`);
+  await expect(page.getByText('Card not found', { exact: true })).toBeVisible();
+  await expect(page.getByText('This card is not available in the current hierarchy. This link may be obsolete after a reset.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+  await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${obsoleteId}`).length).toBe(1);
+  const tree = page.locator('.tree-container'); await tree.evaluate((element) => element.setAttribute('data-identity', 'obsolete-retained'));
+  const rootReads = fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children').length;
+  await expect(page.locator('button:visible', { hasText: 'Back to Cards' })).toHaveCount(1);
+  await page.setViewportSize({ width: 700, height: 720 });
+  await expect(page.getByText('This card is not available in the current hierarchy. This link may be obsolete after a reset.', { exact: true })).toBeVisible();
+  await expect(page.locator('button:visible', { hasText: 'Back to Cards' })).toHaveCount(1);
+  await page.locator('button:visible', { hasText: 'Back to Cards' }).click();
+  await expect(page).toHaveURL('/cards'); await expect(tree).toHaveAttribute('data-identity', 'obsolete-retained');
+  expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${obsoleteId}`)).toHaveLength(1); expect(fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children')).toHaveLength(rootReads);
+  await page.goBack(); await expect(page).toHaveURL(`/cards/${obsoleteId}`); await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${obsoleteId}`).length).toBe(2); await expect(page.getByText('Card not found', { exact: true })).toBeVisible();
+  await page.goForward(); await expect(page).toHaveURL('/cards'); expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${obsoleteId}`)).toHaveLength(2); expect(fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children')).toHaveLength(rootReads);
+  await navigateSpa(page, `/cards/${sourceId}`); await expect(page.getByTestId('card-detail-highlight')).toContainText('Source card'); expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${sourceId}`)).toHaveLength(1);
+});
+
+test('refresh detail 404 aborts selected resources, blocks healing fan-out, and leaves hierarchy independently refreshable', async ({ page }) => {
+  const fixture = await install(page); await page.goto(`/cards/${targetId}`);
+  await expect(page.getByTestId('card-detail-highlight')).toContainText('Deep linked target');
+  await page.getByText('Version history', { exact: true }).click(); await expect(page.getByText('Initial tracked version', { exact: true })).toBeVisible(); await expect(page.getByText('Diff vs current card', { exact: true })).toBeVisible();
+  const tree = page.locator('.tree-container'); await tree.evaluate((element) => element.setAttribute('data-identity', 'refresh-404-retained'));
+  let releaseRecord!: () => void; let releaseHistory!: () => void;
+  fixture.recordDelay.set(`${targetId}:brief`, new Promise<void>((resolve) => { releaseRecord = resolve; })); fixture.historyDelay.set(targetId, new Promise<void>((resolve) => { releaseHistory = resolve; }));
+  const briefPath = `GET /api/files/content?path=record:///brief.md?card=${targetId}&v=latest`;
+  const briefBefore = fixture.requests.filter((entry) => entry === briefPath).length; const historyBefore = fixture.requests.filter((entry) => entry === `GET /api/cards/${targetId}/history`).length;
+  await page.evaluate((frames) => { for (const frame of frames) window.__saivageWsFixture?.emit(frame); }, [
+    { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, slot: 'brief' },
+    { t: 'invalidate', resource: 'cards', scope: 'history', card_id: targetId },
+  ]);
+  await expect.poll(() => fixture.requests.filter((entry) => entry === briefPath).length).toBe(briefBefore + 1); await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${targetId}/history`).length).toBe(historyBefore + 1);
+  fixture.missingDetails.add(targetId); await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: targetId });
+  await expect(page.getByText('Card not found', { exact: true })).toBeVisible(); await expect(page.getByTestId('card-detail-highlight')).toHaveCount(0); await expect(page.getByText('Initial tracked version', { exact: true })).toHaveCount(0); await expect(page.getByText(/Continue with/)).toHaveCount(0);
+  releaseRecord(); releaseHistory(); await page.evaluate(() => Promise.resolve()); await expect(page.getByText('Card not found', { exact: true })).toBeVisible();
+  const selectedReads = () => fixture.requests.filter((entry) => entry === `GET /api/cards/${targetId}` || entry.startsWith('GET /api/files/content') && entry.includes(`card=${targetId}`) || entry.startsWith(`GET /api/cards/${targetId}/history`) || entry.startsWith(`GET /api/cards/${targetId}/diff`)).length;
+  const selectedBaseline = selectedReads();
+  await page.evaluate((frames) => { for (const frame of frames) window.__saivageWsFixture?.emit(frame); }, [
+    { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: targetId },
+    { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, slot: 'brief' },
+    { t: 'invalidate', resource: 'cards', scope: 'history', card_id: targetId },
+    { t: 'invalidate', resource: 'cards', scope: 'diff', card_id: targetId },
+  ]); await page.evaluate(() => Promise.resolve()); expect(selectedReads()).toBe(selectedBaseline);
+  const goalBefore = fixture.requests.filter((entry) => entry === `GET /api/cards/${goalId}/children`).length;
+  await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'children', card_id: goalId }); await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${goalId}/children`).length).toBe(goalBefore + 1);
+  const rootBefore = fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children').length; const goalAfterInvalidate = fixture.requests.filter((entry) => entry === `GET /api/cards/${goalId}/children`).length;
+  await page.evaluate(() => window.__saivageWsFixture?.closeAll()); await expect.poll(() => fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children').length).toBe(rootBefore + 1); await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${goalId}/children`).length).toBe(goalAfterInvalidate + 1);
+  expect(selectedReads()).toBe(selectedBaseline); await expect(tree).toHaveAttribute('data-identity', 'refresh-404-retained'); await expect(page.getByText('Card not found', { exact: true })).toBeVisible();
 });
 
 test('rapid route navigation supersedes a pending deep reveal without cancelling shared root work', async ({ page }) => {

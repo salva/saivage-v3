@@ -1,6 +1,9 @@
 <template>
   <div class="card-detail-container">
-    <ViewState v-if="selectedDetailLoading && !currentCard" state="loading" title="Loading card" message="Fetching the latest card detail." />
+    <ViewState v-if="routeLoading" state="loading" title="Loading card" message="Fetching the latest card detail." />
+    <ViewState v-else-if="showNotFound" state="error" title="Card not found" message="This card is not available in the current hierarchy. This link may be obsolete after a reset.">
+      <template #action><button type="button" class="banner-action obsolete-card-action" @click="emit('back-to-cards')">Back to Cards</button></template>
+    </ViewState>
     <StatusBanner v-else-if="detailError && !currentCard" tone="danger" :title="detailErrorTitle" :message="detailError.message">
       <template #action><button type="button" class="banner-action" @click="reloadDetail">Retry</button></template>
     </StatusBanner>
@@ -77,7 +80,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { useCardStore } from '../../stores/cards';
+import { cardRouteChain, useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
 import type { DetailErrorState, CardStatus } from '../../types/view-models';
 import { createLogger } from '../../utils/logger';
@@ -97,6 +100,7 @@ import { formatJson } from '../../utils/format-json';
 
 const log = createLogger('comp:card-detail');
 const props = defineProps<{ cardId: string }>();
+const emit = defineEmits<{ 'back-to-cards': [] }>();
 const cardStore = useCardStore();
 const {
   selectedDetail,
@@ -106,8 +110,12 @@ const {
   selectedDetailFreshness,
 } = storeToRefs(cardStore);
 
-const currentCard = computed(() => selectedDetail.value?.card ?? null);
-const detailError = computed<DetailErrorState | null>(() => selectedDetailError.value);
+const validRoute = computed(() => cardRouteChain(props.cardId).length > 0);
+const ownsRoute = computed(() => cardStore.selectedCardId === props.cardId);
+const currentCard = computed(() => ownsRoute.value && selectedDetail.value?.cardId === props.cardId ? selectedDetail.value.card : null);
+const detailError = computed<DetailErrorState | null>(() => ownsRoute.value ? selectedDetailError.value : null);
+const routeLoading = computed(() => validRoute.value && !currentCard.value && (!ownsRoute.value || selectedDetailLoading.value));
+const showNotFound = computed(() => !validRoute.value || detailError.value?.kind === 'not-found');
 const hierarchyPath = computed(() => {
   const path = cardStore.hierarchyPathFor(props.cardId);
   return path || null;
@@ -170,12 +178,12 @@ async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDe
 async function retryDetail(): Promise<void> { await cardStore.retryCardDetail(); }
 
 onMounted(async () => {
-  await reloadDetail();
+  if (validRoute.value) await reloadDetail();
 });
 
 watch(() => props.cardId, async (nid, oldId) => {
   void oldId;
-  if (nid) await reloadDetail();
+  if (cardRouteChain(nid).length > 0) await reloadDetail();
 });
 
 function actionLabel(action: string): string {
@@ -191,6 +199,8 @@ function actionLabel(action: string): string {
 .status-banner.tone-danger { background:var(--entry-danger-bg); color:var(--danger); }
 .status-banner.tone-warning { background:var(--entry-warn-bg); color:var(--warn); }
 .banner-action { padding:3px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; font:inherit; font-size:11px; }
+
+@media (max-width:880px) { .obsolete-card-action { display:none; } }
 
 .notes-list { display:flex; flex-direction:column; gap:8px; }
 .note-item.note-handled { opacity:0.65; }

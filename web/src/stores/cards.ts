@@ -133,16 +133,26 @@ export const useCardStore = defineStore('cards', () => {
 
   async function ensureRouteVisible(id: string): Promise<void> { const token = ++revealSeq; const chain = cardRouteChain(id); for (let index = 0; index < chain.length - 1; index += 1) { if (token !== revealSeq) return; const parent = chain[index]!; const state = childrenLoadState(parent); if (state.status === 'error' || state.stale) return; if (state.status !== 'loaded') { try { await ensureChildren(parent); } catch { return; } if (token !== revealSeq || childrenLoadState(parent).stale) return; } if (!hierarchySlicesByParentId.value[parent]?.children.some((child) => child.id === chain[index + 1])) return; } }
 
-  function clearSelectionData(): void {
-    detailOwner?.controller.abort(); detailOwner = null; historyOwner?.controller.abort(); historyOwner = null; entryOwner?.controller.abort(); entryOwner = null; diffOwner?.controller.abort(); diffOwner = null;
+  function clearSelectedSubordinates(): void {
     for (const owner of recordOwners.values()) owner.controller.abort(); recordOwners.clear();
-    selectedDetail.value = null; selectedDetailLoading.value = false; selectedDetailError.value = null; selectedDetailFreshness.value = fresh(); cardRecords.value = emptyRecords(); clearCardHistoryState();
+    cardRecords.value = emptyRecords(); cardHistoryVisible.value = false; clearCardHistoryState();
   }
+  function clearSelectionData(): void {
+    detailOwner?.controller.abort(); detailOwner = null;
+    selectedDetail.value = null; selectedDetailLoading.value = false; selectedDetailError.value = null; selectedDetailFreshness.value = fresh(); clearSelectedSubordinates();
+  }
+  function clearCardSelection(): void { ++revealSeq; clearSelectionData(); selectedCardId.value = null; }
   function selectOwner(id: string): void { if (selectedCardId.value === id) return; clearSelectionData(); selectedCardId.value = id; }
   function startDetail(id: string, reason: StaleReason | null): Promise<void> {
     selectOwner(id); detailOwner?.controller.abort();
     const accepted = selectedDetail.value?.cardId === id; const controller = new AbortController(); let owner!: RequestOwner;
-    const promise = getCard(id, controller.signal).then((response) => { if (detailOwner !== owner || selectedCardId.value !== id) return; selectedDetail.value = Object.freeze({ cardId: id, card: response.card }); selectedDetailError.value = null; selectedDetailFreshness.value = fresh(); }).catch((error: unknown) => { if (detailOwner !== owner || selectedCardId.value !== id || aborted(error)) return; if (accepted) selectedDetailFreshness.value = { refreshing: false, stale: true, staleReason: 'refresh-failed', refreshError: message(error, 'Failed to refresh card detail') }; else selectedDetailError.value = buildDetailError(error, 'Failed to fetch card detail'); }).finally(() => { if (detailOwner === owner) { selectedDetailLoading.value = false; selectedDetailFreshness.value.refreshing = false; detailOwner = null; } });
+    const promise = getCard(id, controller.signal).then((response) => { if (detailOwner !== owner || selectedCardId.value !== id) return; selectedDetail.value = Object.freeze({ cardId: id, card: response.card }); selectedDetailError.value = null; selectedDetailFreshness.value = fresh(); }).catch((error: unknown) => {
+      if (detailOwner !== owner || selectedCardId.value !== id || aborted(error)) return;
+      if (error instanceof ApiError && error.isNotFound) {
+        clearSelectedSubordinates(); selectedDetail.value = null; selectedDetailLoading.value = false; selectedDetailError.value = buildDetailError(error, 'Failed to fetch card detail'); selectedDetailFreshness.value = fresh(); return;
+      }
+      if (accepted) selectedDetailFreshness.value = { refreshing: false, stale: true, staleReason: 'refresh-failed', refreshError: message(error, 'Failed to refresh card detail') }; else selectedDetailError.value = buildDetailError(error, 'Failed to fetch card detail');
+    }).finally(() => { if (detailOwner === owner) { selectedDetailLoading.value = false; selectedDetailFreshness.value.refreshing = false; detailOwner = null; } });
     owner = markRaw({ controller, promise }); detailOwner = owner; selectedDetailLoading.value = !accepted; selectedDetailError.value = null; if (accepted) selectedDetailFreshness.value = { refreshing: true, stale: true, staleReason: reason, refreshError: null }; return promise;
   }
   function fetchCardDetail(id: string): Promise<void> { return startDetail(id, selectedDetail.value?.cardId === id ? 'invalidated' : null); }
@@ -202,5 +212,5 @@ export const useCardStore = defineStore('cards', () => {
   function reset(): void { ++revealSeq; for (const owner of childrenRequestOwnersByParentId.values()) owner.controller.abort(); childrenRequestOwnersByParentId.clear(); clearSelectionData(); selectedCardId.value = null; hierarchySlicesByParentId.value = {}; childrenLoadStateById.value = {}; }
   const selectedLifecycle = computed(() => selectedDetail.value ? deriveCardLifecycleSummary(selectedDetail.value.card, loadedChildrenFor(selectedDetail.value.cardId)) : null);
 
-  return { hierarchySlicesByParentId, childrenLoadStateById, childrenRequestOwnersByParentId, selectedCardId, selectedDetail, selectedDetailLoading, selectedDetailError, selectedDetailFreshness, selectedLifecycle, orderedCardTree, cardRecords, cardHistory, cardHistoryLoading, cardHistoryError, cardHistoryFreshness, cardHistoryVisible, cardHistorySelectedSeq, cardHistoryEntry, cardHistoryEntryLoading, cardHistoryEntryError, cardHistoryDiff, cardHistoryDiffKey, cardHistoryDiffLoading, cardHistoryDiffError, cardHistoryDiffFreshness, childrenLoadState, loadedChildrenFor, hierarchyCardById, hierarchyPathFor, isHierarchyCardRepresented, ensureChildren, ensureRoot, refreshChildren, retryChildren, ensureRouteVisible, fetchCardDetail, refreshCardDetail, retryCardDetail, loadCardRecords, refreshRecord, retryRecord, openCardHistory, closeCardHistory, fetchCardHistoryForCard, refreshHistory, retryHistory, selectCardHistoryVersion, refreshDiff, retryDiff, clearCardHistoryState, onInvalidate, onReconnect, reset };
+  return { hierarchySlicesByParentId, childrenLoadStateById, childrenRequestOwnersByParentId, selectedCardId, selectedDetail, selectedDetailLoading, selectedDetailError, selectedDetailFreshness, selectedLifecycle, orderedCardTree, cardRecords, cardHistory, cardHistoryLoading, cardHistoryError, cardHistoryFreshness, cardHistoryVisible, cardHistorySelectedSeq, cardHistoryEntry, cardHistoryEntryLoading, cardHistoryEntryError, cardHistoryDiff, cardHistoryDiffKey, cardHistoryDiffLoading, cardHistoryDiffError, cardHistoryDiffFreshness, childrenLoadState, loadedChildrenFor, hierarchyCardById, hierarchyPathFor, isHierarchyCardRepresented, ensureChildren, ensureRoot, refreshChildren, retryChildren, ensureRouteVisible, clearCardSelection, fetchCardDetail, refreshCardDetail, retryCardDetail, loadCardRecords, refreshRecord, retryRecord, openCardHistory, closeCardHistory, fetchCardHistoryForCard, refreshHistory, retryHistory, selectCardHistoryVersion, refreshDiff, retryDiff, clearCardHistoryState, onInvalidate, onReconnect, reset };
 });

@@ -30,7 +30,7 @@
       </template>
 
       <template #detail>
-        <CardDetailView v-if="currentCardId" :card-id="currentCardId" />
+        <CardDetailView v-if="currentCardId" :card-id="currentCardId" @back-to-cards="backToCards" />
       </template>
     </EntityInspectorShell>
   </div>
@@ -63,7 +63,10 @@ const {
   toggleTreeNode,
 } = useCardBrowserReadModel(cardStore, () => currentCardId.value);
 
-watch(currentCardId, (id) => { if (id) void cardStore.ensureRouteVisible(id); }, { immediate: true });
+watch(currentCardId, (id) => {
+  if (id && cardRouteChain(id).length > 0) void cardStore.ensureRouteVisible(id);
+  else cardStore.clearCardSelection();
+}, { immediate: true });
 watch(() => cardStore.hierarchySlicesByParentId, (current, previous) => {
   const id = currentCardId.value;
   if (!id) return;
