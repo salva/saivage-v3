@@ -1,8 +1,9 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, CardStatus, DoneResult, ConversationSessionId } from '../../schemas/index.js';
+import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
-import { type CardActivationInput, type CardActivationOutcome, type CardActor, type CardCancellationResult, type CardActorStorePort, type CardProcessorActor } from './card-actor.js';
+import { type CardActivationInput, type CardActor, type CardCancellationResult, type CardActorStorePort, type CardProcessorActor } from './card-actor.js';
 import type { CardNotification } from '../../schemas/index.js';
 import type { PreparedLlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
@@ -76,10 +77,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
     const contract = createPlannerContract();
     const llm = this.createMainLlm(plannerActorId(this.cardId));
-    this.discardOpenRecord(input.card.id, 'status.md', 'new_activation');
     for (;;) {
       const surface = this.plannerInvocationSurface(input.card.id);
-      const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, surface, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.notificationContext(input, inputId));
+      const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, surface, contract, signal), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.notificationContext(input, inputId));
       const result = await runContractRepairLoop<PlannerProcessorOutcome>({
       initialOutcome: outcome,
       isTerminalToolName: (name) => contract.isTerminalToolName(name),
@@ -140,23 +140,26 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createPlannerContract()): PreparedLlmInvocationInput {
-    const inputId = this.freshSourceInputId();
+  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract: ReturnType<typeof createPlannerContract>, signal: AbortSignal): PreparedLlmInvocationInput {
     const sessionId = plannerActorId(this.cardId);
+    const inputId = this.freshSourceInputId();
     const systemPrompt = this.plannerPrompt(input.card, surface, contract);
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
     const preparedCompaction = prepareCompaction(this.compactionConfig, systemPrompt, tools);
-    const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
+    const reconstructedSettlement = input.reconstructedSettlement;
+    delete input.reconstructedSettlement;
+    const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)), ...(reconstructedSettlement ? { reconstructedSettlement, signal } : {}) });
+    if (stabilized.disposition === 'reconstructed_barrier') signal.throwIfAborted();
+    this.discardOpenRecord(input.card.id, 'status.md', 'new_activation');
     const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'planner', card_id: this.cardId, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
-    const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
+    const recovery = stabilized.disposition === 'clean' ? null : appendRecoveryNotice(this.conversations, sessionId, inputId, stabilized.disposition);
     if (recovery) this.conversationPublisher?.entryAppended(recovery);
     const selected = input.notificationDelivery.selectNotifications();
-    const notifications = selected.map((notification, index) => {
+    selected.forEach((notification, index) => {
       const message = { role: 'user' as const, content: notification.content };
       const result = appendUserContextMessage(this.conversations, sessionId, inputId, 'notification', index, message);
       this.conversationPublisher?.entryAppended(result);
-      return result;
     });
     if (selected.length > 0) input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id));
     return {
@@ -282,7 +285,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
     const activationMarker = appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'reviewer', card_id: input.card.id, input_id: inputId });
     this.conversationPublisher?.entryAppended(activationMarker);
-    const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
+    const recovery = stabilized.disposition === 'clean' ? null : appendRecoveryNotice(this.conversations, sessionId, inputId, stabilized.disposition);
     if (recovery) this.conversationPublisher?.entryAppended(recovery);
     const descendantContext = appendUserContextMessage(this.conversations, sessionId, inputId, 'reviewer_descendant', 0, this.reviewerDescendantContext(input.card.id, currentness));
     this.conversationPublisher?.entryAppended(descendantContext);

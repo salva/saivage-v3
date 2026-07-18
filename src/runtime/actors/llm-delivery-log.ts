@@ -7,10 +7,6 @@ import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
 import { readConversationMessages } from './conversation-session.js';
 import { appendConversationBatch, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
-import {
-  loggedToolCallIdentity,
-  loggedToolCallKey,
-} from '../../schemas/message-identity.js';
 export {
   loggedToolCallKey,
   sourceInputIdFromToolCallMessageId,
@@ -31,6 +27,10 @@ export interface SyntheticFailedToolResultPayload {
   error: string;
   data?: unknown;
 }
+
+export type ProviderVisibleToolResult =
+  | { success: true; data: unknown }
+  | { success: false; error: string; data?: unknown };
 
 export interface LoggedToolCall {
   agent_id: string;
@@ -235,10 +235,14 @@ function appendSyntheticToolResult(conversations: ConversationFileContext, recor
   return message;
 }
 
+export function appendProviderVisibleSyntheticToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; result: ProviderVisibleToolResult }): AgentMessage {
+  return appendSyntheticToolResult(conversations, record);
+}
+
 export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): AgentMessage {
   const payload: SyntheticFailedToolResultPayload = { success: false, error: record.error };
   if (record.data !== undefined) payload.data = record.data;
-  return appendSyntheticToolResult(conversations, { ...record, result: payload });
+  return appendProviderVisibleSyntheticToolResult(conversations, { ...record, result: payload });
 }
 
 export function appendLlmTurnToolCall(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, toolCall: ToolCall): AgentMessage {

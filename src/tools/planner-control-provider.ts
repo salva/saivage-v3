@@ -2,13 +2,18 @@ import { z } from 'zod';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 
 import type { CardActivationAdmissionProjection, CardPatch, CardService, NewCardInput } from '../cards/card-api.js';
+import {
+  activateCardArgumentsSchema,
+  formatActivateCardResult,
+  type ActivateCardArguments,
+  type CardActivationOutcome,
+} from '../contracts/tool-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
 import { queueNotification } from '../notifications/index.js';
 import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
 import { cardIdSchema, cardTypeValues, urgencyValues, type CardRecord, type CardType, type Urgency } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
-import type { CardActivationOutcome } from '../runtime/actors/card-actor.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 
@@ -59,7 +64,6 @@ const editCardSchema = z.object({
 }).strict();
 
 const cancelCardSchema = z.object({ card_id: cardIdSchema, reason: z.string().optional() }).strict();
-const activateCardSchema = z.object({ card_id: cardIdSchema }).strict();
 const reorderChildSchema = z.object({ orderedChildIds: z.array(z.string()) }).strict();
 const queueNotificationSchema = z.object({ card_id: cardIdSchema, kind: z.string().min(1), body: z.string().min(1) }).strict();
 
@@ -70,7 +74,7 @@ export function createPlannerControlProvider(ctx: PlannerControlProviderContext)
       defineTool({ name: 'create_card', description: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.', inputSchema: createCardSchema, executor: async (args) => createCard(ctx, args) }),
       defineTool({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', inputSchema: editCardSchema, executor: async (args) => editCard(ctx, args) }),
       defineTool({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: cancelCardSchema, executor: async (args) => cancelCard(ctx, args) }),
-      defineTool({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardSchema, executor: async (args) => activateCard(ctx, args) }),
+      defineTool({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardArgumentsSchema, executor: async (args) => activateCard(ctx, args) }),
       defineTool({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: reorderChildSchema, executor: async (args) => reorderChild(ctx, args) }),
       defineTool({ name: 'queue_notification', description: 'Queue operator context on one nonterminal card for its planner or executor.', inputSchema: queueNotificationSchema, executor: async (args) => queueNotificationTool(ctx, args) }),
     ],
@@ -163,8 +167,7 @@ async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<ty
   catch (error) { if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
 }
 
-async function activateCard(ctx: PlannerControlProviderContext, record: z.infer<typeof activateCardSchema>): Promise<ToolResult> {
-  if (record.card_id.length === 0) return failure('activate_card requires card_id.');
+async function activateCard(ctx: PlannerControlProviderContext, record: ActivateCardArguments): Promise<ToolResult> {
   const admission = ctx.store.readActivationAdmission(record.card_id);
   if (!admission) return failure(`Child card '${record.card_id}' not found.`);
   const child = admission.child;
@@ -185,8 +188,7 @@ async function activateCard(ctx: PlannerControlProviderContext, record: z.infer<
         () => { ctx.store.setStatus(record.card_id, 'running'); },
       );
     }
-    if (activation.status === 'cancelled') return failure(`Child card '${record.card_id}' activation was cancelled.`);
-    return { success: true, data: { card_id: record.card_id, outcome: activation.status, summary: activation.summary, result: activation.result ?? null } };
+    return formatActivateCardResult(record.card_id, activation);
   } catch (error) {
     if (isRuntimeStoppedInterruption(error)) throw error;
     return { success: false, error: error instanceof Error ? error.message : String(error) };

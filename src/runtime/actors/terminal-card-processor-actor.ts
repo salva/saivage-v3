@@ -1,5 +1,6 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
-import { type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from './card-actor.js';
+import type { CardActivationOutcome } from '../../contracts/tool-api.js';
+import { type CardActivationInput, type CardProcessorActor } from './card-actor.js';
 import type { CardService } from '../../cards/card-service.js';
 import { executorActorId } from './ids.js';
 import type { CompactorPort, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
@@ -136,14 +137,13 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const preparedCompaction = prepareCompaction(this.compactionConfig, systemPrompt, tools);
     const stabilized = stabilizeRoleSession({ projectRoot: this.projectRoot, sessionId, conversations: this.conversations, terminalToolNames: new Set(contract.terminals.map((terminal) => terminal.name)) });
     this.conversationPublisher?.entryAppended(appendActivationMarker(this.conversations, sessionId, { event: 'activation_open', role: 'executor', card_id: this.cardId, input_id: inputId }));
-    const recovery = stabilized.interrupted ? appendRecoveryNotice(this.conversations, sessionId, inputId) : null;
+    const recovery = stabilized.disposition === 'clean' ? null : appendRecoveryNotice(this.conversations, sessionId, inputId, stabilized.disposition);
     if (recovery) this.conversationPublisher?.entryAppended(recovery);
     const selected = input.notificationDelivery.selectNotifications();
-    const notifications = selected.map((notification, index) => {
+    selected.forEach((notification, index) => {
       const message = { role: 'user' as const, content: notification.content };
       const result = appendUserContextMessage(this.conversations, sessionId, inputId, 'notification', index, message);
       this.conversationPublisher?.entryAppended(result);
-      return result;
     });
     if (selected.length > 0) input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id));
     return {

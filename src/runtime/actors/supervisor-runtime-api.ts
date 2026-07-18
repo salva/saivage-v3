@@ -24,6 +24,7 @@ import type { AppLogContext } from '../../persistence/app-log.js';
 import type { ReadModelChanges } from '../../application/read-model-changes.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { RuntimeContainmentError, RuntimeStoppedInterruption, isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
+import { ReconstructedActivationResultAppendError } from './conversation-recovery.js';
 
 export interface ProjectRootCardReader { read(cardId: string): { id: string; type: string } | null }
 
@@ -49,6 +50,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   private runIdentity: object | null = null;
   private stopSettlement: Promise<StopProjectResult> | null = null;
   private closingInterruption: RuntimeStoppedInterruption | null = null;
+  private fatalOwnerDisposition: 'reconstructed_activation_result_append_outcome_unknown' | null = null;
 
   constructor(private readonly options: SupervisorRuntimeApiOptions) {
     this.eventBus = options.eventBus ?? new EventBus();
@@ -86,6 +88,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   }
 
   stopProject(): Promise<StopProjectResult> {
+    if (this.fatalOwnerDisposition) return Promise.reject(new RuntimeControlConflictError('Runtime owner cannot be stopped after reconstructed activation result append outcome became unknown; restart the server process.'));
     if (this.status === 'stopped') return Promise.resolve({ status: 'stopped', contained: false });
     if (this.status === 'closing') return Promise.reject(new RuntimeControlConflictError());
     const identity = this.runIdentity;
@@ -134,6 +137,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
 
   async beginStartProject(): Promise<{ accepted: false; result: StartProjectResult } | { accepted: true; state: RuntimeState }> {
     await this.start();
+    if (this.fatalOwnerDisposition) return { accepted: false, result: { runtime: this.runtimeState(), status: 'error', started: false, stopped: false, error: 'Runtime owner cannot Run again after reconstructed activation result append outcome became unknown; restart the server process.' } };
     if (this.status !== 'stopped') return { accepted: false, result: { runtime: this.runtimeState(), status: this.status, started: false, stopped: false, error: `Cannot start runtime from '${this.status}'.` } };
     const chain = selectRunningCardChain(this.options.actorStore.list());
     let leaf = chain.at(-1) ?? this.options.actorStore.read(PROJECT_CARD_ID)!;
@@ -187,6 +191,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   }
 
   async cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> {
+    if (this.fatalOwnerDisposition) throw new RuntimeControlConflictError('Runtime owner cannot cancel cards after reconstructed activation result append outcome became unknown; restart the server process.');
     const card = this.options.actorStore.read(cardId);
     if (!card) throw new Error(`Card '${cardId}' not found.`);
     const capturedIdentity = this.runIdentity;
@@ -235,10 +240,14 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', activeWork: 'none', cards, agents, diagnostics: [] };
   }
 
-  private runtimeState(): RuntimeState | null { const currentCardId = this.currentness.activeCardId(); return this.runIdentity && currentCardId ? runtimeState(this.now(), this.options.actorStore.read(currentCardId)!, this.status) : null; }
+  private runtimeState(): RuntimeState | null {
+    if (this.fatalOwnerDisposition) return runtimeErrorState(this.now());
+    const currentCardId = this.currentness.activeCardId();
+    return this.runIdentity && currentCardId ? runtimeState(this.now(), this.options.actorStore.read(currentCardId)!, this.status) : null;
+  }
   private launchLeaf(identity: object, leaf: CardRecord, actor: CardActor): void {
     const caller = leaf.parent === null ? { kind: 'root' as const } : { kind: 'parent' as const, cardId: leaf.parent };
-    void actor.restartRunning(caller).then(() => this.continueRunningChain(identity), (error) => { if (isRuntimeStoppedInterruption(error)) return; this.finishRun(identity); });
+    void actor.restartRunning(caller).then(() => this.continueRunningChain(identity), (error) => this.handleRootRejection(identity, error));
   }
   private installRunningChain(identity: object, chain: readonly CardRecord[]): void {
     if (chain.length === 0) throw new Error('Runtime launch requires a running chain.');
@@ -259,7 +268,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     }
     if (this.liveCardActors.size !== chain.length || chain.some((card) => !this.liveCardActors.has(card.id))) throw new Error('Runtime running-chain ownership installation is incomplete.');
     this.currentness.setChain(chain.map((card) => card.id));
-    void rootSettlement.then(() => this.continueRunningChain(identity), (error) => { if (isRuntimeStoppedInterruption(error)) return; this.finishRun(identity); });
+    void rootSettlement.then(() => this.continueRunningChain(identity), (error) => this.handleRootRejection(identity, error));
     leaf.startPreparedProcessor();
   }
   private continueRunningChain(identity: object): void {
@@ -272,6 +281,20 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     this.launchLeaf(identity, leaf, actor);
   }
   private finishRun(identity: object): void { if (this.runIdentity !== identity || this.status === 'closing') return; this.runIdentity = null; this.status = 'stopped'; this.options.interventionBinding.markStoppedReady(); this.currentness.clear(); }
+  private handleRootRejection(identity: object, error: unknown): void {
+    if (isRuntimeStoppedInterruption(error)) return;
+    if (error instanceof ReconstructedActivationResultAppendError) { this.poisonReconstructedAppendOwner(identity); return; }
+    this.finishRun(identity);
+  }
+  private poisonReconstructedAppendOwner(identity: object): void {
+    if (this.runIdentity !== identity) throw new Error('Reconstructed append failure belongs to a different runtime identity.');
+    if (this.fatalOwnerDisposition) throw new Error('Runtime owner already has a fatal disposition.');
+    this.fatalOwnerDisposition = 'reconstructed_activation_result_append_outcome_unknown';
+    this.runtimeGate.close();
+    this.status = 'error';
+    this.options.interventionBinding.markNotReady();
+    this.runtimeProjectionChanged();
+  }
   private cardActor(cardId: string): CardActor { const existing = this.cardActors.get(cardId); if (existing) return existing; const card = this.options.actorStore.read(cardId); if (!card) throw new Error(`Card '${cardId}' not found.`); return CardActor.fromCard({ card, deps: this.cardActorDeps() }); }
   private releaseSettledActor(actor: CardActor): void {
     if (this.liveCardActors.get(actor.cardId) !== actor || this.cardActors.get(actor.cardId) !== actor) throw new Error(`Card '${actor.cardId}' settled actor ownership changed unexpectedly.`);
@@ -296,9 +319,10 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
 }
 
 function runtimeState(at: string, card: CardRecord, status: RuntimeStatus = 'starting'): RuntimeState { const activeStatus = status === 'error' || status === 'stopped' ? 'starting' : status; return { status, project_id: 'project', pid: process.pid, started_at: at, active_card_run: { card_id: card.id, card_type: card.type, ownership: { kind: 'direct', source: 'project_root' }, runtime_status: activeStatus, phase: card.type === 'project' || card.type === 'goal' ? 'planner' : 'executor', caller_session_id: null, caller_tool_call_id: null, planner_session_id: null, executor_session_id: null, reviewer_session_id: null, started_at: at, last_turn_at: at }, updated_at: at, last_tick_at: null }; }
+function runtimeErrorState(at: string): RuntimeState { return { status: 'error', project_id: 'project', pid: process.pid, started_at: at, active_card_run: null, updated_at: at, last_tick_at: null }; }
 export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions): RuntimeControlMechanics { return new SupervisorRuntimeApi(options); }
 
 export class RuntimeControlConflictError extends Error {
   readonly code = 'runtime_control_conflict';
-  constructor() { super('Runtime control conflicts with an in-flight project stop.'); }
+  constructor(message = 'Runtime control conflicts with an in-flight project stop.') { super(message); }
 }

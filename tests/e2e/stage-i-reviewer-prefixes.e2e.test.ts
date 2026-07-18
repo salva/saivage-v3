@@ -74,7 +74,7 @@ describe('reviewer deferral crash prefixes and Pause races', () => {
     expect(beforeRecovery.some((row) => row.tool_call_id === 'review-result' && row.kind === 'tool_result')).toBe(false);
     expect(scenario.cards.read('project')!.pending_notifications).toHaveLength(1);
     const recovered = stabilizeRoleSession({ projectRoot: scenario.projectRoot, sessionId: 'reviewer:project', conversations: { projectRoot: scenario.projectRoot }, terminalToolNames: new Set(['emit_result']) });
-    expect(recovered.interrupted).toBe(true);
+    expect(recovered.disposition).toBe('ordinary_interruption');
     expect(JSON.parse(readConversation(scenario.projectRoot, 'reviewer:project').physicalRows.at(-1)!.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
   });
 
@@ -91,7 +91,7 @@ describe('reviewer deferral crash prefixes and Pause races', () => {
     expect(JSON.parse(reviewerRows.find((row) => row.tool_call_id === 'review-result' && row.kind === 'tool_result')!.content)).toMatchObject({ success: false, data: { reason: 'pending_notifications' } });
     expect(() => scenario.cards.readRecord('project', 'review.md', 'open')).toThrow();
     expect(scenario.plannerCalls()).toBe(2);
-    expect(stabilizeRoleSession({ projectRoot: scenario.projectRoot, sessionId: 'reviewer:project', conversations: { projectRoot: scenario.projectRoot }, terminalToolNames: new Set(['emit_result']) }).interrupted).toBe(false);
+    expect(stabilizeRoleSession({ projectRoot: scenario.projectRoot, sessionId: 'reviewer:project', conversations: { projectRoot: scenario.projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('clean');
 
     scenario.gate.open();
     await waitUntil(() => scenario.plannerCalls() === 3);

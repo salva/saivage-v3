@@ -103,13 +103,15 @@ function buildAnalystActivationMarker(inputId: string): AgentMessage {
   });
 }
 
-export function appendRecoveryNotice(conversations: ConversationFileContext, sessionId: ConversationSessionId, inputId: string): AgentMessage {
+export function appendRecoveryNotice(conversations: ConversationFileContext, sessionId: ConversationSessionId, inputId: string, disposition: 'ordinary_interruption' | 'reconstructed_barrier'): AgentMessage {
   const message = agentMessageSchema.parse({
     id: `${inputId}:model-recovered`,
     session_id: sessionId,
     role: 'system',
     kind: 'model_recovered',
-    content: 'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.',
+    content: disposition === 'ordinary_interruption'
+      ? 'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.'
+      : 'The interrupted child barrier completed, and its matching activate_card result was durably recorded before this activation resumed.',
     round_id: roundId('pre', inputId),
     message_index: 0,
     block_index: 1,

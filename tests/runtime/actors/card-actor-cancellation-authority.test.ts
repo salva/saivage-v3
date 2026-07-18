@@ -5,7 +5,8 @@ import { join } from 'node:path';
 
 import { CardService } from '../../../src/cards/card-service.js';
 import type { NewCardInput } from '../../../src/cards/lifecycle.js';
-import { CardActor, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor } from '../../../src/runtime/actors/card-actor.js';
+import type { CardActivationOutcome } from '../../../src/contracts/tool-api.js';
+import { CardActor, type CardActivationInput, type CardActorDeps, type CardProcessorActor } from '../../../src/runtime/actors/card-actor.js';
 import type { InvocationJoinOutcome } from '../../../src/runtime/actors/invocation-lifecycle.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardServiceInvariantError, type CardActivationAdmissionProjection } from '../../src/cards/card-api.js';
-import type { CardActivationOutcome } from '../../src/runtime/actors/card-actor.js';
+import type { CardActivationOutcome } from '../../src/contracts/tool-api.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createPlannerControlProvider, type PlannerControlProviderContext } from '../../src/tools/planner-control-provider.js';

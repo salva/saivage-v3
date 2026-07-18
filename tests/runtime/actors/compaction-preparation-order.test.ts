@@ -14,6 +14,7 @@ import { readConversation } from '../../../src/persistence/conversation-file.js'
 import type { CardActivationInput } from '../../../src/runtime/actors/card-actor.js';
 import type { InvocationSurface } from '../../../src/tools/invocation.js';
 import { testCompactor, unusedSummarizerProvider } from '../../helpers/llm-test-helpers.js';
+import { createPlannerContract } from '../../../src/contracts/planner-contract.js';
 
 const roots: string[] = [];
 const tooSmall: AutonomousCompactionPolicy = { input_budget_tokens: 10, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
@@ -24,12 +25,14 @@ describe('autonomous compaction preparation ordering', () => {
     const { projectRoot, store } = project();
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn: jest.fn() as never }, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, compactionConfig: tooSmall, compactor: testCompactor, summarizerProvider: unusedSummarizerProvider });
     const activation = input(store, 'project');
+    activation.reconstructedSettlement = { kind: 'reconstructed_barrier', childCardId: 'card-a', outcome: { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } } };
     const internal = actor as unknown as {
-      buildLlmInput(input: CardActivationInput, surface: InvocationSurface): unknown;
+      buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract: ReturnType<typeof createPlannerContract>, signal: AbortSignal): unknown;
       buildReviewerLlmInput(input: CardActivationInput, sessionId: string, currentness: unknown, surface: InvocationSurface): unknown;
     };
 
-    expect(() => internal.buildLlmInput(activation, surface('planner'))).toThrow(/does not fit the compaction budget/);
+    expect(() => internal.buildLlmInput(activation, surface('planner'), createPlannerContract(), new AbortController().signal)).toThrow(/does not fit the compaction budget/);
+    expect(activation.reconstructedSettlement).toBeDefined();
     expect(readConversation(projectRoot, 'planner:project').physicalRows).toEqual([]);
     expect(() => internal.buildReviewerLlmInput(activation, 'reviewer:project', {}, surface('reviewer'))).toThrow(/does not fit the compaction budget/);
     expect(readConversation(projectRoot, 'reviewer:project').physicalRows).toEqual([]);

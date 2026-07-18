@@ -1,6 +1,7 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { BlockedResult, CardNotification, CardRecord, CardStatus, DoneResult, FailedResult, ReworkResult } from '../../schemas/index.js';
+import type { CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
+import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardPatch, NewCardInput } from '../../cards/card-api.js';
 import type { CardMutationContext } from '../../cards/lifecycle.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
@@ -22,18 +23,14 @@ import type { CardService } from '../../cards/card-service.js';
 import type { ActiveCardLeaf } from '../active-card-leaf.js';
 import { isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
-
-export type CardActivationOutcome =
-  | { status: 'done'; summary: string; result: DoneResult }
-  | { status: 'failed'; summary: string; result: FailedResult }
-  | { status: 'blocked'; summary: string; result: BlockedResult | ReworkResult }
-  | { status: 'cancelled'; summary: string };
+import { ReconstructedActivationResultAppendError, type ReconstructedBarrierSettlement } from './conversation-recovery.js';
 
 export interface CardActivationInput {
   activationId?: string;
   card: CardRecord;
   caller: CardActivationCaller;
   notificationDelivery: CardNotificationDeliveryPort;
+  reconstructedSettlement?: ReconstructedBarrierSettlement;
   claimResult(): void;
 }
 
@@ -129,6 +126,7 @@ export class CardActor extends BaseActor {
   #terminalClaim: 'open' | 'claimed_result' | 'claimed_cancel' | 'claimed_stop' = 'open';
   #cancelSettlement: Promise<CardCancellationResult> | null = null;
   #structuralChildId: string | null = null;
+  #reconstructedSettlement: ReconstructedBarrierSettlement | null = null;
   #continuationSuppressed = false;
   #stopSettlementEventQueued = false;
 
@@ -234,9 +232,10 @@ export class CardActor extends BaseActor {
     this.claimLiveOwnership();
     this.parkedSendEvent('wait');
     void child.awaitSettlement().then(
-      () => {
+      (outcome) => {
         if (this.#terminalClaim !== 'open' || this.#continuationSuppressed || this.deps.isRuntimeClosing()) return;
         this.deps.currentness.resumeParent(child.cardId, this.cardId);
+        this.#reconstructedSettlement = { kind: 'reconstructed_barrier', childCardId: child.cardId, outcome };
         this.#structuralChildId = null;
         this.parkedSendEvent('child_settled');
       },
@@ -391,7 +390,11 @@ export class CardActor extends BaseActor {
       selectNotifications: () => this.listPendingNotifications(),
       removeNotifications: (ids) => { this.store.removeNotifications(this.cardId, [...ids]); },
     };
-    const input: CardActivationInput = { activationId: this.#activationId, card: this.requireCard(), caller, notificationDelivery, claimResult: () => this.claimResult() };
+    const card = this.requireCard();
+    const reconstructedSettlement = this.#reconstructedSettlement;
+    if (reconstructedSettlement && card.type !== 'project' && card.type !== 'goal') throw new Error(`Terminal card '${this.cardId}' cannot consume a reconstructed child barrier.`);
+    this.#reconstructedSettlement = null;
+    const input: CardActivationInput = { activationId: this.#activationId, card, caller, notificationDelivery, claimResult: () => this.claimResult(), ...(reconstructedSettlement ? { reconstructedSettlement } : {}) };
     this.#activationAbort = new AbortController();
     this.runTask(async () => {
       return this.processor!.activate(input, this.#activationAbort!.signal);
@@ -402,6 +405,7 @@ export class CardActor extends BaseActor {
           if (this.state() === 'running') this.sendEvent('claim_cancel');
           return;
         }
+        if (error instanceof ReconstructedActivationResultAppendError) { this.#result?.reject(error); this.sendEvent('settled'); return; }
         if (this.#continuationSuppressed) return;
         if (isRuntimeStoppedInterruption(error)) { this.#result?.reject(error); return; }
         this.commitOutcome({ status: 'failed', summary: error.message, result: { kind: 'failed', summary: error.message } });

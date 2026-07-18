@@ -18,7 +18,7 @@ const source = '11111111-1111-4111-8111-111111111111';
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('stable same-session recovery', () => {
-  it('settles an unmatched activate_card call locally as outcome unknown under its original identity', () => {
+  it('settles an ordinary unmatched activate_card call without a reconstructed child candidate as outcome unknown', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-recovery-'));
     initProjectTree(projectRoot);
     roots.push(projectRoot);
@@ -31,7 +31,7 @@ describe('stable same-session recovery', () => {
     ];
     appendConversationBatch(projectRoot, rows);
     const result = stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
-    expect(result.interrupted).toBe(true);
+    expect(result.disposition).toBe('ordinary_interruption');
     const recovered = readConversation(projectRoot, sessionId).physicalRows;
     expect(recovered).toHaveLength(rows.length + 1);
     const settlement = recovered.at(-1)!;
@@ -56,7 +56,7 @@ describe('stable same-session recovery', () => {
       { ...base, id: `${source}:tool-result:emit-1`, role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: false, error: 'deferred', data: { reason: 'pending_notifications' } }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 2 },
     ] satisfies AgentMessage[]);
 
-    expect(stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).interrupted).toBe(interrupted);
+    expect(stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe(interrupted ? 'ordinary_interruption' : 'clean');
   });
 
   it('projects the synthetic failed settlement and recovery notice through Generic, Chat, Codex, and Responses', () => {
@@ -97,5 +97,25 @@ describe('stable same-session recovery', () => {
       { role: 'tool', content: failed.content, tool_call_id: 'call-1' },
       { role: 'system', content: notice.content },
     ]));
+  });
+
+  it('projects the reconstructed actual settlement through Generic, Chat, Codex, and Responses', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reconstructed-transports-'));
+    initProjectTree(projectRoot);
+    roots.push(projectRoot);
+    const sessionId: ConversationSessionId = 'planner:project';
+    const base = { session_id: sessionId, round_id: 'r-pre-dddddddddddddddddddddddddddddddd', message_index: 0, block_index: 0, timestamp: '2026-07-18T00:00:00.000Z' };
+    appendConversationBatch(projectRoot, [
+      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
+      { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-a' }) } }] }), tool: 'activate_card', tool_call_id: 'call-1', message_index: 1 },
+    ] satisfies AgentMessage[]);
+    stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']), reconstructedSettlement: { kind: 'reconstructed_barrier', childCardId: 'card-a', outcome: { status: 'done', summary: 'complete', result: { kind: 'done', summary: 'complete' } } }, signal: new AbortController().signal });
+    const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId));
+    const actual = providerConversation.messages.at(-1)!;
+    expect(JSON.parse(actual.content)).toEqual({ success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'complete', result: { kind: 'done', summary: 'complete' } } });
+    expect(codexMessages(providerConversation.messages)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'function_call_output', call_id: 'call-1', output: actual.content })]));
+    expect(responsesInputFromProviderConversation(providerConversation)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'function_call_output', call_id: 'call-1', output: actual.content })]));
+    const chat = buildOpenAIChatRequest({ provider: 'openai', model: 'gpt-test', account: 'default', protocol: 'openai-chat' } as never, 'system', providerConversation, { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, terminalToolOffered: [], temperature: 0, max_tokens: 10, stream: false } as never);
+    expect(chat.messages).toContainEqual({ role: 'tool', content: actual.content, tool_call_id: 'call-1' });
   });
 });

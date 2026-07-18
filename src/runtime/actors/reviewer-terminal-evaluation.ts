@@ -1,7 +1,7 @@
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import type { ReviewerResult } from '../../contracts/agent-execution.js';
+import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import type { CardActivationOutcome } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
 
 type ReviewerTerminalEvaluationOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
