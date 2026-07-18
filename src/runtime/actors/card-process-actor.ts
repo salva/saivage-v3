@@ -30,6 +30,7 @@ export class CardProcessActor extends BaseMainLLMCardProcessorActor implements C
   readonly process: CompiledCardProcess;
   _on_enter__running(): void { this.runPendingActivation('running', (input, signal) => this.runActivation(input, signal)); }
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<ProcessOutcome> {
+    this.#runner.beginActivation();
     const entry = this.process.entries.get(input.entry); if (!entry) throw new Error(`Process '${this.process.family}' has no '${input.entry}' entry.`);
     let transition: NodeTransition = { kind: 'entry', entry: input.entry, definition: entry }; let nodeId = entry.targetNodeId; let ordinal = 0;
     for (;;) { signal.throwIfAborted(); const node = this.process.nodes.get(nodeId); if (!node) throw new Error(`Process '${this.process.family}' targets missing node '${nodeId}'.`); const accepted = await this.#runner.execute({ node, transition, input, signal, nodeOrdinal: ordinal++ }); if (accepted.edge.target.kind === 'terminal') return mapTerminal(accepted.edge.target.port, accepted.summary); transition = { kind: 'edge', sourceNodeId: node.id, result: accepted }; nodeId = accepted.edge.target.nodeId; }

@@ -10,7 +10,7 @@ import type { RuntimeControlMechanics, RuntimeLaunchPlan } from '../../applicati
 import type { NotifyCardResult, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { ActiveCardLeaf } from '../active-card-leaf.js';
-import { selectRunningCardChain } from '../running-card-chain.js';
+import { selectLinkedRunningChain } from '../running-card-chain.js';
 import { createConversationChangePublisher } from './conversation-publisher.js';
 import type { LLMProviderPort, CompactorPort } from './llm-actor.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
@@ -27,6 +27,10 @@ import { RuntimeContainmentError, RuntimeStoppedInterruption, isRuntimeStoppedIn
 import type { RuntimeProcessIdentity } from '../lock.js';
 import type { CompiledCardProcesses, CardProcessEntry } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
+import { stabilizeRoleSession } from './conversation-recovery.js';
+import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
+import { executorActorId, plannerActorId, reviewerActorId } from './ids.js';
+import type { ProcessRole } from '../card-process/card-process-config.js';
 
 export interface ProjectRootCardReader { read(cardId: string): { id: string; type: string } | null }
 
@@ -41,7 +45,7 @@ export interface SupervisorRuntimeApiOptions {
   processIdentity: RuntimeProcessIdentity;
 }
 
-interface SupervisorLaunchPlan extends RuntimeLaunchPlan { readonly chain: readonly CardRecord[]; readonly leafEntry: CardProcessEntry }
+interface SupervisorLaunchPlan extends RuntimeLaunchPlan { readonly chain: readonly CardRecord[]; readonly entry: CardProcessEntry; readonly alreadyStabilizedRoles: ReadonlySet<ProcessRole> }
 
 export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   private readonly eventBus: EventBus;
@@ -142,17 +146,29 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   async beginStartProject(): Promise<{ accepted: false; result: StartProjectResult } | { accepted: true; launch: RuntimeLaunchPlan }> {
     await this.start();
     if (this.status !== 'stopped') return { accepted: false, result: { runtime: this.runtimeState(), status: this.status, started: false, stopped: false, error: `Cannot start runtime from '${this.status}'.` } };
-    let chain = selectRunningCardChain(this.options.actorStore.list());
-    let leafEntry: CardProcessEntry = 'STOPPED';
-    if (chain.length === 0) {
+    let chain = selectLinkedRunningChain(this.options.actorStore);
+    let entry: CardProcessEntry = 'STOPPED';
+    let alreadyStabilizedRoles: ReadonlySet<ProcessRole> = new Set();
+    if (chain.length > 0) {
+      const recoveryChain = chain;
+      for (const card of [...recoveryChain].reverse()) {
+        for (const role of eligibleRoles(card)) {
+          stabilizeRoleSession({ projectRoot: this.options.projectRoot, sessionId: sessionForRecovery(role, card.id), conversations: this.options.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
+        }
+      }
+      for (const card of [...recoveryChain].reverse()) this.options.actorStore.stopRunningForRecovery(card.id);
+      alreadyStabilizedRoles = new Set(eligibleRoles(recoveryChain[0]!));
+      this.options.actorStore.activateStopped(recoveryChain[0]!.id);
+      chain = selectLinkedRunningChain(this.options.actorStore);
+    } else {
       const root = this.options.actorStore.read(PROJECT_CARD_ID);
       if (!root) throw new Error(`Root card record '${PROJECT_CARD_ID}' is missing.`);
-      leafEntry = root.status === 'backlog' ? 'BACKLOG' : root.status === 'changed' ? 'CHANGED' : root.status === 'blocked' ? 'BLOCKED' : root.status === 'stopped' ? 'STOPPED' : (() => { throw new Error(`Project card in status '${root.status}' cannot start.`); })();
+      entry = root.status === 'backlog' ? 'BACKLOG' : root.status === 'changed' ? 'CHANGED' : root.status === 'blocked' ? 'BLOCKED' : root.status === 'stopped' ? 'STOPPED' : (() => { throw new Error(`Project card in status '${root.status}' cannot start.`); })();
       if (root.status === 'stopped') this.options.actorStore.activateStopped(PROJECT_CARD_ID); else this.options.actorStore.setStatus(PROJECT_CARD_ID, 'running');
-      chain = selectRunningCardChain(this.options.actorStore.list());
+      chain = selectLinkedRunningChain(this.options.actorStore);
     }
     if (chain.length === 0) throw new Error('Runtime preparation did not produce a running chain.');
-    const launch = { chain, leafEntry } as unknown as SupervisorLaunchPlan;
+    const launch = Object.freeze({ chain, entry, alreadyStabilizedRoles }) as unknown as SupervisorLaunchPlan;
     this.preparedLaunch = launch;
     return { accepted: true, launch };
   }
@@ -161,9 +177,9 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     const prepared = this.preparedLaunch;
     if (!prepared || launch !== prepared) throw new Error('Runtime launch plan is foreign, stale, or already consumed.');
     this.preparedLaunch = null;
-    const chain = selectRunningCardChain(this.options.actorStore.list());
+    const chain = selectLinkedRunningChain(this.options.actorStore);
     if (chain.length !== prepared.chain.length || chain.some((card, index) => card.id !== prepared.chain[index]?.id)) throw new Error('Prepared runtime chain changed before launch.');
-    const installed = this.installRunningChain(chain, prepared.leafEntry);
+    const installed = this.installRunningChain(chain, prepared.entry, prepared.alreadyStabilizedRoles);
     const identity = {};
     this.runIdentity = identity;
     this.status = 'running';
@@ -265,7 +281,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     const caller = leaf.parent === null ? { kind: 'root' as const } : { kind: 'parent' as const, cardId: leaf.parent };
     void actor.restartRunning(caller).then(() => this.continueRunningChain(identity), (error) => this.handleRootRejection(identity, error));
   }
-  private installRunningChain(chain: readonly CardRecord[], leafEntry: CardProcessEntry): { readonly rootSettlement: Promise<unknown>; readonly leaf: CardActor } {
+  private installRunningChain(chain: readonly CardRecord[], leafEntry: CardProcessEntry, alreadyStabilizedRoles: ReadonlySet<ProcessRole>): { readonly rootSettlement: Promise<unknown>; readonly leaf: CardActor } {
     if (chain.length === 0) throw new Error('Runtime launch requires a running chain.');
     const actors = chain.map((card, index) => {
       if (this.cardActors.has(card.id) || this.liveCardActors.has(card.id)) throw new Error(`Card '${card.id}' already has runtime ownership.`);
@@ -274,7 +290,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     const leaf = actors.at(-1)!;
     const leafCard = chain.at(-1)!;
     const leafCaller = leafCard.parent === null ? { kind: 'root' as const } : { kind: 'parent' as const, cardId: leafCard.parent };
-    const leafSettlement = leaf.prepareRunning(leafCaller, leafEntry);
+    const leafSettlement = leaf.prepareRunning(leafCaller, leafEntry, alreadyStabilizedRoles);
     let rootSettlement = leafSettlement;
     for (let index = actors.length - 2; index >= 0; index -= 1) {
       const actor = actors[index]!;
@@ -287,7 +303,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   }
   private continueRunningChain(identity: object): void {
     if (this.runIdentity !== identity || this.status === 'closing') return;
-    const chain = selectRunningCardChain(this.options.actorStore.list());
+    const chain = selectLinkedRunningChain(this.options.actorStore);
     const leaf = chain.at(-1);
     if (!leaf) { this.finishRun(identity); return; }
     const actor = this.cardActor(leaf.id);
@@ -327,4 +343,12 @@ export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions)
 export class RuntimeControlConflictError extends Error {
   readonly code = 'runtime_control_conflict';
   constructor(message = 'Runtime control conflicts with an in-flight project stop.') { super(message); }
+}
+
+function eligibleRoles(card: CardRecord): readonly ProcessRole[] {
+  return card.type === 'project' || card.type === 'goal' ? ['planner', 'reviewer'] : ['executor'];
+}
+
+function sessionForRecovery(role: ProcessRole, cardId: string) {
+  return role === 'planner' ? plannerActorId(cardId) : role === 'reviewer' ? reviewerActorId(cardId) : executorActorId(cardId);
 }

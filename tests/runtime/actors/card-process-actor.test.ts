@@ -32,7 +32,7 @@ describe('CardProcessActor configured graph execution', () => {
     });
     actor.start();
     const claimResult = jest.fn();
-    const input = () => ({ activationId: 'activation-test', card: store.read('project')!, caller: { kind: 'root' as const }, entry: 'BACKLOG' as const, claimResult, notificationDelivery: { selectNotifications: () => store.read('project')!.pending_notifications, removeNotifications: (ids: readonly string[]) => { store.removeNotifications('project', [...ids]); } } });
+    const input = () => ({ activationId: 'activation-test', card: store.read('project')!, caller: { kind: 'root' as const }, entry: 'BACKLOG' as const, claimResult, alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(), notificationDelivery: { selectNotifications: () => store.read('project')!.pending_notifications, removeNotifications: (ids: readonly string[]) => { store.removeNotifications('project', [...ids]); } } });
     return { projectRoot, store, actor, claimResult, input };
   }
 

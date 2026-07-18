@@ -33,18 +33,18 @@ describe('stable same-session recovery', () => {
     const result = stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     expect(result.disposition).toBe('ordinary_interruption');
     const recovered = readConversation(projectRoot, sessionId).physicalRows;
-    expect(recovered).toHaveLength(rows.length + 1);
-    const settlement = recovered.at(-1)!;
+    expect(recovered).toHaveLength(rows.length + 2);
+    const settlement = recovered.at(-2)!;
     expect(settlement.id).toBe(`${source}:tool-result:call-1`);
     expect(settlement).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-1' });
     expect(JSON.parse(settlement.content)).toEqual({ success: false, error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.', data: { outcome_unknown: true } });
   });
 
-  it.each<[ConversationSessionId, boolean]>([
-    ['planner:project', true],
-    ['executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', true],
-    ['reviewer:project', false],
-  ])('treats pending-notification settlement as a clean closure only for reviewer sessions: %s', (sessionId, interrupted) => {
+  it.each<ConversationSessionId>([
+    'planner:project',
+    'executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    'reviewer:project',
+  ])('treats pending-notification settlement as an interrupted continuation for %s', (sessionId) => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-recovery-prefix-'));
     initProjectTree(projectRoot);
     mkdirSync(dirname(conversationFile(projectRoot, sessionId)), { recursive: true });
@@ -56,7 +56,7 @@ describe('stable same-session recovery', () => {
       { ...base, id: `${source}:tool-result:emit-1`, role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: false, error: 'deferred', data: { reason: 'pending_notifications' } }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 2 },
     ] satisfies AgentMessage[]);
 
-    expect(stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe(interrupted ? 'ordinary_interruption' : 'clean');
+    expect(stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
   });
 
   it('projects the synthetic failed settlement and recovery notice through Generic, Chat, Codex, and Responses', () => {
@@ -70,10 +70,9 @@ describe('stable same-session recovery', () => {
       { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), tool: 'read', tool_call_id: 'call-1', message_index: 1 },
     ] satisfies AgentMessage[]);
     stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
-    const notice: AgentMessage = { ...base, id: '22222222-2222-4222-8222-222222222222:model-recovered', role: 'system', kind: 'model_recovered', content: 'The previous runtime activation was interrupted.', block_index: 1 };
-    appendConversationBatch(projectRoot, [notice]);
     const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId));
     const generic = providerConversation.messages;
+    const notice = generic.find((row) => row.kind === 'model_recovered')!;
     const failed = generic.find((row) => row.kind === 'tool_result')!;
     expect(failed.id).toBe(`${source}:tool-result:call-1`);
     expect(JSON.parse(failed.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });

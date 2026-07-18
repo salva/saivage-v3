@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type MessageKind, type MessageRole, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { classifyConversation, stabilizeRoleSession } from '../../../src/runtime/actors/conversation-recovery.js';
 
-class ReconstructedActivationResultAppendError extends Error {}
 import { hashConversationRows, validateConversationRows } from '../../../src/contracts/conversation-compaction.js';
 import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
@@ -101,9 +101,9 @@ describe('classifyConversation', () => {
     ], terminalTools)).toBe('awaiting_tool_result');
   });
 
-  it('treats a failed tool_result as a settlement without changing its payload', () => {
+  it('treats a failed terminal tool_result as an unfinished corrective continuation', () => {
     const result = toolResult('planner:G-1:1', 'call-1', 'planner:project', 'emit_result', { success: false, error: 'tool failed' });
-    expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), result], terminalTools)).toBe('settled_terminal');
+    expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), result], terminalTools)).toBe('pending_provider');
     expect(result.content).toBe('{"success":false,"error":"tool failed"}');
   });
 
@@ -124,134 +124,109 @@ describe('classifyConversation', () => {
   });
 });
 
-describe.skip('obsolete reconstructed child-barrier stabilization', () => {
+describe('exact role-session stabilization', () => {
   const roots: string[] = [];
   afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-  function scenario(call: { embeddedId?: string; embeddedName?: string; topName?: string; args?: unknown; rawContent?: string } = {}) {
-    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reconstructed-settlement-'));
+  function scenario(role: 'planner' | 'reviewer' | 'executor' = 'planner', cardId = 'project') {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-role-stabilization-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const sessionId = 'planner:project' as const;
+    const sessionId = `${role}:${cardId}` as ConversationSessionId;
     const sourceInputId = '11111111-1111-4111-8111-111111111111';
-    const toolCallId = 'call-1';
-    const topName = call.topName ?? 'activate_card';
     appendConversationBatch(projectRoot, [
-      message({ id: `${sessionId}:activation:one`, session_id: sessionId, kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: sourceInputId, timestamp: '2026-07-08T00:00:00.000Z' }) }),
-      message({
-        id: `${sourceInputId}:tool-call:${toolCallId}`,
-        session_id: sessionId,
-        role: 'assistant',
-        kind: 'tool_call',
-        tool: topName,
-        tool_call_id: toolCallId,
-        content: call.rawContent ?? JSON.stringify({ role: 'assistant', tool_calls: [{ id: call.embeddedId ?? toolCallId, type: 'function', function: { name: call.embeddedName ?? topName, arguments: JSON.stringify(call.args ?? { card_id: 'card-a' }) } }] }),
-      }),
+      message({ id: `${sessionId}:activation:one`, session_id: sessionId, kind: 'activity', content: JSON.stringify({ event: 'activation_open', role, card_id: cardId, input_id: sourceInputId, timestamp: '2026-07-08T00:00:00.000Z' }) }),
     ]);
-    return { projectRoot, sessionId, sourceInputId, toolCallId };
+    return { projectRoot, sessionId, sourceInputId };
   }
 
-  function stabilize(projectRoot: string, signal = new AbortController().signal) {
-    return stabilizeRoleSession({
-      projectRoot,
-      sessionId: 'planner:project',
-      conversations: { projectRoot },
-      terminalToolNames: terminalTools,
-      reconstructedSettlement: { kind: 'reconstructed_barrier', childCardId: 'card-a', outcome: { status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } } },
-      signal,
-    } as never);
+  function stabilize(projectRoot: string, sessionId: ConversationSessionId = 'planner:project') {
+    return stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: terminalTools });
   }
 
-  it('strictly associates and appends the complete real result once', () => {
-    const { projectRoot, sourceInputId, toolCallId } = scenario();
-    expect(stabilize(projectRoot).disposition).toBe('reconstructed_barrier');
-    const result = readConversation(projectRoot, 'planner:project').physicalRows.at(-1)!;
-    expect(result).toMatchObject({ id: `${sourceInputId}:tool-result:${toolCallId}`, tool: 'activate_card', tool_call_id: toolCallId });
-    expect(JSON.parse(result.content)).toEqual({ success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } } });
+  it.each(['planner', 'reviewer', 'executor'] as const)('stabilizes an interrupted %s corrective continuation', (role) => {
+    const cardId = 'project';
+    const { projectRoot, sessionId, sourceInputId } = scenario(role, cardId);
+    appendConversationBatch(projectRoot, [toolCall(sourceInputId, 'emit', sessionId), toolResult(sourceInputId, 'emit', sessionId, 'emit_result', { success: false, data: { reason: 'pending_notifications' } })]);
+    expect(stabilize(projectRoot, sessionId).disposition).toBe('ordinary_interruption');
+    const rows = readConversation(projectRoot, sessionId).sourceRows;
+    expect(rows.at(-1)).toMatchObject({ id: `${sourceInputId}:model-recovered`, session_id: sessionId, kind: 'model_recovered', round_id: `r-pre-${createHash('sha256').update(sourceInputId).digest('hex').slice(0, 32)}` });
   });
 
-  const invalidCalls: Array<[string, { embeddedId?: string; embeddedName?: string; topName?: string; args?: unknown; rawContent?: string }, RegExp]> = [
-    ['embedded id mismatch', { embeddedId: 'call-other' }, /embedded id does not match/],
-    ['embedded name mismatch', { embeddedName: 'read' }, /embedded name does not match/],
-    ['wrong tool', { topName: 'read' }, /is not activate_card/],
-    ['wrong child', { args: { card_id: 'card-b' } }, /not immediate child/],
-    ['extra argument', { args: { card_id: 'card-a', extra: true } }, /unrecognized_keys/],
-    ['missing card id', { args: {} }, /Required/],
-    ['invalid card id', { args: { card_id: 'not-a-card' } }, /Expected a hierarchical card id/],
-    ['malformed embedded payload', { rawContent: '{' }, /malformed content/],
-  ];
-
-  it.each(invalidCalls)('rejects %s without appending a result', (_name, call, expected) => {
-    const { projectRoot } = scenario(call);
-    expect(() => stabilize(projectRoot)).toThrow(expected);
-    expect(readConversation(projectRoot, 'planner:project').physicalRows).toHaveLength(2);
+  it('settles an unmatched activate_card as ordinary outcome-unknown without child reconstruction', () => {
+    const { projectRoot, sessionId, sourceInputId } = scenario();
+    appendConversationBatch(projectRoot, [toolCall(sourceInputId, 'activate-child', sessionId, 'activate_card')]);
+    stabilize(projectRoot, sessionId);
+    const rows = readConversation(projectRoot, sessionId).sourceRows;
+    expect(JSON.parse(rows.at(-2)!.content)).toEqual({ success: false, error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.', data: { outcome_unknown: true } });
+    expect(rows.at(-1)?.id).toBe(`${sourceInputId}:model-recovered`);
   });
 
-  it('rejects an absent unmatched barrier instead of falling back to clean recovery', () => {
-    const { projectRoot } = scenario();
-    const rows = readConversation(projectRoot, 'planner:project').physicalRows;
-    appendConversationBatch(projectRoot, [message({
-      id: '11111111-1111-4111-8111-111111111111:tool-result:call-1', session_id: 'planner:project', role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-1',
-      content: JSON.stringify({ success: false, error: 'already settled' }), message_index: 2,
-    })]);
-    expect(rows).toHaveLength(2);
-    expect(() => stabilize(projectRoot)).toThrow(/no unmatched tool call/);
-    expect(readConversation(projectRoot, 'planner:project').physicalRows).toHaveLength(3);
+  it.each<[string, 'model_repair' | 'text', 'user' | 'assistant']>([['provider', 'model_repair', 'user'], ['text', 'text', 'assistant']])('appends only the marker-bound notice for %s pending work', (_name, kind, role) => {
+    const { projectRoot, sessionId, sourceInputId } = scenario();
+    appendConversationBatch(projectRoot, [message({ id: `${sourceInputId}:${kind}`, session_id: sessionId, kind, role, content: 'pending' })]);
+    stabilize(projectRoot, sessionId);
+    const rows = readConversation(projectRoot, sessionId).sourceRows;
+    expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(0);
+    expect(rows.at(-1)?.id).toBe(`${sourceInputId}:model-recovered`);
   });
 
   it('rejects multiple unmatched calls without appending any settlement', () => {
-    const { projectRoot } = scenario();
+    const { projectRoot, sessionId, sourceInputId } = scenario();
     appendConversationBatch(projectRoot, [message({
-      id: '11111111-1111-4111-8111-111111111111:tool-call:call-2', session_id: 'planner:project', role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-2',
+      id: `${sourceInputId}:tool-call:call-1`, session_id: sessionId, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1',
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), message_index: 1,
+    }), message({
+      id: `${sourceInputId}:tool-call:call-2`, session_id: sessionId, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-2',
       content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-2', type: 'function', function: { name: 'read', arguments: '{}' } }] }), message_index: 2,
     })]);
-    expect(() => stabilize(projectRoot)).toThrow(/more than one unmatched tool call/);
+    expect(() => stabilize(projectRoot, sessionId)).toThrow(/more than one unmatched tool call/);
     expect(readConversation(projectRoot, 'planner:project').physicalRows).toHaveLength(3);
   });
 
-  it('rejects an unmatched call from an older activation round', () => {
-    const { projectRoot } = scenario();
-    appendConversationBatch(projectRoot, [message({
-      id: 'planner:project:activation:two', session_id: 'planner:project', kind: 'activity',
-      content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: '22222222-2222-4222-8222-222222222222', timestamp: '2026-07-08T00:00:01.000Z' }), round_id: 'r-pre-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', message_index: 0, timestamp: '2026-07-08T00:00:01.000Z',
-    })]);
-    expect(() => stabilize(projectRoot)).toThrow(/older activation round/);
-    expect(readConversation(projectRoot, 'planner:project').physicalRows).toHaveLength(3);
-  });
-
-  it('ordinary stabilization remains outcome-unknown and a clean repeat appends nothing', () => {
-    const { projectRoot } = scenario({ topName: 'glob', args: { pattern: '**/*' } });
-    const first = stabilizeRoleSession({ projectRoot, sessionId: 'planner:project', conversations: { projectRoot }, terminalToolNames: terminalTools });
-    expect(first.disposition).toBe('ordinary_interruption');
-    expect(JSON.parse(readConversation(projectRoot, 'planner:project').physicalRows.at(-1)!.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
+  it('recognizes only the exact final marker-bound recovery notice and repeats read-only', () => {
+    const { projectRoot, sessionId, sourceInputId } = scenario();
+    appendConversationBatch(projectRoot, [message({ id: `${sourceInputId}:message`, session_id: sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
+    stabilize(projectRoot, sessionId);
     const count = readConversation(projectRoot, 'planner:project').physicalRows.length;
-    expect(stabilizeRoleSession({ projectRoot, sessionId: 'planner:project', conversations: { projectRoot }, terminalToolNames: terminalTools }).disposition).toBe('ordinary_interruption');
+    expect(stabilize(projectRoot, sessionId).disposition).toBe('clean');
     expect(readConversation(projectRoot, 'planner:project').physicalRows).toHaveLength(count);
   });
 
-  it('throws the exact pre-append signal reason and writes nothing', () => {
-    const { projectRoot } = scenario();
-    const controller = new AbortController();
-    const reason = new Error('Stop won');
-    controller.abort(reason);
-    try { stabilize(projectRoot, controller.signal); throw new Error('expected Stop'); }
-    catch (error) { expect(error).toBe(reason); }
-    expect(readConversation(projectRoot, 'planner:project').physicalRows).toHaveLength(2);
+  it('rejects a malformed recovery notice and newer work after an exact notice', () => {
+    const malformed = scenario();
+    appendConversationBatch(malformed.projectRoot, [message({ id: `${malformed.sourceInputId}:wrong-recovery`, session_id: malformed.sessionId, kind: 'model_recovered', role: 'system', content: 'wrong recovery body', block_index: 1 })]);
+    expect(() => stabilize(malformed.projectRoot, malformed.sessionId)).toThrow(/not its final exact canonical source row/);
+
+    const newer = scenario();
+    appendConversationBatch(newer.projectRoot, [message({ id: `${newer.sourceInputId}:message`, session_id: newer.sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
+    stabilize(newer.projectRoot, newer.sessionId);
+    appendConversationBatch(newer.projectRoot, [message({ id: `${newer.sourceInputId}:newer-message`, session_id: newer.sessionId, kind: 'text', role: 'assistant', content: 'newer pending work' })]);
+    expect(() => stabilize(newer.projectRoot, newer.sessionId)).toThrow(/not its final exact canonical source row/);
   });
 
-  it('classifies only a reported reconstructed-result append error after the physical append', () => {
-    const { projectRoot } = scenario();
+  it('stops immediately when notice publication reports an error', () => {
+    const { projectRoot, sessionId, sourceInputId } = scenario();
+    appendConversationBatch(projectRoot, [message({ id: `${sourceInputId}:message`, session_id: sessionId, kind: 'text', role: 'assistant' })]);
     const publicationError = new Error('publication callback failed');
     const conversationChanged = jest.fn(() => { throw publicationError; });
     expect(() => stabilizeRoleSession({
       projectRoot,
-      sessionId: 'planner:project',
+      sessionId,
       conversations: { projectRoot, changes: { conversationChanged, agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } },
       terminalToolNames: terminalTools,
-      reconstructedSettlement: { kind: 'reconstructed_barrier', childCardId: 'card-a', outcome: { status: 'cancelled', summary: 'cancelled' } },
-      signal: new AbortController().signal,
-    } as never)).toThrow(ReconstructedActivationResultAppendError);
+    })).toThrow(publicationError);
     expect(conversationChanged).toHaveBeenCalledTimes(1);
     expect(readConversation(projectRoot, 'planner:project').physicalRows).toHaveLength(3);
+  });
+
+  it('performs no notice append after failed-tool-result publication reports an error', () => {
+    const { projectRoot, sessionId, sourceInputId } = scenario();
+    appendConversationBatch(projectRoot, [toolCall(sourceInputId, 'pending', sessionId, 'activate_card')]);
+    const publicationError = new Error('result publication callback failed');
+    expect(() => stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot, changes: { conversationChanged() { throw publicationError; }, agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } }, terminalToolNames: terminalTools })).toThrow(publicationError);
+    const rows = readConversation(projectRoot, sessionId).sourceRows;
+    expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
+    expect(rows.filter((row) => row.kind === 'model_recovered')).toHaveLength(0);
   });
 });

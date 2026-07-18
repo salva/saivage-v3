@@ -103,7 +103,7 @@ function buildAnalystActivationMarker(inputId: string): AgentMessage {
   });
 }
 
-export function appendRecoveryNotice(conversations: ConversationFileContext, sessionId: ConversationSessionId, inputId: string, disposition: 'ordinary_interruption'): AgentMessage {
+export function appendRecoveryNotice(conversations: ConversationFileContext, sessionId: ConversationSessionId, inputId: string, _disposition: 'ordinary_interruption'): AgentMessage {
   const message = agentMessageSchema.parse({
     id: `${inputId}:model-recovered`,
     session_id: sessionId,
@@ -117,6 +117,17 @@ export function appendRecoveryNotice(conversations: ConversationFileContext, ses
   });
   appendConversationBatch(conversations.projectRoot, [message], conversations.changes);
   return message;
+}
+
+export function isExactRecoveryNotice(message: AgentMessage, sessionId: ConversationSessionId, inputId: string): boolean {
+  return message.id === `${inputId}:model-recovered`
+    && message.session_id === sessionId
+    && message.role === 'system'
+    && message.kind === 'model_recovered'
+    && message.content === 'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.'
+    && message.round_id === roundId('pre', inputId)
+    && message.message_index === 0
+    && message.block_index === 1;
 }
 
 export function buildContextTextMessage(sessionId: ConversationSessionId, role: Extract<MessageRole, 'user' | 'system'>, content: string): AgentMessage {

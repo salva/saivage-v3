@@ -14,7 +14,7 @@ import type { ConversationFileContext } from '../../persistence/conversation-fil
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import { formatPromptToolList } from '../../utils/prompt-api.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
-import { appendActivationMarker, appendRecoveryNotice, appendUserContextMessage, providerConversationProjection, readConversationMessages, type ProviderVisibleUserContextMessage } from './conversation-session.js';
+import { appendActivationMarker, appendUserContextMessage, providerConversationProjection, readConversationMessages, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { stabilizeRoleSession } from './conversation-recovery.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
@@ -23,7 +23,7 @@ import type { AppLogContext } from '../../persistence/app-log.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import type { StructuralChildRelationship } from './executing-llm-snapshot.js';
-import { plannerActorId, reviewerActorId, executorActorId } from './ids.js';
+import { plannerActorId, executorActorId } from './ids.js';
 import { reviewerSessionId } from '../reviewer-session.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
@@ -75,6 +75,8 @@ export interface AgentNodeExecutionDeps {
 export class AgentNodeExecution {
   readonly #stabilizedRoles = new Set<ProcessRole>();
   constructor(readonly deps: AgentNodeExecutionDeps, readonly host: AgentNodeExecutionHost) {}
+
+  beginActivation(): void { this.#stabilizedRoles.clear(); }
 
   async execute(args: { node: CompiledProcessNode; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<AcceptedNodeResult> {
     const { node, input, signal } = args;
@@ -149,10 +151,9 @@ export class AgentNodeExecution {
 
   private prepareNodeEntry(node: CompiledProcessNode, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contract: Contract<NodeEnvelope, NodeTypedResult>, surface: InvocationSurface, reviewerPair: ReviewerContextPair | null): void {
     if (!this.#stabilizedRoles.has(node.role)) {
-      const stabilized = stabilizeRoleSession({ projectRoot: this.deps.projectRoot, sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
+      if (!input.alreadyStabilizedRoles.has(node.role)) stabilizeRoleSession({ projectRoot: this.deps.projectRoot, sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
       this.#stabilizedRoles.add(node.role);
       this.host.publishConversationEntry(appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', role: node.role, card_id: this.deps.cardId, input_id: inputId }));
-      if (stabilized.disposition !== 'clean') this.host.publishConversationEntry(appendRecoveryNotice(this.deps.conversations, sessionId, inputId, stabilized.disposition));
     } else {
       this.host.publishConversationEntry(appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', role: node.role, card_id: this.deps.cardId, input_id: inputId }));
     }

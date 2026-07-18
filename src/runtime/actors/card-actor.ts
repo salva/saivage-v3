@@ -32,6 +32,7 @@ export interface CardActivationInput {
   caller: CardActivationCaller;
   entry: CardProcessEntry;
   notificationDelivery: CardNotificationDeliveryPort;
+  alreadyStabilizedRoles: ReadonlySet<'planner' | 'reviewer' | 'executor'>;
   claimResult(): void;
 }
 
@@ -131,6 +132,7 @@ export class CardActor extends BaseActor {
   #structuralChildId: string | null = null;
   #ordinaryStructuralRelationship: StructuralChildRelationship | null = null;
   #activationEntry: CardProcessEntry | null = null;
+  #alreadyStabilizedRoles: ReadonlySet<'planner' | 'reviewer' | 'executor'> = new Set();
   #requiresStoppedAdmission = false;
   #continuationSuppressed = false;
   #stopSettlementEventQueued = false;
@@ -189,6 +191,7 @@ export class CardActor extends BaseActor {
       if (this.requireCard().status !== 'running') return Promise.reject(new Error(`Parent planner did not admit child '${this.cardId}' as running.`));
     }
     this.#activationEntry = entry;
+    this.#alreadyStabilizedRoles = new Set();
     this.#requiresStoppedAdmission = caller.kind === 'root' && entry === 'STOPPED';
     this.#activationId = randomUUID();
     this.#activationCaller = caller;
@@ -210,12 +213,13 @@ export class CardActor extends BaseActor {
     return pending;
   }
 
-  prepareRunning(caller: CardActivationCaller, entry: CardProcessEntry): Promise<CardActivationOutcome> {
+  prepareRunning(caller: CardActivationCaller, entry: CardProcessEntry, alreadyStabilizedRoles: ReadonlySet<'planner' | 'reviewer' | 'executor'> = new Set()): Promise<CardActivationOutcome> {
     const card = this.requireCard();
     if (card.status !== 'running' || this.state() !== 'parked' || this.#result) throw new Error(`Card '${this.cardId}' is not an unowned running restart leaf.`);
     this.#activationId = randomUUID();
     this.#activationCaller = caller;
     this.#activationEntry = entry;
+    this.#alreadyStabilizedRoles = alreadyStabilizedRoles;
     this.#requiresStoppedAdmission = false;
     this.#result = deferred<CardActivationOutcome>();
     this.#terminalClaim = 'open';
@@ -235,6 +239,7 @@ export class CardActor extends BaseActor {
     if (child.requireCard().parent !== this.cardId) throw new Error(`Card '${child.cardId}' is not the immediate child of '${this.cardId}'.`);
     this.#activationId = randomUUID();
     this.#activationCaller = caller;
+    this.#alreadyStabilizedRoles = new Set();
     this.#result = deferred<CardActivationOutcome>();
     this.#terminalClaim = 'open';
     this.#stopSettlementEventQueued = false;
@@ -423,7 +428,7 @@ export class CardActor extends BaseActor {
     const card = this.requireCard();
     const entry = this.#activationEntry;
     if (!entry) throw new Error(`Card '${this.cardId}' entered running without a lifecycle entry.`);
-    const input: CardActivationInput = { activationId: this.#activationId, card, caller, entry, notificationDelivery, claimResult: () => this.claimResult() };
+    const input: CardActivationInput = { activationId: this.#activationId, card, caller, entry, notificationDelivery, alreadyStabilizedRoles: this.#alreadyStabilizedRoles, claimResult: () => this.claimResult() };
     this.#activationAbort = new AbortController();
     this.runTask(async () => {
       return this.processor!.activate(input, this.#activationAbort!.signal);

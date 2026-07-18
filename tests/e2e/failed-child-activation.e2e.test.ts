@@ -15,7 +15,7 @@ import type { CardActor } from '../../src/runtime/actors/card-actor.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
-import { selectRunningCardChain } from '../../src/runtime/running-card-chain.js';
+import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { createPlannerControlProvider } from '../../src/tools/planner-control-provider.js';
 import { invokeTool } from '../../src/tools/invocation.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
@@ -143,7 +143,7 @@ describe('failed child activation lifecycle E2E', () => {
     await siblingAdmitted.promise;
     expect(supervisor.getStatus().currentCardId).toBe(sibling.id);
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(sibling.id);
-    const runningChain = selectRunningCardChain(cards.list()).map((card) => card.id);
+    const runningChain = selectLinkedRunningChain(cards).map((card) => card.id);
     expect(runningChain).toEqual(['project', parent.id, sibling.id]);
     expect(cards.read(failedChild.id)?.status).toBe('failed');
     expect(internals.liveCardActors.has(failedChild.id)).toBe(false);

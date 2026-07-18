@@ -12,7 +12,7 @@ import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { selectRunningCardChain } from '../../src/runtime/running-card-chain.js';
+import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
@@ -139,7 +139,7 @@ describe('dependency-completion activation admission E2E', () => {
     expect(supervisor.getActorRuntimeReadModel()).not.toHaveProperty('agents');
     expect(supervisor.getStatus().currentCardId).toBe(parent.id);
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(parent.id);
-    expect(selectRunningCardChain(cards.list()).map(({ id }) => id)).toEqual(['project', parent.id]);
+    expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id]);
     expect(dependentCalls).toBe(0);
     expect(readConversation(projectRoot, `executor:${dependent.id}`).physicalRows).toEqual([]);
     expect(() => cards.readRecord(dependent.id, 'status.md')).toThrow();
@@ -155,7 +155,7 @@ describe('dependency-completion activation admission E2E', () => {
     allowDependent.resolve();
     await settleWithin(dependentProviderStarted.promise, 'admitted B provider start');
     expect(cards.read(dependent.id)?.status).toBe('running');
-    expect(selectRunningCardChain(cards.list()).map(({ id }) => id)).toEqual(['project', parent.id, dependent.id]);
+    expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id, dependent.id]);
     expect(supervisor.getStatus().currentCardId).toBe(dependent.id);
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(dependent.id);
     expect(internals.liveCardActors.get(dependent.id)?.cardId).toBe(dependent.id);

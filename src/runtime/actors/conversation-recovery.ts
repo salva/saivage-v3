@@ -4,7 +4,7 @@ import {
   loggedToolCallKey,
   loggedToolResultIdentity,
 } from '../../schemas/message-identity.js';
-import { readConversationMessages } from './conversation-session.js';
+import { appendRecoveryNotice, isExactRecoveryNotice, readConversationMessages } from './conversation-session.js';
 import { appendProviderVisibleSyntheticFailedToolResult } from './llm-delivery-log.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import { inspectCanonicalCallSettlementPairs } from './conversation-call-pairs.js';
@@ -66,15 +66,35 @@ export function stabilizeRoleSession(args: {
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
 }): RoleSessionStabilization {
-  const messages = readConversationMessages(args.projectRoot, args.sessionId).physicalRows;
-  const activationIndexes = messages.flatMap((message, index) => isActivationOpen(message) ? [index] : []);
+  const conversation = readConversationMessages(args.projectRoot, args.sessionId);
+  const messages = conversation.physicalRows;
+  const sourceRows = conversation.sourceRows;
+  const activationIndexes = sourceRows.flatMap((message, index) => activationMarker(message) ? [index] : []);
   if (activationIndexes.length === 0) {
     validateCallSettlementPairs(messages, null, false, args.terminalToolNames);
+    const state = classifyConversation(sourceRows, args.terminalToolNames);
+    if (state !== 'empty' && state !== 'system_prompt_only' && state !== 'settled_terminal') throw new Error(`Non-clean role session '${args.sessionId}' has no activation marker.`);
     return { disposition: 'clean', messages };
   }
   const latestActivationIndex = activationIndexes.at(-1)!;
-  const interrupted = !latestRoundCleanlyClosed(messages.slice(latestActivationIndex), args.terminalToolNames);
-  const unmatched = validateCallSettlementPairs(messages, latestActivationIndex, interrupted, args.terminalToolNames);
+  const marker = requireAssociatedActivationMarker(sourceRows[latestActivationIndex]!, args.sessionId);
+  const activationRows = sourceRows.slice(latestActivationIndex);
+  const final = activationRows.at(-1)!;
+  const exactFinalRecovery = isExactRecoveryNotice(final, args.sessionId, marker.inputId);
+  const recoveryRows = activationRows.filter((message) => message.kind === 'model_recovered');
+  if (recoveryRows.length > 0 && !exactFinalRecovery) throw new Error(`Interrupted activation '${marker.inputId}' has a recovery notice that is not its final exact canonical source row.`);
+  if (exactFinalRecovery) {
+    if (recoveryRows.length !== 1) throw new Error(`Interrupted activation '${marker.inputId}' has colliding recovery notices.`);
+    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false, args.terminalToolNames);
+    return { disposition: 'clean', messages };
+  }
+  const state = classifyConversation(activationRows, args.terminalToolNames);
+  if (state === 'settled_terminal') {
+    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false, args.terminalToolNames);
+    return { disposition: 'clean', messages };
+  }
+  const latestPhysicalIndex = physicalIndexForSource(messages, sourceRows[latestActivationIndex]!);
+  const unmatched = validateCallSettlementPairs(messages, latestPhysicalIndex, true, args.terminalToolNames);
   if (unmatched) {
     appendProviderVisibleSyntheticFailedToolResult(args.conversations, {
       sessionId: args.sessionId,
@@ -85,37 +105,40 @@ export function stabilizeRoleSession(args: {
       data: { outcome_unknown: true },
     });
   }
+  appendRecoveryNotice(args.conversations, args.sessionId, marker.inputId, 'ordinary_interruption');
   return {
-    disposition: interrupted ? 'ordinary_interruption' : 'clean',
+    disposition: 'ordinary_interruption',
     messages: readConversationMessages(args.projectRoot, args.sessionId).physicalRows,
   };
 }
 
-function isActivationOpen(message: AgentMessage): boolean {
-  if (message.kind !== 'activity') return false;
+function activationMarker(message: AgentMessage): { role: string; cardId: string; inputId: string } | null {
+  if (message.kind !== 'activity') return null;
   try {
     const payload = JSON.parse(message.content) as { event?: unknown; role?: unknown; card_id?: unknown; input_id?: unknown };
-    if (payload.event !== 'activation_open') return false;
+    if (payload.event !== 'activation_open') return null;
     if (typeof payload.role !== 'string' || typeof payload.card_id !== 'string' || typeof payload.input_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(payload.input_id)) throw new Error(`Activation marker '${message.id}' has malformed content.`);
-    return true;
+    return { role: payload.role, cardId: payload.card_id, inputId: payload.input_id };
   } catch (error) {
     if (message.id.includes(':activation:')) throw error;
-    return false;
+    return null;
   }
 }
 
-function latestRoundCleanlyClosed(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>): boolean {
-  const calls = new Map<string, AgentMessage>();
-  for (const message of messages) {
-    if (message.kind === 'tool_call') calls.set(loggedToolCallKey(toolCallIdentity(message)), message);
-    if (message.kind !== 'tool_result') continue;
-    const identity = toolResultIdentity(message);
-    const call = calls.get(loggedToolCallKey(identity));
-    if (!call || !call.tool || !terminalToolNames.has(call.tool)) continue;
-    const payload = parseResultPayload(message);
-    if (payload.success === true) return true;
-  }
-  return false;
+function requireAssociatedActivationMarker(message: AgentMessage, sessionId: ConversationSessionId): { role: string; cardId: string; inputId: string } {
+  const marker = activationMarker(message);
+  if (!marker) throw new Error(`Latest activation marker for '${sessionId}' is missing or malformed.`);
+  const separator = sessionId.indexOf(':');
+  const expectedRole = sessionId.slice(0, separator);
+  const expectedCard = sessionId.slice(separator + 1);
+  if (marker.role !== expectedRole || marker.cardId !== expectedCard) throw new Error(`Activation marker '${message.id}' does not match session '${sessionId}'.`);
+  return marker;
+}
+
+function physicalIndexForSource(physicalRows: readonly AgentMessage[], source: AgentMessage): number {
+  const index = physicalRows.findIndex((message) => message.id === source.id);
+  if (index < 0) throw new Error(`Canonical activation marker '${source.id}' is missing from physical rows.`);
+  return index;
 }
 
 function validateCallSettlementPairs(messages: readonly AgentMessage[], latestActivationIndex: number | null, interrupted: boolean, terminalToolNames: ReadonlySet<string>): { sourceInputId: string; toolCallId: string; toolName: string; message: AgentMessage } | null {
@@ -146,6 +169,7 @@ function lastModelVisibleExchangeIsSettledTerminal(messages: readonly AgentMessa
   const modelVisible = messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'context_compaction' || message.kind === 'model_recovered');
   const last = modelVisible.at(-1);
   if (!last || last.kind !== 'tool_result') return false;
+  if (parseResultPayload(last).success !== true) return false;
   const resultIdentity = toolResultIdentity(last);
   const resultKey = loggedToolCallKey(resultIdentity);
   for (let index = modelVisible.length - 2; index >= 0; index -= 1) {
