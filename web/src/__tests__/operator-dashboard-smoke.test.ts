@@ -7,6 +7,7 @@ import { createOperatorRouter } from '../router';
 import dashboardSource from '../views/DashboardView.vue?raw';
 import appShellSource from '../components/layout/AppShell.vue?raw';
 import { cardView } from './card-view-fixtures';
+import { useCardStore } from '../stores/cards';
 
 const originalFetch = globalThis.fetch;
 
@@ -116,10 +117,11 @@ describe('operator dashboard S06 smoke contract', () => {
     await router.push(path);
     await router.isReady();
 
+    const pinia = createPinia();
     const wrapper: VueWrapper = mount(App, {
       attachTo: document.body,
       global: {
-        plugins: [createPinia(), router],
+        plugins: [pinia, router],
         config: {
           errorHandler(error) {
             renderErrors.push(error instanceof Error ? error.message : String(error));
@@ -127,6 +129,7 @@ describe('operator dashboard S06 smoke contract', () => {
         },
       },
     });
+    if (path === '/cards') await useCardStore(pinia).ensureRoot();
     await waitForRouteRender();
 
     const routeRoots = wrapper.findAll(root);

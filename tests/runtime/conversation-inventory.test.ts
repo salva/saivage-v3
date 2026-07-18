@@ -57,7 +57,7 @@ describe('domain-derived conversation inventory', () => {
     appendConversationBatch(root, [message('planner:project', 'first')]);
     const effects: string[] = [];
     const changes = new ReadModelChangeBroadcaster();
-    changes.subscribe({ conversationChanged: () => { effects.push('conversation'); }, agentsChanged: () => { effects.push('agents'); }, cardStateChanged() {}, runtimeChanged() {} });
+    changes.subscribe({ conversationChanged: () => { effects.push('conversation'); }, agentsChanged: () => { effects.push('agents'); }, cardProjectionChanged() {}, runtimeChanged() {} });
     const failure = new Error('conversation fsync');
     const operations: string[] = [];
     const failingIo: GrowingFileIo = {

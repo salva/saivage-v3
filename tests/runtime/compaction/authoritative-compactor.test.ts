@@ -121,7 +121,7 @@ describe('authoritative context-recovery compaction', () => {
     const provider = summaryProvider();
     const args = compactArgs(root, providerConversationProjection(readConversation(root, 'planner:project')), provider);
 
-    await expect(compact({ ...args, conversations: { projectRoot: root, changes: { conversationChanged: () => { throw appendCause; }, agentsChanged() {}, runtimeChanged() {}, cardStateChanged() {}, subscribe: () => ({ unsubscribe() {} }) } } })).rejects.toMatchObject({
+    await expect(compact({ ...args, conversations: { projectRoot: root, changes: { conversationChanged: () => { throw appendCause; }, agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } } })).rejects.toMatchObject({
       name: 'CompactionAppendError',
       cause: appendCause,
     } satisfies Partial<CompactionAppendError>);
@@ -134,7 +134,7 @@ describe('authoritative context-recovery compaction', () => {
     const controller = new AbortController();
     const reason = new Error('cancel after append');
     const args = compactArgs(root, providerConversationProjection(readConversation(root, 'planner:project')), summaryProvider());
-    const result = await compact({ ...args, signal: controller.signal, conversations: { projectRoot: root, changes: { conversationChanged: () => controller.abort(reason), agentsChanged() {}, runtimeChanged() {}, cardStateChanged() {}, subscribe: () => ({ unsubscribe() {} }) } } });
+    const result = await compact({ ...args, signal: controller.signal, conversations: { projectRoot: root, changes: { conversationChanged: () => controller.abort(reason), agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } } });
 
     expect(result.kind).toBe('compacted');
     expect(controller.signal.reason).toBe(reason);

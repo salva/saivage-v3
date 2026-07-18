@@ -45,7 +45,7 @@ function runtime(projectRoot: string, cards: CardService, processRunner: Process
     provider,
     conversations: { projectRoot },
     appLogs: testAppLogs(projectRoot),
-    readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
+    readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
     processRunner,
     promptTemplates: { render: () => 'test prompt' },
   });

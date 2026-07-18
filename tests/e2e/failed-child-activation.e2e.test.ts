@@ -39,7 +39,7 @@ function runtime(projectRoot: string, cards: CardService, provider: { completeTu
     ...testAutonomousCompaction,
     projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
     conversations: { projectRoot }, appLogs: testAppLogs(projectRoot),
-    readModelChanges: { runtimeChanged() {}, cardStateChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
+    readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
     processRunner, promptTemplates: { render: () => 'test prompt' },
   });
 }

@@ -192,10 +192,12 @@ export function getCardHistoryEntry(id: string, seq: number, signal?: AbortSigna
   return operatorRequest('cards.history.get', { params: { id, seq }, signal });
 }
 
-export function getCardDiff(id: string, from: number, to: number, signal?: AbortSignal): Promise<CardDiffResponse> {
-  return operatorRequest('cards.diff', { params: { id }, query: {
-    from: String(from),
-    to: String(to),
+export interface CurrentCardDiffKey { cardId: string; fromSeq: number; to: 'current' }
+
+export function getCardDiff(key: CurrentCardDiffKey, signal?: AbortSignal): Promise<CardDiffResponse> {
+  return operatorRequest('cards.diff', { params: { id: key.cardId }, query: {
+    from: String(key.fromSeq),
+    to: key.to,
   }, signal }) as Promise<CardDiffResponse>;
 }
 
@@ -249,8 +251,8 @@ export function listFiles(path?: string): Promise<FilesListResponse> {
   return operatorRequest('files.list', { query: path ? { path } : undefined });
 }
 
-export function getFileContent(path: string): Promise<FileContent> {
-  return operatorRequest('files.content', { query: { path } }) as Promise<FileContent>;
+export function getFileContent(path: string, signal?: AbortSignal): Promise<FileContent> {
+  return operatorRequest('files.content', { query: { path }, signal }) as Promise<FileContent>;
 }
 
 export function listProcesses(): Promise<ProcessListResponse> {

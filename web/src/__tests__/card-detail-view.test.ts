@@ -10,15 +10,17 @@ describe('CardDetailView S06 read-only detail contract', () => {
   });
 
   it('renders loading and failure from selected-detail state only', () => {
-    expect(detailSource).toContain('v-if="selectedDetailLoading"');
-    expect(detailSource).toContain('v-else-if="detailError"');
+    expect(detailSource).toContain('v-if="selectedDetailLoading && !currentCard"');
+    expect(detailSource).toContain('v-else-if="detailError && !currentCard"');
+    expect(detailSource).toContain('selectedDetailFreshness.stale');
     expect(detailSource).not.toMatch(/\bloading,\s*\n/);
   });
 
   it('surfaces record outputs through the dedicated records section', () => {
     expect(detailSource).toContain('<CardRecordsSection :card-id="currentCard.id" />');
     expect(recordsSource).toContain('DocumentFrame');
-    expect(recordsSource).toContain('<MarkdownText v-else-if="stateValue(slot.key).content" :source="stateValue(slot.key).content || \'\'" />');
+    expect(recordsSource).toContain('<MarkdownText v-if="contentValue(slot.key)"');
+    expect(recordsSource).toContain("staleReason === 'refresh-failed'");
     expect(recordsSource).toContain("key: 'brief'");
     expect(recordsSource).toContain("key: 'status'");
     expect(recordsSource).toContain("key: 'review'");

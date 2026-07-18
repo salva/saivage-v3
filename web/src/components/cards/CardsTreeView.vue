@@ -23,9 +23,11 @@
           <span v-if="node.logicalPath" class="node-path">{{ node.logicalPath }}</span>
           <span class="node-title">{{ node.card.title }}</span>
           <span class="node-kind">{{ labelForCardType(node.card.type) }}</span>
-          <button v-if="loadStateFor(node.card.id).status === 'error'" type="button" class="node-retry" @click.stop="emit('retry', node.card.id)">Retry</button>
+          <span v-if="loadStateFor(node.card.id).stale" class="node-stale">stale</span>
+          <button v-if="loadStateFor(node.card.id).status === 'error' || loadStateFor(node.card.id).staleReason === 'refresh-failed'" type="button" class="node-retry" @click.stop="emit('retry', node.card.id)">Retry</button>
         </SelectableRow>
         <div v-if="loadStateFor(node.card.id).status === 'error'" class="node-error" :style="{ paddingLeft: `${node.depth * 20 + 44}px` }">{{ loadStateFor(node.card.id).error }}</div>
+        <div v-else-if="loadStateFor(node.card.id).stale" class="node-error" :style="{ paddingLeft: `${node.depth * 20 + 44}px` }">{{ loadStateFor(node.card.id).refreshError ?? 'Refreshing card branch.' }}</div>
       </li>
     </ul>
   </div>
@@ -89,5 +91,6 @@ const renderedTree = computed<RenderedNode[]>(() => {
 .node-path { color:var(--accent-2); font-family:'SF Mono',monospace; font-size:11px; font-weight:600; flex-shrink:0; }
 .node-kind { font-size:11px; color:var(--text-muted); flex-shrink:0; }
 .node-retry { border:1px solid var(--border); background:var(--surface-2); color:var(--text); border-radius:4px; cursor:pointer; font-size:11px; }
+.node-stale { color:var(--warn); font-size:11px; }
 .node-error { color:var(--danger); font-size:11px; padding-top:2px; padding-bottom:4px; }
 </style>

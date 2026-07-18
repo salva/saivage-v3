@@ -20,7 +20,7 @@ async function mounted(path: string, includeSelectedEdge = true) {
   store.hierarchySlicesByParentId = {
     project: { parent: cardView('project', { children: includeSelectedEdge ? ['card-a'] : [] }), children: includeSelectedEdge ? [child] : [] },
   };
-  store.childrenLoadStateById = { project: { status: 'loaded', error: null } };
+  store.childrenLoadStateById = { project: { status: 'loaded', error: null, refreshing: false, stale: false, staleReason: null, refreshError: null } };
   vi.spyOn(store, 'ensureRoot').mockResolvedValue();
   vi.spyOn(store, 'ensureRouteVisible').mockResolvedValue();
   const router = createRouter({ history: createMemoryHistory(), routes: [
@@ -35,9 +35,9 @@ async function mounted(path: string, includeSelectedEdge = true) {
 }
 
 describe('CardsView lazy route semantics', () => {
-  it('owns root load and stable-id route reveal', async () => {
+  it('leaves root bootstrap to the application and owns stable-id route reveal', async () => {
     const { store } = await mounted('/cards/card-a');
-    expect(store.ensureRoot).toHaveBeenCalledTimes(1);
+    expect(store.ensureRoot).not.toHaveBeenCalled();
     expect(store.ensureRouteVisible).toHaveBeenCalledWith('card-a');
   });
 
@@ -57,6 +57,19 @@ describe('CardsView lazy route semantics', () => {
     store.selectedDetailLoading = false;
     await nextTick();
     expect(wrapper.findComponent(CardsTreeView).element).toBe(tree);
+  });
+
+  it('continues route reveal only after a relevant successful slice replacement', async () => {
+    const { store } = await mounted('/cards/card-a-b', false);
+    vi.mocked(store.ensureRouteVisible).mockClear();
+    store.hierarchySlicesByParentId = { ...store.hierarchySlicesByParentId, 'card-z': { parent: cardView('card-z'), children: [] } };
+    await nextTick();
+    expect(store.ensureRouteVisible).not.toHaveBeenCalled();
+    store.childrenLoadStateById = { ...store.childrenLoadStateById, project: { status: 'loaded', error: null, refreshing: false, stale: false, staleReason: null, refreshError: null } };
+    store.hierarchySlicesByParentId = { ...store.hierarchySlicesByParentId, project: { parent: cardView('project', { children: ['card-a'] }), children: [cardView('card-a', { children: ['card-a-b'] })] } };
+    await nextTick();
+    expect(store.ensureRouteVisible).toHaveBeenCalledTimes(1);
+    expect(store.ensureRouteVisible).toHaveBeenCalledWith('card-a-b');
   });
 
   it('contains no global collection refresh or detail-owned path contract', () => {

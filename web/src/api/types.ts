@@ -47,6 +47,9 @@ export type {
   McpToolDefinition,
   NoteAuthor,
   LiveSyncClientFrame,
+  LiveSyncCardInvalidateFrame,
+  LiveSyncCardInvalidateTarget,
+  LiveSyncCardRecordSlot,
   LiveSyncInvalidateFrame,
   LiveSyncSubscribedFrame,
   LiveSyncInvalidateTarget,
@@ -75,13 +78,6 @@ export interface DetailErrorState {
   status: number | null;
   message: string;
 }
-
-export interface DetailFreshnessState {
-  isStale: boolean;
-  lastLoadedAt: string | null;
-  staleReason: 'ws-card-updated' | 'refresh-failed' | null;
-}
-
 
 export interface CardDiffRow {
   field: string;

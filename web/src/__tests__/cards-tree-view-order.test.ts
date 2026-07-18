@@ -4,7 +4,8 @@ import CardsTreeView from '../components/cards/CardsTreeView.vue';
 import type { CardTreeNode, ChildrenLoadState } from '../stores/cards';
 import { cardView } from './card-view-fixtures';
 
-const loaded = (): ChildrenLoadState => ({ status: 'loaded', error: null });
+const state = (status: ChildrenLoadState['status'], error: string | null = null): ChildrenLoadState => ({ status, error, refreshing: false, stale: false, staleReason: null, refreshError: null });
+const loaded = (): ChildrenLoadState => state('loaded');
 const node = (id: string, path: string | null, children: readonly CardTreeNode[] = []): CardTreeNode => ({ card: cardView(id, { title: id, children: children.map((child) => child.card.id) }), logicalPath: path, childNodes: children });
 
 describe('CardsTreeView hierarchy slices', () => {
@@ -16,9 +17,9 @@ describe('CardsTreeView hierarchy slices', () => {
   });
 
   it('shows node-local loading and retry paths', async () => {
-    const states: Record<string, ChildrenLoadState> = { project: loaded(), 'card-a': { status: 'error', error: 'branch failed' } };
+    const states: Record<string, ChildrenLoadState> = { project: loaded(), 'card-a': state('error', 'branch failed') };
     const tree = [node('project', null, [node('card-a', '1')])];
-    const wrapper = mount(CardsTreeView, { props: { tree, expandedIds: new Set(['project']), forcedExpandedIds: new Set<string>(), selectedCardId: null, loadStateFor: (id) => states[id] ?? { status: 'idle', error: null } } });
+    const wrapper = mount(CardsTreeView, { props: { tree, expandedIds: new Set(['project']), forcedExpandedIds: new Set<string>(), selectedCardId: null, loadStateFor: (id) => states[id] ?? state('idle') } });
     expect(wrapper.text()).toContain('branch failed');
     await wrapper.find('.node-retry').trigger('click');
     expect(wrapper.emitted('retry')).toEqual([['card-a']]);

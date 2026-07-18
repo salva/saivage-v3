@@ -1,10 +1,13 @@
 <template>
   <div class="card-detail-container">
-    <ViewState v-if="selectedDetailLoading" state="loading" title="Loading card" message="Fetching the latest card detail." />
-    <StatusBanner v-else-if="detailError" tone="danger" :title="detailErrorTitle" :message="detailError.message">
+    <ViewState v-if="selectedDetailLoading && !currentCard" state="loading" title="Loading card" message="Fetching the latest card detail." />
+    <StatusBanner v-else-if="detailError && !currentCard" tone="danger" :title="detailErrorTitle" :message="detailError.message">
       <template #action><button type="button" class="banner-action" @click="reloadDetail">Retry</button></template>
     </StatusBanner>
     <template v-else-if="currentCard">
+      <StatusBanner v-if="selectedDetailFreshness.stale" tone="warning" title="Card detail is stale" :message="selectedDetailFreshness.refreshError ?? 'Refreshing card detail.'">
+        <template #action><button v-if="selectedDetailFreshness.staleReason === 'refresh-failed'" type="button" class="banner-action" @click="retryDetail">Retry</button></template>
+      </StatusBanner>
       <EntityHeader
         data-testid="card-detail-highlight"
         :title="currentCard.title"
@@ -100,6 +103,7 @@ const {
   selectedLifecycle: lifecycle,
   selectedDetailError,
   selectedDetailLoading,
+  selectedDetailFreshness,
 } = storeToRefs(cardStore);
 
 const currentCard = computed(() => selectedDetail.value?.card ?? null);
@@ -163,6 +167,7 @@ const detailErrorTitle = computed(() => {
   }
 });
 async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } }
+async function retryDetail(): Promise<void> { await cardStore.retryCardDetail(); }
 
 onMounted(async () => {
   await reloadDetail();

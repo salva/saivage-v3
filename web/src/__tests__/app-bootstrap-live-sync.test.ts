@@ -6,6 +6,7 @@ import { SyncClient } from '../sync/client';
 
 function connectionHarness() {
   const syncHandlers = new Set<WsSyncFrameHandler>();
+  const openHandlers = new Set<WsOpenHandler>();
   const conn: WsConnectionManager = {
     state: { value: 'offline' as WsConnectionState },
     sessionId: { value: null },
@@ -16,12 +17,13 @@ function connectionHarness() {
     sendRaw: vi.fn(() => true),
     onEvent: vi.fn((_handler: WsEventHandler) => () => undefined),
     onSyncFrame: vi.fn((handler) => { syncHandlers.add(handler); return () => syncHandlers.delete(handler); }),
-    onOpen: vi.fn((_handler: WsOpenHandler) => () => undefined),
+    onOpen: vi.fn((handler: WsOpenHandler) => { openHandlers.add(handler); return () => openHandlers.delete(handler); }),
     onState: vi.fn((_handler: WsStateHandler) => () => undefined),
   };
   return {
     conn,
     emit(frame: LiveSyncInvalidateFrame | LiveSyncSubscribedFrame) { for (const handler of syncHandlers) handler(frame); },
+    open() { for (const handler of openHandlers) handler(); },
   };
 }
 
@@ -38,18 +40,20 @@ describe('application bootstrap live sync', () => {
     setActivePinia(createPinia());
   });
 
-  it('loads only root, ignores card invalidation/reconnect, and resets then reloads root on token change', async () => {
+  it('owns one root load and wires scoped invalidation/reconnect with baseline suppression', async () => {
     const harness = connectionHarness();
     const client = new SyncClient(harness.conn);
     const runtimeRefetch = vi.fn(async () => undefined);
     const ensureRoot = vi.fn(async () => undefined);
     const reset = vi.fn();
+    const onInvalidate = vi.fn();
+    const onReconnect = vi.fn();
     const agentsRefetch = vi.fn(async () => undefined);
     const fetchSessions = vi.fn(async () => undefined);
     const authRefresh = vi.fn();
     vi.doMock('../sync/client', () => ({ syncClient: client }));
     vi.doMock('../stores/runtime', () => ({ useRuntimeStore: () => ({ refetch: runtimeRefetch, markWsSync: vi.fn() }) }));
-    vi.doMock('../stores/cards', () => ({ useCardStore: () => ({ ensureRoot, reset }) }));
+    vi.doMock('../stores/cards', () => ({ useCardStore: () => ({ ensureRoot, reset, onInvalidate, onReconnect }) }));
     vi.doMock('../stores/agents', () => ({ useAgentStore: () => ({ fetchSessions, refetch: agentsRefetch, markWsSync: vi.fn() }) }));
     vi.doMock('../stores/auth', () => ({ AUTH_TOKEN_CHANGED_EVENT: 'saivage-auth-token-changed', useAuthStore: () => ({ refresh: authRefresh }) }));
     const { startAppBootstrap } = await import('../composables/useAppBootstrap');
@@ -79,9 +83,10 @@ describe('application bootstrap live sync', () => {
     expect(agentsRefetch).not.toHaveBeenCalled();
 
     runtimeRefetch.mockClear();
-    harness.emit({ t: 'invalidate', resource: 'cards' });
+    harness.emit({ t: 'invalidate', resource: 'cards', scope: 'children', card_id: 'project' });
     await flush();
     expect(ensureRoot).not.toHaveBeenCalled();
+    expect(onInvalidate).toHaveBeenCalledWith({ t: 'invalidate', resource: 'cards', scope: 'children', card_id: 'project' });
     expect(runtimeRefetch).not.toHaveBeenCalled();
     expect(agentsRefetch).not.toHaveBeenCalled();
 
@@ -102,5 +107,9 @@ describe('application bootstrap live sync', () => {
     expect(ensureRoot).toHaveBeenCalledTimes(1);
     expect(agentsRefetch).toHaveBeenCalledTimes(1);
     expect(fetchSessions).toHaveBeenCalledTimes(1);
+    harness.open();
+    expect(onReconnect).not.toHaveBeenCalled();
+    harness.open();
+    expect(onReconnect).toHaveBeenCalledTimes(1);
   });
 });

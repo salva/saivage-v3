@@ -1,32 +1,25 @@
 import { computed, markRaw, ref, shallowRef } from 'vue';
 import { defineStore } from 'pinia';
-import type {
-  CardDiffRow,
-  CardHistoryEntry,
-  CardHistoryHeader,
-  CardRecord,
-  CardStatus,
-  DetailErrorState,
-} from '../api/types';
-import {
-  ApiError,
-  getCard,
-  getCardChildren,
-  getCardDiff,
-  getCardHistoryEntry,
-  listCardHistory,
-} from '../api/client';
+import type { CardDiffRow, CardHistoryEntry, CardHistoryHeader, CardRecord, CardStatus, DetailErrorState, LiveSyncCardInvalidateTarget, LiveSyncCardRecordSlot } from '../api/types';
+import { ApiError, getCard, getCardChildren, getCardDiff, getCardHistoryEntry, getFileContent, listCardHistory, type CurrentCardDiffKey } from '../api/client';
 
 export type ChildrenLoadStatus = 'idle' | 'loading' | 'loaded' | 'error';
-export interface ChildrenLoadState { status: ChildrenLoadStatus; error: string | null }
+export type StaleReason = 'invalidated' | 'reconnect' | 'refresh-failed';
+export interface FreshnessState { refreshing: boolean; stale: boolean; staleReason: StaleReason | null; refreshError: string | null }
+export interface ChildrenLoadState extends FreshnessState { status: ChildrenLoadStatus; error: string | null }
 export interface HierarchySlice { readonly parent: CardRecord; readonly children: readonly CardRecord[] }
-export interface ChildrenRequestOwner { readonly controller: AbortController; promise: Promise<void> }
+export interface RequestOwner { readonly controller: AbortController; promise: Promise<void> }
+export type ChildrenRequestOwner = RequestOwner;
 export interface SelectedCardDetail { readonly cardId: string; readonly card: CardRecord }
-export interface CardTreeNode {
-  readonly card: CardRecord;
-  readonly logicalPath: string | null;
-  readonly childNodes: readonly CardTreeNode[];
-}
+export type RecordAccepted = { kind: 'content'; version: number | null; committedAt: string | null; content: string } | { kind: 'empty' };
+export interface RecordSlotState extends FreshnessState { slot: LiveSyncCardRecordSlot; loading: boolean; error: string | null; accepted: RecordAccepted | null }
+export interface CardTreeNode { readonly card: CardRecord; readonly logicalPath: string | null; readonly childNodes: readonly CardTreeNode[] }
+
+const fresh = (): FreshnessState => ({ refreshing: false, stale: false, staleReason: null, refreshError: null });
+const idleChildren = (): ChildrenLoadState => ({ status: 'idle', error: null, ...fresh() });
+const slots: readonly LiveSyncCardRecordSlot[] = ['brief', 'status', 'review'];
+const emptyRecordState = (slot: LiveSyncCardRecordSlot): RecordSlotState => ({ slot, loading: false, error: null, accepted: null, ...fresh() });
+const emptyRecords = (): Record<LiveSyncCardRecordSlot, RecordSlotState> => ({ brief: emptyRecordState('brief'), status: emptyRecordState('status'), review: emptyRecordState('review') });
 
 export function buildDetailError(err: unknown, fallback: string): DetailErrorState {
   if (err instanceof ApiError) {
@@ -38,372 +31,176 @@ export function buildDetailError(err: unknown, fallback: string): DetailErrorSta
   if (err instanceof Error) return { kind: 'network', status: null, message: err.message || fallback };
   return { kind: 'unknown', status: null, message: fallback };
 }
-
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message || fallback : fallback;
-}
+const message = (error: unknown, fallback: string) => error instanceof Error ? error.message || fallback : fallback;
+const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
 export interface CardLifecycleSummary {
-  status: CardStatus;
-  terminal: boolean;
-  phase: 'planned' | 'ready' | 'running' | 'blocked' | 'completed' | 'failed' | 'cancelled';
-  explanation: string;
-  completionState: 'not-started' | 'in-progress' | 'blocked' | 'failed' | 'cancelled' | 'marked-done';
-  error: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  durationMs: number | null;
-  childCounts?: Record<CardStatus, number>;
-  hasActiveChildren?: boolean;
-  hasBlockingChildren?: boolean;
-  dependencyIds: string[];
-  blockedByDependencyIds: string[];
+  status: CardStatus; terminal: boolean; phase: 'planned' | 'ready' | 'running' | 'blocked' | 'completed' | 'failed' | 'cancelled';
+  explanation: string; completionState: 'not-started' | 'in-progress' | 'blocked' | 'failed' | 'cancelled' | 'marked-done'; error: string | null;
+  startedAt: string | null; completedAt: string | null; durationMs: number | null; childCounts?: Record<CardStatus, number>;
+  hasActiveChildren?: boolean; hasBlockingChildren?: boolean; dependencyIds: string[]; blockedByDependencyIds: string[];
 }
-
 const terminalStatuses = new Set<CardStatus>(['done', 'failed', 'cancelled']);
 function lifecyclePhase(status: CardStatus): CardLifecycleSummary['phase'] {
-  switch (status) {
-    case 'backlog': return 'planned';
-    case 'running': return 'running';
-    case 'blocked': return 'blocked';
-    case 'done': return 'completed';
-    case 'failed': return 'failed';
-    case 'cancelled': return 'cancelled';
-    default: return 'ready';
-  }
+  if (status === 'backlog') return 'planned'; if (status === 'running') return 'running'; if (status === 'blocked') return 'blocked';
+  if (status === 'done') return 'completed'; if (status === 'failed') return 'failed'; if (status === 'cancelled') return 'cancelled'; return 'ready';
 }
 function completionState(status: CardStatus): CardLifecycleSummary['completionState'] {
-  switch (status) {
-    case 'backlog': return 'not-started';
-    case 'blocked': return 'blocked';
-    case 'failed': return 'failed';
-    case 'cancelled': return 'cancelled';
-    case 'done': return 'marked-done';
-    default: return 'in-progress';
-  }
+  if (status === 'backlog') return 'not-started'; if (status === 'blocked') return 'blocked'; if (status === 'failed') return 'failed';
+  if (status === 'cancelled') return 'cancelled'; if (status === 'done') return 'marked-done'; return 'in-progress';
+}
+export function deriveCardLifecycleSummary(card: CardRecord, children?: readonly CardRecord[]): CardLifecycleSummary {
+  const projection = children === undefined ? {} : (() => { const counts = { backlog: 0, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0 } satisfies Record<CardStatus, number>; for (const child of children) counts[child.status] += 1; return { childCounts: counts, hasActiveChildren: children.some((child) => child.status === 'running'), hasBlockingChildren: children.some((child) => child.status === 'blocked' || child.status === 'failed') }; })();
+  return { status: card.status, terminal: terminalStatuses.has(card.status), phase: lifecyclePhase(card.status), explanation: '', completionState: completionState(card.status), error: card.lifecycle.error ?? null, startedAt: card.started_at ?? null, completedAt: card.lifecycle.completed_at ?? null, durationMs: null, ...projection, dependencyIds: card.depends_on, blockedByDependencyIds: [] };
 }
 
-export function deriveCardLifecycleSummary(card: CardRecord, loadedChildren?: readonly CardRecord[]): CardLifecycleSummary {
-  const childProjection = loadedChildren === undefined ? {} : (() => {
-    const childCounts = { backlog: 0, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0 } satisfies Record<CardStatus, number>;
-    for (const child of loadedChildren) childCounts[child.status] += 1;
-    return {
-      childCounts,
-      hasActiveChildren: loadedChildren.some((child) => child.status === 'running'),
-      hasBlockingChildren: loadedChildren.some((child) => child.status === 'blocked' || child.status === 'failed'),
-    };
-  })();
-  return {
-    status: card.status,
-    terminal: terminalStatuses.has(card.status),
-    phase: lifecyclePhase(card.status),
-    explanation: '',
-    completionState: completionState(card.status),
-    error: card.lifecycle.error ?? null,
-    startedAt: card.started_at ?? null,
-    completedAt: card.lifecycle.completed_at ?? null,
-    durationMs: null,
-    ...childProjection,
-    dependencyIds: card.depends_on,
-    blockedByDependencyIds: [],
-  };
-}
-
-function routeIds(cardId: string): string[] {
+export function cardRouteChain(cardId: string): string[] {
   if (cardId === 'project') return ['project'];
-  const segments = cardId.startsWith('card-') ? cardId.slice(5).split('-') : [];
-  if (segments.length === 0 || segments.length > 5 || segments.some((segment) => !/^[a-z]+$/.test(segment))) return [];
-  return ['project', ...segments.map((_segment, index) => `card-${segments.slice(0, index + 1).join('-')}`)];
+  const parts = cardId.startsWith('card-') ? cardId.slice(5).split('-') : [];
+  if (!parts.length || parts.length > 5 || parts.some((part) => !/^[a-z]+$/.test(part))) return [];
+  return ['project', ...parts.map((_part, index) => `card-${parts.slice(0, index + 1).join('-')}`)];
 }
-
-// Pinia chains native Promise action results for action hooks. A non-native
-// Promise implementation preserves the exact shared owner object at callers.
-function stableActionPromise(promise: Promise<void>): Promise<void> {
-  return Object.freeze({
-    then: promise.then.bind(promise),
-    catch: promise.catch.bind(promise),
-    finally: promise.finally.bind(promise),
-    [Symbol.toStringTag]: 'Promise',
-  }) as Promise<void>;
-}
+export function routeAncestorParentIds(cardId: string): readonly string[] { return cardRouteChain(cardId).slice(0, -1); }
+function stableActionPromise(promise: Promise<void>): Promise<void> { return Object.freeze({ then: promise.then.bind(promise), catch: promise.catch.bind(promise), finally: promise.finally.bind(promise), [Symbol.toStringTag]: 'Promise' }) as Promise<void>; }
 
 export const useCardStore = defineStore('cards', () => {
-  let latestRouteRevealRequestSeq = 0;
-  let detailRequestSeq = 0;
-  let detailRequestController: AbortController | null = null;
-  let historyRequestSeq = 0;
-  let historyEntryRequestSeq = 0;
-  let historyRequestController: AbortController | null = null;
-  let historyEntryRequestController: AbortController | null = null;
-
+  let revealSeq = 0;
   const hierarchySlicesByParentId = shallowRef<Record<string, HierarchySlice>>({});
   const childrenLoadStateById = shallowRef<Record<string, ChildrenLoadState>>({});
-  const childrenRequestOwnersByParentId = markRaw(new Map<string, ChildrenRequestOwner>());
+  const childrenRequestOwnersByParentId = markRaw(new Map<string, RequestOwner>());
+  const selectedCardId = ref<string | null>(null);
   const selectedDetail = ref<SelectedCardDetail | null>(null);
   const selectedDetailLoading = ref(false);
   const selectedDetailError = ref<DetailErrorState | null>(null);
+  const selectedDetailFreshness = ref<FreshnessState>(fresh());
+  let detailOwner: RequestOwner | null = null;
 
+  const cardRecords = ref(emptyRecords());
+  const recordOwners = markRaw(new Map<LiveSyncCardRecordSlot, RequestOwner>());
   const cardHistory = ref<CardHistoryHeader[]>([]);
   const cardHistoryLoading = ref(false);
   const cardHistoryError = ref<DetailErrorState | null>(null);
+  const cardHistoryFreshness = ref<FreshnessState>(fresh());
+  const cardHistoryVisible = ref(false);
+  const cardHistoryAccepted = ref(false);
+  let historyOwner: RequestOwner | null = null;
   const cardHistorySelectedSeq = ref<number | null>(null);
   const cardHistoryEntry = ref<CardHistoryEntry | null>(null);
   const cardHistoryEntryLoading = ref(false);
   const cardHistoryEntryError = ref<DetailErrorState | null>(null);
+  let entryOwner: RequestOwner | null = null;
   const cardHistoryDiff = ref<CardDiffRow[]>([]);
+  const cardHistoryDiffKey = ref<CurrentCardDiffKey | null>(null);
   const cardHistoryDiffLoading = ref(false);
   const cardHistoryDiffError = ref<DetailErrorState | null>(null);
+  const cardHistoryDiffFreshness = ref<FreshnessState>(fresh());
+  let diffOwner: RequestOwner | null = null;
 
-  function childrenLoadState(id: string): ChildrenLoadState {
-    return childrenLoadStateById.value[id] ?? { status: 'idle', error: null };
-  }
-  function loadedChildrenFor(id: string): readonly CardRecord[] | undefined {
-    return hierarchySlicesByParentId.value[id]?.children;
-  }
-  function hierarchyCardById(id: string): CardRecord | null {
-    const root = hierarchySlicesByParentId.value.project?.parent;
-    if (id === 'project') return root ?? null;
-    for (const slice of Object.values(hierarchySlicesByParentId.value)) {
-      const card = slice.children.find((child) => child.id === id);
-      if (card) return card;
-    }
-    return null;
-  }
+  function childrenLoadState(id: string): ChildrenLoadState { return childrenLoadStateById.value[id] ?? idleChildren(); }
+  function setChildrenState(id: string, state: ChildrenLoadState): void { childrenLoadStateById.value = { ...childrenLoadStateById.value, [id]: state }; }
+  function loadedChildrenFor(id: string): readonly CardRecord[] | undefined { return hierarchySlicesByParentId.value[id]?.children; }
+  function hierarchyCardById(id: string): CardRecord | null { if (id === 'project') return hierarchySlicesByParentId.value.project?.parent ?? null; for (const slice of Object.values(hierarchySlicesByParentId.value)) { const found = slice.children.find((child) => child.id === id); if (found) return found; } return null; }
+  const orderedCardTree = computed<readonly CardTreeNode[]>(() => { const root = hierarchySlicesByParentId.value.project?.parent; if (!root) return []; const build = (card: CardRecord, path: string | null): CardTreeNode => { const slice = hierarchySlicesByParentId.value[card.id]; const childNodes = slice ? slice.children.map((child, index) => build(child, path === null ? String(index + 1) : `${path}.${index + 1}`)) : []; return Object.freeze({ card, logicalPath: path, childNodes: Object.freeze(childNodes) }); }; return [build(root, null)]; });
+  function hierarchyPathFor(id: string): string | null { const visit = (nodes: readonly CardTreeNode[]): string | null => { for (const node of nodes) { if (node.card.id === id) return node.logicalPath; const found = visit(node.childNodes); if (found !== null) return found; } return null; }; return id === 'project' && orderedCardTree.value.length ? '' : visit(orderedCardTree.value); }
+  function isHierarchyCardRepresented(id: string): boolean { return id === 'project' ? !!orderedCardTree.value.length : hierarchyPathFor(id) !== null; }
 
-  const orderedCardTree = computed<readonly CardTreeNode[]>(() => {
-    const root = hierarchySlicesByParentId.value.project?.parent;
-    if (!root) return [];
-    const build = (card: CardRecord, logicalPath: string | null): CardTreeNode => {
-      const slice = hierarchySlicesByParentId.value[card.id];
-      const childNodes = slice
-        ? slice.children.map((child, index) => build(child, logicalPath === null ? String(index + 1) : `${logicalPath}.${index + 1}`))
-        : [];
-      return Object.freeze({ card, logicalPath, childNodes: Object.freeze(childNodes) });
-    };
-    return [build(root, null)];
-  });
-
-  function hierarchyPathFor(id: string): string | null {
-    const visit = (nodes: readonly CardTreeNode[]): string | null => {
-      for (const node of nodes) {
-        if (node.card.id === id) return node.logicalPath;
-        const found = visit(node.childNodes);
-        if (found !== null) return found;
-      }
-      return null;
-    };
-    return id === 'project' && orderedCardTree.value.length > 0 ? '' : visit(orderedCardTree.value);
-  }
-  function isHierarchyCardRepresented(id: string): boolean {
-    return id === 'project' ? orderedCardTree.value.length > 0 : hierarchyPathFor(id) !== null;
-  }
-
-  function ensureChildren(id: string): Promise<void> {
-    const existingOwner = childrenRequestOwnersByParentId.get(id);
-    if (existingOwner) return existingOwner.promise;
-    const state = childrenLoadState(id);
-    if (state.status === 'loaded' || state.status === 'error') return Promise.resolve();
-
-    let resolveOwner!: () => void;
-    let rejectOwner!: (error: unknown) => void;
-    const nativeOwnerPromise = new Promise<void>((resolve, reject) => { resolveOwner = resolve; rejectOwner = reject; });
-    const ownerPromise = stableActionPromise(nativeOwnerPromise);
-    const owner = markRaw<ChildrenRequestOwner>({ controller: new AbortController(), promise: ownerPromise });
+  function startChildren(id: string, reason: StaleReason | null): Promise<void> {
+    const existing = childrenRequestOwnersByParentId.get(id);
+    if (reason === null && existing) return existing.promise;
+    existing?.controller.abort();
+    let resolveOwner!: () => void; let rejectOwner!: (error: unknown) => void;
+    const native = new Promise<void>((resolve, reject) => { resolveOwner = resolve; rejectOwner = reject; });
+    const owner: RequestOwner = markRaw({ controller: new AbortController(), promise: stableActionPromise(native) });
     childrenRequestOwnersByParentId.set(id, owner);
-    childrenLoadStateById.value = { ...childrenLoadStateById.value, [id]: { status: 'loading', error: null } };
+    const accepted = !!hierarchySlicesByParentId.value[id];
+    setChildrenState(id, accepted ? { status: 'loaded', error: null, refreshing: true, stale: true, staleReason: reason, refreshError: null } : { ...idleChildren(), status: 'loading' });
     void Promise.resolve().then(() => getCardChildren(id, owner.controller.signal)).then((response) => {
-      if (childrenRequestOwnersByParentId.get(id) !== owner) { resolveOwner(); return; }
+      if (childrenRequestOwnersByParentId.get(id) !== owner) return resolveOwner();
       if (response.card.id !== id) throw new Error(`Hierarchy response parent '${response.card.id}' does not match '${id}'.`);
-      const slice = Object.freeze({ parent: response.card, children: Object.freeze([...response.children]) });
-      hierarchySlicesByParentId.value = { ...hierarchySlicesByParentId.value, [id]: slice };
-      childrenLoadStateById.value = { ...childrenLoadStateById.value, [id]: { status: 'loaded', error: null } };
-      resolveOwner();
+      hierarchySlicesByParentId.value = { ...hierarchySlicesByParentId.value, [id]: Object.freeze({ parent: response.card, children: Object.freeze([...response.children]) }) };
+      setChildrenState(id, { status: 'loaded', error: null, ...fresh() }); resolveOwner();
     }).catch((error: unknown) => {
-      if (childrenRequestOwnersByParentId.get(id) !== owner) { resolveOwner(); return; }
-      if (error instanceof DOMException && error.name === 'AbortError') { resolveOwner(); return; }
-      childrenLoadStateById.value = { ...childrenLoadStateById.value, [id]: { status: 'error', error: errorMessage(error, 'Failed to load card children') } };
-      rejectOwner(error);
-    }).finally(() => {
-      if (childrenRequestOwnersByParentId.get(id) !== owner) return;
-      childrenRequestOwnersByParentId.delete(id);
-    });
+      if (childrenRequestOwnersByParentId.get(id) !== owner || aborted(error)) return resolveOwner();
+      if (accepted) { setChildrenState(id, { status: 'loaded', error: null, refreshing: false, stale: true, staleReason: 'refresh-failed', refreshError: message(error, 'Failed to refresh card children') }); resolveOwner(); }
+      else { setChildrenState(id, { ...idleChildren(), status: 'error', error: message(error, 'Failed to load card children') }); rejectOwner(error); }
+    }).finally(() => { if (childrenRequestOwnersByParentId.get(id) === owner) childrenRequestOwnersByParentId.delete(id); });
     return owner.promise;
   }
-
+  function ensureChildren(id: string): Promise<void> { const state = childrenLoadState(id); if (state.status === 'loaded' || state.status === 'error') return Promise.resolve(); return startChildren(id, null); }
   function ensureRoot(): Promise<void> { return ensureChildren('project'); }
-  function retryChildren(id: string): Promise<void> {
-    if (childrenLoadState(id).status !== 'error') throw new Error(`Children for '${id}' are not in error state.`);
-    const next = { ...childrenLoadStateById.value };
-    delete next[id];
-    childrenLoadStateById.value = next;
-    return ensureChildren(id);
+  function refreshChildren(id: string, reason: Exclude<StaleReason, 'refresh-failed'>): Promise<void> { if (!hierarchySlicesByParentId.value[id]) throw new Error(`Children for '${id}' have no accepted slice.`); return startChildren(id, reason); }
+  function retryChildren(id: string): Promise<void> { const state = childrenLoadState(id); if (state.status === 'error') { const next = { ...childrenLoadStateById.value }; delete next[id]; childrenLoadStateById.value = next; return ensureChildren(id); } if (state.staleReason === 'refresh-failed') return refreshChildren(id, 'invalidated'); throw new Error(`Children for '${id}' are not retryable.`); }
+
+  async function ensureRouteVisible(id: string): Promise<void> { const token = ++revealSeq; const chain = cardRouteChain(id); for (let index = 0; index < chain.length - 1; index += 1) { if (token !== revealSeq) return; const parent = chain[index]!; const state = childrenLoadState(parent); if (state.status === 'error' || state.stale) return; if (state.status !== 'loaded') { try { await ensureChildren(parent); } catch { return; } if (token !== revealSeq || childrenLoadState(parent).stale) return; } if (!hierarchySlicesByParentId.value[parent]?.children.some((child) => child.id === chain[index + 1])) return; } }
+
+  function clearSelectionData(): void {
+    detailOwner?.controller.abort(); detailOwner = null; historyOwner?.controller.abort(); historyOwner = null; entryOwner?.controller.abort(); entryOwner = null; diffOwner?.controller.abort(); diffOwner = null;
+    for (const owner of recordOwners.values()) owner.controller.abort(); recordOwners.clear();
+    selectedDetail.value = null; selectedDetailLoading.value = false; selectedDetailError.value = null; selectedDetailFreshness.value = fresh(); cardRecords.value = emptyRecords(); clearCardHistoryState();
   }
-
-  async function ensureRouteVisible(selectedId: string): Promise<void> {
-    const requestSeq = ++latestRouteRevealRequestSeq;
-    const chain = routeIds(selectedId);
-    if (chain.length === 0) return;
-    for (let index = 0; index < chain.length - 1; index += 1) {
-      if (requestSeq !== latestRouteRevealRequestSeq) return;
-      const parentId = chain[index]!;
-      const state = childrenLoadState(parentId);
-      if (state.status === 'error') return;
-      if (state.status === 'idle' || state.status === 'loading') {
-        try { await ensureChildren(parentId); } catch { return; }
-        if (requestSeq !== latestRouteRevealRequestSeq) return;
-      }
-      const slice = hierarchySlicesByParentId.value[parentId];
-      if (!slice || !slice.children.some((child) => child.id === chain[index + 1])) return;
-      if (requestSeq !== latestRouteRevealRequestSeq) return;
-    }
+  function selectOwner(id: string): void { if (selectedCardId.value === id) return; clearSelectionData(); selectedCardId.value = id; }
+  function startDetail(id: string, reason: StaleReason | null): Promise<void> {
+    selectOwner(id); detailOwner?.controller.abort();
+    const accepted = selectedDetail.value?.cardId === id; const controller = new AbortController(); let owner!: RequestOwner;
+    const promise = getCard(id, controller.signal).then((response) => { if (detailOwner !== owner || selectedCardId.value !== id) return; selectedDetail.value = Object.freeze({ cardId: id, card: response.card }); selectedDetailError.value = null; selectedDetailFreshness.value = fresh(); }).catch((error: unknown) => { if (detailOwner !== owner || selectedCardId.value !== id || aborted(error)) return; if (accepted) selectedDetailFreshness.value = { refreshing: false, stale: true, staleReason: 'refresh-failed', refreshError: message(error, 'Failed to refresh card detail') }; else selectedDetailError.value = buildDetailError(error, 'Failed to fetch card detail'); }).finally(() => { if (detailOwner === owner) { selectedDetailLoading.value = false; selectedDetailFreshness.value.refreshing = false; detailOwner = null; } });
+    owner = markRaw({ controller, promise }); detailOwner = owner; selectedDetailLoading.value = !accepted; selectedDetailError.value = null; if (accepted) selectedDetailFreshness.value = { refreshing: true, stale: true, staleReason: reason, refreshError: null }; return promise;
   }
+  function fetchCardDetail(id: string): Promise<void> { return startDetail(id, selectedDetail.value?.cardId === id ? 'invalidated' : null); }
+  function refreshCardDetail(reason: Exclude<StaleReason, 'refresh-failed'>): Promise<void> { if (!selectedCardId.value || !selectedDetail.value) throw new Error('No accepted selected detail.'); return startDetail(selectedCardId.value, reason); }
+  function retryCardDetail(): Promise<void> { if (selectedDetailFreshness.value.staleReason !== 'refresh-failed') throw new Error('Detail is not retryable.'); return refreshCardDetail('invalidated'); }
 
-  function clearCardHistoryState(): void {
-    historyRequestController?.abort();
-    historyEntryRequestController?.abort();
-    historyRequestController = null;
-    historyEntryRequestController = null;
-    ++historyRequestSeq;
-    ++historyEntryRequestSeq;
-    cardHistory.value = [];
-    cardHistoryLoading.value = false;
-    cardHistoryError.value = null;
-    cardHistorySelectedSeq.value = null;
-    cardHistoryEntry.value = null;
-    cardHistoryEntryLoading.value = false;
-    cardHistoryEntryError.value = null;
-    cardHistoryDiff.value = [];
-    cardHistoryDiffLoading.value = false;
-    cardHistoryDiffError.value = null;
+  function recordPath(cardId: string, slot: LiveSyncCardRecordSlot): string { return `record:///${slot}.md?card=${encodeURIComponent(cardId)}&v=latest`; }
+  function startRecord(cardId: string, slot: LiveSyncCardRecordSlot, reason: StaleReason | null): Promise<void> {
+    if (selectedCardId.value !== cardId) throw new Error(`Records are not owned by '${cardId}'.`);
+    recordOwners.get(slot)?.controller.abort(); const prior = cardRecords.value[slot]; const accepted = prior.accepted; const controller = new AbortController(); let owner!: RequestOwner;
+    const promise = getFileContent(recordPath(cardId, slot), controller.signal).then((response) => { if (recordOwners.get(slot) !== owner || selectedCardId.value !== cardId) return; cardRecords.value = { ...cardRecords.value, [slot]: { slot, loading: false, error: null, accepted: { kind: 'content', version: response.version ?? null, committedAt: response.modifiedAt ?? null, content: response.content }, ...fresh() } }; }).catch((error: unknown) => {
+      if (recordOwners.get(slot) !== owner || selectedCardId.value !== cardId || aborted(error)) return;
+      const optionalEmpty404 = error instanceof ApiError && error.isNotFound && slot !== 'brief' && (reason === null || accepted?.kind === 'empty');
+      if (optionalEmpty404) cardRecords.value = { ...cardRecords.value, [slot]: { slot, loading: false, error: null, accepted: { kind: 'empty' }, ...fresh() } };
+      else if (accepted) cardRecords.value = { ...cardRecords.value, [slot]: { ...prior, loading: false, refreshing: false, stale: true, staleReason: 'refresh-failed', refreshError: message(error, `Failed to refresh ${slot}`) } };
+      else cardRecords.value = { ...cardRecords.value, [slot]: { ...emptyRecordState(slot), error: message(error, `Failed to load ${slot}`) } };
+    }).finally(() => { if (recordOwners.get(slot) === owner) recordOwners.delete(slot); });
+    owner = markRaw({ controller, promise }); recordOwners.set(slot, owner); cardRecords.value = { ...cardRecords.value, [slot]: accepted ? { ...prior, loading: false, refreshing: true, stale: true, staleReason: reason, refreshError: null } : { ...prior, loading: true, error: null } }; return promise;
   }
+  function loadCardRecords(cardId: string): Promise<void> { selectOwner(cardId); return Promise.all(slots.map((slot) => startRecord(cardId, slot, null))).then(() => undefined); }
+  function refreshRecord(slot: LiveSyncCardRecordSlot, reason: Exclude<StaleReason, 'refresh-failed'>): Promise<void> { const id = selectedCardId.value; if (!id || !cardRecords.value[slot].accepted) throw new Error(`No accepted ${slot} record.`); return startRecord(id, slot, reason); }
+  function retryRecord(slot: LiveSyncCardRecordSlot): Promise<void> { if (cardRecords.value[slot].staleReason !== 'refresh-failed') throw new Error(`${slot} is not retryable.`); return refreshRecord(slot, 'invalidated'); }
 
-  async function fetchCardDetail(id: string): Promise<void> {
-    const requestSeq = ++detailRequestSeq;
-    detailRequestController?.abort();
-    const controller = new AbortController();
-    detailRequestController = controller;
-    if (selectedDetail.value?.cardId !== id) {
-      selectedDetail.value = null;
-      clearCardHistoryState();
-    }
-    selectedDetailLoading.value = true;
-    selectedDetailError.value = null;
-    try {
-      const response = await getCard(id, controller.signal);
-      if (requestSeq !== detailRequestSeq) return;
-      selectedDetail.value = Object.freeze({ cardId: id, card: response.card });
-    } catch (error) {
-      if (requestSeq !== detailRequestSeq || (error instanceof DOMException && error.name === 'AbortError')) return;
-      selectedDetail.value = null;
-      selectedDetailError.value = buildDetailError(error, 'Failed to fetch card detail');
-      throw error;
-    } finally {
-      if (requestSeq === detailRequestSeq) selectedDetailLoading.value = false;
-    }
+  function startHistory(cardId: string, reason: StaleReason | null): Promise<void> {
+    if (selectedCardId.value !== cardId || !cardHistoryVisible.value) return Promise.resolve(); historyOwner?.controller.abort(); const accepted = cardHistoryAccepted.value; const controller = new AbortController(); let owner!: RequestOwner;
+    const promise = listCardHistory(cardId, controller.signal).then((response) => { if (historyOwner !== owner || selectedCardId.value !== cardId || !cardHistoryVisible.value) return; cardHistory.value = response.history; cardHistoryAccepted.value = true; cardHistoryError.value = null; cardHistoryFreshness.value = fresh(); }).catch((error: unknown) => { if (historyOwner !== owner || aborted(error)) return; if (accepted) cardHistoryFreshness.value = { refreshing: false, stale: true, staleReason: 'refresh-failed', refreshError: message(error, 'Failed to refresh card history') }; else cardHistoryError.value = buildDetailError(error, 'Failed to load card history'); }).finally(() => { if (historyOwner === owner) { cardHistoryLoading.value = false; cardHistoryFreshness.value.refreshing = false; historyOwner = null; } });
+    owner = markRaw({ controller, promise }); historyOwner = owner; cardHistoryLoading.value = !accepted; if (accepted) cardHistoryFreshness.value = { refreshing: true, stale: true, staleReason: reason, refreshError: null }; return promise;
   }
+  function openCardHistory(cardId: string): Promise<void> { selectOwner(cardId); cardHistoryVisible.value = true; return startHistory(cardId, null); }
+  function fetchCardHistoryForCard(cardId: string): Promise<void> { if (!cardHistoryVisible.value) cardHistoryVisible.value = true; return startHistory(cardId, cardHistory.value.length ? 'invalidated' : null); }
+  function refreshHistory(reason: Exclude<StaleReason, 'refresh-failed'>): Promise<void> { if (!selectedCardId.value || !cardHistoryVisible.value || !cardHistoryAccepted.value) throw new Error('No accepted visible history.'); return startHistory(selectedCardId.value, reason); }
+  function retryHistory(): Promise<void> { if (cardHistoryFreshness.value.staleReason !== 'refresh-failed') throw new Error('History is not retryable.'); return refreshHistory('invalidated'); }
+  function closeCardHistory(): void { cardHistoryVisible.value = false; clearCardHistoryState(); }
+  function clearCardHistoryState(): void { historyOwner?.controller.abort(); entryOwner?.controller.abort(); diffOwner?.controller.abort(); historyOwner = entryOwner = diffOwner = null; cardHistory.value = []; cardHistoryAccepted.value = false; cardHistoryLoading.value = false; cardHistoryError.value = null; cardHistoryFreshness.value = fresh(); cardHistorySelectedSeq.value = null; cardHistoryEntry.value = null; cardHistoryEntryLoading.value = false; cardHistoryEntryError.value = null; cardHistoryDiff.value = []; cardHistoryDiffKey.value = null; cardHistoryDiffLoading.value = false; cardHistoryDiffError.value = null; cardHistoryDiffFreshness.value = fresh(); }
 
-  async function fetchCardHistoryForCard(cardId: string): Promise<void> {
-    const requestSeq = ++historyRequestSeq;
-    historyRequestController?.abort();
-    const controller = new AbortController();
-    historyRequestController = controller;
-    cardHistoryLoading.value = true;
-    cardHistoryError.value = null;
-    try {
-      const response = await listCardHistory(cardId, controller.signal);
-      if (requestSeq !== historyRequestSeq || selectedDetail.value?.cardId !== cardId) return;
-      cardHistory.value = response.history;
-    } catch (error) {
-      if (requestSeq !== historyRequestSeq || (error instanceof DOMException && error.name === 'AbortError')) return;
-      cardHistoryError.value = buildDetailError(error, 'Failed to load card history');
-    } finally {
-      if (requestSeq === historyRequestSeq) cardHistoryLoading.value = false;
-    }
+  function startEntry(cardId: string, seq: number): Promise<void> { entryOwner?.controller.abort(); const controller = new AbortController(); let owner!: RequestOwner; const promise = getCardHistoryEntry(cardId, seq, controller.signal).then((response) => { if (entryOwner === owner && selectedCardId.value === cardId && cardHistorySelectedSeq.value === seq) { cardHistoryEntry.value = response.entry; cardHistoryEntryError.value = null; } }).catch((error: unknown) => { if (entryOwner === owner && !aborted(error)) cardHistoryEntryError.value = buildDetailError(error, 'Failed to load card history entry'); }).finally(() => { if (entryOwner === owner) { cardHistoryEntryLoading.value = false; entryOwner = null; } }); owner = markRaw({ controller, promise }); entryOwner = owner; cardHistoryEntryLoading.value = true; return promise; }
+  function startDiff(key: CurrentCardDiffKey, reason: StaleReason | null): Promise<void> { diffOwner?.controller.abort(); const accepted = cardHistoryDiffKey.value?.cardId === key.cardId && cardHistoryDiffKey.value.fromSeq === key.fromSeq; const controller = new AbortController(); let owner!: RequestOwner; const promise = getCardDiff(key, controller.signal).then((response) => { if (diffOwner !== owner || selectedCardId.value !== key.cardId || cardHistorySelectedSeq.value !== key.fromSeq) return; cardHistoryDiff.value = response.diff; cardHistoryDiffKey.value = key; cardHistoryDiffError.value = null; cardHistoryDiffFreshness.value = fresh(); }).catch((error: unknown) => { if (diffOwner !== owner || aborted(error)) return; if (accepted) cardHistoryDiffFreshness.value = { refreshing: false, stale: true, staleReason: 'refresh-failed', refreshError: message(error, 'Failed to refresh current diff') }; else cardHistoryDiffError.value = buildDetailError(error, 'Failed to load current diff'); }).finally(() => { if (diffOwner === owner) { cardHistoryDiffLoading.value = false; cardHistoryDiffFreshness.value.refreshing = false; diffOwner = null; } }); owner = markRaw({ controller, promise }); diffOwner = owner; cardHistoryDiffLoading.value = !accepted; if (accepted) cardHistoryDiffFreshness.value = { refreshing: true, stale: true, staleReason: reason, refreshError: null }; return promise; }
+  function selectCardHistoryVersion(cardId: string, seq: number): Promise<void> { cardHistorySelectedSeq.value = seq; const key = Object.freeze({ cardId, fromSeq: seq, to: 'current' as const }); return Promise.all([startEntry(cardId, seq), startDiff(key, null)]).then(() => undefined); }
+  function refreshDiff(reason: Exclude<StaleReason, 'refresh-failed'>): Promise<void> { if (!cardHistoryDiffKey.value || !cardHistoryVisible.value) throw new Error('No accepted visible current diff.'); return startDiff(cardHistoryDiffKey.value, reason); }
+  function retryDiff(): Promise<void> { if (cardHistoryDiffFreshness.value.staleReason !== 'refresh-failed') throw new Error('Diff is not retryable.'); return refreshDiff('invalidated'); }
+
+  function onInvalidate(target: LiveSyncCardInvalidateTarget): void {
+    if (target.scope === 'children') { if (hierarchySlicesByParentId.value[target.card_id]) void refreshChildren(target.card_id, 'invalidated'); return; }
+    if (target.card_id !== selectedCardId.value) return;
+    if (target.scope === 'detail') { if (selectedDetail.value) void refreshCardDetail('invalidated'); return; }
+    if (target.scope === 'record') { if (cardRecords.value[target.slot].accepted) void refreshRecord(target.slot, 'invalidated'); return; }
+    if (target.scope === 'history') { if (cardHistoryVisible.value && cardHistoryAccepted.value) void refreshHistory('invalidated'); return; }
+    if (target.scope === 'diff' && cardHistoryVisible.value && cardHistoryDiffKey.value) void refreshDiff('invalidated');
   }
-
-  async function selectCardHistoryVersion(cardId: string, seq: number): Promise<void> {
-    const requestSeq = ++historyEntryRequestSeq;
-    historyEntryRequestController?.abort();
-    const controller = new AbortController();
-    historyEntryRequestController = controller;
-    const versionSeq = selectedDetail.value?.cardId === cardId ? selectedDetail.value.card.version_seq : seq + 1;
-    cardHistorySelectedSeq.value = seq;
-    cardHistoryEntryLoading.value = true;
-    cardHistoryDiffLoading.value = true;
-    cardHistoryEntryError.value = null;
-    cardHistoryDiffError.value = null;
-    try {
-      const [entryResponse, diffResponse] = await Promise.all([
-        getCardHistoryEntry(cardId, seq, controller.signal),
-        getCardDiff(cardId, seq, versionSeq, controller.signal),
-      ]);
-      if (requestSeq !== historyEntryRequestSeq || selectedDetail.value?.cardId !== cardId || cardHistorySelectedSeq.value !== seq) return;
-      cardHistoryEntry.value = entryResponse.entry;
-      cardHistoryDiff.value = diffResponse.diff;
-    } catch (error) {
-      if (requestSeq !== historyEntryRequestSeq || (error instanceof DOMException && error.name === 'AbortError')) return;
-      const panelError = buildDetailError(error, 'Failed to load card history details');
-      cardHistoryEntryError.value = panelError;
-      cardHistoryDiffError.value = panelError;
-    } finally {
-      if (requestSeq === historyEntryRequestSeq) {
-        cardHistoryEntryLoading.value = false;
-        cardHistoryDiffLoading.value = false;
-      }
-    }
+  function onReconnect(): void {
+    for (const id of Object.keys(hierarchySlicesByParentId.value)) if (childrenLoadState(id).staleReason !== 'refresh-failed') void refreshChildren(id, 'reconnect');
+    if (selectedDetail.value && selectedDetailFreshness.value.staleReason !== 'refresh-failed') void refreshCardDetail('reconnect');
+    for (const slot of slots) if (cardRecords.value[slot].accepted && cardRecords.value[slot].staleReason !== 'refresh-failed') void refreshRecord(slot, 'reconnect');
+    if (cardHistoryVisible.value && cardHistoryAccepted.value && cardHistoryFreshness.value.staleReason !== 'refresh-failed') void refreshHistory('reconnect');
+    if (cardHistoryVisible.value && cardHistoryDiffKey.value && cardHistoryDiffFreshness.value.staleReason !== 'refresh-failed') void refreshDiff('reconnect');
   }
+  function reset(): void { ++revealSeq; for (const owner of childrenRequestOwnersByParentId.values()) owner.controller.abort(); childrenRequestOwnersByParentId.clear(); clearSelectionData(); selectedCardId.value = null; hierarchySlicesByParentId.value = {}; childrenLoadStateById.value = {}; }
+  const selectedLifecycle = computed(() => selectedDetail.value ? deriveCardLifecycleSummary(selectedDetail.value.card, loadedChildrenFor(selectedDetail.value.cardId)) : null);
 
-  function reset(): void {
-    ++latestRouteRevealRequestSeq;
-    for (const owner of childrenRequestOwnersByParentId.values()) owner.controller.abort();
-    childrenRequestOwnersByParentId.clear();
-    hierarchySlicesByParentId.value = {};
-    childrenLoadStateById.value = {};
-    detailRequestController?.abort();
-    detailRequestController = null;
-    ++detailRequestSeq;
-    selectedDetail.value = null;
-    selectedDetailLoading.value = false;
-    selectedDetailError.value = null;
-    clearCardHistoryState();
-  }
-
-  const selectedLifecycle = computed(() => selectedDetail.value
-    ? deriveCardLifecycleSummary(selectedDetail.value.card, loadedChildrenFor(selectedDetail.value.cardId))
-    : null);
-
-  return {
-    hierarchySlicesByParentId,
-    childrenLoadStateById,
-    childrenRequestOwnersByParentId,
-    selectedDetail,
-    selectedDetailLoading,
-    selectedDetailError,
-    selectedLifecycle,
-    orderedCardTree,
-    cardHistory,
-    cardHistoryLoading,
-    cardHistoryError,
-    cardHistorySelectedSeq,
-    cardHistoryEntry,
-    cardHistoryEntryLoading,
-    cardHistoryEntryError,
-    cardHistoryDiff,
-    cardHistoryDiffLoading,
-    cardHistoryDiffError,
-    childrenLoadState,
-    loadedChildrenFor,
-    hierarchyCardById,
-    hierarchyPathFor,
-    isHierarchyCardRepresented,
-    ensureChildren,
-    ensureRoot,
-    retryChildren,
-    ensureRouteVisible,
-    fetchCardDetail,
-    fetchCardHistoryForCard,
-    selectCardHistoryVersion,
-    clearCardHistoryState,
-    reset,
-  };
+  return { hierarchySlicesByParentId, childrenLoadStateById, childrenRequestOwnersByParentId, selectedCardId, selectedDetail, selectedDetailLoading, selectedDetailError, selectedDetailFreshness, selectedLifecycle, orderedCardTree, cardRecords, cardHistory, cardHistoryLoading, cardHistoryError, cardHistoryFreshness, cardHistoryVisible, cardHistorySelectedSeq, cardHistoryEntry, cardHistoryEntryLoading, cardHistoryEntryError, cardHistoryDiff, cardHistoryDiffKey, cardHistoryDiffLoading, cardHistoryDiffError, cardHistoryDiffFreshness, childrenLoadState, loadedChildrenFor, hierarchyCardById, hierarchyPathFor, isHierarchyCardRepresented, ensureChildren, ensureRoot, refreshChildren, retryChildren, ensureRouteVisible, fetchCardDetail, refreshCardDetail, retryCardDetail, loadCardRecords, refreshRecord, retryRecord, openCardHistory, closeCardHistory, fetchCardHistoryForCard, refreshHistory, retryHistory, selectCardHistoryVersion, refreshDiff, retryDiff, clearCardHistoryState, onInvalidate, onReconnect, reset };
 });

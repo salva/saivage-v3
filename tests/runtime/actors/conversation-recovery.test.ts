@@ -244,7 +244,7 @@ describe('reconstructed child-barrier stabilization', () => {
     expect(() => stabilizeRoleSession({
       projectRoot,
       sessionId: 'planner:project',
-      conversations: { projectRoot, changes: { conversationChanged, agentsChanged() {}, runtimeChanged() {}, cardStateChanged() {}, subscribe: () => ({ unsubscribe() {} }) } },
+      conversations: { projectRoot, changes: { conversationChanged, agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } },
       terminalToolNames: terminalTools,
       reconstructedSettlement: { kind: 'reconstructed_barrier', childCardId: 'card-a', outcome: { status: 'cancelled', summary: 'cancelled' } },
       signal: new AbortController().signal,

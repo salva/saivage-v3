@@ -13,12 +13,13 @@
           @click="analystOnly = !analystOnly"
           :title="analystOnly ? 'Showing analyst web-chat history only' : 'Filter card history by editor (currently: analyst)'"
         >{{ analystOnly ? 'all history' : 'by analyst' }}</button>
-        <button type="button" class="retry-btn" @click="reloadAll">Refresh history</button>
+        <button v-if="cardHistoryFreshness.staleReason === 'refresh-failed'" type="button" class="retry-btn" @click="retryHistory">Retry</button>
       </div>
     </div>
 
-    <div v-if="cardHistoryLoading" class="empty-evidence">Loading card history…</div>
-    <div v-else-if="cardHistoryError" class="detail-callout error" role="alert">
+    <div v-if="cardHistoryFreshness.stale" class="detail-callout" role="alert">{{ cardHistoryFreshness.refreshError ?? 'Card history is stale.' }}</div>
+    <div v-if="cardHistoryLoading && cardHistory.length === 0" class="empty-evidence">Loading card history…</div>
+    <div v-else-if="cardHistoryError && cardHistory.length === 0" class="detail-callout error" role="alert">
       <strong>{{ cardHistoryError.kind === 'unauthorized' ? 'Unauthorized' : 'Card history unavailable' }}</strong>
       <div>{{ cardHistoryError.message }}</div>
     </div>
@@ -47,7 +48,11 @@
         </div>
 
         <div class="history-detail">
-          <div v-if="cardHistoryEntryLoading || cardHistoryDiffLoading" class="empty-evidence">Loading history details…</div>
+          <div v-if="cardHistoryDiffFreshness.stale" class="detail-callout" role="alert">
+            {{ cardHistoryDiffFreshness.refreshError ?? 'Current diff is stale.' }}
+            <button v-if="cardHistoryDiffFreshness.staleReason === 'refresh-failed'" type="button" @click="retryDiff">Retry</button>
+          </div>
+          <div v-if="(cardHistoryEntryLoading && !cardHistoryEntry) || (cardHistoryDiffLoading && !cardHistoryDiffKey)" class="empty-evidence">Loading history details…</div>
           <div v-else-if="cardHistoryEntryError || cardHistoryDiffError" class="detail-callout error" role="alert">
             <strong>{{ activeDetailError?.kind === 'unauthorized' ? 'Unauthorized' : 'History detail unavailable' }}</strong>
             <div>{{ activeDetailError?.message }}</div>
@@ -85,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCardStore } from '../../stores/cards';
 import type { CardHistoryHeader } from '../../types/view-models';
@@ -100,6 +105,7 @@ const {
   cardHistory,
   cardHistoryLoading,
   cardHistoryError,
+  cardHistoryFreshness,
   cardHistorySelectedSeq,
   cardHistoryEntry,
   cardHistoryEntryLoading,
@@ -107,6 +113,8 @@ const {
   cardHistoryDiff,
   cardHistoryDiffLoading,
   cardHistoryDiffError,
+  cardHistoryDiffKey,
+  cardHistoryDiffFreshness,
 } = storeToRefs(cardStore);
 
 const analystOnly = ref(false);
@@ -122,7 +130,7 @@ function fmtDate(ts: string): string {
 }
 
 async function loadHistory(): Promise<void> {
-  await cardStore.fetchCardHistoryForCard(props.cardId);
+  await cardStore.openCardHistory(props.cardId);
   const firstSeq = filteredHistory.value[0]?.version_seq ?? cardStore.cardHistory[0]?.version_seq;
   if (firstSeq && cardStore.cardHistorySelectedSeq !== firstSeq) {
     await cardStore.selectCardHistoryVersion(props.cardId, firstSeq);
@@ -133,9 +141,8 @@ async function selectVersion(seq: number): Promise<void> {
   await cardStore.selectCardHistoryVersion(props.cardId, seq);
 }
 
-async function reloadAll(): Promise<void> {
-  await loadHistory();
-}
+async function retryHistory(): Promise<void> { await cardStore.retryHistory(); }
+async function retryDiff(): Promise<void> { await cardStore.retryDiff(); }
 
 onMounted(async () => {
   await loadHistory();
@@ -152,6 +159,7 @@ watch(analystOnly, async () => {
     await cardStore.selectCardHistoryVersion(props.cardId, firstSeq);
   }
 });
+onBeforeUnmount(() => cardStore.closeCardHistory());
 </script>
 
 <style scoped>

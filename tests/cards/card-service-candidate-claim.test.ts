@@ -110,7 +110,7 @@ describe('direct child namespace claims', () => {
     const changes = new ReadModelChangeBroadcaster();
     const cardChanged = jest.fn();
     const runtimeChanged = jest.fn();
-    changes.subscribe({ cardStateChanged: cardChanged, runtimeChanged, agentsChanged() {}, conversationChanged() {} });
+    changes.subscribe({ cardProjectionChanged: cardChanged, runtimeChanged, agentsChanged() {}, conversationChanged() {} });
 
     let caught: unknown;
     try { new CardService(root, eventBus, changes, io).create(input); } catch (error) { caught = error; }

@@ -38,6 +38,7 @@ import {
 import type { CanonicalReadInstrumentation, GrowingFileIo } from '../persistence/growing-file.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { ReadModelChangeBroadcaster } from '../application/read-model-changes.js';
+import type { LiveSyncCardRecordSlot } from '../contracts/index.js';
 import { CardIndex } from './card-index.js';
 import {
   assertCanCreateCard,
@@ -116,9 +117,15 @@ export class CardService {
     return state;
   }
 
-  private publishHistoryEffects(history: CardHistoryEntry, runtimeChanged: boolean): void {
+  private publishCardVersionEffects(history: CardHistoryEntry, parentId: string | null, runtimeChanged: boolean, recordSlots: readonly LiveSyncCardRecordSlot[] = []): void {
     this.eventBus.emit('card_history_appended', { entry_id: history.entry_id, entry_kind: history.kind, card_id: history.card_id, version_seq: history.version_seq, changed_fields: history.changed_fields, changed_at: history.changed_at });
-    this.readModelChanges.cardStateChanged();
+    const cardId = history.card_id;
+    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: cardId });
+    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'history', card_id: cardId });
+    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'diff', card_id: cardId });
+    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'children', card_id: cardId });
+    if (parentId) this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'children', card_id: parentId });
+    for (const slot of recordSlots) this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, slot });
     if (runtimeChanged) this.readModelChanges.runtimeChanged();
   }
 
@@ -148,7 +155,11 @@ export class CardService {
   readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readAuthoredRecord(this.projectRoot, cardId, filename, version, instrumentation); }
   openRecord(cardId: string, filename: string): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, filename, undefined, this.cardAppendIo); }
   editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection { return replaceOpenAuthoredRecord(this.projectRoot, cardId, filename, version, content, this.cardAppendIo); }
-  closeRecord(cardId: string, filename: string, version: number, role: AgentRole, cardVersionSeq: number): RecordProjection { return closeAuthoredRecord(this.projectRoot, cardId, filename, version, role, cardVersionSeq, this.cardAppendIo); }
+  closeRecord(cardId: string, filename: string, version: number, role: AgentRole, cardVersionSeq: number): RecordProjection {
+    const closed = closeAuthoredRecord(this.projectRoot, cardId, filename, version, role, cardVersionSeq, this.cardAppendIo);
+    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, slot: closed.slot });
+    return closed;
+  }
   discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection { return discardAuthoredRecord(this.projectRoot, cardId, filename, version, reason, this.cardAppendIo); }
 
   getCardDetail(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
@@ -217,7 +228,7 @@ export class CardService {
     const linked = cardRecordSchema.parse({ ...freshParent, children: [...freshParent.children, card.id], version_seq: freshParent.version_seq + 1, updated_at: new Date().toISOString() });
     const linkHistory = historyEntry(freshParent, 'child_link', { actor: input.created_by, surface: 'runtime', reason: 'child linked' }, ['children'], `linked child ${card.id}`);
     publishCardVersion(this.projectRoot, linked, linkHistory, this.cardAppendIo);
-    this.publishHistoryEffects(linkHistory, true);
+    this.publishCardVersionEffects(linkHistory, freshParent.parent, true);
     return clone(card);
   }
 
@@ -237,7 +248,7 @@ export class CardService {
     const fields = collectChangedFields(existing, candidate, real);
     const history = historyEntry(existing, kind, ctx, fields, summarizeChangedFields(fields));
     publishCardVersion(this.projectRoot, candidate, history, this.cardAppendIo);
-    this.publishHistoryEffects(history, Object.hasOwn(real, 'status'));
+    this.publishCardVersionEffects(history, existing.parent, Object.hasOwn(real, 'status'));
     return clone(candidate);
   }
 
@@ -261,7 +272,7 @@ export class CardService {
     });
     const history = historyEntry(parent, 'mutate', { ...ctx, reason: ctx.reason ?? 'children reordered' }, ['children'], 'children reordered');
     publishCardVersion(this.projectRoot, candidate, history, this.cardAppendIo);
-    this.publishHistoryEffects(history, false);
+    this.publishCardVersionEffects(history, parent.parent, false);
     return { ok: true, changed };
   }
   deleteSubtrees(requestedIds: readonly string[], ctx: CardMutationContext, allowed: (card: CardRecord) => boolean): { deleted: string[]; requested: string[] } {
@@ -276,7 +287,7 @@ export class CardService {
     const ready = [...intended].filter((id) => indegree.get(id) === 0).sort(); const order: string[] = [];
     while (ready.length) { const id = ready.shift()!; order.push(id); for (const next of outgoing.get(id)!) { indegree.set(next, indegree.get(next)! - 1); if (indegree.get(next) === 0) { ready.push(next); ready.sort(); } } }
     if (order.length !== intended.size) throw new Error('Deletion dependency and hierarchy constraints conflict.');
-    for (const id of order) { const card = state.get(id)!; const entry = historyEntry(card, 'delete', ctx, ['__deleted__'], 'card deleted'); publishCardTombstone(this.projectRoot, id, card, entry, this.cardAppendIo); this.publishHistoryEffects(entry, true); }
+    for (const id of order) { const card = state.get(id)!; const entry = historyEntry(card, 'delete', ctx, ['__deleted__'], 'card deleted'); publishCardTombstone(this.projectRoot, id, card, entry, this.cardAppendIo); this.publishCardVersionEffects(entry, card.parent, true, ['brief', 'status', 'review']); }
     return { deleted: order, requested: roots };
   }
 }

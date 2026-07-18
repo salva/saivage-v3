@@ -16,6 +16,7 @@ export function startAppBootstrap(): void {
   const agentStore = useAgentStore();
   const authStore = useAuthStore();
 
+  syncStore.registerResource({ resource: 'cards', onInvalidate: cardStore.onInvalidate, onReconnect: cardStore.onReconnect });
   syncStore.registerResource({
     resource: 'runtime',
     scope: 'core',

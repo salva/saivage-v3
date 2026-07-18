@@ -8,10 +8,19 @@ export const WsEnvelopeSchema = z.object({
   content: z.record(z.string(), z.unknown()),
 });
 
-export const LiveSyncUnscopedResourceSchema = z.enum(['runtime', 'cards', 'agents', 'timeline', 'processes', 'files']);
+export const LiveSyncUnscopedResourceSchema = z.enum(['runtime', 'agents', 'timeline', 'processes', 'files']);
+export const LiveSyncCardRecordSlotSchema = z.enum(['brief', 'status', 'review']);
+export const LiveSyncCardInvalidateFrameSchema = z.union([
+  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('children'), card_id: cardIdSchema }).strict(),
+  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('detail'), card_id: cardIdSchema }).strict(),
+  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('history'), card_id: cardIdSchema }).strict(),
+  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('diff'), card_id: cardIdSchema }).strict(),
+  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('record'), card_id: cardIdSchema, slot: LiveSyncCardRecordSlotSchema }).strict(),
+]);
 export const LiveSyncInvalidateFrameSchema = z.union([
   z.object({ t: z.literal('invalidate'), resource: LiveSyncUnscopedResourceSchema }).strict(),
   z.object({ t: z.literal('invalidate'), resource: z.literal('conversation'), id: ConversationSessionIdSchema }).strict(),
+  LiveSyncCardInvalidateFrameSchema,
 ]);
 export const LiveSyncSubscribedFrameSchema = z.object({ t: z.literal('subscribed'), resource: z.literal('conversation'), id: ConversationSessionIdSchema, lease: z.string().min(1) }).strict();
 export const LiveSyncSubscribeFrameSchema = z.object({ t: z.literal('subscribe'), resource: z.literal('conversation'), id: ConversationSessionIdSchema, lease: z.string().min(1) }).strict();
@@ -19,10 +28,17 @@ export const LiveSyncUnsubscribeFrameSchema = z.object({ t: z.literal('unsubscri
 export const LiveSyncClientFrameSchema = z.union([LiveSyncSubscribeFrameSchema, LiveSyncUnsubscribeFrameSchema]);
 
 export type LiveSyncUnscopedResource = z.infer<typeof LiveSyncUnscopedResourceSchema>;
+export type LiveSyncCardRecordSlot = z.infer<typeof LiveSyncCardRecordSlotSchema>;
+export type LiveSyncCardInvalidateFrame = z.infer<typeof LiveSyncCardInvalidateFrameSchema>;
 export type LiveSyncInvalidateFrame = z.infer<typeof LiveSyncInvalidateFrameSchema>;
 export type LiveSyncSubscribedFrame = z.infer<typeof LiveSyncSubscribedFrameSchema>;
 export type LiveSyncClientFrame = z.infer<typeof LiveSyncClientFrameSchema>;
 export type LiveSyncInvalidateTarget = LiveSyncInvalidateFrame extends infer T
+  ? T extends { t: 'invalidate' }
+    ? Omit<T, 't'>
+    : never
+  : never;
+export type LiveSyncCardInvalidateTarget = LiveSyncCardInvalidateFrame extends infer T
   ? T extends { t: 'invalidate' }
     ? Omit<T, 't'>
     : never

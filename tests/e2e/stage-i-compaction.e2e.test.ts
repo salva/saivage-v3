@@ -156,7 +156,7 @@ describe('Stage-I compaction contracts', () => {
       prepareSessionRoot(ownerRoot, sessionId); prepareSessionRoot(decoyRoot, sessionId);
       for (let ordinal = 1; ordinal <= 4; ordinal++) appendRawRound(ownerRoot, ordinal, sessionId);
       appendRawRound(decoyRoot, 1, sessionId);
-      const changes = { conversationChanged: jest.fn(), agentsChanged: jest.fn(), runtimeChanged: jest.fn(), cardStateChanged: jest.fn(), subscribe: jest.fn(() => ({ unsubscribe() {} })) };
+      const changes = { conversationChanged: jest.fn(), agentsChanged: jest.fn(), runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), subscribe: jest.fn(() => ({ unsubscribe() {} })) };
       const invocation = invocationFor(sessionId, [], { ...config, input_budget_tokens: 400 });
       await compact({ strategy: 'preventive', conversations: { projectRoot: ownerRoot, changes }, input: invocation, summarizerProvider: summaryProvider(), signal: new AbortController().signal });
       const owner = readConversation(ownerRoot, sessionId);

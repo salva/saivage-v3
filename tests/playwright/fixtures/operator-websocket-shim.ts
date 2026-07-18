@@ -10,10 +10,9 @@ const connectedEnvelope = buildConnectedEnvelope({
   clientCount: 1,
 });
 const runtimeUpdateEnvelope: LiveSyncInvalidateFrame = { t: 'invalidate', resource: 'runtime' };
-const cardChangedEnvelope: LiveSyncInvalidateFrame = { t: 'invalidate', resource: 'cards' };
 
 export async function installOperatorWebSocketShim(page: Page): Promise<void> {
-  await page.addInitScript(({ connected, runtimeUpdate, cardChanged, inboundFixture }) => {
+  await page.addInitScript(({ connected, runtimeUpdate, inboundFixture }) => {
     type Listener = (event: Event) => void;
     type FixtureFrame = Record<string, unknown>;
 
@@ -124,9 +123,6 @@ export async function installOperatorWebSocketShim(page: Page): Promise<void> {
       emitRuntimeUpdate() {
         for (const socket of sockets) socket.emit(runtimeUpdate as FixtureFrame);
       },
-      emitCardChanged() {
-        for (const socket of sockets) socket.emit(cardChanged as FixtureFrame);
-      },
       emit(envelope: FixtureFrame) {
         for (const socket of sockets) socket.emit(envelope);
       },
@@ -137,7 +133,6 @@ export async function installOperatorWebSocketShim(page: Page): Promise<void> {
   }, {
     connected: connectedEnvelope,
     runtimeUpdate: runtimeUpdateEnvelope,
-    cardChanged: cardChangedEnvelope,
     inboundFixture: wsContractFixtures.inboundAnalystMessage,
   });
 }
@@ -150,7 +145,6 @@ declare global {
       connectedEnvelope: unknown;
       inboundAnalystFixture: unknown;
       emitRuntimeUpdate(): void;
-      emitCardChanged(): void;
       emit(envelope: unknown): void;
       closeAll(): void;
     };

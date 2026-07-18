@@ -68,7 +68,7 @@ describe('complete-union deletion admission and order', () => {
       close(fd) { operations.push('close'); closeSync(fd); },
     };
     const eventBus = new EventBus(); const events: Array<{ cardId: string; kind: string }> = []; eventBus.subscribe('card_history_appended', (event) => { events.push({ cardId: event.payload.card_id, kind: event.payload.entry_kind }); });
-    const changes = new ReadModelChangeBroadcaster(); const cardEffects = jest.fn(); const runtimeEffects = jest.fn(); changes.subscribe({ cardStateChanged: cardEffects, runtimeChanged: runtimeEffects, agentsChanged() {}, conversationChanged() {} });
+    const changes = new ReadModelChangeBroadcaster(); const cardEffects = jest.fn(); const runtimeEffects = jest.fn(); changes.subscribe({ cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects, agentsChanged() {}, conversationChanged() {} });
     const deleting = new CardService(root, eventBus, changes, failingIo);
     let thrown: unknown;
     try { deleting.deleteSubtrees([left.id, right.id], context, () => true); } catch (error) { thrown = error; }
@@ -77,7 +77,17 @@ describe('complete-union deletion admission and order', () => {
       `open:${cardStreamFile(root, left.id)}`, 'write', 'fsync', 'close',
       `open:${cardStreamFile(root, right.id)}`, 'write', 'close',
     ]);
-    expect(cardEffects).toHaveBeenCalledTimes(1);
+    expect(cardEffects).toHaveBeenCalledTimes(8);
+    expect(cardEffects.mock.calls.map(([target]) => target)).toEqual([
+      { resource: 'cards', scope: 'detail', card_id: left.id },
+      { resource: 'cards', scope: 'history', card_id: left.id },
+      { resource: 'cards', scope: 'diff', card_id: left.id },
+      { resource: 'cards', scope: 'children', card_id: left.id },
+      { resource: 'cards', scope: 'children', card_id: 'project' },
+      { resource: 'cards', scope: 'record', card_id: left.id, slot: 'brief' },
+      { resource: 'cards', scope: 'record', card_id: left.id, slot: 'status' },
+      { resource: 'cards', scope: 'record', card_id: left.id, slot: 'review' },
+    ]);
     expect(runtimeEffects).toHaveBeenCalledTimes(1);
     expect(events).toEqual([{ cardId: left.id, kind: 'delete' }]);
   });
@@ -95,7 +105,7 @@ describe('complete-union deletion admission and order', () => {
       close(fd) { operations.push('close'); closeSync(fd); },
     };
     const eventBus = new EventBus(); const events = jest.fn(); eventBus.subscribe('card_history_appended', (event) => { events(event); });
-    const changes = new ReadModelChangeBroadcaster(); const cardEffects = jest.fn(); const runtimeEffects = jest.fn(); changes.subscribe({ cardStateChanged: cardEffects, runtimeChanged: runtimeEffects, agentsChanged() {}, conversationChanged() {} });
+    const changes = new ReadModelChangeBroadcaster(); const cardEffects = jest.fn(); const runtimeEffects = jest.fn(); changes.subscribe({ cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects, agentsChanged() {}, conversationChanged() {} });
     const deleting = new CardService(root, eventBus, changes, failingIo);
     let thrown: unknown;
     try { deleting.deleteSubtrees([left.id, right.id], context, () => true); } catch (error) { thrown = error; }

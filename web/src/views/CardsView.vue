@@ -37,9 +37,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useCardStore } from '../stores/cards';
+import { cardRouteChain, useCardStore } from '../stores/cards';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
 import CardDetailView from '../components/cards/CardDetailView.vue';
 import EntityInspectorShell from '../components/layout/EntityInspectorShell.vue';
@@ -63,8 +63,15 @@ const {
   toggleTreeNode,
 } = useCardBrowserReadModel(cardStore, () => currentCardId.value);
 
-onMounted(() => { void cardStore.ensureRoot().catch(() => {}); });
 watch(currentCardId, (id) => { if (id) void cardStore.ensureRouteVisible(id); }, { immediate: true });
+watch(() => cardStore.hierarchySlicesByParentId, (current, previous) => {
+  const id = currentCardId.value;
+  if (!id) return;
+  const ancestors = new Set(cardRouteChain(id).slice(0, -1));
+  if (Object.keys(current).some((parentId) => ancestors.has(parentId) && current[parentId] !== previous?.[parentId] && !cardStore.childrenLoadState(parentId).stale)) {
+    void cardStore.ensureRouteVisible(id);
+  }
+}, { deep: false });
 
 function retryRoot(): void { void cardStore.retryChildren('project').catch(() => {}); }
 function retryChildren(id: string): void { void cardStore.retryChildren(id).catch(() => {}); }

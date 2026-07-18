@@ -53,68 +53,53 @@ describe('SyncClient', () => {
     setActivePinia(createPinia());
   });
 
-  it('connects once and refetches registered resources on open', async () => {
+  it('connects once, suppresses the Cards baseline open, then heals on reconnect', async () => {
     const { conn, emitOpen } = createConn();
     const client = new SyncClient(conn);
-    const refetch = vi.fn(async () => undefined);
+    const onReconnect = vi.fn();
 
-    client.register({ resource: 'cards', scope: 'core', refetch });
+    client.register({ resource: 'cards', onInvalidate: vi.fn(), onReconnect });
     client.start();
     client.start();
     emitOpen();
     await flush();
 
     expect(conn.connect).toHaveBeenCalledTimes(1);
-    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(onReconnect).not.toHaveBeenCalled();
+    emitOpen();
+    expect(onReconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('immediately invokes Cards refetches even while an older invocation is active', async () => {
+  it('delivers every exact Cards invalidation immediately without trailing state', async () => {
     const { conn, emitSync } = createConn();
     const client = new SyncClient(conn);
-    const first = deferred();
-    const second = deferred();
-    const refetch = vi.fn()
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
-    client.register({ resource: 'cards', scope: 'core', refetch });
+    const onInvalidate = vi.fn();
+    client.register({ resource: 'cards', onInvalidate, onReconnect: vi.fn() });
     client.start();
 
-    emitSync({ t: 'invalidate', resource: 'cards' });
-    emitSync({ t: 'invalidate', resource: 'cards' });
+    emitSync({ t: 'invalidate', resource: 'cards', scope: 'detail', card_id: 'card-a' });
+    emitSync({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'brief' });
     await flush();
-    expect(refetch).toHaveBeenCalledTimes(2);
-
-    first.resolve();
-    second.resolve();
-    await flush();
+    expect(onInvalidate.mock.calls.map(([target]) => target)).toEqual([
+      { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: 'card-a' },
+      { t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'brief' },
+    ]);
   });
 
-  it('observes and logs each overlapping Cards rejection independently', async () => {
-    const { conn, emitSync } = createConn();
+  it('resets baseline suppression synchronously on every reconfigure', () => {
+    const { conn, emitOpen } = createConn();
     const client = new SyncClient(conn);
-    const first = deferred();
-    const second = deferred();
-    const firstError = new Error('first Cards refresh failed');
-    const secondError = new Error('second Cards refresh failed');
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    client.register({
-      resource: 'cards',
-      scope: 'core',
-      refetch: vi.fn()
-        .mockReturnValueOnce(first.promise)
-        .mockReturnValueOnce(second.promise),
-    });
+    const onReconnect = vi.fn();
+    client.register({ resource: 'cards', onInvalidate: vi.fn(), onReconnect });
     client.start();
-
-    emitSync({ t: 'invalidate', resource: 'cards' });
-    emitSync({ t: 'invalidate', resource: 'cards' });
-    first.reject(firstError);
-    second.reject(secondError);
-    await flush();
-
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(warn).toHaveBeenCalledWith('[sync]', 'Sync refetch failed for cards', firstError);
-    expect(warn).toHaveBeenCalledWith('[sync]', 'Sync refetch failed for cards', secondError);
+    emitOpen(); emitOpen();
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    client.reconfigure(); client.reconfigure();
+    expect(conn.reconfigure).toHaveBeenCalledTimes(2);
+    emitOpen();
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    emitOpen();
+    expect(onReconnect).toHaveBeenCalledTimes(2);
   });
 
   it('keeps non-Cards refetches single-flight with one trailing call and settlement callback', async () => {
@@ -146,13 +131,13 @@ describe('SyncClient', () => {
     expect(onRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects Cards success callbacks at the registration boundary', () => {
+  it('uses a Cards-specific registration boundary', () => {
     const { conn } = createConn();
     const client = new SyncClient(conn);
     const cardsRegistration = {
       resource: 'cards',
-      scope: 'core',
-      refetch: async () => undefined,
+      onInvalidate: vi.fn(),
+      onReconnect: vi.fn(),
     } satisfies SyncResourceRegistration;
     const runtimeRegistration = {
       resource: 'runtime',
@@ -160,15 +145,8 @@ describe('SyncClient', () => {
       refetch: async () => undefined,
       onRefetch: (_timestamp: string) => undefined,
     } satisfies SyncResourceRegistration;
-    const cardsWithCallback = {
-      ...cardsRegistration,
-      onRefetch: (_timestamp: string) => undefined,
-    };
-
     client.register(cardsRegistration)();
     client.register(runtimeRegistration)();
-    // @ts-expect-error Cards registrations cannot publish refetch success callbacks.
-    client.register(cardsWithCallback);
   });
 
   it('ignores invalidations for inactive resources', async () => {

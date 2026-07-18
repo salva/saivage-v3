@@ -8,10 +8,11 @@ vi.mock('../api/client', () => ({
   listCardHistory: vi.fn(),
   getCardHistoryEntry: vi.fn(),
   getCardDiff: vi.fn(),
-  ApiError: class extends Error { status = 500; body = {}; get isUnauthorized() { return false; } get isNotFound() { return false; } },
+  getFileContent: vi.fn(),
+  ApiError: class extends Error { body = {}; constructor(public status: number, text: string) { super(text); } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
 }));
 
-import { getCard, getCardChildren } from '../api/client';
+import { ApiError, getCard, getCardChildren, getCardDiff, getFileContent } from '../api/client';
 import { useCardStore } from '../stores/cards';
 import { cardView } from './card-view-fixtures';
 
@@ -48,13 +49,13 @@ describe('lazy CardStore', () => {
       .mockResolvedValueOnce(childrenResponse(card(A), []));
     const store = useCardStore();
     await expect(store.ensureChildren(A)).rejects.toThrow('branch failed');
-    expect(store.childrenLoadState(A)).toEqual({ status: 'error', error: 'branch failed' });
+    expect(store.childrenLoadState(A)).toMatchObject({ status: 'error', error: 'branch failed', stale: false });
     await store.ensureChildren(A);
     expect(getCardChildren).toHaveBeenCalledTimes(1);
     await store.retryChildren(A);
     expect(getCardChildren).toHaveBeenCalledTimes(2);
-    expect(store.childrenLoadState(A)).toEqual({ status: 'loaded', error: null });
-    expect(() => store.retryChildren(A)).toThrow("Children for 'card-a' are not in error state.");
+    expect(store.childrenLoadState(A)).toMatchObject({ status: 'loaded', error: null, stale: false });
+    expect(() => store.retryChildren(A)).toThrow("Children for 'card-a' are not retryable.");
   });
 
   it('shares the exact same-parent owner promise and isolates different parents', async () => {
@@ -165,5 +166,73 @@ describe('lazy CardStore', () => {
     await store.ensureRouteVisible(AB);
     expect(getCardChildren).toHaveBeenCalledTimes(1);
     expect(store.hierarchySlicesByParentId.project.children.map((entry) => entry.id)).toEqual([B]);
+  });
+
+  it('implements the state-dependent record 404 table and exact Retry', async () => {
+    vi.mocked(getFileContent)
+      .mockRejectedValueOnce(new ApiError(404, 'required absent', {}))
+      .mockRejectedValueOnce(new ApiError(404, 'optional absent', {}))
+      .mockRejectedValueOnce(new ApiError(404, 'optional absent', {}));
+    const store = useCardStore();
+    await store.loadCardRecords(A);
+    expect(store.cardRecords.brief).toMatchObject({ accepted: null, error: 'required absent', stale: false });
+    expect(store.cardRecords.status.accepted).toEqual({ kind: 'empty' });
+    expect(store.cardRecords.review.accepted).toEqual({ kind: 'empty' });
+
+    vi.mocked(getFileContent).mockResolvedValueOnce({ path: '', size: 1, contentType: 'text/markdown', content: 'closed status', redacted: false, sensitivity: 'normal', version: 2, modifiedAt: 'now' });
+    await store.refreshRecord('status', 'invalidated');
+    vi.mocked(getFileContent).mockRejectedValueOnce(new ApiError(404, 'opaque card', {}));
+    await store.refreshRecord('status', 'invalidated');
+    expect(store.cardRecords.status).toMatchObject({ accepted: { kind: 'content', content: 'closed status' }, stale: true, staleReason: 'refresh-failed', refreshError: 'opaque card' });
+    vi.mocked(getFileContent).mockResolvedValueOnce({ path: '', size: 1, contentType: 'text/markdown', content: 'replacement', redacted: false, sensitivity: 'normal', version: 3, modifiedAt: 'later' });
+    await store.retryRecord('status');
+    expect(store.cardRecords.status).toMatchObject({ accepted: { kind: 'content', content: 'replacement' }, stale: false });
+
+    vi.mocked(getFileContent).mockRejectedValueOnce(new ApiError(404, 'still absent', {}));
+    await store.refreshRecord('review', 'reconnect');
+    expect(store.cardRecords.review).toMatchObject({ accepted: { kind: 'empty' }, stale: false, refreshError: null });
+  });
+
+  it('excludes an old selected-card record completion even when it resolves after abort', async () => {
+    const oldBrief = deferred<any>();
+    vi.mocked(getFileContent).mockImplementation((path) => path.includes('brief') && path.includes(A) ? oldBrief.promise : Promise.reject(new ApiError(404, 'absent', {})));
+    const store = useCardStore();
+    const oldLoad = store.loadCardRecords(A);
+    await flush();
+    await store.loadCardRecords(B);
+    oldBrief.resolve({ path: '', size: 1, contentType: 'text/markdown', content: 'old card content', redacted: false, sensitivity: 'normal', version: 1, modifiedAt: 'now' });
+    await oldLoad;
+    expect(store.selectedCardId).toBe(B);
+    expect(store.cardRecords.brief.accepted).toBeNull();
+  });
+
+  it('keeps a literal current-relative diff key independent of selected detail version', async () => {
+    vi.mocked(getCardDiff).mockResolvedValue({ card_id: A, from: 2, to: 9, diff: [{ field: 'title', before: 'old', after: 'new' }] });
+    const { getCardHistoryEntry } = await import('../api/client');
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: A, version_seq: 2 } as any });
+    const store = useCardStore();
+    store.selectedCardId = A;
+    store.cardHistoryVisible = true;
+    await store.selectCardHistoryVersion(A, 2);
+    expect(getCardDiff).toHaveBeenCalledWith({ cardId: A, fromSeq: 2, to: 'current' }, expect.any(AbortSignal));
+    expect(store.cardHistoryDiffKey).toEqual({ cardId: A, fromSeq: 2, to: 'current' });
+    expect(store.cardHistoryDiff[0]?.after).toBe('new');
+  });
+
+  it('reconnect snapshots accepted scopes once and excludes failed-stale scopes', async () => {
+    vi.mocked(getCardChildren)
+      .mockResolvedValueOnce(childrenResponse(card('project'), []))
+      .mockRejectedValueOnce(new Error('root refresh failed'));
+    const store = useCardStore();
+    await store.ensureRoot();
+    await store.refreshChildren('project', 'invalidated');
+    expect(store.childrenLoadState('project')).toMatchObject({ stale: true, staleReason: 'refresh-failed' });
+    const calls = vi.mocked(getCardChildren).mock.calls.length;
+    store.onReconnect();
+    await flush();
+    expect(getCardChildren).toHaveBeenCalledTimes(calls);
+    store.onInvalidate({ resource: 'cards', scope: 'children', card_id: A });
+    await flush();
+    expect(getCardChildren).toHaveBeenCalledTimes(calls);
   });
 });

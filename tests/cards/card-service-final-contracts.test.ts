@@ -54,7 +54,7 @@ function observableCardService(root: string): { cards: CardService; publications
     };
   };
   changes.subscribe({
-    cardStateChanged: () => publications.push(snapshot('card')),
+    cardProjectionChanged: () => publications.push(snapshot('card')),
     runtimeChanged: () => publications.push(snapshot('runtime')),
     agentsChanged: () => undefined,
     conversationChanged: () => undefined,
@@ -107,7 +107,7 @@ describe('CardService final reset-only contracts', () => {
     });
     const changes = new ReadModelChangeBroadcaster();
     changes.subscribe({
-      cardStateChanged: () => { order.push('card'); assertLinkedVisibility(); },
+      cardProjectionChanged: () => { order.push('card'); assertLinkedVisibility(); },
       runtimeChanged: () => { order.push('runtime'); assertLinkedVisibility(); },
       agentsChanged() {},
       conversationChanged() {},
@@ -141,7 +141,7 @@ describe('CardService final reset-only contracts', () => {
     // CardService freshly admitted the still-unlinked parent, and its second proof returned.
     expect(order).toEqual([
       'parent-link-open', 'parent-link-write', 'parent-link-fsync', 'parent-link-close',
-      'history', 'card', 'runtime',
+      'history', 'card', 'card', 'card', 'card', 'card', 'runtime',
     ]);
   });
 
@@ -267,16 +267,14 @@ describe('CardService final reset-only contracts', () => {
     const { cards, publications } = observableCardService(root);
 
     cards.create(input());
-    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'runtime']);
     expect(publications.every(({ card, listedIds }) => card?.id === FIRST && listedIds.includes(FIRST))).toBe(true);
     expect(publications.every(({ byType }) => byType.code?.includes(FIRST))).toBe(true);
 
     publications.length = 0;
     cards.deleteSubtrees([FIRST], { actor: 'runtime', surface: 'runtime' }, () => true);
-    expect(publications).toEqual([
-      { kind: 'card', card: null, listedIds: ['project'], byType: { project: ['project'] } },
-      { kind: 'runtime', card: null, listedIds: ['project'], byType: { project: ['project'] } },
-    ]);
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card', 'card', 'card', 'card', 'runtime']);
+    expect(publications.every(({ card, listedIds, byType }) => card === null && listedIds.length === 1 && listedIds[0] === 'project' && byType.project?.[0] === 'project')).toBe(true);
   });
 
   it('publishes runtime exactly once for actual status patches and not ordinary edits', () => {
@@ -285,13 +283,13 @@ describe('CardService final reset-only contracts', () => {
 
     publications.length = 0;
     cards.setStatus(FIRST, 'running');
-    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card', 'runtime']);
     expect(publications.every(({ card }) => card?.status === 'running')).toBe(true);
 
     cards.setStatus(FIRST, 'backlog');
     publications.length = 0;
     cards.update(FIRST, { title: 'Edited without changing runtime indexes' });
-    expect(publications.map(({ kind }) => kind)).toEqual(['card']);
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card']);
     expect(publications[0]?.card).toMatchObject({ type: 'code', title: 'Edited without changing runtime indexes' });
 
     cards.setStatus(FIRST, 'running');
@@ -300,7 +298,7 @@ describe('CardService final reset-only contracts', () => {
       status: 'done',
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'complete' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' },
     });
-    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'runtime']);
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card', 'runtime']);
     expect(publications.every(({ card }) => card?.status === 'done' && card.type === 'code')).toBe(true);
   });
 
@@ -347,7 +345,7 @@ describe('CardService final reset-only contracts', () => {
     expect(cards.reorderChildren(parent.id, [second.id, first.id], { actor: 'analyst', surface: 'runtime', reason: 'test reorder' })).toEqual({ ok: true, changed: 2 });
 
     expect(historyEvents).toEqual([parent.id]);
-    expect(publications.map(({ kind }) => kind)).toEqual(['card']);
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card']);
     expect(readFileSync(parentPath, 'utf8').trim().split('\n')).toHaveLength(parentRowsBefore + 1);
     expect(readFileSync(cardStreamFile(root, first.id), 'utf8')).toBe(firstBefore);
     expect(readFileSync(cardStreamFile(root, second.id), 'utf8')).toBe(secondBefore);
@@ -405,7 +403,7 @@ describe('CardService final reset-only contracts', () => {
     expect(publications).toEqual([]);
 
     cards.update(FIRST, { status: 'backlog', title: 'Updated title' });
-    expect(publications.map(({ kind }) => kind)).toEqual(['card']);
+    expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card']);
     expect(publications[0]?.card?.title).toBe('Updated title');
   });
 
@@ -424,7 +422,7 @@ describe('CardService final reset-only contracts', () => {
   it('emits no effects when the parent link append reports failure after a complete line', () => {
     const eventBus = new EventBus(); const events = jest.fn(); eventBus.subscribe('card_history_appended', (event) => { events(event); });
     const changes = new ReadModelChangeBroadcaster(); const publications: string[] = [];
-    changes.subscribe({ cardStateChanged: () => publications.push('card'), runtimeChanged: () => publications.push('runtime'), agentsChanged() {}, conversationChanged() {} });
+    changes.subscribe({ cardProjectionChanged: () => publications.push('card'), runtimeChanged: () => publications.push('runtime'), agentsChanged() {}, conversationChanged() {} });
     const operations: string[] = [];
     const afterFailure: string[] = [];
     let failed = false;
@@ -467,7 +465,7 @@ describe('CardService final reset-only contracts', () => {
     eventBus.subscribe('card_history_appended', (event) => { events(event); });
     const changes = new ReadModelChangeBroadcaster();
     const publications: string[] = [];
-    changes.subscribe({ cardStateChanged: () => publications.push('card'), runtimeChanged: () => publications.push('runtime'), agentsChanged() {}, conversationChanged() {} });
+    changes.subscribe({ cardProjectionChanged: () => publications.push('card'), runtimeChanged: () => publications.push('runtime'), agentsChanged() {}, conversationChanged() {} });
     const operations: string[] = [];
     const afterFailure: string[] = [];
     let failed = false;

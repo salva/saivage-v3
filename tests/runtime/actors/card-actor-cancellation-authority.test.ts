@@ -69,7 +69,7 @@ describe('CardActor authoritative cancellation', () => {
     const changes = new ReadModelChangeBroadcaster();
     cards = new CardService(root, undefined, changes);
     cardRuntimeSnapshots = [];
-    changes.subscribe({ runtimeChanged: () => cardRuntimeSnapshots.push(Object.fromEntries(cards.list().map((card) => [card.id, card.status]))), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+    changes.subscribe({ runtimeChanged: () => cardRuntimeSnapshots.push(Object.fromEntries(cards.list().map((card) => [card.id, card.status]))), cardProjectionChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     lookup = new Map();
     liveLookup = new Map();
     releaseSettledActor = jest.fn((settledActor: CardActor) => {
@@ -464,7 +464,7 @@ describe('CardActor authoritative cancellation', () => {
     let currentness!: ActiveCardLeaf;
     const snapshot = (source: 'card' | 'actor') => snapshots.push({ source, current: currentness.activeCardId(), childStatus: store.read(IDS[0]!)?.status ?? null, retained: [...retained.keys()] });
     currentness = new ActiveCardLeaf(() => snapshot('actor'));
-    changes.subscribe({ runtimeChanged: () => snapshot('card'), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+    changes.subscribe({ runtimeChanged: () => snapshot('card'), cardProjectionChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     const deps = {
       projectRoot: root, storeForCard: () => store, currentness,
       provider: {}, processRunner: {}, promptTemplates: {}, notifyCard: () => ({ ok: true, notificationId: 'n' }),

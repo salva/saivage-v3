@@ -26,3 +26,25 @@ describe('live-sync conversation identity contracts', () => {
     expect(LiveSyncInvalidateFrameSchema.safeParse({ t: 'invalidate', resource: 'conversation', id }).success).toBe(false);
   });
 });
+
+describe('live-sync scoped Cards contracts', () => {
+  it.each(['children', 'detail', 'history', 'diff'] as const)('accepts the exact %s target', (scope) => {
+    expect(LiveSyncInvalidateFrameSchema.parse({ t: 'invalidate', resource: 'cards', scope, card_id: 'card-a-b' }))
+      .toEqual({ t: 'invalidate', resource: 'cards', scope, card_id: 'card-a-b' });
+  });
+
+  it.each(['brief', 'status', 'review'] as const)('accepts the exact record slot %s', (slot) => {
+    expect(LiveSyncInvalidateFrameSchema.parse({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'project', slot }))
+      .toEqual({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'project', slot });
+  });
+
+  it.each([
+    { t: 'invalidate', resource: 'cards' },
+    { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: 'card-1' },
+    { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: 'card-a', slot: 'brief' },
+    { t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a' },
+    { t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'draft' },
+  ])('rejects noncanonical Cards payload %#', (frame) => {
+    expect(LiveSyncInvalidateFrameSchema.safeParse(frame).success).toBe(false);
+  });
+});

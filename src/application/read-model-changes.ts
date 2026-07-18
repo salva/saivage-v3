@@ -1,8 +1,11 @@
 import type { ConversationSessionId } from '../schemas/index.js';
+import type { LiveSyncCardInvalidateTarget } from '../contracts/index.js';
+
+export type CardProjectionChange = LiveSyncCardInvalidateTarget;
 
 export interface ReadModelChangeListener {
   runtimeChanged(): void;
-  cardStateChanged(): void;
+  cardProjectionChanged(target: CardProjectionChange): void;
   agentsChanged(): void;
   conversationChanged(sessionId: ConversationSessionId): void;
 }
@@ -31,7 +34,7 @@ export class ReadModelChangeBroadcaster implements ReadModelChanges {
   }
 
   runtimeChanged(): void { this.publish((listener) => listener.runtimeChanged()); }
-  cardStateChanged(): void { this.publish((listener) => listener.cardStateChanged()); }
+  cardProjectionChanged(target: CardProjectionChange): void { this.publish((listener) => listener.cardProjectionChanged(target)); }
   agentsChanged(): void { this.publish((listener) => listener.agentsChanged()); }
   conversationChanged(sessionId: ConversationSessionId): void { this.publish((listener) => listener.conversationChanged(sessionId)); }
 

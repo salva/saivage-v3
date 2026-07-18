@@ -1,19 +1,18 @@
 import { readonly, ref } from 'vue';
 import { getWsConnection, type WsConnectionManager } from '../api/websocket';
-import type { LiveSyncInvalidateFrame, LiveSyncSubscribedFrame, LiveSyncUnscopedResource, WsConnectionState } from '../api/types';
+import type { LiveSyncCardInvalidateTarget, LiveSyncInvalidateFrame, LiveSyncSubscribedFrame, LiveSyncUnscopedResource, WsConnectionState } from '../api/types';
 import { isAnalystActivityContent, parseAnalystTurnAcknowledgedStatusContent, type ConversationSessionId } from '../api/contracts';
 import { useAnalystChat } from '../stores/analystChat';
 import { createLogger } from '../utils/logger';
 
 export type SyncResourceScope = 'core' | 'active';
-export type SyncResourceKey = LiveSyncUnscopedResource;
+export type SyncResourceKey = LiveSyncUnscopedResource | 'cards';
 
 export type SyncResourceRegistration =
   | {
       resource: 'cards';
-      scope: SyncResourceScope;
-      refetch: () => Promise<void>;
-      onRefetch?: never;
+      onInvalidate: (target: LiveSyncCardInvalidateTarget) => void;
+      onReconnect: () => void;
     }
   | {
       resource: Exclude<SyncResourceKey, 'cards'>;
@@ -35,6 +34,7 @@ export class SyncClient {
   private readonly conversations = new Map<ConversationSessionId, { callbacks: Set<() => Promise<void>>; lease: string | null }>();
   private readonly flights = new Map<string, FlightState>();
   private started = false;
+  private cardsBaselineOpenPending = true;
 
   private readonly connectionStateRef: ReturnType<typeof ref<WsConnectionState>>;
   private readonly lastConnectedAtRef = ref<string | null>(null);
@@ -62,7 +62,10 @@ export class SyncClient {
     });
     this.conn.onOpen(() => {
       this.lastConnectedAtRef.value = new Date().toISOString();
-      this.refetchRegistered();
+      this.refetchRegisteredNonCards();
+      const cards = this.resources.get('cards');
+      if (this.cardsBaselineOpenPending) this.cardsBaselineOpenPending = false;
+      else if (cards?.resource === 'cards') cards.onReconnect();
       this.resubscribeConversations();
     });
     this.conn.onSyncFrame((frame) => this.handleSyncFrame(frame));
@@ -85,12 +88,13 @@ export class SyncClient {
   }
 
   reconfigure(): void {
+    this.cardsBaselineOpenPending = true;
     this.conn.reconfigure();
   }
 
   register(registration: SyncResourceRegistration): () => void {
     this.resources.set(registration.resource, registration);
-    if (this.conn.state.value === 'connected') this.refetchResource(registration.resource);
+    if (registration.resource !== 'cards' && this.conn.state.value === 'connected') this.refetchResource(registration.resource);
     return () => {
       const current = this.resources.get(registration.resource);
       if (current === registration) this.resources.delete(registration.resource);
@@ -130,11 +134,16 @@ export class SyncClient {
       this.refetchConversation(frame.id);
       return;
     }
+    if (frame.resource === 'cards') {
+      const registration = this.resources.get('cards');
+      if (registration?.resource === 'cards') registration.onInvalidate(frame);
+      return;
+    }
     this.refetchResource(frame.resource, timestamp);
   }
 
-  private refetchRegistered(): void {
-    for (const key of this.resources.keys()) this.refetchResource(key);
+  private refetchRegisteredNonCards(): void {
+    for (const key of this.resources.keys()) if (key !== 'cards') this.refetchResource(key);
   }
 
   private resubscribeConversations(): void {
@@ -144,10 +153,7 @@ export class SyncClient {
   private refetchResource(resource: SyncResourceKey, invalidatedAt?: string): void {
     const registration = this.resources.get(resource);
     if (!registration) return;
-    if (registration.resource === 'cards') {
-      void registration.refetch().catch((err) => log.warn('Sync refetch failed for cards', err));
-      return;
-    }
+    if (registration.resource === 'cards') return;
     this.runSingleFlight(resource, registration.refetch, invalidatedAt, registration.onRefetch);
   }
 

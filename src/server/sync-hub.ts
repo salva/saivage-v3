@@ -3,7 +3,7 @@ import type { OperatorBroadcastEventKind } from '../events/index.js';
 import type { LiveSyncInvalidateTarget } from '../contracts/index.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { LiveSyncSocket } from './live-sync-socket.js';
-import type { ReadModelChangeListener } from '../application/read-model-changes.js';
+import type { CardProjectionChange, ReadModelChangeListener } from '../application/read-model-changes.js';
 import type { ConversationSessionId } from '../schemas/index.js';
 
 export const liveSyncEventKinds = [
@@ -19,7 +19,13 @@ export const liveSyncEventKinds = [
 export type LiveSyncEventKind = typeof liveSyncEventKinds[number];
 
 function targetKey(target: LiveSyncInvalidateTarget): string {
-  return target.resource === 'conversation' ? `${target.resource}\u0000${target.id}` : target.resource;
+  if (target.resource === 'conversation') return `${target.resource}\u0000${target.id}`;
+  if (target.resource === 'cards') {
+    return target.scope === 'record'
+      ? `${target.resource}\u0000${target.scope}\u0000${target.card_id}\u0000${target.slot}`
+      : `${target.resource}\u0000${target.scope}\u0000${target.card_id}`;
+  }
+  return target.resource;
 }
 
 export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyncInvalidateTarget[] {
@@ -91,7 +97,7 @@ export class SyncHub implements ReadModelChangeListener {
   }
 
   runtimeChanged(): void { this.markDirty({ resource: 'runtime' }); }
-  cardStateChanged(): void { this.markDirty({ resource: 'cards' }); }
+  cardProjectionChanged(target: CardProjectionChange): void { this.markDirty(target); }
   agentsChanged(): void { this.markDirty({ resource: 'agents' }); }
   conversationChanged(id: ConversationSessionId): void { this.markDirty({ resource: 'conversation', id }); }
 

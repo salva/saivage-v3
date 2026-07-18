@@ -63,7 +63,12 @@ describe('SyncHub semantic hints', () => {
 
     hub.runtimeChanged();
     hub.runtimeChanged();
-    hub.cardStateChanged();
+    hub.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: 'card-a' });
+    hub.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: 'card-a' });
+    hub.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: 'card-b' });
+    hub.cardProjectionChanged({ resource: 'cards', scope: 'history', card_id: 'card-a' });
+    hub.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'brief' });
+    hub.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'status' });
     hub.agentsChanged();
     hub.conversationChanged('analyst:global');
     hub.conversationChanged('analyst:global');
@@ -73,7 +78,11 @@ describe('SyncHub semantic hints', () => {
 
     expect(invalidate.mock.calls.map(([target]) => target)).toEqual([
       { resource: 'runtime' },
-      { resource: 'cards' },
+      { resource: 'cards', scope: 'detail', card_id: 'card-a' },
+      { resource: 'cards', scope: 'detail', card_id: 'card-b' },
+      { resource: 'cards', scope: 'history', card_id: 'card-a' },
+      { resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'brief' },
+      { resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'status' },
       { resource: 'agents' },
       { resource: 'conversation', id: 'analyst:global' },
     ]);
@@ -106,7 +115,11 @@ describe('SyncHub semantic hints', () => {
       jest.advanceTimersByTime(25);
 
       expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([
-        { t: 'invalidate', resource: 'cards' },
+        { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: parent.id },
+        { t: 'invalidate', resource: 'cards', scope: 'history', card_id: parent.id },
+        { t: 'invalidate', resource: 'cards', scope: 'diff', card_id: parent.id },
+        { t: 'invalidate', resource: 'cards', scope: 'children', card_id: parent.id },
+        { t: 'invalidate', resource: 'cards', scope: 'children', card_id: 'project' },
         { t: 'invalidate', resource: 'runtime' },
       ]);
     } finally {

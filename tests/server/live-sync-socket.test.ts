@@ -42,3 +42,19 @@ describe('LiveSyncSocket conversation leases', () => {
     expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'planner:project' }]);
   });
 });
+
+describe('LiveSyncSocket scoped Cards invalidations', () => {
+  it('broadcasts one exact scoped payload to every open client without a subscription', () => {
+    const live = new LiveSyncSocket();
+    const first = socket();
+    const second = socket();
+    live.add(first);
+    live.add(second);
+
+    live.invalidate({ resource: 'cards', scope: 'record', card_id: 'card-a-b', slot: 'review' });
+
+    const expected = [{ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a-b', slot: 'review' }];
+    expect(jest.mocked(first.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual(expected);
+    expect(jest.mocked(second.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual(expected);
+  });
+});
