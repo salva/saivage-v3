@@ -9,11 +9,12 @@ import { createProjectIdentity } from '../../src/persistence/project-identity.js
 import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 
-const readCard = jest.fn<(...args: any[]) => any>();
+const readProjectCardOrAssertInitialPublicationAllowed = jest.fn<(...args: any[]) => any>();
 const publishInitialProjectCard = jest.fn<(...args: any[]) => any>();
 const startServer = jest.fn<(...args: any[]) => any>();
 
-jest.unstable_mockModule('../../src/persistence/card-files.js', () => ({ readCard, publishInitialProjectCard }));
+jest.unstable_mockModule('../../src/persistence/card-files.js', () => ({ publishInitialProjectCard }));
+jest.unstable_mockModule('../../src/persistence/generated-state.js', () => ({ readProjectCardOrAssertInitialPublicationAllowed }));
 jest.unstable_mockModule('../../src/server/server.js', () => ({ startServer }));
 
 const { startApp } = await import('../../src/boot/app.js');
@@ -60,7 +61,7 @@ function publishExistingRootCard(root: string): void {
 
 describe('startup configuration validation before runtime publication', () => {
   beforeEach(() => {
-    readCard.mockReset().mockReturnValue(null);
+    readProjectCardOrAssertInitialPublicationAllowed.mockReset().mockReturnValue(null);
     publishInitialProjectCard.mockReset();
     startServer.mockReset().mockResolvedValue({ fastify: { server: { address: () => ({ port: 43210 }) } } });
   });
@@ -79,7 +80,7 @@ describe('startup configuration validation before runtime publication', () => {
 
     const handle = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
     releaseRuntimeLifecycleLock(handle);
-    expect(readCard).not.toHaveBeenCalled();
+    expect(readProjectCardOrAssertInitialPublicationAllowed).not.toHaveBeenCalled();
     expect(publishInitialProjectCard).not.toHaveBeenCalled();
     expect(startServer).not.toHaveBeenCalled();
     expect(existsSync(join(root, '.saivage', 'cards'))).toBe(false);
@@ -98,7 +99,7 @@ describe('startup configuration validation before runtime publication', () => {
 
     await expect(startApp({ argv: argv(root), env: {} })).rejects.toThrow('Effective Analyst max tokens 201');
 
-    expect(readCard).not.toHaveBeenCalled();
+    expect(readProjectCardOrAssertInitialPublicationAllowed).not.toHaveBeenCalled();
     expect(publishInitialProjectCard).not.toHaveBeenCalled();
     expect(startServer).not.toHaveBeenCalled();
     expect(readFileSync(cardPath)).toEqual(cardBytes);
@@ -111,11 +112,39 @@ describe('startup configuration validation before runtime publication', () => {
 
     const app = await startApp({ argv: argv(root), env: {} });
     try {
-      expect(readCard).toHaveBeenCalledWith(root, 'project');
+      expect(readProjectCardOrAssertInitialPublicationAllowed).toHaveBeenCalledWith(root);
       expect(publishInitialProjectCard).toHaveBeenCalledTimes(1);
       expect(startServer).toHaveBeenCalledTimes(1);
     } finally {
       await app.stop();
     }
+  });
+
+  it('skips initial publication when the bootstrap decision returns an existing card', async () => {
+    const root = projectRoot();
+    writeConfig(root, 200);
+    readProjectCardOrAssertInitialPublicationAllowed.mockReturnValue({ id: 'project' });
+
+    const app = await startApp({ argv: argv(root), env: {} });
+    try {
+      expect(readProjectCardOrAssertInitialPublicationAllowed).toHaveBeenCalledWith(root);
+      expect(publishInitialProjectCard).not.toHaveBeenCalled();
+      expect(startServer).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.stop();
+    }
+  });
+
+  it('does not start the server and releases the real lock when the bootstrap decision fails', async () => {
+    const root = projectRoot();
+    writeConfig(root, 200);
+    readProjectCardOrAssertInitialPublicationAllowed.mockImplementation(() => { throw new Error('partial generated state'); });
+
+    await expect(startApp({ argv: argv(root), env: {} })).rejects.toThrow('partial generated state');
+
+    expect(publishInitialProjectCard).not.toHaveBeenCalled();
+    expect(startServer).not.toHaveBeenCalled();
+    const handle = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
+    releaseRuntimeLifecycleLock(handle);
   });
 });

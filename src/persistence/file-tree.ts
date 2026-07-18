@@ -1,11 +1,8 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { redactTextForOutbound } from '../redaction/index.js';
 import { isReadBlocked } from '../workspace/index.js';
-import { readCard } from './card-files.js';
-import { saivageCardsRoot } from './layout.js';
-import { readProjectIdentity } from './project-identity.js';
 
 export function readProjectFileAtomic(projectRoot: string, relativePath: string, opts?: { redactSecrets?: boolean }): string {
   const cleanPath = relativePath.replace(/^\.\//, '');
@@ -27,12 +24,4 @@ function validationHint(projectRoot: string): string {
 
 export function explainStateValidationRejection(projectRoot: string, stateKind: string, details: string): never {
   throw new Error(`${stateKind} validation failed: ${details}. ${validationHint(projectRoot)}`);
-}
-
-export function isInitialized(projectRoot: string): boolean {
-  try { if (readProjectIdentity(projectRoot) === null) return false; } catch { return false; }
-  for (const dir of [saivageCardsRoot(projectRoot)]) {
-    try { if (!statSync(dir).isDirectory()) return false; } catch { return false; }
-  }
-  try { return readCard(projectRoot, 'project') !== null; } catch { return false; }
 }

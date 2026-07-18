@@ -8,7 +8,6 @@ export {
 } from './errors.js';
 export {
   explainStateValidationRejection,
-  isInitialized,
   readProjectFileAtomic,
 } from './file-tree.js';
 export { findProjectRoot } from './discovery.js';

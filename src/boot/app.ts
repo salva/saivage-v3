@@ -1,7 +1,8 @@
 import { mkdirSync, realpathSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { loadEnvironment, type Environment } from '../config/index.js';
-import { publishInitialProjectCard, readCard } from '../persistence/card-files.js';
+import { publishInitialProjectCard } from '../persistence/card-files.js';
+import { readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/generated-state.js';
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock } from '../runtime/lock.js';
 import type { CardRecord } from '../schemas/index.js';
 import { startServer, type ServerInstance } from '../server/server.js';
@@ -151,7 +152,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   let server: ServerInstance;
   try {
     environment = await loadEnvironment(options.argv, env);
-    if (prelock.createRuntime && readCard(prelock.projectRoot, 'project') === null) {
+    if (prelock.createRuntime && readProjectCardOrAssertInitialPublicationAllowed(prelock.projectRoot) === null) {
       mkdirSync(resolve(prelock.projectRoot, '.saivage', 'cards'), { recursive: true });
       const root = newProjectRootInput(prelock.projectRoot);
       publishInitialProjectCard(prelock.projectRoot, root.card, root.brief, 'analyst');
