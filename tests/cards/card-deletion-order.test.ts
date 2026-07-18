@@ -10,10 +10,9 @@ import { cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
-const segments = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'cccccccccccccccccccccccccccc', 'dddddddddddddddddddddddddddd', 'eeeeeeeeeeeeeeeeeeeeeeeeeeee'];
 const io: GrowingFileIo = { read: readFileSync, open: openSync, write: writeSync, fsync: fsyncSync, truncate: ftruncateSync, close: closeSync };
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
-function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-delete-order-')); roots.push(root); initProjectTree(root); const ids = [...segments]; return { root, cards: new CardService(root, undefined, undefined, () => ids.shift()!) }; }
+function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-delete-order-')); roots.push(root); initProjectTree(root); return { root, cards: new CardService(root) }; }
 function create(cards: CardService, parent = 'project', depends_on: string[] = [], type: 'code' | 'goal' = 'code') { return cards.create({ type, parent, title: 'card', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on, related: [] }); }
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'test' };
 
@@ -58,7 +57,7 @@ describe('complete-union deletion admission and order', () => {
     const failingIo: GrowingFileIo = { ...io, write: failSecondWrite };
     const eventBus = new EventBus(); const events: Array<{ cardId: string; kind: string }> = []; eventBus.subscribe('card_history_appended', (event) => { events.push({ cardId: event.payload.card_id, kind: event.payload.entry_kind }); });
     const changes = new ReadModelChangeBroadcaster(); const cardEffects = jest.fn(); const runtimeEffects = jest.fn(); changes.subscribe({ cardStateChanged: cardEffects, runtimeChanged: runtimeEffects, agentsChanged() {}, conversationChanged() {} });
-    const deleting = new CardService(root, eventBus, changes, undefined, failingIo);
+    const deleting = new CardService(root, eventBus, changes, failingIo);
     expect(() => deleting.deleteSubtrees([left.id, right.id], context, () => true)).toThrow('injected tombstone failure');
     expect(cardEffects).toHaveBeenCalledTimes(1);
     expect(runtimeEffects).toHaveBeenCalledTimes(1);
@@ -72,7 +71,7 @@ describe('complete-union deletion admission and order', () => {
     const failingIo: GrowingFileIo = { ...io, fsync(fd) { fsyncSync(fd); throw new Error('uncertain tombstone'); } };
     const eventBus = new EventBus(); const events = jest.fn(); eventBus.subscribe('card_history_appended', (event) => { events(event); });
     const changes = new ReadModelChangeBroadcaster(); const cardEffects = jest.fn(); const runtimeEffects = jest.fn(); changes.subscribe({ cardStateChanged: cardEffects, runtimeChanged: runtimeEffects, agentsChanged() {}, conversationChanged() {} });
-    const deleting = new CardService(root, eventBus, changes, undefined, failingIo);
+    const deleting = new CardService(root, eventBus, changes, failingIo);
     expect(() => deleting.deleteSubtrees([left.id, right.id], context, () => true)).toThrow('uncertain tombstone');
     expect(cardEffects).not.toHaveBeenCalled();
     expect(runtimeEffects).not.toHaveBeenCalled();

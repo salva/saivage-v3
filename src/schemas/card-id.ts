@@ -1,11 +1,23 @@
 import { z } from 'zod';
 
-export const cardSegmentSchema = z.string().regex(/^[a-z]{28}$/u, 'Expected 28 lowercase ASCII letters.');
-export const nonRootCardIdSchema = z.string().regex(/^card-[a-z]{28}(?:-[a-z]{28}){0,4}$/u, 'Expected a hierarchical card id with one to five opaque segments.');
+export const cardSegmentSchema = z.string().regex(/^[a-z]+$/u, 'Expected one or more lowercase ASCII letters.');
+export const nonRootCardIdSchema = z.string().regex(/^card-[a-z]+(?:-[a-z]+){0,4}$/u, 'Expected a hierarchical card id with one to five alphabetic segments.');
 export const cardIdSchema = z.union([z.literal('project'), nonRootCardIdSchema]);
 export type CardId = z.infer<typeof cardIdSchema>;
 
-export type CardSegmentFactory = () => string;
+export function nextCardSegment(segment?: string): string {
+  if (segment === undefined) return 'a';
+  cardSegmentSchema.parse(segment);
+  const letters = [...segment];
+  for (let index = letters.length - 1; index >= 0; index -= 1) {
+    if (letters[index] !== 'z') {
+      letters[index] = String.fromCharCode(letters[index]!.charCodeAt(0) + 1);
+      return cardSegmentSchema.parse(letters.join(''));
+    }
+    letters[index] = 'a';
+  }
+  return cardSegmentSchema.parse(`a${letters.join('')}`);
+}
 
 export function cardIdSegments(id: string): string[] {
   cardIdSchema.parse(id);

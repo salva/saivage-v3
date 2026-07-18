@@ -13,9 +13,6 @@ import { ActiveCardLeaf } from '../../src/runtime/active-card-leaf.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { WebSocket } from 'ws';
 
-const FIRST_SEGMENT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const SECOND_SEGMENT = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-
 function socket() {
   return { OPEN: 1, CONNECTING: 0, readyState: 1, send: jest.fn(), close: jest.fn(), removeAllListeners: jest.fn() } as unknown as WebSocket;
 }
@@ -93,14 +90,13 @@ describe('SyncHub semantic hints', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-sync-card-index-'));
     try {
       initProjectTree(root);
-      const segments = [FIRST_SEGMENT, SECOND_SEGMENT];
-      const cards = new CardService(root, undefined, changes, () => segments.shift()!);
+      const cards = new CardService(root, undefined, changes);
       const parent = cards.create({ type: 'goal', parent: 'project', title: 'sync parent', brief: 'sync', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       jest.advanceTimersByTime(25);
       jest.mocked(ws.send).mockClear();
 
       const child = cards.create({ type: 'code', parent: parent.id, title: 'sync child', brief: 'sync', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-      expect(child.id).toBe(`card-${FIRST_SEGMENT}-${SECOND_SEGMENT}`);
+      expect(child.id).toBe('card-a-a');
       expect(cards.read(parent.id)?.children).toEqual([child.id]);
       expect(cards.listChildren(parent.id)).toEqual([child.id]);
       expect(cards.list().map(({ id }) => id)).toEqual(['project', parent.id, child.id]);

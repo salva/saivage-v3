@@ -24,7 +24,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
   it.each([
     ['planner', 'planner:project'],
     ['reviewer', 'reviewer:project'],
-    ['executor', 'executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+    ['executor', 'executor:card-a'],
     ['analyst', 'analyst:global'],
   ] as Array<[OperationalAgentRole, ConversationSessionId]>)('recovers one %s logical input with one compacted retry and singular persistence', async (role, agentId) => {
     const source = message(agentId, 'source', 'user', 'original source');
@@ -299,7 +299,7 @@ function actorHarness(role: OperationalAgentRole, agentId: ConversationSessionId
   const root = mkdtempSync(join(tmpdir(), 'saivage-last-chance-'));
   initProjectTree(root);
   if (role === 'executor') {
-    const card = new CardService(root, undefined, undefined, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa').create({
+    const card = new CardService(root).create({
       type: 'code',
       parent: 'project',
       title: 'Executor card',

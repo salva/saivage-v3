@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { closeSync, ftruncateSync, fsyncSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, ftruncateSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,9 +11,9 @@ import { cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 
-const FIRST_SEGMENT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const SECOND_SEGMENT = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-const THIRD_SEGMENT = 'cccccccccccccccccccccccccccc';
+const FIRST_SEGMENT = 'a';
+const SECOND_SEGMENT = 'b';
+const THIRD_SEGMENT = 'c';
 const FIRST = `card-${FIRST_SEGMENT}`;
 const SECOND = `card-${SECOND_SEGMENT}`;
 const THIRD = `card-${THIRD_SEGMENT}`;
@@ -58,8 +58,7 @@ function observableCardService(root: string): { cards: CardService; publications
     agentsChanged: () => undefined,
     conversationChanged: () => undefined,
   });
-  const segments = [FIRST_SEGMENT, SECOND_SEGMENT, THIRD_SEGMENT];
-  cards = new CardService(root, eventBus, changes, () => segments.shift()!);
+  cards = new CardService(root, eventBus, changes);
   return { cards, publications, historyEvents };
 }
 
@@ -68,18 +67,16 @@ describe('CardService final reset-only contracts', () => {
   beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'saivage-card-service-')); initProjectTree(root); });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  it('uses one opaque identity per creation attempt and never derives identity from existing namespaces', () => {
-    const identity = jest.fn<() => string>().mockReturnValueOnce(FIRST_SEGMENT).mockReturnValueOnce(SECOND_SEGMENT);
-    const cards = new CardService(root, undefined, undefined, identity);
-    expect(cards.create(input()).id).toBe(FIRST);
+  it('allocates durable parent-local spreadsheet identities', () => {
+    const cards = new CardService(root);
+    expect(cards.create({ ...input(), type: 'goal' }).id).toBe(FIRST);
     expect(cards.create(input()).id).toBe(SECOND);
-    expect(identity).toHaveBeenCalledTimes(2);
     expect(cards.listChildren('project')).toEqual([FIRST, SECOND]);
+    expect(new CardService(root).create(input(FIRST)).id).toBe(`${FIRST}-a`);
   });
 
   it('lists and reorders only the exact parent and its committed child references', () => {
-    const segments = [FIRST_SEGMENT, SECOND_SEGMENT, THIRD_SEGMENT];
-    const cards = new CardService(root, undefined, undefined, () => segments.shift()!);
+    const cards = new CardService(root);
     const parent = cards.create({ ...input(), type: 'goal' });
     const child = cards.create(input(parent.id));
     const unrelated = cards.create(input());
@@ -91,8 +88,8 @@ describe('CardService final reset-only contracts', () => {
   });
 
   it('admits a fresh parent and confirms the linked child before history/card/runtime effects', () => {
-    const parent = new CardService(root, undefined, undefined, () => FIRST_SEGMENT).create({ ...input(), type: 'goal' });
-    const childId = `${parent.id}-${SECOND_SEGMENT}`;
+    const parent = new CardService(root).create({ ...input(), type: 'goal' });
+    const childId = `${parent.id}-${FIRST_SEGMENT}`;
     const order: string[] = [];
     const eventBus = new EventBus();
     const assertLinkedVisibility = () => {
@@ -134,19 +131,22 @@ describe('CardService final reset-only contracts', () => {
       truncate: ftruncateSync,
       close(fd) { order.push('parent-link-close'); closeSync(fd); },
     };
-    const cards = new CardService(root, eventBus, changes, () => SECOND_SEGMENT, io);
+    const cards = new CardService(root, eventBus, changes, io);
 
     const child = cards.create(input(parent.id));
 
     expect(child.id).toBe(childId);
     // Reaching the append means publishInitialCard completed its initial-stream proof,
     // CardService freshly admitted the still-unlinked parent, and its second proof returned.
-    expect(order).toEqual(['parent-link-open', 'parent-link-write', 'parent-link-fsync', 'parent-link-close', 'history', 'card', 'runtime']);
+    expect(order).toEqual([
+      'parent-link-open', 'parent-link-write', 'parent-link-fsync', 'parent-link-close',
+      'parent-link-open', 'parent-link-write', 'parent-link-fsync', 'parent-link-close',
+      'history', 'card', 'runtime',
+    ]);
   });
 
   it('projects a cloned target and dependency statuses in declared order', () => {
-    const identity = jest.fn<() => string>().mockReturnValueOnce(FIRST_SEGMENT).mockReturnValueOnce(SECOND_SEGMENT).mockReturnValueOnce(THIRD_SEGMENT);
-    const cards = new CardService(root, undefined, undefined, identity);
+    const cards = new CardService(root);
     cards.create(input());
     cards.create(input());
     cards.setStatus(FIRST, 'running');
@@ -176,25 +176,46 @@ describe('CardService final reset-only contracts', () => {
     expect(cards.readActivationAdmission('project')).toMatchObject({ child: { id: 'project' }, dependencies: [] });
   });
 
-  it('rejects missing dependencies before identity generation and mutation', () => {
-    const identity = jest.fn<() => string>(() => FIRST_SEGMENT);
-    const cards = new CardService(root, undefined, undefined, identity);
+  it('rejects missing dependencies before reservation mutation', () => {
+    const cards = new CardService(root);
     expect(() => cards.create({ ...input(), depends_on: [SECOND] })).toThrow(`Dependency card '${SECOND}' does not exist.`);
-    expect(identity).not.toHaveBeenCalled();
+    expect(readFileSync(cardStreamFile(root, 'project'), 'utf8').trim().split('\n')).toHaveLength(1);
   });
 
-  it('draws identity before freshly admitting sibling position immediately before claim', () => {
-    const parent = new CardService(root, undefined, undefined, () => FIRST_SEGMENT).create({ ...input(), type: 'goal' });
-    const identity = jest.fn(() => {
-      const concurrent = new CardService(root, undefined, undefined, () => SECOND_SEGMENT);
-      const sibling = concurrent.create(input(parent.id));
-      expect(sibling.position).toBe(0);
-      return THIRD_SEGMENT;
-    });
-    const created = new CardService(root, undefined, undefined, identity).create(input(parent.id));
-    expect(identity).toHaveBeenCalledTimes(1);
-    expect(created.position).toBe(1);
-    expect(new CardService(root).listChildren(parent.id)).toEqual([`${parent.id}-${SECOND_SEGMENT}`, `${parent.id}-${THIRD_SEGMENT}`]);
+  it('keeps allocation independent from sibling position', () => {
+    const cards = new CardService(root);
+    const parent = cards.create({ ...input(), type: 'goal' });
+    const first = cards.create(input(parent.id));
+    const second = cards.create(input(parent.id));
+    cards.reorderChildren(parent.id, [second.id, first.id], { actor: 'analyst', surface: 'runtime', reason: 'test' });
+    expect(cards.create(input(parent.id)).id).toBe(`${parent.id}-${THIRD_SEGMENT}`);
+  });
+
+  it.each(['blocked', 'done', 'failed', 'cancelled'] as const)('rejects a %s parent before reserving its next child', (status) => {
+    const cards = new CardService(root);
+    const parent = cards.create({ ...input(), type: 'goal' });
+    cards.setStatus(parent.id, 'running');
+    if (status === 'blocked') cards.commitTerminalLifecyclePatch(parent.id, { status, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null } });
+    else if (status === 'cancelled') cards.setStatus(parent.id, status);
+    else cards.commitTerminalLifecyclePatch(parent.id, { status, lifecycle: status === 'done'
+      ? { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' }
+      : { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-17T00:00:00.000Z' } });
+    const rowsBefore = readFileSync(cardStreamFile(root, parent.id), 'utf8');
+
+    expect(() => cards.create(input(parent.id))).toThrow(/Cannot create a child under/);
+    expect(readFileSync(cardStreamFile(root, parent.id), 'utf8')).toBe(rowsBefore);
+    expect(cards.listChildren(parent.id)).toEqual([]);
+  });
+
+  it('consumes a reservation when child publication fails', () => {
+    const orphan = join(root, '.saivage', 'cards', 'project', 'children', FIRST_SEGMENT);
+    mkdirSync(join(root, '.saivage', 'cards', 'project', 'children'));
+    writeFileSync(orphan, 'occupied');
+    const cards = new CardService(root);
+
+    expect(() => cards.create(input())).toThrow();
+    expect(cards.create(input()).id).toBe(SECOND);
+    expect(cards.listChildren('project')).toEqual([SECOND]);
   });
 
   it('propagates malformed canonical card artifacts', () => {
@@ -203,7 +224,7 @@ describe('CardService final reset-only contracts', () => {
   });
 
   it.each(['backlog', 'running', 'changed', 'blocked'] as const)('preserves notifications while %s remains unresolved', (status) => {
-    const cards = new CardService(root, undefined, undefined, () => FIRST_SEGMENT);
+    const cards = new CardService(root);
     cards.create(input());
     if (status !== 'backlog') {
       cards.setStatus(FIRST, 'running');
@@ -219,7 +240,7 @@ describe('CardService final reset-only contracts', () => {
   });
 
   it.each(['done', 'failed', 'cancelled'] as const)('clears notifications and rejects enqueue after %s', (status) => {
-    const cards = new CardService(root, undefined, undefined, () => FIRST_SEGMENT);
+    const cards = new CardService(root);
     cards.create(input());
     cards.enqueueNotification(FIRST, { id: 'n1', content: 'new facts', created_at: '2026-07-15T00:00:00.000Z' });
     cards.setStatus(FIRST, 'running');
@@ -232,7 +253,7 @@ describe('CardService final reset-only contracts', () => {
   });
 
   it('removes exactly selected notification ids and preserves later entries', () => {
-    const cards = new CardService(root, undefined, undefined, () => FIRST_SEGMENT);
+    const cards = new CardService(root);
     cards.create(input());
     cards.enqueueNotification(FIRST, { id: 'n1', content: 'one', created_at: '2026-07-15T00:00:00.000Z' });
     cards.enqueueNotification(FIRST, { id: 'n2', content: 'two', created_at: '2026-07-15T00:00:01.000Z' });
@@ -351,27 +372,67 @@ describe('CardService final reset-only contracts', () => {
       truncate(fd, length) { record('truncate'); ftruncateSync(fd, length); },
       close(fd) { record('close'); closeSync(fd); },
     };
-    const cards = new CardService(root, eventBus, changes, () => FIRST_SEGMENT, io);
+    let fsyncs = 0;
+    io.fsync = (fd) => {
+      record('fsync');
+      fsyncSync(fd);
+      fsyncs += 1;
+      if (fsyncs === 2) {
+        failed = true;
+        throw new Error('parent link fsync');
+      }
+    };
+    const cards = new CardService(root, eventBus, changes, io);
     expect(() => cards.create(input())).toThrow('parent link fsync');
     expect(publications).toEqual([]);
     expect(events).not.toHaveBeenCalled();
-    expect(operations).toEqual(['open', 'write', 'fsync', 'close']);
+    expect(operations).toEqual(['open', 'write', 'fsync', 'close', 'open', 'write', 'fsync', 'close']);
     expect(afterFailure).toEqual(['close']);
   });
 
-  it.each(['blocked', 'done', 'failed', 'cancelled'] as const)('rechecks fresh parent status admission before claiming a child namespace (%s)', (value) => {
-    const initial = new CardService(root, undefined, undefined, () => FIRST_SEGMENT);
-    const parent = initial.create({ ...input(), type: 'goal' });
-    const identity = jest.fn(() => {
-      initial.setStatus(parent.id, 'running');
-      if (value === 'blocked') initial.commitTerminalLifecyclePatch(parent.id, { status: value, lifecycle: { status: value, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null } });
-      else if (value === 'cancelled') initial.setStatus(parent.id, value);
-      else initial.commitTerminalLifecyclePatch(parent.id, { status: value, lifecycle: value === 'done' ? { status: value, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } : { status: value, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-17T00:00:00.000Z' } });
-      return SECOND_SEGMENT;
-    });
-    const creating = new CardService(root, undefined, undefined, identity);
-    expect(() => creating.create(input(parent.id))).toThrow(/Cannot claim a child namespace under/);
-    expect(identity).toHaveBeenCalledTimes(1);
-    expect(creating.listChildren(parent.id)).toEqual([]);
+  it('does nothing after the first reservation append reports an outcome-unknown failure', () => {
+    const eventBus = new EventBus();
+    const events = jest.fn();
+    eventBus.subscribe('card_history_appended', (event) => { events(event); });
+    const changes = new ReadModelChangeBroadcaster();
+    const cardChanged = jest.fn();
+    const runtimeChanged = jest.fn();
+    changes.subscribe({ cardStateChanged: cardChanged, runtimeChanged, agentsChanged() {}, conversationChanged() {} });
+    const operations: string[] = [];
+    const afterFailure: string[] = [];
+    let failed = false;
+    const record = (operation: string) => {
+      operations.push(operation);
+      if (failed) afterFailure.push(operation);
+    };
+    const tracedRead = ((...args: unknown[]) => {
+      record('read');
+      return Reflect.apply(readFileSync, undefined, args);
+    }) as typeof readFileSync;
+    const tracedWrite = ((...args: unknown[]) => {
+      record('write');
+      return Reflect.apply(writeSync, undefined, args);
+    }) as typeof writeSync;
+    const io: GrowingFileIo = {
+      read: tracedRead,
+      open(path, flags) { record('open'); return openSync(path, flags); },
+      write: tracedWrite,
+      fsync(fd) {
+        record('fsync');
+        fsyncSync(fd);
+        failed = true;
+        throw new Error('reservation fsync');
+      },
+      truncate(fd, length) { record('truncate'); ftruncateSync(fd, length); },
+      close(fd) { record('close'); closeSync(fd); },
+    };
+
+    expect(() => new CardService(root, eventBus, changes, io).create(input())).toThrow('reservation fsync');
+    expect(operations).toEqual(['open', 'write', 'fsync', 'close']);
+    expect(afterFailure).toEqual(['close']);
+    expect(events).not.toHaveBeenCalled();
+    expect(cardChanged).not.toHaveBeenCalled();
+    expect(runtimeChanged).not.toHaveBeenCalled();
   });
+
 });

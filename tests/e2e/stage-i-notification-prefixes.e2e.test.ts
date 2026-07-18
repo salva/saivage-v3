@@ -48,7 +48,7 @@ describe('planner/executor notification crash prefixes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), `saivage-${role}-notification-prefix-`));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const cards = new CardService(projectRoot, undefined, undefined, () => CARD.slice('card-'.length));
+    const cards = new CardService(projectRoot);
     const card = role === 'planner'
       ? cards.read('project')!
       : cards.create({ type: 'code', parent: 'project', title: 'Code', brief: 'Implement.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });

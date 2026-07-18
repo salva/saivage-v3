@@ -197,7 +197,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-continuation-currentness-'));
     initProjectTree(projectRoot);
     const changes = new ReadModelChangeBroadcaster();
-    const cards = new CardService(projectRoot, undefined, changes, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const cards = new CardService(projectRoot, undefined, changes);
     const child = cards.create({ type: 'code', parent: 'project', title: 'next leaf', brief: 'continue', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     const intervention = new RuntimeInterventionBinding();
@@ -430,11 +430,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
   it('rejects persisted running siblings before installing any actor or processor ownership', async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-invalid-siblings-'));
     initProjectTree(projectRoot);
-    const cards = new CardService(projectRoot, undefined, undefined, (() => {
-      const ids = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb'];
-      let index = 0;
-      return () => ids[index++]!;
-    })());
+    const cards = new CardService(projectRoot);
     const left = cards.create({ type: 'code', parent: 'project', title: 'left', brief: 'left', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const right = cards.create({ type: 'code', parent: 'project', title: 'right', brief: 'right', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
@@ -461,7 +457,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-real-result-stop-'));
     initProjectTree(projectRoot);
     const bus = new EventBus();
-    const cards = new CardService(projectRoot, bus, undefined, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const cards = new CardService(projectRoot, bus);
     const child = cards.create({ type: 'code', parent: 'project', title: 'result winner', brief: 'finish', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(child.id, 'running');

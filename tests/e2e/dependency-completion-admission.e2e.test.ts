@@ -56,13 +56,7 @@ describe('dependency-completion activation admission E2E', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-dependency-admission-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const ids = [
-      'aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      'bbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-      'cccccccccccccccccccccccccccc',
-    ];
-    let identityIndex = 0;
-    const cards = new CardService(projectRoot, undefined, undefined, () => ids[identityIndex++]!);
+    const cards = new CardService(projectRoot);
     const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Run dependency order', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Complete first', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Complete second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id], related: [] });

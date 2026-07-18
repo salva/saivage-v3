@@ -14,9 +14,9 @@ import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-
 import { EventBus } from '../../../src/events/index.js';
 
 const IDS = [
-  'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-  'card-cccccccccccccccccccccccccccc',
+  'card-a',
+  'card-b',
+  'card-c',
 ];
 
 function child(parent: string, title: string, type: NewCardInput['type'] = 'code'): NewCardInput {
@@ -56,7 +56,6 @@ class ControlledProcessor implements CardProcessorActor {
 describe('CardActor authoritative cancellation', () => {
   let root: string;
   let cards: CardService;
-  let identityIndex: number;
   let lookup: Map<string, CardActor>;
   let liveLookup: Map<string, CardActor>;
   let releaseSettledActor: jest.Mock<(actor: CardActor) => void>;
@@ -66,9 +65,8 @@ describe('CardActor authoritative cancellation', () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'saivage-card-cancel-'));
     initProjectTree(root);
-    identityIndex = 0;
     const changes = new ReadModelChangeBroadcaster();
-    cards = new CardService(root, undefined, changes, () => IDS[identityIndex++]!.slice('card-'.length));
+    cards = new CardService(root, undefined, changes);
     cardRuntimeSnapshots = [];
     changes.subscribe({ runtimeChanged: () => cardRuntimeSnapshots.push(Object.fromEntries(cards.list().map((card) => [card.id, card.status]))), cardStateChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     lookup = new Map();
@@ -232,7 +230,7 @@ describe('CardActor authoritative cancellation', () => {
 
   it('fails in place when a propagating post-publication callback throws', async () => {
     const bus = new EventBus();
-    cards = new CardService(root, bus, new ReadModelChangeBroadcaster(), () => IDS[identityIndex++]!.slice('card-'.length));
+    cards = new CardService(root, bus, new ReadModelChangeBroadcaster());
     const callbackFailure = new Error('post-publication callback failed');
     const owned = actor('project');
     const activation = owned.actor.activate({ kind: 'root' });
@@ -458,7 +456,7 @@ describe('CardActor authoritative cancellation', () => {
 
   it('publishes dynamic admission before child entry, then release before parent resumption', async () => {
     const changes = new ReadModelChangeBroadcaster();
-    const store = new CardService(root, undefined, changes, () => IDS[0]!.slice('card-'.length));
+    const store = new CardService(root, undefined, changes);
     const retained = new Map<string, CardActor>();
     const live = new Map<string, CardActor>();
     const snapshots: Array<{ source: 'card' | 'actor'; current: string | null; childStatus: string | null; retained: string[] }> = [];

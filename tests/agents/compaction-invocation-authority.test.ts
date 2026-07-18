@@ -113,7 +113,7 @@ describe('singular invocation completion authority', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-role-builders-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const store = new CardService(projectRoot, undefined, undefined, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const store = new CardService(projectRoot);
     const child = store.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const reviewerFixture = compactedConversationFixture('reviewer:project');
     const executorFixture = compactedConversationFixture(`executor:${child.id}`);

@@ -68,7 +68,7 @@ describe('retained terminal ordering and notification arbitration', () => {
 
   it('settles failed emit_result before notification context, removes exactly delivered entries, and parks continuation during Pause', async () => {
     const projectRoot = root();
-    const store = new CardService(projectRoot, undefined, undefined, () => CARD.slice('card-'.length));
+    const store = new CardService(projectRoot);
     const card = store.create({ type: 'code', parent: 'project', title: 'Code', brief: 'Implement.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     store.setStatus(card.id, 'running');
     const gate = new RuntimeGate();

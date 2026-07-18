@@ -27,9 +27,8 @@ import {
   readCardArtifacts,
   readCardHistory,
   readLinkedChildren,
-  type CardIdentityFactory,
+  reserveChildCardId,
 } from '../persistence/card-files.js';
-import { generateCardSegment } from './card-identity.js';
 import type { GrowingFileIo } from '../persistence/growing-file.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { ReadModelChangeBroadcaster } from '../application/read-model-changes.js';
@@ -78,7 +77,7 @@ export class CardService {
   readonly maxDepth = 5;
   private notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 
-  constructor(readonly projectRoot: string, private readonly eventBus = new EventBus(), private readonly readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster(), private readonly cardIdentity: CardIdentityFactory = generateCardSegment, private readonly cardAppendIo?: GrowingFileIo) {}
+  constructor(readonly projectRoot: string, private readonly eventBus = new EventBus(), private readonly readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster(), private readonly cardAppendIo?: GrowingFileIo) {}
 
   setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void { this.notifyCard = notifyCard; }
   cards(): CardService { return this; }
@@ -142,13 +141,13 @@ export class CardService {
     const depth = parent.depth + 1;
     if (depth > this.maxDepth) throw new Error(`Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}.`);
     for (const dependencyId of input.depends_on) if (!this.read(dependencyId)) throw new Error(`Dependency card '${dependencyId}' does not exist.`);
-    const segment = this.cardIdentity();
     const parentBeforeClaim = this.read(parent.id);
     if (!parentBeforeClaim) throw new Error(`Parent '${parent.id}' changed before child namespace claim.`);
     assertChildParentAdmission(parentBeforeClaim, 'Cannot claim a child namespace under');
     const children = readLinkedChildren(this.projectRoot, parentBeforeClaim.id);
     const position = children.length === 0 ? 0 : Math.max(...children.map((card) => card.position)) + 1;
     const timestamp = new Date().toISOString();
+    const reservedId = reserveChildCardId(this.projectRoot, parentBeforeClaim.id, this.cardAppendIo);
     const cardInput: Omit<CardRecord, 'id'> = {
       type: input.type, parent: parentBeforeClaim.id, depth: parentBeforeClaim.depth + 1, position, children: [], title: input.title, status: input.status,
       subtype: input.subtype ?? null, tags: input.tags, priority: input.priority, urgency: input.urgency,
@@ -162,7 +161,7 @@ export class CardService {
       latest_self_report: input.latest_self_report ?? null, metadata: input.metadata ?? null,
       pending_notifications: [],
     };
-    const card = publishInitialCard(this.projectRoot, cardInput, briefContentForNewCard(input), input.created_by === 'planner' ? 'planner' : 'analyst', () => segment);
+    const card = publishInitialCard(this.projectRoot, reservedId, cardInput, briefContentForNewCard(input), input.created_by === 'planner' ? 'planner' : 'analyst');
     const freshParent = this.read(parent.id);
     if (!freshParent || freshParent.children.includes(card.id)) throw new Error(`Parent '${parent.id}' changed during child publication.`);
     assertChildParentAdmission(freshParent, 'Cannot link a child under');

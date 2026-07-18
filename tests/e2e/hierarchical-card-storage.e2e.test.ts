@@ -17,8 +17,7 @@ function row(session_id: ConversationSessionId, id: string) { return { id, sessi
 describe('reset-only hierarchical card storage', () => {
   it('survives restart with exact streams, records, conversations, reorder, and safe deletion', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-hierarchy-e2e-')); roots.push(root); initProjectTree(root);
-    const generated = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'cccccccccccccccccccccccccccc', 'dddddddddddddddddddddddddddd'];
-    const cards = new CardService(root, undefined, undefined, () => generated.shift()!);
+    const cards = new CardService(root);
     const goal = cards.create(input('project', 'goal'));
     const dependency = cards.create(input(goal.id));
     const dependent = cards.create(input(goal.id, 'code', [dependency.id]));

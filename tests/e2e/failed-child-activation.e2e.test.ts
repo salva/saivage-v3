@@ -59,11 +59,7 @@ describe('failed child activation lifecycle E2E', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-failed-child-siblings-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const cards = new CardService(projectRoot, undefined, undefined, (() => {
-      const ids = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'cccccccccccccccccccccccccccc'];
-      let index = 0;
-      return () => ids[index++]!;
-    })());
+    const cards = new CardService(projectRoot);
     const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Plan children', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const failedChild = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Fail once', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const sibling = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Run second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
@@ -165,7 +161,7 @@ describe('failed child activation lifecycle E2E', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-cleanup-failure-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const cards = new CardService(projectRoot, undefined, undefined, () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const cards = new CardService(projectRoot);
     const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', brief: 'Fail cleanup', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(child.id, 'running');

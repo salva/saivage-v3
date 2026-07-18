@@ -37,7 +37,7 @@ describe('accepted reviewer rework feedback', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-rework-feedback-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const store = new CardService(projectRoot, undefined, undefined, () => CHILD.slice('card-'.length));
+    const store = new CardService(projectRoot);
     const child = store.create({ type: 'code', parent: 'project', title: 'Completed child', brief: 'Complete the child.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     store.setStatus(child.id, 'running');
     store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'Child complete.' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } });

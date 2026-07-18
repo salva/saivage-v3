@@ -29,7 +29,7 @@ function setup(reviewStatus: 'done' | 'blocked' | 'failed' | 'rework') {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-review-prefix-race-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
-  const cards = new CardService(projectRoot, undefined, undefined, () => CHILD.slice('card-'.length));
+  const cards = new CardService(projectRoot);
   const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
   cards.setStatus(child.id, 'running');
   cards.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'child done' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' } });

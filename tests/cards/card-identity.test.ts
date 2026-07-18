@@ -1,18 +1,26 @@
-import { describe, expect, it, jest } from '@jest/globals';
+import { describe, expect, it } from '@jest/globals';
 
-import { generateCardSegment } from '../../src/cards/card-identity.js';
+import { cardIdSchema, nextCardSegment } from '../../src/schemas/card-id.js';
 
-describe('card identity generation', () => {
-  it('encodes one 128-bit random value as one left-padded base-26 segment', () => {
-    const random = jest.fn<(size: number) => Uint8Array>(() => new Uint8Array(16));
-
-    expect(generateCardSegment(random)).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-    expect(random).toHaveBeenCalledTimes(1);
-    expect(random).toHaveBeenCalledWith(16);
+describe('card identity allocation', () => {
+  it('uses spreadsheet-style successors', () => {
+    expect(nextCardSegment()).toBe('a');
+    expect(nextCardSegment('a')).toBe('b');
+    expect(nextCardSegment('z')).toBe('aa');
+    expect(nextCardSegment('az')).toBe('ba');
+    expect(nextCardSegment('zz')).toBe('aaa');
   });
 
-  it('encodes the full unsigned 128-bit value deterministically', () => {
-    const bytes = new Uint8Array(16).fill(0xff);
-    expect(generateCardSegment(() => bytes)).toBe('cdhefomrsrxetmsvhtomcungjkbv');
+  it('rejects malformed segments without imposing a legacy length ceiling', () => {
+    expect(() => nextCardSegment('A')).toThrow();
+    expect(nextCardSegment('z'.repeat(28))).toBe(`a${'a'.repeat(28)}`);
+    expect(cardIdSchema.parse(`card-${'a'.repeat(29)}`)).toBe(`card-${'a'.repeat(29)}`);
+  });
+
+  it('accepts one to five alphabetic hierarchy segments only', () => {
+    expect(cardIdSchema.parse('project')).toBe('project');
+    expect(cardIdSchema.parse('card-a-b-c-d-e')).toBe('card-a-b-c-d-e');
+    expect(() => cardIdSchema.parse('card-a-b-c-d-e-f')).toThrow();
+    expect(() => cardIdSchema.parse('card-a-1')).toThrow();
   });
 });
