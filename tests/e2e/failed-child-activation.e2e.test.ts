@@ -134,7 +134,7 @@ describe('failed child activation lifecycle E2E', () => {
     const retryActor = internals.cardActor(failedChild.id);
     const activate = jest.spyOn(retryActor, 'activate');
     const awaitSettlement = jest.spyOn(retryActor, 'awaitSettlement');
-    const plannerTools = createPlannerControlProvider({ projectRoot, parentCardId: parent.id, sessionId: `planner:${parent.id}`, store: cards, children: { get: (cardId) => cardId === failedChild.id ? retryActor : internals.cardActor(cardId) }, cancelCard: (cardId, reason) => supervisor.cancelCard(cardId, reason), appLogs: testAppLogs(projectRoot) });
+    const plannerTools = createPlannerControlProvider({ projectRoot, parentCardId: parent.id, sessionId: `planner:${parent.id}`, store: cards, children: { get: (cardId) => cardId === failedChild.id ? retryActor : internals.cardActor(cardId) }, cancelCard: (cardId, reason) => supervisor.cancelCard(cardId, reason), appLogs: testAppLogs(projectRoot), beginStructuralWait: (relationship) => relationship, endStructuralWait: () => undefined });
     await expect(invokeTool({ role: 'planner', tools: new Map(plannerTools.tools.map((definition) => [definition.name, definition])), providers: [plannerTools] }, 'activate_card', { card_id: failedChild.id })).resolves.toEqual({ success: false, error: `Card '${failedChild.id}' in status 'failed' is not activatable.` });
     expect(activate).toHaveBeenCalledTimes(1);
     expect(awaitSettlement).not.toHaveBeenCalled();

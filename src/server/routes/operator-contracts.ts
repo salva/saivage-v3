@@ -38,7 +38,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),
     ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider, restartPort: options.restartPort, restartServerAvailable: options.authPolicy.authEnabled }),
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
-    ...buildAgentOperatorContractHandlers({ projectRoot, cardStore: options.cardStore }),
+    ...buildAgentOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication }),
     ...buildChatOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, restartPort: options.restartPort, saivageConfig: options.saivageConfig }),
     ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider: () => options.cardStore }),
     ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication?.processRunner }),

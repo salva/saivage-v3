@@ -2,6 +2,7 @@ import type { RuntimeState } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { RuntimeApi, StartProjectResult, StopProjectResult } from '../runtime/runtime-api.js';
 import type { RuntimeInterventionBinding } from './intervention-readiness.js';
+import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 
 export interface RuntimeControlApplicationPort {
   startProject(): Promise<StartProjectResult>;
@@ -27,6 +28,7 @@ export interface RuntimeControlMechanics extends Omit<RuntimeApi, 'pause' | 'res
   beginPause(): { readonly settled: boolean };
   beginResume(): void;
   finishResume(): void;
+  captureAutonomousExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[];
 }
 
 export class RuntimeControlService implements RuntimeApi {

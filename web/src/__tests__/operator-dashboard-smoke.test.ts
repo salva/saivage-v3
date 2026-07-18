@@ -38,7 +38,7 @@ function installOperatorApiFetch(): void {
           runtime: null,
         });
       case '/api/runtime/status':
-        return jsonResponse({ runtime: 'stopped', currentCardId: null, started_at: '2026-07-18T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime: { pauseMode: 'running', cards: [], agents: [] } });
+        return jsonResponse({ runtime: 'stopped', currentCardId: null, started_at: '2026-07-18T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime: { pauseMode: 'running', cards: [] } });
       case '/api/cards/project/children':
         return jsonResponse({ card: cardView('project'), children: [] });
       case '/api/agents':
@@ -58,7 +58,7 @@ function installOperatorApiFetch(): void {
         return jsonResponse({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: timestamp }] });
       case '/api/chats/analyst%3Aglobal':
       case '/api/chats/analyst:global':
-        return jsonResponse({ sessionId: 'analyst:global', entries: [] });
+        return jsonResponse({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
       default:
         return new Response(JSON.stringify({ message: `Unhandled operator route smoke URL: ${url.pathname}` }), {
           status: 404,

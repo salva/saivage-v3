@@ -165,7 +165,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         name: 'run_command',
         description: 'Run a Bash command. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
         inputSchema: runCommandSchema,
-        executor: async (args, signal) => {
+        executor: async (args, signal, invocation) => {
           try {
             throwIfAborted(signal);
             const record = ctx.processRunner.spawn({
@@ -183,7 +183,8 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
             });
             if (args.wait === false) return { success: true, data: processResult(ctx, record.id) };
             try {
-              await waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
+              const pending = waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
+              await (invocation ? invocation.waits.waitProcess(record.id, pending) : pending);
             } catch (err) {
               await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted', graceMs: 5000 });
               if (isAbortError(err, signal)) return { success: true, data: processResult(ctx, record.id) };
@@ -200,12 +201,14 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         name: 'wait_process',
         description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. Use timeout_ms=0 for non-blocking inspection.',
         inputSchema: waitProcessSchema,
-        executor: async (args, signal) => {
+        executor: async (args, signal, invocation) => {
           try {
             throwIfAborted(signal);
             const current = assertOwned(ctx, args.process_id);
             if (args.timeout_ms === 0 && current.status === 'running') return { success: true, data: processResult(ctx, args.process_id) };
-            const result = await waitForProcess(ctx, args.process_id, timeoutMs(args.timeout_ms), signal);
+            if (current.status !== 'running') return { success: true, data: processResult(ctx, args.process_id) };
+            const pending = waitForProcess(ctx, args.process_id, timeoutMs(args.timeout_ms), signal);
+            const result = await (invocation ? invocation.waits.waitProcess(args.process_id, pending) : pending);
             if (result.timedOut) return { success: true, data: processResult(ctx, args.process_id) };
             return { success: true, data: processResult(ctx, args.process_id) };
           } catch (err) {

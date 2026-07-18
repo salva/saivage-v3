@@ -40,10 +40,10 @@ const SESSION_A = 'planner:project' as const;
 const SESSION_B = 'reviewer:project' as const;
 function session(id: ConversationSessionId): AgentSession {
   const role = id.startsWith('reviewer:') ? 'reviewer' : 'planner';
-  return AgentSessionSummarySchema.parse({ id, role, status: 'active', goal_card_id: 'project', card_id: 'project', started_at: '2026-01-01T00:00:00.000Z', completed_at: null, model: 'test' });
+  return AgentSessionSummarySchema.parse({ id, role, status: 'active', goal_card_id: 'project', card_id: 'project', started_at: '2026-01-01T00:00:00.000Z', model: 'test' });
 }
 function conversation(id: ConversationSessionId): AgentConversationResponse {
-  return { session: session(id), entries: [], activity_status: { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:00.000Z' } };
+  return { session: session(id), entries: [], activity_status: { status: 'active', pending_calls: [] } };
 }
 
 async function mountDebug() {

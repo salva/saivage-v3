@@ -24,9 +24,9 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
     api.getAgentConversation.mockResolvedValue({
-      session: { id: 'executor:project', role: 'executor', status: 'active', goal_card_id: 'project', card_id: 'project', started_at: '2026-01-01T00:00:00Z', completed_at: null, model: 'test' },
+      session: { id: 'executor:project', role: 'executor', status: 'active', goal_card_id: 'project', card_id: 'project', started_at: '2026-01-01T00:00:00Z', model: 'test' },
       entries: [],
-      activity_status: { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:00Z' },
+      activity_status: { status: 'active', pending_calls: [] },
     });
     api.getAgentLlmExchange.mockResolvedValue({ sessionId: 'executor:project', exchange: null });
   });

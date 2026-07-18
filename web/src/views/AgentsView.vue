@@ -42,7 +42,6 @@
                 </div>
                 <div class="session-time">
                   Started: <span :title="timestampTitle(session.started_at)">{{ fmtDate(session.started_at) }}</span>
-                  <span v-if="session.completed_at"> | Completed: <span :title="timestampTitle(session.completed_at)">{{ fmtDate(session.completed_at) }}</span></span>
                 </div>
               </SelectableRow>
             </div>
@@ -128,9 +127,7 @@ function cardTitle(id: string | null | undefined): string {
 .session-card:hover { border-color:var(--border); }
 .session-card.status-active { border-left-color:var(--accent-2); }
 .session-card.status-waiting { border-left-color:var(--warn); }
-.session-card.status-done { border-left-color:var(--accent); }
-.session-card.status-blocked { border-left-color:var(--warn); }
-.session-card.status-failed { border-left-color:var(--danger); }
+.session-card.status-inactive { border-left-color:var(--border-strong); }
 .session-top { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
 .session-model { font-size:11px; color:var(--text-muted); font-family:'SF Mono',monospace; }
 .session-meta { display:flex; gap:var(--space-4); font-size:var(--font-size-sm); margin-bottom:var(--space-2); flex-wrap:wrap; }

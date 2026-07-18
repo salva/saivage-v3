@@ -8,11 +8,8 @@ export {
   llmActorRoleSchema,
   llmActorRoles,
   parseLlmActorPhase,
-  publicAgentPhaseSchema,
-  publicAgentPhases,
   publicCardActorStateSchema,
   publicCardActorStates,
-  toPublicAgentPhase,
   toPublicCardActorState,
 } from './actor-vocabulary.js';
 export { canonicalJson, contextCompactionContentSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
@@ -38,7 +35,6 @@ export type {
   ActorPauseMode,
   LlmActorPhase,
   LlmActorRole,
-  PublicAgentPhase,
   PublicCardActorState,
 } from './actor-vocabulary.js';
 export {

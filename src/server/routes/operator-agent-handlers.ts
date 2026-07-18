@@ -7,13 +7,13 @@ import type {
 import type { CardService } from '../../cards/card-api.js';
 import { ConversationSessionIdSchema } from '../../schemas/index.js';
 
-type AgentOperatorHandlerOptions = OperatorProjectContext & { cardStore?: CardService };
+type AgentOperatorHandlerOptions = OperatorProjectContext & { cardStore?: CardService; runtimeApplication?: import('../../application/runtime-composition.js').RuntimeApplication };
 
 export function buildAgentOperatorContractHandlers(options: AgentOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
   const agentReadModel = (): AgentOperatorReadModelService => {
-    if (!options.cardStore) throw new Error('Agent read operations require the card store.');
-    return new AgentOperatorReadModelService(projectRoot, options.cardStore);
+    if (!options.runtimeApplication) throw new Error('Agent read operations require the runtime application.');
+    return new AgentOperatorReadModelService(projectRoot, () => options.runtimeApplication!.captureExecutingLlmSnapshots());
   };
 
   return {

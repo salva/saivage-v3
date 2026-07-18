@@ -22,18 +22,17 @@ function textEntry(id: string, round_id = assistantRound): AgentConversationEntr
 }
 
 function idleActivity(): ActivityStatus {
-  return { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:00.000Z' };
+  return { status: 'inactive', pending_calls: [] };
 }
 
 function activityWithPending(count: number): ActivityStatus {
   return {
-    status: 'tool_calling',
+    status: 'waiting',
     pending_calls: Array.from({ length: count }, (_, index) => ({
       id: `pending-${index}`,
       tool: 'read',
       started_at: `2026-01-01T00:00:0${index}.000Z`,
     })),
-    updated_at: '2026-01-01T00:00:01.000Z',
   };
 }
 

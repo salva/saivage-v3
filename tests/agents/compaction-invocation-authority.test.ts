@@ -92,7 +92,7 @@ describe('singular invocation completion authority', () => {
         ? { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?v=next', content: 'blocked' }) }
         : { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }] }, provider_exchanges: [] };
     } };
-    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, ...testAutonomousCompaction, compactionConfig: { ...config, input_budget_tokens: 100000 } });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, ...testAutonomousCompaction, compactionConfig: { ...config, input_budget_tokens: 100000 } });
     actor.start();
 
     await expect(actor.activate({ activationId: 'activation', card: store.read('project')!, caller: { kind: 'root' }, notificationDelivery: { selectNotifications: () => [], removeNotifications: () => undefined }, claimResult: jest.fn() }, new AbortController().signal)).resolves.toMatchObject({ status: 'blocked' });
@@ -120,7 +120,7 @@ describe('singular invocation completion authority', () => {
     appendConversationBatch(projectRoot, reviewerFixture.rows);
     appendConversationBatch(projectRoot, executorFixture.rows);
     const provider = { completeTurn: jest.fn() as never };
-    const planner = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, ...testAutonomousCompaction, compactionConfig: { ...config, input_budget_tokens: 100000 } });
+    const planner = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, ...testAutonomousCompaction, compactionConfig: { ...config, input_budget_tokens: 100000 } });
     const plannerInternals = planner as unknown as {
       reviewerInvocationSurface(cardId: string, sessionId: string): unknown;
       captureReviewerCurrentness(input: unknown): unknown;

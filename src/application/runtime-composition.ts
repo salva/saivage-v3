@@ -32,6 +32,7 @@ import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../runt
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
+import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -66,6 +67,7 @@ export interface RuntimeApplication {
   cleanupAnalystForApplicationStop(): Promise<void>;
   getProviderRoutingReadModel(): ProviderRoutingReadModel;
   setMcpManager(mcpManager: McpManager): void;
+  captureExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[];
 }
 
 export interface RuntimeApplicationServices {
@@ -101,6 +103,8 @@ function buildAnalystDeps(input: {
   compactionPolicy: AutonomousCompactionPolicy;
   compactor: CompactorPort;
   summarizerProvider: SummarizerProviderPort;
+  runtimeProjectionChanged(): void;
+  captureExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[];
 }): AnalystRuntimeDeps {
   return {
     configAuthority: input.configAuthority,
@@ -120,6 +124,8 @@ function buildAnalystDeps(input: {
     conversations: input.conversations,
     appLogs: input.appLogs,
     interventionReadiness: input.interventionReadiness,
+    runtimeProjectionChanged: input.runtimeProjectionChanged,
+    captureExecutingLlmSnapshots: input.captureExecutingLlmSnapshots,
   };
 }
 
@@ -199,6 +205,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       compactionPolicy,
       compactor,
       summarizerProvider,
+      runtimeProjectionChanged: () => services.readModelChanges.agentsChanged(),
+      captureExecutingLlmSnapshots: () => {
+        const snapshots = [...runtimeMechanics.captureAutonomousExecutingLlmSnapshots()];
+        const analyst = analystRuntimeCache?.executingLlmSnapshot();
+        if (analyst) snapshots.push(analyst);
+        return snapshots;
+      },
     });
     return analystDepsCache;
   };
@@ -214,6 +227,12 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     },
     get analystDeps() {
       return getAnalystDeps();
+    },
+    captureExecutingLlmSnapshots() {
+      const snapshots = [...runtimeMechanics.captureAutonomousExecutingLlmSnapshots()];
+      const analyst = analystRuntimeCache?.executingLlmSnapshot();
+      if (analyst) snapshots.push(analyst);
+      return snapshots;
     },
     closeRuntimeAdmission() { runtimeControl.closeApplicationAdmission(); },
     closeAnalystAdmission() { analystRuntimeCache?.closeAdmission(); },

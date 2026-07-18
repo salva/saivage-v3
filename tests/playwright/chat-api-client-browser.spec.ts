@@ -29,7 +29,7 @@ test('production chat API client emits only canonical Analyst requests', async (
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ sessionId: 'analyst:global', entries: [] }),
+        body: JSON.stringify({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } }),
       });
       return;
     }

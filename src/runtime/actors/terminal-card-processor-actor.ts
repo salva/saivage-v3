@@ -62,6 +62,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
     const contract = createExecutorContract();
     const llm = this.createMainLlm(executorActorId(this.cardId));
+    this.setCurrentExecutingLlm(llm);
     if (llm.state() === 'idle') this.discardOpenRecord('status.md', 'new_activation');
     const processOwnerId = input.activationId;
     const processScope = this.processRunner.createDirectScope(this.processRunner.runtimeRootScope, `card-activation:${processOwnerId}`, 'runtime_card');
@@ -105,7 +106,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
           return control.done(projected);
         },
         onNonTerminalTool: async (toolOutcome) => {
-          const toolResult = await this.handleToolCall(toolOutcome, surface, signal);
+          const toolResult = await this.handleToolCall(llm, toolOutcome, surface, signal);
           signal.throwIfAborted();
           return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (inputId) => this.notificationContext(input, inputId));
         },
@@ -162,8 +163,8 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     };
   }
 
-  private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, surface: InvocationSurface, signal: AbortSignal): Promise<ToolResult> {
-    if (surface.tools.has(outcome.toolName)) return await invokeToolForLlm(surface, outcome.toolName, outcome.args, signal);
+  private async handleToolCall(llm: import('./llm-actor.js').ConversationLLMActor, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, surface: InvocationSurface, signal: AbortSignal): Promise<ToolResult> {
+    if (surface.tools.has(outcome.toolName)) return await invokeToolForLlm(surface, outcome.toolName, outcome.args, signal, this.toolInvocationContext(llm, outcome));
     return { success: false, error: `Unsupported executor tool call '${outcome.toolName}'.` };
   }
 

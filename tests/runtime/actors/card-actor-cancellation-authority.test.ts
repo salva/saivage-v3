@@ -542,6 +542,7 @@ describe('CardActor authoritative cancellation', () => {
     const structuralChild = makeActor(second.id);
     const structuralSettlement = structuralChild.value.prepareRunning({ kind: 'parent', cardId: 'project' });
     parent.value.installStructuralWait(structuralChild.value, { kind: 'root' });
+    expect(parent.value.structuralChildId).toBe(second.id);
     currentness.setChain(['project', second.id]);
     currents.length = 0;
     structuralChild.value.startPreparedProcessor();
@@ -550,5 +551,6 @@ describe('CardActor authoritative cancellation', () => {
     await structuralSettlement;
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(currents).toEqual(['project']);
+    expect(parent.value.structuralChildId).toBeNull();
   });
 });

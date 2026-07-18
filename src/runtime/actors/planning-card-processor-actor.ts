@@ -28,6 +28,7 @@ import type { ConversationFileContext } from '../../persistence/conversation-fil
 import type { AppLogContext } from '../../persistence/app-log.js';
 import type { CardService } from '../../cards/card-service.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
+import type { StructuralChildRelationship } from './executing-llm-snapshot.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -58,8 +59,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly promptTemplates: PromptTemplateRegistry;
   private readonly appLogs: AppLogContext;
+  private readonly ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void };
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardService; children: PlannerChildActorPort; cancelCard: (cardId: string, reason: string) => Promise<CardCancellationResult>; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged: () => void; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardService; children: PlannerChildActorPort; ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void }; cancelCard: (cardId: string, reason: string) => Promise<CardCancellationResult>; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged: () => void; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
@@ -68,6 +70,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
     this.promptTemplates = args.promptTemplates;
     this.appLogs = args.appLogs;
+    this.ownerStructuralWait = args.ownerStructuralWait;
   }
 
   _on_enter__planning(): void {
@@ -77,6 +80,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
     const contract = createPlannerContract();
     const llm = this.createMainLlm(plannerActorId(this.cardId));
+    this.setCurrentExecutingLlm(llm);
     for (;;) {
       const surface = this.plannerInvocationSurface(input.card.id);
       const outcome = await this.resolveInitialOutcome(llm, () => this.buildLlmInput(input, surface, contract, signal), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.notificationContext(input, inputId));
@@ -129,7 +133,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         return control.done(projected);
       },
       onNonTerminalTool: async (toolOutcome) => {
-        const toolResult = await this.handleToolCall(surface, toolOutcome, signal);
+        const toolResult = await this.handleToolCall(llm, surface, toolOutcome, signal);
         signal.throwIfAborted();
         return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (inputId) => this.notificationContext(input, inputId));
       },
@@ -178,13 +182,13 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     };
   }
 
-  private async handleToolCall(surface: InvocationSurface, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
+  private async handleToolCall(llm: import('./llm-actor.js').ConversationLLMActor, surface: InvocationSurface, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
     if (!surface.tools.has(outcome.toolName)) return { success: false, error: `Unsupported planner tool call '${outcome.toolName}'.` };
-    return invokeToolForLlm(surface, outcome.toolName, outcome.args, signal);
+    return invokeToolForLlm(surface, outcome.toolName, outcome.args, signal, this.toolInvocationContext(llm, outcome));
   }
 
   private plannerInvocationSurface(parentCardId: string) {
-    return buildRoleSurface('planner', { projectRoot: this.projectRoot, cardId: parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children, cancelCard: this.cancelCard, notifyCard: this.notifyCard, appLogs: this.appLogs });
+    return buildRoleSurface('planner', { projectRoot: this.projectRoot, cardId: parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children, cancelCard: this.cancelCard, notifyCard: this.notifyCard, appLogs: this.appLogs, beginStructuralWait: (relationship) => this.ownerStructuralWait.begin(relationship), endStructuralWait: (relationship) => this.ownerStructuralWait.end(relationship) });
   }
 
   private async projectPlannerTerminal(input: CardActivationInput, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal, contract = createPlannerContract()): Promise<PlannerProcessorOutcome> {
@@ -218,6 +222,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (this.directChildren(input.card.id).length === 0) return { status: 'done', summary: planning.summary, result: planning };
     const sessionId = reviewerSessionId(input.card.id);
     const llm = this.createMainLlm(reviewerActorId(input.card.id));
+    const planner = this.activeLlmActors.get(plannerActorId(this.cardId));
+    if (!planner) throw new Error(`Planner '${plannerActorId(this.cardId)}' is unavailable for reviewer handoff.`);
+    this.handoffExecutingLlm(planner, llm);
     const reviewerContract = createReviewerContract();
     for (;;) {
       this.discardOpenRecord(input.card.id, 'review.md', 'new_reviewer_activation');
@@ -267,12 +274,13 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           return control.done(accepted);
         },
         onNonTerminalTool: async (toolOutcome) => {
-          const toolResult = await this.handleReviewerToolCall(surface, sessionId, toolOutcome, signal);
+          const toolResult = await this.handleReviewerToolCall(llm, surface, sessionId, toolOutcome, signal);
           signal.throwIfAborted();
           return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal);
         },
       });
       if (review.kind === 'restart') continue;
+      if (review.value.result.kind === 'rework') this.handoffExecutingLlm(llm, planner);
       return review.value;
     }
   }
@@ -456,8 +464,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     });
   }
 
-  private async handleReviewerToolCall(workspaceSurface: InvocationSurface, sessionId: ConversationSessionId, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
-    if (workspaceSurface.tools.has(outcome.toolName)) return invokeToolForLlm(workspaceSurface, outcome.toolName, outcome.args, signal);
+  private async handleReviewerToolCall(llm: import('./llm-actor.js').ConversationLLMActor, workspaceSurface: InvocationSurface, sessionId: ConversationSessionId, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<ToolResult> {
+    if (workspaceSurface.tools.has(outcome.toolName)) return invokeToolForLlm(workspaceSurface, outcome.toolName, outcome.args, signal, this.toolInvocationContext(llm, outcome));
     return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };
   }
 

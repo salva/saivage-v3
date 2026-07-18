@@ -26,7 +26,7 @@ describe('analyst chat workspace context', () => {
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
     apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
-    apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst:global', entries: [] as AgentConversationEntry[] });
+    apiMocks.getChatEntries.mockResolvedValue({ session: null, entries: [] as AgentConversationEntry[], activity_status: { status: 'inactive', pending_calls: [] } });
     apiMocks.sendChatMessage.mockResolvedValue({
       sessionId: 'analyst:global',
       toolInvocations: [],

@@ -21,10 +21,6 @@
       <div v-else-if="!messagesLoading && messages.length === 0 && timelineControls.timeline.value.rounds.length === 0" class="chat-status-card" role="status">No messages yet. Ask the analyst something.</div>
       <div v-else class="chat-rounds">
         <ConversationTimeline :timeline="timelineControls.timeline.value" :expanded-ids="timelineControls.expandedIds.value" @toggle="timelineControls.toggleExpanded" />
-        <div v-if="sending" class="chat-thinking" role="status" aria-live="polite">
-          <span class="thinking-dot" aria-hidden="true"></span>
-          Analyst is thinking...
-        </div>
       </div>
     </div>
     <button
@@ -71,7 +67,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
-import type { ActivityStatus, AgentConversationEntry } from '../../types/view-models';
+import type { AgentConversationEntry } from '../../types/view-models';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
@@ -96,12 +92,12 @@ const {
   sendError,
   restartAcknowledgement,
   activeSessionWritable,
+  activityStatus,
 } = storeToRefs(chat);
 
 const composerRef = ref<HTMLTextAreaElement | null>(null);
 const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
-const idleActivityStatus = computed<ActivityStatus | null>(() => null);
-const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus);
+const timelineControls = useAgentTimeline(timelineEntries, activityStatus);
 const childrenOnScreen = computed(() =>
   workspaceRoute.view === 'cards' && workspaceRoute.entityId
     ? cards.loadedChildrenFor(workspaceRoute.entityId) ?? []
@@ -150,15 +146,13 @@ async function submitMessage(): Promise<void> {
 
 onMounted(() => {
   window.addEventListener('saivage:focus-chat', handleFocusChat);
-  chat.fetchSessions()
-    .then(() => {
-      closeAnalystConversation = liveSync.openConversation(ANALYST_SESSION_ID, async () => {
-        await chat.fetchMessages();
-        await nextTick();
-        timelineControls.scrollToLatest();
-      });
-    })
-    .catch(() => {});
+  closeAnalystConversation = liveSync.openConversation(ANALYST_SESSION_ID, async () => {
+    await chat.fetchMessages();
+    await nextTick();
+    timelineControls.scrollToLatest();
+  });
+  void chat.fetchSessions().catch(() => {});
+  void chat.fetchMessages().catch(() => {});
 });
 
 watch(activeSessionId, () => {
@@ -239,32 +233,6 @@ onBeforeUnmount(() => {
 
 .chat-status-warning {
   color: var(--warning, var(--text));
-}
-
-.chat-thinking {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  align-self: flex-start;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 10px;
-  background: var(--surface-2);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.thinking-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentColor;
-  animation: thinking-pulse 1s ease-in-out infinite;
-}
-
-@keyframes thinking-pulse {
-  0%, 100% { opacity: .35; transform: scale(.85); }
-  50% { opacity: 1; transform: scale(1); }
 }
 
 .chat-input-panel {

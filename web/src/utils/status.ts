@@ -55,9 +55,6 @@ export const agentSessionStatusTone: Record<SessionStatus, Tone> = {
   active: 'active',
   waiting: 'pending',
   inactive: 'neutral',
-  done: 'success',
-  blocked: 'warning',
-  failed: 'danger',
 };
 
 export function toneForCardStatus(status: CardStatus): Tone {

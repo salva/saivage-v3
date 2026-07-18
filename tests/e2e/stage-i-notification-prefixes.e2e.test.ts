@@ -66,7 +66,7 @@ describe('planner/executor notification crash prefixes', () => {
     }) };
     const gate = new RuntimeGate();
     const actor = role === 'planner'
-      ? new PlanningCardProcessorActor({ projectRoot, cardId: card.id, store: cards, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction })
+      ? new PlanningCardProcessorActor({ projectRoot, cardId: card.id, store: cards, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction })
       : new TerminalCardProcessorActor({ projectRoot, cardId: card.id, store: cards, provider, processRunner: createTestProcessRunner(projectRoot), conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
     actor.start();
     const controller = new AbortController();

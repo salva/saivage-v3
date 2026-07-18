@@ -81,8 +81,7 @@ async function loadSessions(): Promise<void> {
 .session-row:hover { border-color: var(--border); }
 .session-row.status-active { border-left-color: var(--accent-2); }
 .session-row.status-waiting { border-left-color: var(--warn); }
-.session-row.status-done { border-left-color: var(--accent); }
-.session-row.status-blocked, .session-row.status-failed { border-left-color: var(--danger); }
+.session-row.status-inactive { border-left-color: var(--border-strong); }
 .session-role { font-size: 12px; font-weight: 600; text-transform: capitalize; }
 .session-model { font-size: 11px; color: var(--text-muted); font-family: 'SF Mono', monospace; }
 .session-time { margin-left: auto; font-size: 11px; color: var(--text-muted); font-family: 'SF Mono', monospace; }

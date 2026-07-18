@@ -39,7 +39,7 @@ function services(runtimeApiFactory: (deps: RuntimeApiFactoryDeps) => any, selec
 }
 
 function mechanics() {
-  return { start: async () => undefined, startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true }), pause: async () => ({ status: 'stopped' }), resume: async () => ({ status: 'stopped' }), stopProject: async () => ({ status: 'stopped', contained: false }), notifyCard: () => ({ ok: false }), cancelCard: async () => { throw new Error('unused'); }, subscribe: () => ({ unsubscribe() {} }), getStatus: () => ({ status: 'stopped', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }), getRuntimeState: () => null, getActorRuntimeReadModel: () => ({ pauseMode: 'idle', cards: [], agents: [] }), closeApplicationAdmission() {}, cleanupForApplicationStop: async () => undefined } as any;
+  return { start: async () => undefined, startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true }), pause: async () => ({ status: 'stopped' }), resume: async () => ({ status: 'stopped' }), stopProject: async () => ({ status: 'stopped', contained: false }), notifyCard: () => ({ ok: false }), cancelCard: async () => { throw new Error('unused'); }, subscribe: () => ({ unsubscribe() {} }), getStatus: () => ({ status: 'stopped', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }), getRuntimeState: () => null, getActorRuntimeReadModel: () => ({ pauseMode: 'idle', cards: [] }), captureAutonomousExecutingLlmSnapshots: () => [], closeApplicationAdmission() {}, cleanupForApplicationStop: async () => undefined } as any;
 }
 
 describe('runtime compaction composition', () => {

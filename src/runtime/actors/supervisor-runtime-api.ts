@@ -3,8 +3,8 @@ import { cardRecordSchema, type CardNotification, type CardRecord, type RuntimeS
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { CardActor, type CardActorDeps, type CardCancellationResult } from './card-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
-import { parseLlmActorId } from './ids.js';
-import { toPublicAgentPhase, toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
+import { toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
+import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import type { ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
 import type { RuntimeControlMechanics, RuntimeLaunchPlan } from '../../application/runtime-control-service.js';
 import type { NotifyCardResult, StartProjectResult, StopProjectResult } from '../runtime-api.js';
@@ -247,8 +247,10 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
     const cards = [...this.cardActors.values()].flatMap((actor) => { const card = this.options.actorStore.read(actor.cardId); return card ? [{ cardId: actor.cardId, actorState: toPublicCardActorState(card.status) }] : []; });
-    const agents = [...this.cardActors.values()].flatMap((actor) => actor.processor instanceof BaseMainLLMCardProcessorActor ? actor.processor.listLlmActors().map((agent) => { const identity = parseLlmActorId(agent.agentId); return { agentId: agent.agentId, role: identity.role, cardId: identity.cardId, phase: toPublicAgentPhase(agent.state()) }; }) : []);
-    return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', cards, agents };
+    return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', cards };
+  }
+  captureAutonomousExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[] {
+    return [...this.cardActors.values()].flatMap((actor) => actor.processor instanceof BaseMainLLMCardProcessorActor ? [actor.processor.executingLlmSnapshot()].filter((snapshot): snapshot is ExecutingLlmSnapshot => snapshot !== null) : []);
   }
 
   private runtimeState(): RuntimeState | null {
@@ -314,7 +316,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   }
   private cardActorDeps(): CardActorDeps { return { projectRoot: this.options.projectRoot, storeForCard: () => this.options.actorStore.cards(), currentness: this.currentness, provider: this.options.provider, compactor: this.options.compactor, compactionConfig: this.options.compactionConfig, summarizerProvider: this.options.summarizerProvider, gate: this.runtimeGate, processRunner: this.options.processRunner, promptTemplates: this.options.promptTemplates, mcpManagerProvider: this.options.mcpManagerProvider, notifyCard: (cardId, notification) => this.notifyCard(cardId, notification), cancelCard: (cardId, reason) => this.cancelCard(cardId, reason), lookup: this.cardActors, liveLookup: this.liveCardActors, runtimeProjectionChanged: () => this.runtimeProjectionChanged(), releaseSettledActor: (actor) => this.releaseSettledActor(actor), conversationPublisher: createConversationChangePublisher(this.eventBus), conversations: this.options.conversations, appLogs: this.options.appLogs, isRuntimeClosing: () => this.status === 'closing' }; }
 
-  private runtimeProjectionChanged(): void { this.options.readModelChanges.runtimeChanged(); }
+  private runtimeProjectionChanged(): void { this.options.readModelChanges.runtimeChanged(); this.options.readModelChanges.agentsChanged(); }
 
   private async cancelNonrunningSubtree(cardId: string, cancelled: string[]): Promise<void> {
     const card = this.options.actorStore.read(cardId);

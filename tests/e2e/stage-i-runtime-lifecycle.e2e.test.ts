@@ -59,7 +59,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => inputs.length === 1);
     expect(runtime.getActorRuntimeReadModel().cards.map((entry) => entry.cardId).sort()).toEqual(['project', child.id].sort());
-    expect(runtime.getActorRuntimeReadModel().agents).toEqual([expect.objectContaining({ role: 'executor', cardId: child.id })]);
+    expect(runtime.getActorRuntimeReadModel()).not.toHaveProperty('agents');
 
     expect(runtime.beginPause().settled).toBe(false);
     releaseFirst();

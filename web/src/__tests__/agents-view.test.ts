@@ -109,14 +109,13 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
     card_id: cardId,
     status: 'active' as const,
     started_at: '2025-06-01T08:00:00Z',
-    completed_at: null,
     model: 'claude-sonnet-4',
     ...overrides,
   });
 }
 
 const plannerSession = makeSession({ id: 'planner:project', role: 'planner', status: 'active' });
-const executorSession = makeSession({ id: 'executor:project', role: 'executor', status: 'failed', model: 'deepseek-v4-pro' });
+const executorSession = makeSession({ id: 'executor:project', role: 'executor', status: 'inactive', model: 'deepseek-v4-pro' });
 const allSessions = [plannerSession, executorSession];
 
 function makeRouter() {

@@ -8,23 +8,31 @@ import { chatOperatorApiContracts } from '../../src/contracts/operator-api-chats
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { buildChatOperatorContractHandlers } from '../../src/server/routes/operator-chat-handlers.js';
+import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import type { ExecutingLlmSnapshot } from '../../src/runtime/actors/executing-llm-snapshot.js';
+import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
+import { appendAnalystIngressBatch } from '../../src/runtime/actors/conversation-session.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
   let projectRoot: string;
   const cardRead = jest.fn();
   const submit = jest.fn(async () => ({ sessionId: 'analyst:global' as const, toolInvocations: [], restart: null }));
+  let snapshots: ExecutingLlmSnapshot[];
   const authHeaders = { authorization: 'Bearer route-token' };
 
   beforeEach(async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-chat-routes-'));
+    initProjectTree(projectRoot);
     cardRead.mockClear();
     submit.mockClear();
+    snapshots = [];
     fastify = Fastify({ logger: false });
     const handlers = buildChatOperatorContractHandlers({
       projectRoot,
       cardStore: { read: cardRead },
-      runtimeApplication: { analystRuntime: { submit } },
+      runtimeApplication: { analystRuntime: { submit }, captureExecutingLlmSnapshots: () => snapshots },
       saivageConfig: {},
     } as never);
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }) }).mount(fastify, chatOperatorApiContracts, handlers);
@@ -44,7 +52,7 @@ describe('operator chat route request contracts', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ sessionId: 'analyst:global', entries: [] });
+    expect(response.json()).toEqual({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
   });
 
   it('admits canonical POST and submits the Analyst turn', async () => {
@@ -64,6 +72,17 @@ describe('operator chat route request contracts', () => {
       actor: 'analyst',
       surface: 'web-chat',
     });
+  });
+
+  it.each(['inactive', 'active', 'waiting'] as const)('returns the present %s Analyst projection unchanged from agents.conversation', async (status) => {
+    const inputId = '11111111-1111-4111-8111-111111111111';
+    const ingress = appendAnalystIngressBatch({ projectRoot }, inputId, 'workspace', 'question');
+    appendConversationBatch(projectRoot, [{ id: `${inputId}:tool-call:call-1`, session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'webfetch', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'webfetch', arguments: '{"url":"https://example.com"}' } }] }), round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 3, block_index: 0, timestamp: ingress[2].timestamp }]);
+    if (status !== 'inactive') snapshots = [{ sessionId: 'analyst:global', agentId: 'analyst:global', role: 'analyst', cardId: null, activity: status === 'active' ? { mode: 'active', barrier: null } : { mode: 'waiting', barrier: { kind: 'external', sessionId: 'analyst:global', sourceInputId: inputId, toolCallId: 'call-1', toolName: 'webfetch' } } }];
+    const expected = new AgentOperatorReadModelService(projectRoot, () => snapshots).getConversation('analyst:global').body;
+    const response = await fastify.inject({ method: 'GET', url: '/api/chats/analyst%3Aglobal', headers: authHeaders });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expected);
   });
 
   it('rejects a non-Analyst GET identity before handler dependencies are used', async () => {

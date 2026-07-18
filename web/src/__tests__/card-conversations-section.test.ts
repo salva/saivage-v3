@@ -25,9 +25,8 @@ function session(id: ExecutorConversationSessionId, cardId: string): AgentSessio
     role: 'executor',
     goal_card_id: cardId,
     card_id: cardId,
-    status: 'done',
+    status: 'inactive',
     started_at: '2026-01-01T00:00:00.000Z',
-    completed_at: '2026-01-01T00:01:00.000Z',
     model: id,
   };
 }

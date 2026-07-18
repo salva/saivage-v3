@@ -29,7 +29,7 @@ describe('AnalystChatPanel on-screen children', () => {
     getChatEntries.mockReset();
     sendChatMessage.mockReset();
     listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
-    getChatEntries.mockResolvedValue({ sessionId: 'analyst:global', entries: [] });
+    getChatEntries.mockResolvedValue({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
     sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
   });
 

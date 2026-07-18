@@ -7,7 +7,7 @@ import {
   ValidationErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
-import { AgentConversationEntrySchema } from './operator-api-agents.js';
+import { AgentActivityStatusSchema, AgentConversationEntrySchema, AnalystSessionSummarySchema } from './operator-api-agents.js';
 import { AnalystConversationSessionIdSchema } from '../schemas/index.js';
 
 export const ChatSessionParamsSchema = z.object({ sessionId: AnalystConversationSessionIdSchema });
@@ -21,17 +21,21 @@ export const ChatSendRequestSchema = z.object({
   workspaceContext: ChatWorkspaceContextSchema.optional(),
 });
 export const ChatListResponseSchema = z.object({
-  sessions: z.array(z.object({
-    id: AnalystConversationSessionIdSchema,
-    role: z.literal('analyst'),
-    status: z.string(),
-    started_at: z.string(),
-  }).catchall(z.unknown())),
-});
+  sessions: z.array(AnalystSessionSummarySchema),
+}).strict();
 export const ChatEntriesResponseSchema = z.object({
-  sessionId: AnalystConversationSessionIdSchema,
+  session: AnalystSessionSummarySchema.nullable(),
   entries: z.array(AgentConversationEntrySchema),
-}).superRefine((value, ctx) => { for (const [index, entry] of value.entries.entries()) if (entry.session_id !== value.sessionId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entries', index, 'session_id'], message: 'Chat entry session must match the enclosing session.' }); });
+  activity_status: AgentActivityStatusSchema,
+}).strict().superRefine((value, ctx) => {
+  if (value.session === null) {
+    if (value.entries.length !== 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entries'], message: 'Absent chat session requires empty entries.' });
+    if (value.activity_status.status !== 'inactive' || value.activity_status.pending_calls.length !== 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['activity_status'], message: 'Absent chat session requires inactive activity.' });
+    return;
+  }
+  if (value.session.status !== value.activity_status.status) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['activity_status', 'status'], message: 'Session and activity status must match.' });
+  for (const [index, entry] of value.entries.entries()) if (entry.session_id !== value.session.id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entries', index, 'session_id'], message: 'Chat entry session must match the enclosing session.' });
+});
 export const RestartChatAcknowledgementSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('confirmation_required'), confirmationMessage: z.literal('RESTART SERVER') }).strict(),
   z.object({ status: z.literal('scheduled') }).strict(),

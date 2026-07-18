@@ -6,11 +6,13 @@ import { join } from 'node:path';
 import { CardServiceInvariantError, type CardActivationAdmissionProjection } from '../../src/cards/card-api.js';
 import type { CardActivationOutcome } from '../../src/contracts/tool-api.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
-import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
+import { buildInvocationSurface, invokeTool, invokeToolForLlm } from '../../src/tools/invocation.js';
 import { createPlannerControlProvider, type PlannerControlProviderContext } from '../../src/tools/planner-control-provider.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
+import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
+import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 
 const PARENT = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CHILD = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -75,6 +77,8 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
   });
   const mutateCard = jest.fn<NonNullable<PlannerControlProviderContext['store']['mutateCard']>>((_cardId, changes) => card('backlog', changes));
   const reorderChildren = jest.fn<NonNullable<PlannerControlProviderContext['store']['reorderChildren']>>(() => options.reorderResult ?? { ok: true, changed: 2 });
+  const beginStructuralWait = jest.fn<PlannerControlProviderContext['beginStructuralWait']>((relationship) => { events.push('relationship-installed'); return relationship; });
+  const endStructuralWait = jest.fn<PlannerControlProviderContext['endStructuralWait']>(() => { events.push('relationship-cleared'); });
   const store: PlannerControlProviderContext['store'] = {
     read: jest.fn((_cardId: string) => admission?.child ?? null),
     readActivationAdmission,
@@ -90,6 +94,8 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     children: { get },
     cancelCard: async () => { throw new Error('unused'); },
     appLogs: testAppLogs(options.projectRoot ?? '/test/planner-control'),
+    beginStructuralWait,
+    endStructuralWait,
   });
   const surface = buildInvocationSurface('planner', [provider]);
   return {
@@ -100,12 +106,54 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     setStatus,
     mutateCard,
     reorderChildren,
+    beginStructuralWait,
+    endStructuralWait,
     surface,
     invoke: () => invokeTool(surface, 'activate_card', { card_id: CHILD }),
   };
 }
 
 describe('planner activate_card dependency-completion admission', () => {
+  it('installs one exact ordinary structural relationship only around child settlement', async () => {
+    const test = harness(projection(card()));
+    const context: LlmToolInvocationContext = { sessionId: `planner:${PARENT}`, sourceInputId: '11111111-1111-4111-8111-111111111111', toolCallId: 'call-1', toolName: 'activate_card', waits: { waitExternal: <T>(promise: Promise<T>) => promise, waitProcess: <T>(_id: string, promise: Promise<T>) => promise, waitChild: async <T>(relationship: unknown, promise: Promise<T>) => { test.events.push('barrier-installed'); expect(relationship).toMatchObject({ childCardId: CHILD, toolCallId: 'call-1' }); return promise; } } };
+    await expect(invokeTool(test.surface, 'activate_card', { card_id: CHILD }, new AbortController().signal, context)).resolves.toEqual({ success: true, data: { card_id: CHILD, outcome: 'done', summary: 'complete', result: { kind: 'done', summary: 'complete' } } });
+    expect(test.events).toEqual(expect.arrayContaining(['relationship-installed', 'barrier-installed', 'relationship-cleared']));
+    expect(test.events.indexOf('relationship-installed')).toBeLessThan(test.events.indexOf('barrier-installed'));
+    expect(test.events.indexOf('barrier-installed')).toBeLessThan(test.events.indexOf('relationship-cleared'));
+  });
+  it('clears the exact ordinary structural relationship when child settlement rejects', async () => {
+    const test = harness(projection(card()), { activate: jest.fn<Actor['activate']>(async () => { throw new Error('child rejected'); }) });
+    let waitChildCalls = 0;
+    const waitChild = async <T>(_relationship: unknown, promise: Promise<T>): Promise<T> => { waitChildCalls += 1; return promise; };
+    const context: LlmToolInvocationContext = { sessionId: `planner:${PARENT}`, sourceInputId: '11111111-1111-4111-8111-111111111111', toolCallId: 'call-reject', toolName: 'activate_card', waits: { waitExternal: <T>(promise: Promise<T>) => promise, waitProcess: <T>(_id: string, promise: Promise<T>) => promise, waitChild } };
+    await expect(invokeTool(test.surface, 'activate_card', { card_id: CHILD }, new AbortController().signal, context)).resolves.toMatchObject({ success: false, error: 'child rejected' });
+    expect(waitChildCalls).toBe(1);
+    expect(test.events).toEqual(expect.arrayContaining(['relationship-installed', 'relationship-cleared']));
+    expect(test.events.indexOf('relationship-installed')).toBeLessThan(test.events.indexOf('relationship-cleared'));
+  });
+
+  it('keeps validation and admission rejection active without installing either child authority', async () => {
+    const test = harness(null);
+    let waitChildCalls = 0;
+    const waitChild = async <T>(_relationship: unknown, promise: Promise<T>): Promise<T> => { waitChildCalls += 1; return promise; };
+    const context: LlmToolInvocationContext = { sessionId: `planner:${PARENT}`, sourceInputId: '11111111-1111-4111-8111-111111111111', toolCallId: 'call-invalid', toolName: 'activate_card', waits: { waitExternal: <T>(promise: Promise<T>) => promise, waitProcess: <T>(_id: string, promise: Promise<T>) => promise, waitChild } };
+    await expect(invokeTool(test.surface, 'activate_card', { card_id: CHILD }, new AbortController().signal, context)).resolves.toMatchObject({ success: false });
+    expect(waitChildCalls).toBe(0);
+    expect(test.beginStructuralWait).not.toHaveBeenCalled();
+  });
+  it('clears ordinary child authority for cancellation settlement and Stop rejection', async () => {
+    const context: LlmToolInvocationContext = { sessionId: `planner:${PARENT}`, sourceInputId: '11111111-1111-4111-8111-111111111111', toolCallId: 'call-end', toolName: 'activate_card', waits: { waitExternal: <T>(promise: Promise<T>) => promise, waitProcess: <T>(_id: string, promise: Promise<T>) => promise, waitChild: <T>(_relationship: unknown, promise: Promise<T>) => promise } };
+    const cancelled = harness(projection(card()), { activate: jest.fn<Actor['activate']>(async () => ({ status: 'cancelled', summary: 'cancelled' })) });
+    await expect(invokeTool(cancelled.surface, 'activate_card', { card_id: CHILD }, new AbortController().signal, context)).resolves.toEqual({ success: false, error: `Child card '${CHILD}' activation was cancelled.` });
+    expect(cancelled.events).toEqual(expect.arrayContaining(['relationship-installed', 'relationship-cleared']));
+
+    const controller = new AbortController();
+    const interruption = new RuntimeStoppedInterruption();
+    const stopped = harness(projection(card()), { activate: jest.fn<Actor['activate']>(async () => { controller.abort(interruption); throw interruption; }) });
+    await expect(invokeToolForLlm(stopped.surface, 'activate_card', { card_id: CHILD }, controller.signal, context)).rejects.toBe(interruption);
+    expect(stopped.events).toEqual(expect.arrayContaining(['relationship-installed', 'relationship-cleared']));
+  });
   it('rejects type as an extra edit_card field before mutating the card', async () => {
     const test = harness(projection(card()));
 

@@ -136,7 +136,7 @@ describe('dependency-completion activation admission E2E', () => {
     expect(internals.cardActors.has(dependent.id)).toBe(false);
     expect(internals.liveCardActors.has(dependent.id)).toBe(false);
     expect(supervisor.getActorRuntimeReadModel().cards.some(({ cardId }) => cardId === dependent.id)).toBe(false);
-    expect(supervisor.getActorRuntimeReadModel().agents.some(({ cardId }) => cardId === dependent.id)).toBe(false);
+    expect(supervisor.getActorRuntimeReadModel()).not.toHaveProperty('agents');
     expect(supervisor.getStatus().currentCardId).toBe(parent.id);
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(parent.id);
     expect(selectRunningCardChain(cards.list()).map(({ id }) => id)).toEqual(['project', parent.id]);

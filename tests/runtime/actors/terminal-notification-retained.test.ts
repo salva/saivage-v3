@@ -41,6 +41,23 @@ function delivery(store: CardService, cardId: string) {
 }
 
 describe('retained terminal ordering and notification arbitration', () => {
+  it('keeps the executor current through result finalization and excludes it after settlement', async () => {
+    const projectRoot = root();
+    const store = new CardService(projectRoot);
+    const card = store.create({ type: 'code', parent: 'project', title: 'Code', brief: 'Implement.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    store.setStatus(card.id, 'running');
+    let call = 0;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => complete(++call === 1
+      ? tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'Complete.' })
+      : tool('emit-done', 'emit_result', { status: 'done', summary: 'Complete.' }))) };
+    const actor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, store, provider, processRunner: createTestProcessRunner(projectRoot), conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
+    actor.start();
+    const claimResult = jest.fn(() => { expect(actor.executingLlmSnapshot()).toMatchObject({ sessionId: `executor:${card.id}`, role: 'executor', activity: { mode: 'active' } }); });
+    await expect(actor.activate({ activationId: 'activation', card: store.read(card.id)!, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery(store, card.id), claimResult }, new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
+    expect(claimResult).toHaveBeenCalledTimes(1);
+    expect(actor.executingLlmSnapshot()).toBeNull();
+  });
+
   it('claims and returns a childless planning result after record close and canonical tool success', async () => {
     const projectRoot = root();
     const store = new TestCardService(projectRoot);
@@ -52,7 +69,7 @@ describe('retained terminal ordering and notification arbitration', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => complete(++call === 1
       ? tool('write-status', 'write', { path: 'record:///status.md?v=next', content: 'Ready.' })
       : tool('emit-done', 'emit_result', { status: 'done', summary: 'Complete.' }))) };
-    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
     actor.start();
     const claimResult = jest.fn(() => order.push('claim'));
 

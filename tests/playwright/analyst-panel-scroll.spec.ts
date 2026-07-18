@@ -37,7 +37,11 @@ test('desktop analyst panel keeps the transcript scroll inside the bounded pane'
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(parseOperatorResponse('chats.get', { sessionId, entries })),
+      body: JSON.stringify(parseOperatorResponse('chats.get', {
+        session: { id: sessionId, role: 'analyst', status: 'inactive', started_at: now },
+        entries,
+        activity_status: { status: 'inactive', pending_calls: [] },
+      })),
     });
   });
 

@@ -157,13 +157,14 @@ function ddgResults(html: string, base: URL, max: number): Array<{ title: string
   return results;
 }
 
-async function websearchCore(params: { query: string; max_results?: number }, signal: AbortSignal = new AbortController().signal): Promise<InvocationToolResult> {
+async function websearchCore(params: { query: string; max_results?: number }, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<InvocationToolResult> {
   try {
     const query = params.query.trim();
     if (!query) return { success: false, error: 'query is required.' };
     const max = Math.min(Math.max(params.max_results ?? 10, 1), MAX_RESULTS);
     const url = parseHttpUrl(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
-    const fetched = await fetchPublic(url, DEFAULT_MAX_BYTES, signal);
+    const fetchPromise = fetchPublic(url, DEFAULT_MAX_BYTES, signal);
+    const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     if (!fetched.response.ok) return { success: false, error: `Search provider returned HTTP ${fetched.response.status}.` };
     const html = Buffer.from(fetched.body).toString('utf8');
     return { success: true, data: { query, results: ddgResults(html, fetched.url, max) } };
@@ -173,13 +174,14 @@ async function websearchCore(params: { query: string; max_results?: number }, si
   }
 }
 
-async function webfetchCore(ctx: WebProviderContext, params: { url: string; read_mode?: ReadMode; metadata_only?: boolean; max_bytes?: number; max_inline_bytes?: number; save_as?: string }, signal: AbortSignal = new AbortController().signal): Promise<InvocationToolResult> {
+async function webfetchCore(ctx: WebProviderContext, params: { url: string; read_mode?: ReadMode; metadata_only?: boolean; max_bytes?: number; max_inline_bytes?: number; save_as?: string }, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<InvocationToolResult> {
   try {
     const url = parseHttpUrl(params.url);
     const maxBytes = Math.min(Math.max(params.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
     if (params.metadata_only && params.save_as) return { success: false, error: 'metadata_only cannot be combined with save_as.' };
     if (params.save_as) authorizeWriteProject(ctx, { path: params.save_as });
-    const fetched = await fetchPublic(url, params.metadata_only ? 1 : maxBytes, signal);
+    const fetchPromise = fetchPublic(url, params.metadata_only ? 1 : maxBytes, signal);
+    const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     const headers = headersObject(fetched.response.headers);
     const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
     if (params.metadata_only) return { success: true, data: { ...metadata, metadata_only: true } };
@@ -243,16 +245,19 @@ export function createWebProvider(ctx: WebProviderContext): ToolProvider {
         name: 'websearch',
         description: 'Search the public web for documentation and data sources.',
         inputSchema: websearchSchema,
-        executor: async (args, signal) => websearchCore(args, signal),
+        executor: async (args, signal, invocation) => websearchCore(args, signal, invocation?.waits.waitExternal),
       }),
       defineTool({
         name: 'webfetch',
         description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections. Oversized text is stashed as stash_url, a work:///tmp/stash/<file> URL readable with read or grep.',
         inputSchema: webfetchSchema,
-        executor: async (args, signal) => {
+        executor: async (args, signal, invocation) => {
           const analyst = ctx.analystToolContext;
-          if (!analyst || !args.save_as?.startsWith('record:///')) return webfetchCore(ctx, args, signal);
-          const preparedContext: ToolContext = { ...analyst, analystPreparation: { web: { fetchText: (input) => fetchAnalystBrief(input, signal) } } };
+          if (!analyst || !args.save_as?.startsWith('record:///')) return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal);
+          const preparedContext: ToolContext = { ...analyst, analystPreparation: { web: { fetchText: (input) => {
+            const pending = fetchAnalystBrief(input, signal);
+            return invocation ? invocation.waits.waitExternal(pending) : pending;
+          } } } };
           return runAuditedAnalystTool(preparedContext, { url: args.url, read_mode: args.read_mode, max_bytes: args.max_bytes, save_as: args.save_as }, {
             action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.save_as, lifecycle: 'intervention_ready',
             prepare: prepareAnalystBriefWebfetch, recheck: recheckFetchedBrief, commit: commitFetchedBrief,

@@ -1,109 +1,111 @@
 import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
-import { listConversationSessionIds, readConversation } from '../../persistence/conversation-file.js';
-import { conversationSessionIdentity, parseConversationSessionId, type AgentMessage, type AgentRole, type SessionStatus, type ConversationSessionId } from '../../schemas/index.js';
+import { listConversationSessionIds, probeConversation, readConversation } from '../../persistence/conversation-file.js';
+import { conversationSessionIdentity, parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
+import type { ExactWaitBarrier, ExecutingLlmSnapshot } from '../../runtime/actors/executing-llm-snapshot.js';
+import { inspectConversationCallPairs } from '../../runtime/actors/conversation-call-pairs.js';
 
-export type ListedAgentStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
-export type AgentOperatorSessionSummary = Record<string, unknown> & {
-  id: string;
-  role: string;
-  status: ListedAgentStatus;
-  started_at: string;
+export type ListedAgentStatus = 'active' | 'waiting' | 'inactive';
+export interface AgentActivityStatus { status: ListedAgentStatus; pending_calls: Array<{ id: string; tool: string; started_at: string }> }
+export type AgentOperatorSessionSummary = {
+  id: ConversationSessionId; role: 'analyst' | 'planner' | 'reviewer' | 'executor'; card_id: string | null;
+  status: ListedAgentStatus; started_at: string; model?: string;
 };
+export interface AgentOperatorConversationResponse { session: AgentOperatorSessionSummary; entries: AgentMessage[]; activity_status: AgentActivityStatus }
 
-export interface AgentOperatorConversationResponse {
-  session: AgentOperatorSessionSummary;
-  entries: AgentMessage[];
-  activity_status: { status: 'idle' | 'thinking' | 'tool_calling' | 'responding' | 'compacting'; pending_calls: unknown[]; updated_at: string };
-}
+type SnapshotProvider = () => readonly ExecutingLlmSnapshot[];
 
 export class AgentOperatorReadModelService {
-  constructor(private readonly projectRoot: string, private readonly cards: { read(cardId: string): { status: string } | null }) {}
+  constructor(private readonly projectRoot: string, private readonly snapshots: SnapshotProvider) {}
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
-    const sessions = listConversationSessionIds(this.projectRoot)
-      .map((sessionId) => this.buildSessionSummary(sessionId, readConversation(this.projectRoot, sessionId).physicalRows))
-      .filter((session): session is AgentOperatorSessionSummary => Boolean(session));
-    sessions.sort((a, b) => String(b.started_at ?? '').localeCompare(String(a.started_at ?? '')) || String(a.id).localeCompare(String(b.id)));
+    const live = captureExecutingLlmSnapshotMap(this.snapshots());
+    const sessions = listConversationSessionIds(this.projectRoot).map((id) => this.project(id, readConversation(this.projectRoot, id).physicalRows, live.get(id)).session);
+    for (const id of live.keys()) if (!sessions.some((session) => session.id === id)) throw new Error(`Executing agent snapshot '${id}' has no aggregate conversation row.`);
+    sessions.sort((a, b) => b.started_at.localeCompare(a.started_at) || a.id.localeCompare(b.id));
     return { sessions };
   }
 
   getSession(sessionId: string): { statusCode?: number; body: { session?: Record<string, unknown>; error?: string; sessionId?: string } } {
-    const parsedId = this.parseSessionId(sessionId);
-    if (!parsedId) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    const messages = readConversation(this.projectRoot, parsedId.sessionId).physicalRows;
-    if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const base = this.buildSessionSummary(parsedId.sessionId, messages);
-    if (!base) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const lastActivity = this.lastMessageTimestamp(messages) ?? base.started_at;
-    return { body: { session: { ...base, message_count: messages.length, last_activity_at: lastActivity } } };
+    const live = captureExecutingLlmSnapshotMap(this.snapshots());
+    const parsed = this.parse(sessionId);
+    if (!parsed) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
+    if (!probeConversation(this.projectRoot, parsed)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    const messages = readConversation(this.projectRoot, parsed).physicalRows;
+    const projected = this.project(parsed, messages, live.get(parsed));
+    return { body: { session: { ...projected.session, message_count: messages.length, last_activity_at: this.lastTimestamp(messages) ?? projected.session.started_at } } };
   }
 
   getConversation(sessionId: string): { statusCode?: number; body: AgentOperatorConversationResponse | { error: string; sessionId?: string } } {
-    const parsedId = this.parseSessionId(sessionId);
-    if (!parsedId) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    const messages = readConversation(this.projectRoot, parsedId.sessionId).physicalRows;
-    if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const session = this.buildSessionSummary(parsedId.sessionId, messages);
-    if (!session) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const activity_status = this.deriveActivityStatus(messages);
-    return { body: { session, entries: messages.filter((message) => message.kind !== 'provider_private').map(stripPrivateProjectionMarker), activity_status } };
+    const live = captureExecutingLlmSnapshotMap(this.snapshots());
+    const parsed = this.parse(sessionId);
+    if (!parsed) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
+    if (!probeConversation(this.projectRoot, parsed)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    return { body: this.project(parsed, readConversation(this.projectRoot, parsed).physicalRows, live.get(parsed)) };
   }
 
-  private parseSessionId(sessionId: string): { sessionId: ConversationSessionId; role: Extract<AgentRole, 'analyst' | 'planner' | 'executor' | 'reviewer'>; card_id: string | null } | null {
-    try {
-      const parsed = parseConversationSessionId(sessionId);
-      const identity = conversationSessionIdentity(parsed);
-      return { sessionId: parsed, role: identity.role, card_id: identity.cardId };
-    } catch {
-      return null;
-    }
+  private project(sessionId: ConversationSessionId, messages: AgentMessage[], snapshot: ExecutingLlmSnapshot | undefined): AgentOperatorConversationResponse {
+    const model = readLatestProviderExchangePayload(this.projectRoot, sessionId)?.model ?? null;
+    return projectAgentConversation({ sessionId, messages, model, snapshot });
   }
 
-  private firstMessageTimestamp(messages: AgentMessage[]): string {
-    return messages.find((message) => typeof message.timestamp === 'string')?.timestamp ?? new Date(0).toISOString();
-  }
-
-  private lastMessageTimestamp(messages: AgentMessage[]): string | null {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const timestamp = messages[i]?.timestamp;
-      if (typeof timestamp === 'string') return timestamp;
-    }
-    return null;
-  }
-
-  private deriveActivityStatus(messages: AgentMessage[]): AgentOperatorConversationResponse['activity_status'] {
-    return { status: 'idle', pending_calls: [], updated_at: this.lastMessageTimestamp(messages) ?? new Date(0).toISOString() };
-  }
-
-  private deriveStatus(cardId: string | null): ListedAgentStatus {
-    if (!cardId) return 'inactive';
-    const status = this.cards.read(cardId)?.status;
-    if (status === 'done' || status === 'blocked' || status === 'failed') return status;
-    return 'inactive';
-  }
-
-  private readLatestModel(sessionId: ConversationSessionId): string | null {
-    return readLatestProviderExchangePayload(this.projectRoot, sessionId)?.model ?? null;
-  }
-
-  private buildSessionSummary(sessionId: ConversationSessionId, messages: AgentMessage[]): AgentOperatorSessionSummary | null {
-    const parsed = this.parseSessionId(sessionId);
-    if (!parsed) return null;
-    const model = this.readLatestModel(sessionId);
-    return {
-      id: sessionId,
-      role: parsed.role,
-      card_id: parsed.card_id,
-      status: this.deriveStatus(parsed.card_id) satisfies SessionStatus,
-      started_at: this.firstMessageTimestamp(messages),
-      ...(model ? { model } : {}),
-    };
-  }
+  private parse(value: string): ConversationSessionId | null { try { return parseConversationSessionId(value); } catch { return null; } }
+  private lastTimestamp(messages: AgentMessage[]): string | null { return messages.at(-1)?.timestamp ?? null; }
 }
 
-function stripPrivateProjectionMarker(message: AgentMessage): AgentMessage {
-  if (!message.provider_projection) return message;
-  const publicMessage = { ...message };
-  delete publicMessage.provider_projection;
-  return publicMessage;
+export function captureExecutingLlmSnapshotMap(snapshots: readonly ExecutingLlmSnapshot[]): ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot> {
+  const map = new Map<ConversationSessionId, ExecutingLlmSnapshot>();
+  for (const raw of snapshots) {
+    const sessionId = parseConversationSessionId(raw.sessionId);
+    const identity = conversationSessionIdentity(sessionId);
+    if (raw.agentId !== sessionId || raw.role !== identity.role || raw.cardId !== identity.cardId) throw new Error(`Executing agent snapshot '${raw.sessionId}' has inconsistent identity.`);
+    if (map.has(sessionId)) throw new Error(`Conversation session '${sessionId}' has duplicate live ownership.`);
+    if (raw.activity.mode === 'active' && raw.activity.barrier !== null) throw new Error(`Active snapshot '${sessionId}' has a wait barrier.`);
+    if (raw.activity.mode === 'waiting' && !raw.activity.barrier) throw new Error(`Waiting snapshot '${sessionId}' has no wait barrier.`);
+    const activity = raw.activity.mode === 'active' ? Object.freeze({ mode: 'active' as const, barrier: null }) : Object.freeze({ mode: 'waiting' as const, barrier: freezeBarrier(raw.activity.barrier) });
+    map.set(sessionId, Object.freeze({ ...raw, sessionId, activity }));
+  }
+  return immutableReadonlyMap(map);
+}
+
+export function projectAgentConversation(input: { sessionId: ConversationSessionId; messages: AgentMessage[]; model: string | null; snapshot?: ExecutingLlmSnapshot }): AgentOperatorConversationResponse {
+  const { sessionId, messages, snapshot } = input;
+  const identity = conversationSessionIdentity(sessionId);
+  const status: ListedAgentStatus = snapshot?.activity.mode ?? 'inactive';
+  const pending_calls: AgentActivityStatus['pending_calls'] = [];
+  if (snapshot?.activity.mode === 'waiting') {
+    const barrierIdentity = barrierToolIdentity(snapshot.activity.barrier);
+    if (barrierIdentity.sessionId !== sessionId) throw new Error(`Wait barrier session '${barrierIdentity.sessionId}' does not match '${sessionId}'.`);
+    const call = inspectConversationCallPairs(messages);
+    if (!call) throw new Error(`Waiting session '${sessionId}' has no unmatched canonical tool call.`);
+    if (call.sessionId !== barrierIdentity.sessionId || call.sourceInputId !== barrierIdentity.sourceInputId || call.toolCallId !== barrierIdentity.toolCallId || call.toolName !== barrierIdentity.toolName) throw new Error(`Waiting session '${sessionId}' tool call does not match its exact barrier.`);
+    if (snapshot.activity.barrier.kind === 'process') {
+      if (call.toolName !== 'run_command' && call.toolName !== 'wait_process') throw new Error(`Tool '${call.toolName}' cannot own a process wait barrier.`);
+      if (call.toolName === 'wait_process' && (call.args as { process_id?: unknown }).process_id !== snapshot.activity.barrier.processId) throw new Error(`Waiting process call does not match process '${snapshot.activity.barrier.processId}'.`);
+    }
+    if (snapshot.activity.barrier.kind === 'child') {
+      if (call.toolName !== 'activate_card') throw new Error(`Tool '${call.toolName}' cannot own a child wait barrier.`);
+      if ((call.args as { card_id?: unknown }).card_id !== snapshot.activity.barrier.relationship.childCardId) throw new Error(`Waiting child call does not match child '${snapshot.activity.barrier.relationship.childCardId}'.`);
+    }
+    pending_calls.push({ id: call.toolCallId, tool: call.toolName, started_at: call.startedAt });
+  }
+  const session: AgentOperatorSessionSummary = { id: sessionId, role: identity.role, card_id: identity.cardId, status, started_at: messages[0]!.timestamp, ...(input.model ? { model: input.model } : {}) };
+  return { session, entries: messages.filter((message) => message.kind !== 'provider_private').map(stripPrivateProjectionMarker), activity_status: { status, pending_calls } };
+}
+
+function barrierToolIdentity(barrier: ExactWaitBarrier) { return barrier.kind === 'child' ? barrier.relationship : barrier; }
+function freezeBarrier(barrier: ExactWaitBarrier): ExactWaitBarrier { return barrier.kind === 'child' ? Object.freeze({ kind: 'child', relationship: Object.freeze({ ...barrier.relationship }) }) : Object.freeze({ ...barrier }); }
+function stripPrivateProjectionMarker(message: AgentMessage): AgentMessage { if (!message.provider_projection) return message; const result = { ...message }; delete result.provider_projection; return result; }
+function immutableReadonlyMap<K, V>(source: Map<K, V>): ReadonlyMap<K, V> {
+  let readonlyMap!: ReadonlyMap<K, V>;
+  readonlyMap = Object.freeze({
+    get size() { return source.size; },
+    get: (key: K) => source.get(key),
+    has: (key: K) => source.has(key),
+    entries: () => source.entries(),
+    keys: () => source.keys(),
+    values: () => source.values(),
+    forEach: (callback: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown) => source.forEach((value, key) => callback.call(thisArg, value, key, readonlyMap), thisArg),
+    [Symbol.iterator]: () => source[Symbol.iterator](),
+  } satisfies ReadonlyMap<K, V>);
+  return readonlyMap;
 }

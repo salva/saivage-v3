@@ -40,7 +40,7 @@ describe('runtime-control route request contracts', () => {
       },
       runtimeApi: {
         getStatus: jest.fn(() => ({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
-        getActorRuntimeReadModel: jest.fn(() => ({ pauseMode: 'running', cards: [], agents: [] })),
+        getActorRuntimeReadModel: jest.fn(() => ({ pauseMode: 'running', cards: [] })),
       },
     } as unknown as RuntimeApplication;
     const handlers = buildRuntimeCardOperatorContractHandlers({

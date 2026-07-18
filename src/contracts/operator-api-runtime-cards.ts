@@ -18,7 +18,7 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { ServerAvailabilitySchema } from './operator-api-availability.js';
-import { actorPauseModeSchema, llmActorRoleSchema, publicAgentPhaseSchema, publicCardActorStateSchema } from '../schemas/actor-vocabulary.js';
+import { actorPauseModeSchema, publicCardActorStateSchema } from '../schemas/actor-vocabulary.js';
 import { runtimeStatusSchema } from '../schemas/index.js';
 
 export const CardNotFoundErrorSchema = z.object({ error: z.literal('Card not found'), cardId: cardIdSchema }).strict();
@@ -72,7 +72,6 @@ export const RuntimeStatusResponseSchema = z.object({
   actorRuntime: z.object({
     pauseMode: actorPauseModeSchema,
     cards: z.array(z.object({ cardId: cardIdSchema, actorState: publicCardActorStateSchema }).strict()),
-    agents: z.array(z.object({ agentId: z.string(), role: llmActorRoleSchema, cardId: cardIdSchema, phase: publicAgentPhaseSchema }).strict()),
   }).strict(),
   serverAvailability: ServerAvailabilitySchema.optional(),
 }).strict();

@@ -77,6 +77,13 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   protected onActivationSettled(_outcome: CardProcessorOutcome): void {
   }
 
+  protected onActivationFailed(_error: Error): void {
+  }
+
+  protected hasPendingActivation(): boolean {
+    return this.#result !== null;
+  }
+
   private beginActivation(input: CardActivationInput, signal: AbortSignal): void {
     this.#activationInput = input;
     this.#activationSignal = signal;
@@ -95,6 +102,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   }
 
   private failActivation(error: Error): void {
+    this.onActivationFailed(error);
     this.#result?.reject(error);
     this.#result = null;
     this.#activationInput = null;

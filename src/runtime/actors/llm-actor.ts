@@ -2,7 +2,7 @@ import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
-import type { AgentMessage } from '../../schemas/index.js';
+import { parseConversationSessionId, type AgentMessage } from '../../schemas/index.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
@@ -18,6 +18,7 @@ import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js'
 import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult } from './compaction/compactor.js';
 import { SummarizerExchangeProjectionError, type SummarizerProviderPort } from './compaction/summarizer.js';
 import { sanitizeRecoveryMessage } from '../../agents/invocation-recovery-policy.js';
+import type { ExactWaitBarrier, ExecutingLlmActivity, ToolInvocationIdentity, ToolWaitCallbacks } from './executing-llm-snapshot.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -79,6 +80,7 @@ export class ConversationLLMActor extends BaseActor {
   #completionPersistenceEntered = false;
   readonly #invocations = new InvocationLifecycle();
   #currentInvocation: InvocationLease | null = null;
+  #executingActivity: ExecutingLlmActivity = Object.freeze({ mode: 'active', barrier: null });
 
   readonly conversationPublisher?: ConversationChangePublisher;
   readonly conversations: ConversationFileContext;
@@ -118,6 +120,41 @@ export class ConversationLLMActor extends BaseActor {
     const logged = readLoggedToolCall(this.projectRoot, this.input.sessionId, this.agentId, this.waitingToolCall.sourceInputId, this.waitingToolCall.toolCallId);
     if (logged.tool_name !== this.waitingToolCall.toolName) throw new Error(`Logged tool call '${this.waitingToolCall.toolCallId}' tool name changed from '${this.waitingToolCall.toolName}' to '${logged.tool_name}'.`);
     return { type: 'tool_call', agentId: this.agentId, inputId: this.waitingToolCall.sourceInputId, toolCallId: this.waitingToolCall.toolCallId, toolName: this.waitingToolCall.toolName, args: logged.args };
+  }
+
+  executingActivity(): ExecutingLlmActivity {
+    return this.#executingActivity;
+  }
+
+  resetExecutingActivity(): void {
+    if (this.#executingActivity.mode === 'waiting') throw new Error(`LLMActor '${this.agentId}' cannot reset activity while waiting.`);
+    this.#executingActivity = Object.freeze({ mode: 'active', barrier: null });
+    this.runtimeProjectionChanged?.();
+  }
+
+  waitCallbacks(identity: ToolInvocationIdentity): ToolWaitCallbacks {
+    if (identity.sessionId !== this.agentId) throw new Error(`Tool invocation session '${identity.sessionId}' does not match LLM actor '${this.agentId}'.`);
+    const wait = async <T>(barrier: ExactWaitBarrier, promise: Promise<T>): Promise<T> => {
+      if (this.#executingActivity.mode !== 'active') throw new Error(`LLMActor '${this.agentId}' already owns a wait barrier.`);
+      this.#executingActivity = Object.freeze({ mode: 'waiting', barrier: Object.freeze(barrier) });
+      this.publishExecutingActivityChange();
+      try { return await promise; }
+      finally {
+        if (this.#executingActivity.mode !== 'waiting' || this.#executingActivity.barrier !== barrier) throw new Error(`LLMActor '${this.agentId}' wait barrier changed before settlement.`);
+        this.#executingActivity = Object.freeze({ mode: 'active', barrier: null });
+        this.publishExecutingActivityChange();
+      }
+    };
+    return {
+      waitExternal: (promise) => { const barrier = { kind: 'external' as const, ...identity }; return wait(barrier, promise); },
+      waitProcess: (processId, promise) => { const barrier = { kind: 'process' as const, ...identity, processId }; return wait(barrier, promise); },
+      waitChild: (relationship, promise) => { const barrier = { kind: 'child' as const, relationship }; return wait(barrier, promise); },
+    };
+  }
+
+  private publishExecutingActivityChange(): void {
+    this.runtimeProjectionChanged?.();
+    this.conversations.changes?.conversationChanged(parseConversationSessionId(this.agentId));
   }
 
   appendToolResult(toolCallId: string, result: ToolResult, signal?: AbortSignal, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {

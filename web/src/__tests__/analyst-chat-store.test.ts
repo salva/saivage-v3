@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../stores/analystChat';
 import { useFeedbackStore } from '../stores/feedback';
-import type { AgentConversationEntry } from '../api/types';
+import type { AgentConversationEntry, ChatEntriesResponse } from '../api/types';
 
 const apiMocks = vi.hoisted(() => ({
   listChatSessions: vi.fn(),
@@ -39,6 +39,10 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function chat(entries: AgentConversationEntry[] = []) {
+  return { session: entries.length === 0 ? null : { id: 'analyst:global' as const, role: 'analyst' as const, status: 'inactive' as const, started_at: '2025-01-01T00:00:00Z' }, entries, activity_status: { status: 'inactive' as const, pending_calls: [] } };
+}
+
 describe('analyst chat store', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -49,7 +53,7 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
     apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
-    apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst:global', entries: [] as AgentConversationEntry[] });
+    apiMocks.getChatEntries.mockResolvedValue(chat());
     apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
   });
 
@@ -74,14 +78,38 @@ describe('analyst chat store', () => {
   it('fetches the fixed singleton Analyst chat without a session argument', async () => {
     const store = useAnalystChat();
 
-    apiMocks.getChatEntries.mockResolvedValueOnce({
-      sessionId: 'analyst:global',
-      entries: [] satisfies AgentConversationEntry[],
-    });
+    apiMocks.getChatEntries.mockResolvedValueOnce(chat());
     await store.fetchMessages();
 
     expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith(expect.any(AbortSignal));
     expect(store.activeSessionId).toBe('analyst:global');
+  });
+
+  it.each([
+    { status: 'inactive' as const, pending_calls: [] },
+    { status: 'active' as const, pending_calls: [] },
+    { status: 'waiting' as const, pending_calls: [{ id: 'call-1', tool: 'webfetch', started_at: '2025-01-01T00:00:01Z' }] },
+  ])('retains the exact $status detail session/activity independently of list inventory', async (activity_status) => {
+    apiMocks.listChatSessions.mockResolvedValueOnce({ sessions: [] });
+    apiMocks.getChatEntries.mockResolvedValueOnce({ session: { id: 'analyst:global', role: 'analyst', status: activity_status.status, started_at: '2025-01-01T00:00:00Z' }, entries: [], activity_status });
+    const store = useAnalystChat();
+    await Promise.all([store.fetchSessions(), store.fetchMessages()]);
+    expect(store.sessions).toEqual([]);
+    expect(store.activeSession?.status).toBe(activity_status.status);
+    expect(store.activityStatus).toEqual(activity_status);
+  });
+
+  it('keeps sending as transport-only state without fabricating detail activity', async () => {
+    const pending = deferred<any>();
+    apiMocks.sendChatMessage.mockReturnValueOnce(pending.promise);
+    const store = useAnalystChat();
+    store.setDraft('question');
+    const send = store.sendMessage();
+    expect(store.sending).toBe(true);
+    expect(store.activityStatus).toEqual({ status: 'inactive', pending_calls: [] });
+    expect(store.activeSession).toBeNull();
+    pending.resolve({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
+    await send;
   });
 
   it('preserves API entry order when fetching messages', async () => {
@@ -96,10 +124,7 @@ describe('analyst chat store', () => {
       timestamp: '2026-01-01T00:00:01.000Z',
       round_id: 'r-user-00000000000000000000000000000002',
     });
-    apiMocks.getChatEntries.mockResolvedValueOnce({
-      sessionId: 'analyst:global',
-      entries: [first, second],
-    });
+    apiMocks.getChatEntries.mockResolvedValueOnce(chat([first, second]));
 
     const store = useAnalystChat();
     await store.fetchMessages();
@@ -200,7 +225,7 @@ describe('analyst chat store', () => {
   });
 
   it('retains pending rows through stale and failed normal refreshes', async () => {
-    const stale = deferred<{ sessionId: string; entries: AgentConversationEntry[] }>();
+    const stale = deferred<ChatEntriesResponse>();
     apiMocks.getChatEntries.mockReturnValueOnce(stale.promise);
     const store = useAnalystChat();
     const staleFetch = store.fetchMessages();
@@ -208,7 +233,7 @@ describe('analyst chat store', () => {
     await store.sendMessage();
     expect(store.messages.map((message) => message.content)).toEqual(['pending']);
 
-    stale.resolve({ sessionId: 'analyst:global', entries: [] });
+    stale.resolve(chat());
     await staleFetch;
     expect(store.messages.map((message) => message.content)).toEqual(['pending']);
 
@@ -217,7 +242,7 @@ describe('analyst chat store', () => {
     expect(store.messages.map((message) => message.content)).toEqual(['pending']);
 
     const accepted = entry({ id: 'accepted-later', content: 'pending' });
-    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [accepted] });
+    apiMocks.getChatEntries.mockResolvedValueOnce(chat([accepted]));
     await store.fetchMessages();
     expect(store.messages).toEqual([accepted]);
   });
@@ -240,37 +265,54 @@ describe('analyst chat store', () => {
   it('reconciles an accepted send only when an authoritative row proves it', async () => {
     const store = useAnalystChat();
     store.setDraft('accepted');
-    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [] });
+    apiMocks.getChatEntries.mockResolvedValueOnce(chat());
     await store.sendMessage();
     expect(store.messages.map((message) => message.content)).toEqual(['accepted']);
 
     const accepted = entry({ id: 'server-user', content: 'accepted' });
-    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [accepted] });
+    apiMocks.getChatEntries.mockResolvedValueOnce(chat([accepted]));
     await store.fetchMessages();
     expect(store.messages).toEqual([accepted]);
   });
 
   it('lets the newest normal or send-owned refresh win in either request order', async () => {
     const store = useAnalystChat();
-    const normalFirst = deferred<{ sessionId: string; entries: AgentConversationEntry[] }>();
+    const normalFirst = deferred<ChatEntriesResponse>();
     apiMocks.getChatEntries.mockReturnValueOnce(normalFirst.promise);
     const oldNormal = store.fetchMessages();
     store.setDraft('one');
     await store.sendMessage();
-    normalFirst.resolve({ sessionId: 'analyst:global', entries: [entry({ id: 'stale', content: 'stale' })] });
+    normalFirst.resolve(chat([entry({ id: 'stale', content: 'stale' })]));
     await oldNormal;
     expect(store.messages.map((message) => message.content)).toEqual(['one']);
 
-    const sendRefresh = deferred<{ sessionId: string; entries: AgentConversationEntry[] }>();
+    const sendRefresh = deferred<ChatEntriesResponse>();
     apiMocks.getChatEntries.mockReturnValueOnce(sendRefresh.promise);
     store.setDraft('two');
     const send = store.sendMessage();
     await vi.waitFor(() => expect(apiMocks.getChatEntries).toHaveBeenCalledTimes(3));
-    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [entry({ id: 'new', content: 'newest' })] });
+    apiMocks.getChatEntries.mockResolvedValueOnce(chat([entry({ id: 'new', content: 'newest' })]));
     await store.fetchMessages();
-    sendRefresh.resolve({ sessionId: 'analyst:global', entries: [entry({ id: 'old', content: 'old' })] });
+    sendRefresh.resolve(chat([entry({ id: 'old', content: 'old' })]));
     await send;
     expect(store.messages.map((message) => message.content)).toEqual(['newest', 'one', 'two']);
+  });
+
+  it('ignores a superseded initial error delivered after abort and preserves the newer complete tuple', async () => {
+    const store = useAnalystChat();
+    const initial = deferred<ChatEntriesResponse>();
+    apiMocks.getChatEntries.mockReturnValueOnce(initial.promise);
+    const old = store.fetchMessages();
+    const newest = entry({ id: 'newest-after-abort', content: 'newest' });
+    apiMocks.getChatEntries.mockResolvedValueOnce(chat([newest]));
+    await store.fetchMessages();
+    initial.reject(new Error('late initial failure'));
+    await expect(old).resolves.toBeUndefined();
+    expect(store.messages).toEqual([newest]);
+    expect(store.activeSessionId).toBe('analyst:global');
+    expect(store.activityStatus).toEqual({ status: 'inactive', pending_calls: [] });
+    expect(store.messagesError).toBeNull();
+    expect(store.messagesLoading).toBe(false);
   });
 
   it('isolates send failure cleanup and restores its draft only when unchanged', async () => {
@@ -281,7 +323,7 @@ describe('analyst chat store', () => {
     const send = store.sendMessage();
     store.setDraft('new edit');
     const authoritative = entry({ id: 'server-existing', content: 'existing' });
-    apiMocks.getChatEntries.mockResolvedValueOnce({ sessionId: 'analyst:global', entries: [authoritative] });
+    apiMocks.getChatEntries.mockResolvedValueOnce(chat([authoritative]));
     await store.fetchMessages();
     sendFailure.reject(new Error('send failed'));
     await expect(send).rejects.toThrow('send failed');

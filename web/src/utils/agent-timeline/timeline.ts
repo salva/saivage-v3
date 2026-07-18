@@ -41,7 +41,7 @@ function hasVisibleRoundContent(round: TimelineRound): boolean {
   return round.texts.length > 0
     || round.diagnostics.length > 0
     || round.items.length > 0
-    || (round.activityStatus !== null && round.activityStatus.status !== 'idle');
+    || (round.activityStatus !== null && round.activityStatus.status !== 'inactive');
 }
 
 function roundOrderKey(entries: IndexedTimelineEntry[]): [number, string, string] {
@@ -99,7 +99,7 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[], ac
     return { id, kind: parsed.kind, position: idx + 1, entries: sorted, texts: sorted.filter(isDisplayTextEntry), diagnostics: sorted.filter((entry) => entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'context_compaction' || entry.kind === 'model_recovered'), toolPairs, items: groupToolPairs(id, toolPairs), activityStatus: null };
   });
   const activeRound = [...builtRounds].reverse().find((round: TimelineRound) => round.kind === 'assistant') ?? builtRounds[builtRounds.length - 1] ?? null;
-  if (activeRound && activityStatus && activityStatus.status !== 'idle') activeRound.activityStatus = activityStatus;
+  if (activeRound && activityStatus && activityStatus.status !== 'inactive') activeRound.activityStatus = activityStatus;
   const rounds = builtRounds.filter(hasVisibleRoundContent).map((round, idx) => ({ ...round, position: idx + 1 }));
   const visibleActiveRound = activeRound ? rounds.find((round) => round.id === activeRound.id) ?? null : null;
   return { rounds, activeRoundId: visibleActiveRound?.id ?? null, modelLabel: null };

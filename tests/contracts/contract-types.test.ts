@@ -1,5 +1,8 @@
 import { describe, it, expect } from '@jest/globals';
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
+import { AgentSessionSummarySchema } from '../../src/contracts/operator-api-agents.js';
+import { agentSessionSchema } from '../../src/schemas/index.js';
 import type {
   Contract,
   ContractTerminalDescriptor,
@@ -29,5 +32,12 @@ describe('contract types — smoke', () => {
     expect(r.ok).toBe(false);
     const v: ContractViolation = { code: 'terminal_tool_invalid_envelope', message: 'm', locator: 'l' };
     expect(v.code).toBe('terminal_tool_invalid_envelope');
+  });
+
+  it('keeps the checked-in agent session fixture on the strict current public vocabulary', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../../fixtures/valid/agent-session.json', import.meta.url), 'utf8'));
+    expect(agentSessionSchema.parse(fixture)).toEqual(fixture);
+    expect(AgentSessionSummarySchema.parse(fixture)).toEqual(fixture);
+    expect(fixture).not.toHaveProperty('completed_at');
   });
 });

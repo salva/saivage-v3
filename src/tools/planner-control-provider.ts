@@ -16,6 +16,7 @@ import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import type { AppLogContext } from '../persistence/app-log.js';
+import type { LlmToolInvocationContext, StructuralChildRelationship } from '../runtime/actors/executing-llm-snapshot.js';
 
 interface PlannerChildActor {
   activate(input: { kind: 'parent'; cardId: string; sessionId: string }, parentAdmit: () => void): Promise<CardActivationOutcome>;
@@ -40,6 +41,8 @@ export interface PlannerControlProviderContext {
   readonly cancelCard: (cardId: string, reason: string) => Promise<{ card_id: string; status: 'cancelled'; cancelled_card_ids: string[] }>;
   readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
   readonly appLogs: AppLogContext;
+  readonly beginStructuralWait: (relationship: StructuralChildRelationship) => StructuralChildRelationship;
+  readonly endStructuralWait: (relationship: StructuralChildRelationship) => void;
 }
 
 const createCardSchema = z.object({
@@ -74,7 +77,7 @@ export function createPlannerControlProvider(ctx: PlannerControlProviderContext)
       defineTool({ name: 'create_card', description: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.', inputSchema: createCardSchema, executor: async (args) => createCard(ctx, args) }),
       defineTool({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', inputSchema: editCardSchema, executor: async (args) => editCard(ctx, args) }),
       defineTool({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: cancelCardSchema, executor: async (args) => cancelCard(ctx, args) }),
-      defineTool({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardArgumentsSchema, executor: async (args) => activateCard(ctx, args) }),
+      defineTool({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardArgumentsSchema, executor: async (args, _signal, invocation) => activateCard(ctx, args, invocation) }),
       defineTool({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: reorderChildSchema, executor: async (args) => reorderChild(ctx, args) }),
       defineTool({ name: 'queue_notification', description: 'Queue operator context on one nonterminal card for its planner or executor.', inputSchema: queueNotificationSchema, executor: async (args) => queueNotificationTool(ctx, args) }),
     ],
@@ -167,7 +170,7 @@ async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<ty
   catch (error) { if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
 }
 
-async function activateCard(ctx: PlannerControlProviderContext, record: ActivateCardArguments): Promise<ToolResult> {
+async function activateCard(ctx: PlannerControlProviderContext, record: ActivateCardArguments, invocation?: LlmToolInvocationContext): Promise<ToolResult> {
   const admission = ctx.store.readActivationAdmission(record.card_id);
   if (!admission) return failure(`Child card '${record.card_id}' not found.`);
   const child = admission.child;
@@ -179,15 +182,21 @@ async function activateCard(ctx: PlannerControlProviderContext, record: Activate
   const actor = ctx.children.get(record.card_id);
   if (!actor) return failure(`No CardActor is registered for child '${record.card_id}'.`);
   try {
-    let activation;
+    let pending: Promise<CardActivationOutcome>;
     if (child.status === 'running') {
-      activation = await actor.awaitSettlement({ kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId });
+      pending = actor.awaitSettlement({ kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId });
     } else {
-      activation = await actor.activate(
+      pending = actor.activate(
         { kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId },
         () => { ctx.store.setStatus(record.card_id, 'running'); },
       );
     }
+    let activation: CardActivationOutcome;
+    if (invocation) {
+      const relationship = ctx.beginStructuralWait({ sessionId: invocation.sessionId, sourceInputId: invocation.sourceInputId, toolCallId: invocation.toolCallId, toolName: invocation.toolName, childCardId: record.card_id });
+      try { activation = await invocation.waits.waitChild(relationship, pending); }
+      finally { ctx.endStructuralWait(relationship); }
+    } else activation = await pending;
     return formatActivateCardResult(record.card_id, activation);
   } catch (error) {
     if (isRuntimeStoppedInterruption(error)) throw error;

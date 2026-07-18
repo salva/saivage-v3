@@ -34,8 +34,8 @@ type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProvid
 export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
   const agentReadModel = (): AgentOperatorReadModelService => {
-    if (!options.cardStore) throw new Error('Chat read operations require the card store.');
-    return new AgentOperatorReadModelService(projectRoot, options.cardStore);
+    if (!options.runtimeApplication) throw new Error('Chat read operations require the runtime application.');
+    return new AgentOperatorReadModelService(projectRoot, () => options.runtimeApplication!.captureExecutingLlmSnapshots());
   };
 
   return {
@@ -45,10 +45,9 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
     },
     'chats.get': () => {
       const response = agentReadModel().getConversation(GLOBAL_ANALYST_SESSION_ID);
-      if (response.statusCode === 404) return { body: { sessionId: GLOBAL_ANALYST_SESSION_ID, entries: [] } };
+      if (response.statusCode === 404) return { body: { session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } } };
       if (response.statusCode) return response;
-      if (!('entries' in response.body)) return response;
-      return { body: { sessionId: GLOBAL_ANALYST_SESSION_ID, entries: response.body.entries } };
+      return response;
     },
     'chats.send': async ({ body, reply }) => {
       const requestBody = body as { content?: string; workspaceContext?: unknown };

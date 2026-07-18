@@ -55,10 +55,10 @@ const rootChildren = parseOperatorResponse('cards.children', { card: projectCard
 const cardDetail = parseOperatorResponse('cards.get', { card });
 
 const sessions = [
-  { id: 'analyst:global', role: 'analyst', status: 'active', started_at: now, completed_at: null, model: 'synthetic-model' },
-  { id: 'planner:project', role: 'planner', status: 'inactive', goal_card_id: 'project', card_id: 'project', started_at: now, completed_at: null, model: 'synthetic-model' },
-  { id: 'reviewer:project', role: 'reviewer', status: 'inactive', goal_card_id: 'project', card_id: 'project', started_at: now, completed_at: now, model: 'synthetic-model' },
-  { id: `executor:${smokeCardId}`, role: 'executor', status: 'inactive', goal_card_id: 'project', card_id: smokeCardId, started_at: now, completed_at: now, model: 'synthetic-model' },
+  { id: 'analyst:global', role: 'analyst', status: 'inactive', started_at: now, model: 'synthetic-model' },
+  { id: 'planner:project', role: 'planner', status: 'inactive', goal_card_id: 'project', card_id: 'project', started_at: now, model: 'synthetic-model' },
+  { id: 'reviewer:project', role: 'reviewer', status: 'inactive', goal_card_id: 'project', card_id: 'project', started_at: now, model: 'synthetic-model' },
+  { id: `executor:${smokeCardId}`, role: 'executor', status: 'inactive', goal_card_id: 'project', card_id: smokeCardId, started_at: now, model: 'synthetic-model' },
 ];
 
 const metaRoot = {
@@ -96,7 +96,7 @@ function stampedText(sessionId: string, id: string, content: string) {
   return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
 }
 
-const idleActivity = { status: 'idle', pending_calls: [], updated_at: now };
+const idleActivity = { status: 'inactive', pending_calls: [] };
 
 export type OperatorRestOptions = {
   unauthorized?: boolean | ((method: string, pathname: string) => boolean);
@@ -143,7 +143,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, parseOperatorResponse('runtime.getState', { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/status') {
-      return json(route, parseOperatorResponse('runtime.status', { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running' }], agents: [] }, restart_server_available: false }));
+      return json(route, parseOperatorResponse('runtime.status', { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running' }] }, restart_server_available: false }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/cards/project/children') return json(route, rootChildren);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', { card, children: [] }));
@@ -151,7 +151,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history`) return json(route, { history: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/3`) return json(route, { entry: { ...card, snapshot: card } });
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/diff`) return json(route, { diff: [], from: 1, to: 3, card_id: smokeCardId });
-    if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, { sessions });
+    if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, parseOperatorResponse('agents.list', { sessions }));
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/conversation')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst:global');
       return json(route, parseOperatorResponse('agents.conversation', {
@@ -273,12 +273,13 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     }
     if (request.method() === 'GET' && url.pathname === '/api/notifications') return json(route, { notifications: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/control-actions') return json(route, { control_actions: [], total: 0 });
-    if (request.method() === 'GET' && url.pathname === '/api/chats') return json(route, { sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', title: 'Synthetic analyst chat', started_at: now, completed_at: null, updated_at: now }] });
+    if (request.method() === 'GET' && url.pathname === '/api/chats') return json(route, { sessions: [{ id: 'analyst:global', role: 'analyst', status: 'inactive', started_at: now }] });
     if (request.method() === 'GET' && url.pathname.startsWith('/api/chats/')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst:global');
       return json(route, parseOperatorResponse('chats.get', {
-        sessionId,
+        session: { id: sessionId, role: 'analyst', status: 'inactive', started_at: now },
         entries: chatEntries.get(sessionId) ?? [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')],
+        activity_status: { status: 'inactive', pending_calls: [] },
       }));
     }
     if (request.method() === 'POST' && url.pathname.startsWith('/api/chats/')) {

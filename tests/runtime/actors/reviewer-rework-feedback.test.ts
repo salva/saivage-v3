@@ -7,6 +7,7 @@ import { CardService } from '../../../src/cards/card-service.js';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 import type { AgentMessage } from '../../../src/schemas/index.js';
+import { AgentOperatorReadModelService } from '../../../src/application/read-models/agent-operator-read-model.js';
 import { PlanningCardProcessorActor } from '../../../src/runtime/actors/planning-card-processor-actor.js';
 import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
@@ -33,6 +34,38 @@ function tool(id: string, name: string, args: object): LlmCompleteResult {
 }
 
 describe('accepted reviewer rework feedback', () => {
+  it('excludes an ordinary failed processor even while its failed LLM actor remains retained', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-retained-failed-agent-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const store = new CardService(projectRoot);
+    let actor!: PlanningCardProcessorActor;
+    let retainedLlm: PlanningCardProcessorActor['activeLlmActors'] extends Map<string, infer T> ? T : never;
+    actor = new PlanningCardProcessorActor({
+      ...testAutonomousCompaction,
+      projectRoot,
+      cardId: 'project',
+      store,
+      children: { get: () => null },
+      ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined },
+      cancelCard: async () => { throw new Error('unused'); },
+      provider: { completeTurn: jest.fn(async () => { retainedLlm = [...actor.activeLlmActors.values()][0]!; throw new Error('fatal provider failure'); }) },
+      conversations: { projectRoot },
+      appLogs: testAppLogs(projectRoot),
+      promptTemplates: createTestPromptTemplateRegistry(),
+      runtimeProjectionChanged: () => undefined,
+    });
+    actor.start();
+    await expect(actor.activate({ activationId: 'failed', card: store.read('project')!, caller: { kind: 'root' }, notificationDelivery: { selectNotifications: () => [], removeNotifications: () => undefined }, claimResult: jest.fn() }, new AbortController().signal)).resolves.toMatchObject({ status: 'failed' });
+    actor.activeLlmActors.set('planner:project', retainedLlm!);
+    expect(actor.activeLlmActors.size).toBe(1);
+    expect(actor.executingLlmSnapshot()).toBeNull();
+    const service = new AgentOperatorReadModelService(projectRoot, () => actor.executingLlmSnapshot() ? [actor.executingLlmSnapshot()!] : []);
+    expect(service.listSessions().sessions.find(({ id }) => id === 'planner:project')).toMatchObject({ status: 'inactive' });
+    expect(service.getSession('planner:project').body).toMatchObject({ session: { status: 'inactive' } });
+    expect(service.getConversation('planner:project').body).toMatchObject({ session: { status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } });
+  });
+
   it('durably hands one closed-review message to the next planner activation before finite remediation completes', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-rework-feedback-'));
     roots.push(projectRoot);
@@ -44,9 +77,13 @@ describe('accepted reviewer rework feedback', () => {
 
     let plannerCalls = 0;
     let reviewerCalls = 0;
+    let actor!: PlanningCardProcessorActor;
+    const observedCurrentRoles: string[] = [];
     let secondPlannerProjection: LlmInvocationInput['providerConversation'] | null = null;
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        expect(actor.executingLlmSnapshot()).toMatchObject({ sessionId: input.sessionId, role: input.role, activity: { mode: 'active' } });
+        observedCurrentRoles.push(input.role);
         if (input.role === 'planner') {
           plannerCalls += 1;
           if (plannerCalls === 1) return complete(tool('planner-write-1', 'write', { path: 'record:///status.md?v=next', content: 'Initial completion evidence.' }));
@@ -74,12 +111,13 @@ describe('accepted reviewer rework feedback', () => {
     };
     const publishedRows: AgentMessage[] = [];
     const entryAppended = jest.fn((row: AgentMessage) => { publishedRows.push(row); });
-    const actor = new PlanningCardProcessorActor({
+    actor = new PlanningCardProcessorActor({
       ...testAutonomousCompaction,
       projectRoot,
       cardId: 'project',
       store,
       children: { get: () => null },
+      ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined },
       cancelCard: async () => { throw new Error('unused'); },
       provider,
       conversations: { projectRoot },
@@ -89,7 +127,7 @@ describe('accepted reviewer rework feedback', () => {
       conversationPublisher: { entryAppended },
     });
     actor.start();
-    const claimResult = jest.fn();
+    const claimResult = jest.fn(() => { expect(actor.executingLlmSnapshot()).toMatchObject({ role: 'reviewer', activity: { mode: 'active' } }); });
 
     await expect(actor.activate({
       activationId: 'activation',
@@ -101,6 +139,8 @@ describe('accepted reviewer rework feedback', () => {
 
     expect(plannerCalls).toBe(4);
     expect(reviewerCalls).toBe(4);
+    expect(observedCurrentRoles).toEqual(['planner', 'planner', 'reviewer', 'reviewer', 'planner', 'planner', 'reviewer', 'reviewer']);
+    expect(actor.executingLlmSnapshot()).toBeNull();
     expect(provider.completeTurn).toHaveBeenCalledTimes(8);
     expect(claimResult).toHaveBeenCalledTimes(1);
 

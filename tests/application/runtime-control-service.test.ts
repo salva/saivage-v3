@@ -22,7 +22,8 @@ function mechanics(): RuntimeControlMechanics {
     subscribe: () => ({ id: 'test', pause() {}, resume() {}, unsubscribe() {} }),
     getStatus: () => ({ status: 'running', currentCardId: 'project', pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }),
     getRuntimeState: () => state,
-    getActorRuntimeReadModel: () => ({ pauseMode: 'running', cards: [], agents: [] }),
+    getActorRuntimeReadModel: () => ({ pauseMode: 'running', cards: [] }),
+    captureAutonomousExecutingLlmSnapshots: () => [],
   };
 }
 

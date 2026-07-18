@@ -35,6 +35,8 @@ export interface RoleSurfaceContext {
   notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
   toolContext?: ToolContext;
   appLogs?: AppLogContext;
+  beginStructuralWait?: PlannerControlProviderContext['beginStructuralWait'];
+  endStructuralWait?: PlannerControlProviderContext['endStructuralWait'];
 }
 
 export const ROLE_PROVIDER_ORDER: Readonly<Record<RoleSurfaceRole, readonly ProviderName[]>> = {
@@ -54,6 +56,8 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     cancelCard: ctx.cancelCard!,
     notifyCard: ctx.notifyCard,
     appLogs: ctx.appLogs!,
+    beginStructuralWait: ctx.beginStructuralWait!,
+    endStructuralWait: ctx.endStructuralWait!,
   }),
   analystControl: (ctx) => createAnalystControlProvider(ctx.toolContext!),
   cardInspection: (ctx, role) => createCardInspectionProvider({

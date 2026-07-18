@@ -36,11 +36,12 @@ describe('operator API runtime contract without runtime ledgers', () => {
       started_at: '2026-01-01T00:00:00.000Z',
       restart_server_available: false,
       pid: 123,
-      actorRuntime: { pauseMode: 'running', cards: [], agents: [] },
+      actorRuntime: { pauseMode: 'running', cards: [] },
     });
     expect(status).not.toHaveProperty('lastCommand');
     expect(status).not.toHaveProperty('activeRun');
     expect(status).not.toHaveProperty('latestRun');
+    expect(() => parseOperatorResponse('runtime.status', { ...status, actorRuntime: { ...status.actorRuntime, agents: [] } })).toThrow();
   });
 
   it('rejects removed runtime ledger fields and public schema exports are absent', () => {
@@ -48,7 +49,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
     expect(operatorApiContracts['runtime.status'].success.keyof().options).not.toEqual(expect.arrayContaining(['lastCommand', 'activeRun', 'latestRun']));
     for (const removed of ['active_card_run', 'last_tick_at']) expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, [removed]: null } })).toThrow();
-    const validStatus = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [], agents: [] } };
+    const validStatus = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [] } };
     for (const removed of ['goalCount', 'lastTickAt']) expect(() => parseOperatorResponse('runtime.status', { ...validStatus, [removed]: null })).toThrow();
     for (const removed of ['activeWork', 'diagnostics']) expect(() => parseOperatorResponse('runtime.status', { ...validStatus, actorRuntime: { ...validStatus.actorRuntime, [removed]: removed === 'diagnostics' ? [] : 'none' } })).toThrow();
   });

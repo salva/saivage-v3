@@ -20,7 +20,7 @@ const S1 = 'planner:project' as const;
 const S2 = 'reviewer:project' as const;
 const session: AgentSession = { id: S1, role: 'planner', status: 'active', started_at: '2026-01-01T00:00:00.000Z' };
 const entry = { id: 'm1', session_id: S1, role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:01.000Z' } as const;
-const activityStatus: ActivityStatus = { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:02.000Z' };
+const activityStatus: ActivityStatus = { status: 'inactive', pending_calls: [] };
 const exchange = { provider: 'provider-one' } as any;
 
 function deferred<T>() {

@@ -31,7 +31,7 @@ describe('singleton Analyst contracts', () => {
 
   it('encodes literal analyst:global in chat and WebSocket success contracts', () => {
     expect(ChatListResponseSchema.parse({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: timestamp }] }).sessions[0]!.id).toBe('analyst:global');
-    expect(ChatEntriesResponseSchema.parse({ sessionId: 'analyst:global', entries: [entry()] }).sessionId).toBe('analyst:global');
+    expect(ChatEntriesResponseSchema.parse({ session: { id: 'analyst:global', role: 'analyst', status: 'inactive', started_at: timestamp }, entries: [entry()], activity_status: { status: 'inactive', pending_calls: [] } }).session?.id).toBe('analyst:global');
     expect(ChatSendResponseSchema.parse({ sessionId: 'analyst:global', toolInvocations: [], restart: null }).sessionId).toBe('analyst:global');
     expect(buildConnectedEnvelope().content.sessionId).toBe('analyst:global');
     expect(AnalystTurnAcknowledgedStatusContentSchema.parse({ event: 'analyst_turn_acknowledged', sessionId: 'analyst:global', restart: null }).sessionId).toBe('analyst:global');
@@ -47,6 +47,29 @@ describe('singleton Analyst contracts', () => {
     expect(AnalystTurnAcknowledgedStatusContentSchema.safeParse({ event: 'analyst_turn_acknowledged', sessionId, restart: null }).success).toBe(false);
     expect(AnalystToolInvokedContentSchema.safeParse({ event: 'analyst_tool_invoked', sessionId, tool: 'read', success: true, summary: '' }).success).toBe(false);
     expect(ToolInvocationContentSchema.safeParse({ event: 'tool_invocation', sessionId, tool: 'read' }).success).toBe(false);
+  });
+
+  it('accepts only the exact absent chat shape and rejects every null-session live or populated variant', () => {
+    const absent = { session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } };
+    expect(ChatEntriesResponseSchema.parse(absent)).toEqual(absent);
+    expect(ChatEntriesResponseSchema.safeParse({ ...absent, entries: [entry()] }).success).toBe(false);
+    expect(ChatEntriesResponseSchema.safeParse({ ...absent, activity_status: { status: 'active', pending_calls: [] } }).success).toBe(false);
+    expect(ChatEntriesResponseSchema.safeParse({ ...absent, activity_status: { status: 'waiting', pending_calls: [{ id: 'call-1', tool: 'webfetch', started_at: timestamp }] } }).success).toBe(false);
+  });
+
+  it('strictly enforces present session/activity equality, entry correlation, pending-call shape, and removed vocabulary', () => {
+    const waiting = { session: { id: 'analyst:global', role: 'analyst', status: 'waiting', started_at: timestamp }, entries: [entry()], activity_status: { status: 'waiting', pending_calls: [{ id: 'call-1', tool: 'webfetch', started_at: timestamp }] } };
+    expect(ChatEntriesResponseSchema.parse(waiting)).toEqual(waiting);
+    expect(ChatEntriesResponseSchema.safeParse({ ...waiting, session: { ...waiting.session, status: 'active' } }).success).toBe(false);
+    expect(ChatEntriesResponseSchema.safeParse({ ...waiting, entries: [{ ...entry(), session_id: 'planner:project' }] }).success).toBe(false);
+    for (const status of ['idle', 'thinking', 'tool_calling', 'responding', 'compacting']) {
+      expect(ChatEntriesResponseSchema.safeParse({ ...waiting, session: { ...waiting.session, status }, activity_status: { status, pending_calls: [] } }).success).toBe(false);
+    }
+    expect(ChatEntriesResponseSchema.safeParse({ ...waiting, activity_status: { ...waiting.activity_status, updated_at: timestamp } }).success).toBe(false);
+    expect(ChatEntriesResponseSchema.safeParse({ ...waiting, activity_status: { ...waiting.activity_status, pending_calls: [{ ...waiting.activity_status.pending_calls[0], process_id: 'proc-a' }] } }).success).toBe(false);
+    expect(ChatEntriesResponseSchema.safeParse({ ...waiting, sessionId: 'analyst:global' }).success).toBe(false);
+    expect(ChatEntriesResponseSchema.safeParse({ ...waiting, extra: true }).success).toBe(false);
+    expect(ChatEntriesResponseSchema.safeParse({ ...waiting, session: { ...waiting.session, completed_at: timestamp } }).success).toBe(false);
   });
 });
 

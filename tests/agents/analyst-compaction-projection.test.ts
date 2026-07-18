@@ -25,6 +25,54 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('Analyst continuation compaction safety', () => {
+  it('exposes only the current Analyst operation through provider work, success, failure, cancellation, and an exact external wait', async () => {
+    const unusedSummary = async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] });
+    let runtime!: AnalystRuntime;
+    let releaseProvider!: (value: any) => void;
+    const providerGate = new Promise((resolve) => { releaseProvider = resolve; });
+    const primary = jest.fn(async () => {
+      expect(runtime.executingLlmSnapshot()).toMatchObject({ sessionId: 'analyst:global', role: 'analyst', activity: { mode: 'active' } });
+      return providerGate;
+    });
+    ({ runtime } = harness(primary, unusedSummary));
+    expect(runtime.executingLlmSnapshot()).toBeNull();
+    const success = runtime.submit({ userContent: 'success' });
+    await waitUntil(() => runtime.executingLlmSnapshot() !== null);
+    releaseProvider({ result: { kind: 'message', content: 'done' }, provider_exchanges: [] });
+    await success;
+    expect(runtime.executingLlmSnapshot()).toBeNull();
+
+    const failedHarness = harness(jest.fn(async () => { throw new Error('provider failed'); }), unusedSummary);
+    await failedHarness.runtime.submit({ userContent: 'failure' });
+    expect(failedHarness.runtime.executingLlmSnapshot()).toBeNull();
+
+    const cancelledHarness = harness(jest.fn(async (_input: LlmInvocationInput, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))), unusedSummary);
+    const cancelled = cancelledHarness.runtime.submit({ userContent: 'cancel' });
+    await waitUntil(() => cancelledHarness.runtime.executingLlmSnapshot() !== null);
+    expect(cancelledHarness.runtime.cancel('operator')).toBe(true);
+    await cancelled;
+    expect(cancelledHarness.runtime.executingLlmSnapshot()).toBeNull();
+
+    let releaseFetch!: (response: Response) => void;
+    const fetchGate = new Promise<Response>((resolve) => { releaseFetch = resolve; });
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockReturnValue(fetchGate);
+    try {
+      let calls = 0;
+      const waitingHarness = harness(jest.fn(async () => {
+        calls += 1;
+        return calls === 1
+          ? { result: { kind: 'tool_calls', tool_calls: [{ id: 'web-call', type: 'function', function: { name: 'webfetch', arguments: '{"url":"https://93.184.216.34","metadata_only":true}' } }] }, provider_exchanges: [] }
+          : { result: { kind: 'message', content: 'fetched' }, provider_exchanges: [] };
+      }), unusedSummary, jest.fn(), false);
+      const waiting = waitingHarness.runtime.submit({ userContent: 'fetch' });
+      await waitUntil(() => waitingHarness.runtime.executingLlmSnapshot()?.activity.mode === 'waiting');
+      expect(waitingHarness.runtime.executingLlmSnapshot()).toMatchObject({ activity: { mode: 'waiting', barrier: { kind: 'external', toolCallId: 'web-call', toolName: 'webfetch' } } });
+      releaseFetch(new Response('ok', { status: 200, headers: { 'content-type': 'text/plain' } }));
+      await waiting;
+      expect(waitingHarness.runtime.executingLlmSnapshot()).toBeNull();
+    } finally { fetchSpy.mockRestore(); }
+  });
+
   it('produces exact marker-first rounds, retains one preparation over continuations, and compacts producer history', async () => {
     const captured: LlmInvocationInput[] = [];
     const primary = jest.fn(async (input: LlmInvocationInput) => {
@@ -159,7 +207,15 @@ describe('Analyst continuation compaction safety', () => {
   });
 });
 
-function harness(primary: (input: LlmInvocationInput) => Promise<any>, summary: (input: LlmInvocationInput) => Promise<any>, projectProviderExchanges = jest.fn(), preventive = true, restartServerAvailable = false, promptTemplates = createTestPromptTemplateRegistry(), compactImplementation = compact) {
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('Timed out waiting for Analyst state.');
+}
+
+function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, summary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, projectProviderExchanges = jest.fn(), preventive = true, restartServerAvailable = false, promptTemplates = createTestPromptTemplateRegistry(), compactImplementation = compact) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-compaction-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
@@ -174,6 +230,7 @@ function harness(primary: (input: LlmInvocationInput) => Promise<any>, summary: 
     emitAnalystToolInvoked: jest.fn(), eventBus, provider: { completeTurn: primary, projectProviderExchanges }, processRunner: runner, analystProcessRootScope: runner.analystRootScope,
     compactionPolicy, compactor: { shouldCompact: preventive ? (compactImplementation === compact ? shouldCompact : () => true) : () => false, compact: compactImplementation }, summarizerProvider,
     conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), interventionReadiness: new RuntimeInterventionBinding(),
+    runtimeProjectionChanged: jest.fn(), captureExecutingLlmSnapshots: () => [],
   } as never, promptTemplates, restartServerAvailable, restartPort: restartServerAvailable ? { schedule: scheduleRestart, acknowledge: jest.fn(async () => undefined) } : undefined });
   return { runtime, projectRoot, summarizerProvider, scheduleRestart };
 }

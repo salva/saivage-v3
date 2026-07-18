@@ -9,6 +9,7 @@ import { appendProviderVisibleSyntheticFailedToolResult, appendProviderVisibleSy
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import { formatActivateCardResult, parseActivateCardArguments, type CardActivationOutcome } from '../../contracts/tool-api.js';
+import { inspectCanonicalCallSettlementPairs } from './conversation-call-pairs.js';
 
 export type ConversationImplicitState =
   | 'empty'
@@ -173,33 +174,15 @@ function latestRoundCleanlyClosed(messages: readonly AgentMessage[], terminalToo
 }
 
 function validateCallSettlementPairs(messages: readonly AgentMessage[], latestActivationIndex: number | null, interrupted: boolean, terminalToolNames: ReadonlySet<string>): { sourceInputId: string; toolCallId: string; toolName: string; message: AgentMessage } | null {
-  const calls = new Map<string, { message: AgentMessage; index: number }>();
-  const settled = new Set<string>();
-  for (const [index, message] of messages.entries()) {
-    if (message.kind === 'tool_call') {
-      const identity = toolCallIdentity(message);
-      const key = loggedToolCallKey(identity);
-      if (calls.has(key)) throw new Error(`Duplicate tool call identity '${key}'.`);
-      calls.set(key, { message, index });
-    }
-    if (message.kind === 'tool_result') {
-      const identity = toolResultIdentity(message);
-      const key = loggedToolCallKey(identity);
-      if (!calls.has(key)) throw new Error(`Tool settlement '${message.id}' has no prior matching call.`);
-      if (settled.has(key)) throw new Error(`Tool call identity '${key}' has duplicate settlements.`);
-      settled.add(key);
-    }
-  }
-  const unmatched = [...calls.entries()].filter(([key]) => !settled.has(key));
+  const unmatched = inspectCanonicalCallSettlementPairs(messages).unmatched;
   if (unmatched.length === 0) return null;
   if (!interrupted) throw new Error('A cleanly closed or empty role session contains an unmatched tool call.');
   if (unmatched.length > 1) throw new Error('Interrupted role session contains more than one unmatched tool call.');
-  const [, call] = unmatched[0]!;
+  const call = unmatched[0]!;
   if (latestActivationIndex === null || call.index < latestActivationIndex) throw new Error('Interrupted role session contains an unmatched tool call in an older activation round.');
   if (!call.message.tool || !call.message.tool_call_id) throw new Error(`Unmatched tool call '${call.message.id}' is malformed.`);
-  const identity = toolCallIdentity(call.message);
   void terminalToolNames;
-  return { sourceInputId: identity.source_input_id, toolCallId: identity.tool_call_id, toolName: call.message.tool, message: call.message };
+  return { sourceInputId: call.sourceInputId, toolCallId: call.toolCallId, toolName: call.message.tool, message: call.message };
 }
 
 function parseResultPayload(message: AgentMessage): { success?: unknown; data?: unknown } {

@@ -28,7 +28,7 @@ vi.mock('../api/client', () => ({
   listAgentSessions: vi.fn(async () => ({ sessions: [makeSession('planner:project'), makeSession('reviewer:project')] })),
   getAgentConversation: vi.fn(async (sessionId: 'planner:project' | 'reviewer:project') => {
     lifecycle.events.push(`fetch:${sessionId}`);
-    return { session: makeSession(sessionId), entries: [], activity_status: { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:00.000Z' } };
+    return { session: makeSession(sessionId), entries: [], activity_status: { status: 'active', pending_calls: [] } };
   }),
   getAgentLlmExchange: vi.fn(),
   ApiError: class extends Error {

@@ -48,7 +48,7 @@ function setup(reviewStatus: 'done' | 'blocked' | 'failed' | 'rework') {
     if (reviewerCalls === 1) return complete(tool('write-review', 'write', { path: 'record:///review.md?v=next', content: 'Review draft.' }));
     return new Promise<ProviderTurnCompletion>((resolve) => { releaseReviewer = () => resolve(complete(tool('review-result', 'emit_result', { status: reviewStatus, summary: reviewStatus }))); });
   }) };
-  const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store: cards, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
+  const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store: cards, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined }, cancelCard: async () => { throw new Error('unused'); }, provider, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), gate, runtimeProjectionChanged: () => undefined, ...testAutonomousCompaction });
   actor.start();
   const controller = new AbortController();
   const activation = actor.activate({ activationId: 'activation', card: cards.read('project')!, caller: { kind: 'root' }, claimResult: jest.fn(), notificationDelivery: { selectNotifications: () => [...cards.read('project')!.pending_notifications], removeNotifications: (ids) => cards.removeNotifications('project', [...ids]) } }, controller.signal);

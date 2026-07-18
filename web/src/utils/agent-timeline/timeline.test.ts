@@ -353,11 +353,11 @@ describe('entriesToTimeline display filtering', () => {
         content: JSON.stringify({ event: 'llm_turn_started' }),
         round_id: 'r-assistant-0000000000000000000000000000000c',
       }),
-    ], { status: 'thinking', pending_calls: [], updated_at: '2026-05-30T00:00:01Z' });
+    ], { status: 'active', pending_calls: [] });
 
     expect(timeline.rounds).toHaveLength(1);
     expect(timeline.rounds[0].texts).toHaveLength(0);
-    expect(timeline.rounds[0].activityStatus?.status).toBe('thinking');
+    expect(timeline.rounds[0].activityStatus?.status).toBe('active');
     expect(timeline.activeRoundId).toBe(timeline.rounds[0].id);
   });
 

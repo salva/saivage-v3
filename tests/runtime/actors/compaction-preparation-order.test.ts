@@ -23,7 +23,7 @@ afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, f
 describe('autonomous compaction preparation ordering', () => {
   it('fails planner and reviewer preparation before conversation I/O', () => {
     const { projectRoot, store } = project();
-    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn: jest.fn() as never }, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, compactionConfig: tooSmall, compactor: testCompactor, summarizerProvider: unusedSummarizerProvider });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: 'project', store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined }, cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn: jest.fn() as never }, conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), promptTemplates: createTestPromptTemplateRegistry(), runtimeProjectionChanged() {}, compactionConfig: tooSmall, compactor: testCompactor, summarizerProvider: unusedSummarizerProvider });
     const activation = input(store, 'project');
     activation.reconstructedSettlement = { kind: 'reconstructed_barrier', childCardId: 'card-a', outcome: { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } } };
     const internal = actor as unknown as {

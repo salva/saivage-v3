@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AgentConversationEntry, ChatSession, DetailErrorState, RestartChatAcknowledgement } from '../api/types';
+import type { ActivityStatus, AgentConversationEntry, ChatSession, DetailErrorState, RestartChatAcknowledgement } from '../api/types';
 import {
   ApiError,
   getChatEntries,
@@ -77,6 +77,8 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   let sessionsAbort: AbortController | null = null;
   let messagesAbort: AbortController | null = null;
   const sessions = ref<ChatSession[]>([]);
+  const detailSession = ref<ChatSession | null>(null);
+  const activityStatus = ref<ActivityStatus>({ status: 'inactive', pending_calls: [] });
   const activeSessionId = ref<typeof ANALYST_SESSION_ID | null>(ANALYST_SESSION_ID);
   const authoritativeMessages = ref<AgentConversationEntry[]>([]);
   const pendingMessages = ref<PendingMessage[]>([]);
@@ -93,19 +95,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const sendError = ref<DetailErrorState | null>(null);
   const restartAcknowledgement = ref<RestartChatAcknowledgement | null>(null);
 
-  const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
-
-  function ensureSessionInList(): void {
-    if (sessions.value.some((session) => session.id === ANALYST_SESSION_ID)) {
-      return;
-    }
-    sessions.value = [{
-      id: ANALYST_SESSION_ID,
-      role: 'analyst',
-      status: 'active',
-      started_at: nowIso(),
-    }, ...sessions.value];
-  }
+  const activeSession = computed(() => detailSession.value);
 
   function setDraft(value: string): void {
     draft.value = value;
@@ -132,9 +122,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     try {
       const response = await listChatSessions(abort.signal);
       if (requestSeq !== sessionsRequestSeq) return;
-      const canonical = response.sessions.find((session) => session.id === ANALYST_SESSION_ID)
-        ?? { id: ANALYST_SESSION_ID, role: 'analyst', status: 'active', started_at: nowIso() };
-      sessions.value = [{ ...canonical, role: 'analyst' }];
+      sessions.value = response.sessions.filter((session) => session.id === ANALYST_SESSION_ID);
       activeSessionId.value = ANALYST_SESSION_ID;
     } catch (err) {
       if (requestSeq !== sessionsRequestSeq) return;
@@ -150,7 +138,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   async function selectSession(): Promise<void> {
     activeSessionId.value = ANALYST_SESSION_ID;
-    ensureSessionInList();
     await fetchMessages();
   }
 
@@ -160,18 +147,24 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     const abort = new AbortController();
     messagesAbort = abort;
     activeSessionId.value = ANALYST_SESSION_ID;
-    ensureSessionInList();
     messagesLoading.value = true;
     messagesError.value = null;
     try {
       const response = await getChatEntries(abort.signal);
       if (requestSeq !== messagesRequestSeq || activeSessionId.value !== ANALYST_SESSION_ID) return;
-      authoritativeMessages.value = [...response.entries];
-      pendingMessages.value = pendingMessages.value.filter(
+      const reconciled = pendingMessages.value.filter(
         (pending) => !authoritativeContainsPending(response.entries, pending.entry),
       );
+      detailSession.value = response.session;
+      activityStatus.value = response.activity_status;
+      authoritativeMessages.value = [...response.entries];
+      pendingMessages.value = reconciled;
+      messagesError.value = null;
     } catch (err) {
       if (requestSeq !== messagesRequestSeq || activeSessionId.value !== ANALYST_SESSION_ID) return;
+      detailSession.value = null;
+      activityStatus.value = { status: 'inactive', pending_calls: [] };
+      authoritativeMessages.value = [];
       messagesError.value = buildErrorState(err, 'Failed to load analyst chat messages.');
       throw err;
     } finally {
@@ -185,7 +178,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   function createNewChat(): string {
     activeSessionId.value = ANALYST_SESSION_ID;
     messagesError.value = null;
-    ensureSessionInList();
     return ANALYST_SESSION_ID;
   }
 
@@ -194,7 +186,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     const content = draft.value.trim();
     if (!content) return;
     activeSessionId.value = ANALYST_SESSION_ID;
-    ensureSessionInList();
     if (!isWritableSession(activeSession.value)) {
       sendError.value = { kind: 'unknown', status: null, message: 'Read-only — switch to analyst to send messages' };
       return;
@@ -266,6 +257,8 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     sessions,
     activeSessionId,
     activeSession,
+    detailSession,
+    activityStatus,
     messages,
     draft,
     sessionsLoading,

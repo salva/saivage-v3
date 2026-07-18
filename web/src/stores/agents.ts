@@ -8,7 +8,7 @@ import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:agents');
 const STALE_AFTER_MS = 30_000;
-const idleActivity = (): ActivityStatus => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() });
+const inactiveActivity = (): ActivityStatus => ({ status: 'inactive', pending_calls: [] });
 function nowIso(): string { return new Date().toISOString(); }
 function isLiveStatus(status: SessionStatus): boolean { return status === 'active' || status === 'waiting'; }
 function isAbortError(error: unknown): boolean { return error instanceof DOMException && error.name === 'AbortError'; }
@@ -33,7 +33,7 @@ export const useAgentStore = defineStore('agents', () => {
   const selectedConversationSessionId = ref<ConversationSessionId | null>(null);
   const currentSession = ref<AgentSession | null>(null);
   const entries = ref<AgentConversationEntry[]>([]);
-  const activityStatus = ref<ActivityStatus>(idleActivity());
+  const activityStatus = ref<ActivityStatus>(inactiveActivity());
   const conversationWarning = ref<string | null>(null);
   const conversationLoading = ref(false);
   const conversationRefreshing = ref(false);
@@ -74,8 +74,7 @@ export const useAgentStore = defineStore('agents', () => {
     return map;
   });
   const activeSessions = computed(() => sessions.value.filter((session) => isLiveStatus(session.status)));
-  const completedSessions = computed(() => sessions.value.filter((session) => !isLiveStatus(session.status)));
-  const attentionSessions = computed(() => sessions.value.filter((session) => session.status === 'failed' || session.status === 'blocked'));
+  const inactiveSessions = computed(() => sessions.value.filter((session) => !isLiveStatus(session.status)));
 
   function markRestSync(): void { lastFetchedAt.value = nowIso(); lastUpdatedBy.value = 'rest'; }
   function markWsSync(timestamp = nowIso()): void { lastWsEventAt.value = timestamp; lastUpdatedBy.value = 'ws'; }
@@ -124,7 +123,7 @@ export const useAgentStore = defineStore('agents', () => {
   function clearConversationData(): void {
     currentSession.value = null;
     entries.value = [];
-    activityStatus.value = idleActivity();
+    activityStatus.value = inactiveActivity();
     conversationWarning.value = null;
   }
 
@@ -346,8 +345,7 @@ export const useAgentStore = defineStore('agents', () => {
     llmExchangeRefreshError,
     sessionsByRole,
     activeSessions,
-    completedSessions,
-    attentionSessions,
+    inactiveSessions,
     isStale,
     fetchSessions,
     beginConversationSelection,

@@ -40,6 +40,7 @@ import { DefaultAnalystBriefRecordMutationService, DefaultAnalystCardMutationSer
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
+import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 
 
 export interface WorkspaceContext {
@@ -101,6 +102,8 @@ export interface AnalystRuntimeDeps {
   conversations: ConversationFileContext;
   appLogs: AppLogContext;
   interventionReadiness: import('../application/intervention-readiness.js').InterventionReadinessFacet;
+  runtimeProjectionChanged(): void;
+  captureExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[];
 }
 
 export interface AnalystTurnInput {
@@ -162,7 +165,7 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: AnalystCon
 
 function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardService; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
   const notifyCard = args.runtimeDeps.runtime.notifyCard.bind(args.runtimeDeps.runtime);
-  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs, analystMutations: {
+  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs, captureExecutingLlmSnapshots: args.runtimeDeps.captureExecutingLlmSnapshots, analystMutations: {
     cards: new DefaultAnalystCardMutationService(args.store, args.surface, notifyCard, args.runtimeDeps.runtime.cancelCard.bind(args.runtimeDeps.runtime)),
     config: new DefaultAnalystConfigMutationService(args.runtimeDeps.configAuthority),
     notifications: new DefaultAnalystNotificationMutationService(args.projectRoot, args.store, args.surface, notifyCard),
@@ -200,7 +203,7 @@ export class AnalystSessionActor extends BaseActor {
   constructor(private readonly args: { projectRoot: string; sessionId: AnalystConversationSessionId; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
     super();
     this.processScope = args.runtimeDeps.processRunner.createDirectScope(args.runtimeDeps.analystProcessRootScope, `analyst-session:${args.sessionId}`, 'operator_session');
-    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, compactor: args.runtimeDeps.compactor, summarizerProvider: args.runtimeDeps.summarizerProvider, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus) });
+    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, compactor: args.runtimeDeps.compactor, summarizerProvider: args.runtimeDeps.summarizerProvider, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus), runtimeProjectionChanged: args.runtimeDeps.runtimeProjectionChanged });
   }
 
   override start(): void {
@@ -220,6 +223,7 @@ export class AnalystSessionActor extends BaseActor {
     this.result = deferred<AnalystTurnResult>();
     this.operationTracker = new ActivationOperationTracker();
     this.parkedSendEvent('submit');
+    this.args.runtimeDeps.runtimeProjectionChanged();
     return this.result.promise;
   }
 
@@ -230,16 +234,22 @@ export class AnalystSessionActor extends BaseActor {
     this.operationTracker?.revoke(new Error(reason));
     this.turnAbort?.abort(new Error(reason));
     this.pendingTurn = null;
-    this.result = null;
+          this.result = null;
     this.lastOutcome = 'cancelled';
     this.persistAssistantNotice(`Cancelled: ${reason}`);
     result.resolve({ sessionId: this.sessionId, restart: null, cancelled: true });
     this.sendEvent('cancel');
+    this.args.runtimeDeps.runtimeProjectionChanged();
     return true;
   }
 
   readModel(): AnalystSessionReadModel {
     return { sessionId: this.sessionId, phase: this.state() === 'conversing' ? 'conversing' : 'idle', toolInFlight: this.toolInFlight, lastOutcome: this.lastOutcome };
+  }
+
+  executingLlmSnapshot(): ExecutingLlmSnapshot | null {
+    if (this.state() !== 'conversing' || !this.result) return null;
+    return Object.freeze({ sessionId: this.sessionId, agentId: this.llm.agentId, role: 'analyst', cardId: null, activity: this.llm.executingActivity() });
   }
 
   _on_enter__conversing(): void {
@@ -267,6 +277,7 @@ export class AnalystSessionActor extends BaseActor {
           this.lastOutcome = 'completed';
           result.resolve(response);
           this.sendEvent('done');
+          this.args.runtimeDeps.runtimeProjectionChanged();
         });
       },
       on_failed: (error) => {
@@ -283,6 +294,7 @@ export class AnalystSessionActor extends BaseActor {
           this.lastOutcome = 'failed';
           result.reject(error);
           this.sendEvent('failed');
+          this.args.runtimeDeps.runtimeProjectionChanged();
         });
       },
     });
@@ -380,7 +392,8 @@ export class AnalystSessionActor extends BaseActor {
       this.toolInFlight = toolCall.toolName;
       let result: ToolResult;
       try {
-        result = await invokeToolCall(surface, toolCall.toolName, rawArguments, signal);
+        const identity = { sessionId: this.sessionId, sourceInputId: toolCall.inputId, toolCallId: toolCall.toolCallId, toolName: toolCall.toolName };
+        result = await invokeToolCall(surface, toolCall.toolName, rawArguments, signal, { ...identity, waits: this.llm.waitCallbacks(identity) });
       } catch (err) {
         if (this.isCancelled()) return this.cancelledLoopResponse();
         throw err;
@@ -579,6 +592,10 @@ export class AnalystRuntime {
 
   listSessions(): AnalystSessionReadModel[] {
     return this.session ? [this.session.readModel()] : [];
+  }
+
+  executingLlmSnapshot(): ExecutingLlmSnapshot | null {
+    return this.session?.executingLlmSnapshot() ?? null;
   }
 
   getAvailableToolNames(actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat'): string[] {

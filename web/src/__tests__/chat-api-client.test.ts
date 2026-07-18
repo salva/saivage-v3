@@ -29,9 +29,9 @@ describe('Analyst chat API client', () => {
 
   it('uses the identity-free GET signature and exact canonical route', async () => {
     const signal = new AbortController().signal;
-    request.mockResolvedValue(new Response(JSON.stringify({ sessionId: 'analyst:global', entries: [] }), { status: 200 }));
+    request.mockResolvedValue(new Response(JSON.stringify({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } }), { status: 200 }));
 
-    await expect(getChatEntries(signal)).resolves.toEqual({ sessionId: 'analyst:global', entries: [] });
+    await expect(getChatEntries(signal)).resolves.toEqual({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
 
     expect(getChatEntriesSignatureIsExact).toBe(true);
     expect(request).toHaveBeenCalledTimes(1);

@@ -36,12 +36,13 @@ describe('AnalystChatPanel', () => {
     });
     listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     getChatEntries.mockResolvedValue({
-      sessionId: 'analyst:global',
+      session: { id: 'analyst:global', role: 'analyst', status: 'inactive', started_at: '2025-01-01T00:00:00Z' },
       entries: [
         { id: '1', session_id: 'analyst:global', role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:00Z' },
         { id: '2', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
         { id: '3', session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
       ],
+      activity_status: { status: 'inactive', pending_calls: [] },
     });
     sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
   });
@@ -61,16 +62,61 @@ describe('AnalystChatPanel', () => {
     expect(closeConversation).toHaveBeenCalledTimes(1);
   });
 
+  it('initializes one direct detail read while disconnected even when the independent list fails', async () => {
+    openConversation.mockImplementation(() => closeConversation);
+    listChatSessions.mockRejectedValueOnce(new Error('disconnected list'));
+    getChatEntries.mockResolvedValueOnce({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(openConversation).toHaveBeenCalledTimes(1);
+    expect(listChatSessions).toHaveBeenCalledTimes(1);
+    expect(getChatEntries).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+    expect(closeConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps subscription and list acquisition when independent detail initialization fails', async () => {
+    openConversation.mockImplementation(() => closeConversation);
+    getChatEntries.mockRejectedValueOnce(new Error('detail failed'));
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(openConversation).toHaveBeenCalledTimes(1);
+    expect(listChatSessions).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('detail failed');
+    wrapper.unmount();
+    expect(closeConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a subscription refetch supersede an aborted initial detail response', async () => {
+    let callback!: () => Promise<void>;
+    openConversation.mockImplementation((_id: string, refetch: () => Promise<void>) => { callback = refetch; return closeConversation; });
+    let resolveInitial!: (value: any) => void;
+    const initial = new Promise((resolve) => { resolveInitial = resolve; });
+    getChatEntries.mockReturnValueOnce(initial).mockResolvedValueOnce({
+      session: { id: 'analyst:global', role: 'analyst', status: 'inactive', started_at: '2025-01-01T00:00:00Z' },
+      entries: [{ id: 'new', session_id: 'analyst:global', role: 'assistant', kind: 'text', content: 'newest', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:00Z' }],
+      activity_status: { status: 'inactive', pending_calls: [] },
+    });
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await callback();
+    resolveInitial({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('newest');
+    wrapper.unmount();
+  });
+
   it('shows Loading history… during initial fetch and gates empty state until loading completes', async () => {
     let resolveMessages: (value: any) => void = () => {};
-    getChatEntries.mockReturnValueOnce(new Promise((resolve) => { resolveMessages = resolve; }));
+    const pending = new Promise((resolve) => { resolveMessages = resolve; });
+    getChatEntries.mockReturnValue(pending);
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();
 
     expect(wrapper.text()).toContain('Loading history…');
     expect(wrapper.text()).not.toContain('No messages yet. Ask the analyst something.');
 
-    resolveMessages({ sessionId: 'analyst:global', entries: [] });
+    resolveMessages({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
     await flushPromises();
     expect(wrapper.text()).not.toContain('Loading history…');
     expect(wrapper.text()).toContain('No messages yet. Ask the analyst something.');
@@ -86,6 +132,23 @@ describe('AnalystChatPanel', () => {
     expect(wrapper.find('textarea').attributes('disabled')).toBeUndefined();
     expect(wrapper.find('textarea').attributes('title')).toBe('Ask the analyst…');
     expect(wrapper.find('button.chat-send-button').attributes('title')).toBe('Ask the analyst…');
+    wrapper.unmount();
+  });
+
+  it.each([
+    ['active', 'Active'],
+    ['waiting', 'Waiting for webfetch'],
+  ] as const)('renders exact %s detail activity through the shared timeline footer', async (status, copy) => {
+    getChatEntries.mockResolvedValueOnce({
+      session: { id: 'analyst:global', role: 'analyst', status, started_at: '2025-01-01T00:00:00Z' },
+      entries: [{ id: 'activity-entry', session_id: 'analyst:global', role: 'assistant', kind: 'text', content: 'working', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:00Z' }],
+      activity_status: { status, pending_calls: status === 'waiting' ? [{ id: 'call-1', tool: 'webfetch', started_at: '2025-01-01T00:00:01Z' }] : [] },
+    });
+    openConversation.mockImplementation(() => closeConversation);
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(wrapper.text()).toContain(copy);
+    expect(wrapper.text()).not.toContain('Analyst is thinking');
     wrapper.unmount();
   });
 

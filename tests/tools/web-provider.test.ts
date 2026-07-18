@@ -8,6 +8,40 @@ import { createWebProvider } from '../../src/tools/web-tools.js';
 import { createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
 
 describe('WebProvider', () => {
+  it('waits only around public fetch and resumes before result publication/finalization', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
+    let release!: (response: Response) => void;
+    const fetched = new Promise<Response>((resolve) => { release = resolve; });
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockReturnValue(fetched);
+    const events: string[] = [];
+    try {
+      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' })]);
+      const context = {
+        sessionId: 'executor:card-a' as const,
+        sourceInputId: '11111111-1111-4111-8111-111111111111',
+        toolCallId: 'call-web',
+        toolName: 'webfetch',
+        waits: {
+          waitExternal: async <T>(promise: Promise<T>) => { events.push('wait-enter'); const value = await promise; events.push('wait-exit'); return value; },
+          waitProcess: async <T>(_id: string, _promise: Promise<T>) => { throw new Error('unexpected process wait'); },
+          waitChild: async <T>(_relationship: any, _promise: Promise<T>) => { throw new Error('unexpected child wait'); },
+        },
+      };
+      const pending = invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34', metadata_only: true }, new AbortController().signal, context);
+      for (let attempt = 0; attempt < 200 && fetchSpy.mock.calls.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(fetchSpy).toHaveBeenCalled();
+      expect(events).toEqual(['wait-enter']);
+      release(new Response('', { status: 200, headers: { 'content-type': 'text/plain' } }));
+      const result = await pending;
+      if (!result.success) throw new Error(result.error);
+      expect(result).toMatchObject({ success: true });
+      expect(events).toEqual(['wait-enter', 'wait-exit']);
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('exposes websearch and webfetch through an invocation surface', () => {
     const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: '/project', agentRole: 'executor' })]);
     expect([...surface.tools.keys()]).toEqual(['websearch', 'webfetch']);

@@ -65,7 +65,7 @@ describe('CLI no-live runtime controls', () => {
       publishRuntimeControlEndpoint(lock, { origin: 'http://127.0.0.1:45679', auth: 'bearer' });
       const prior = process.env.SAIVAGE_API_TOKEN;
       process.env.SAIVAGE_API_TOKEN = 'test-cli-bearer';
-      const runtimeStatus = { runtime: command === 'pause' ? 'paused' : 'running', currentCardId: null, started_at: '2026-07-18T00:00:00.000Z', restart_server_available: true, pid: process.pid, actorRuntime: { pauseMode: command === 'pause' ? 'paused' : 'running', cards: [], agents: [] } };
+      const runtimeStatus = { runtime: command === 'pause' ? 'paused' : 'running', currentCardId: null, started_at: '2026-07-18T00:00:00.000Z', restart_server_available: true, pid: process.pid, actorRuntime: { pauseMode: command === 'pause' ? 'paused' : 'running', cards: [] } };
       const request = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(command === 'stop' ? { status: 'stopped', contained: true } : runtimeStatus), { status: 200, headers: { 'Content-Type': 'application/json' } }));
       jest.spyOn(console, 'log').mockImplementation(() => {});
       try { await run(['node', 'saivage', command]); } finally { if (prior === undefined) delete process.env.SAIVAGE_API_TOKEN; else process.env.SAIVAGE_API_TOKEN = prior; releaseRuntimeLifecycleLock(lock); }

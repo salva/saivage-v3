@@ -12,6 +12,7 @@ import type { InterventionReadinessFacet } from '../application/intervention-rea
 import type { RuntimeControlApplicationPort } from '../application/runtime-control-service.js';
 import type { AnalystMutationServices } from '../application/analyst-mutation-services.js';
 import type { AnalystPreparationReadServices } from '../application/analyst-prepare/webfetch.js';
+import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 
 export type { ToolResult };
 
@@ -39,4 +40,5 @@ export interface ToolContext {
   appLogs: AppLogContext;
   analystMutations?: AnalystMutationServices;
   analystPreparation?: AnalystPreparationReadServices;
+  captureExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[];
 }

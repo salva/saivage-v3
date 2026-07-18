@@ -24,6 +24,7 @@ import type { ActiveCardLeaf } from '../active-card-leaf.js';
 import { isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import { ReconstructedActivationResultAppendError, type ReconstructedBarrierSettlement } from './conversation-recovery.js';
+import type { StructuralChildRelationship } from './executing-llm-snapshot.js';
 
 export interface CardActivationInput {
   activationId?: string;
@@ -126,6 +127,7 @@ export class CardActor extends BaseActor {
   #terminalClaim: 'open' | 'claimed_result' | 'claimed_cancel' | 'claimed_stop' = 'open';
   #cancelSettlement: Promise<CardCancellationResult> | null = null;
   #structuralChildId: string | null = null;
+  #ordinaryStructuralRelationship: StructuralChildRelationship | null = null;
   #reconstructedSettlement: ReconstructedBarrierSettlement | null = null;
   #continuationSuppressed = false;
   #stopSettlementEventQueued = false;
@@ -248,6 +250,22 @@ export class CardActor extends BaseActor {
   }
 
   get structuralChildId(): string | null { return this.#structuralChildId; }
+  beginOrdinaryStructuralWait(relationship: StructuralChildRelationship): StructuralChildRelationship {
+    if (this.state() !== 'running' || !this.#result) throw new Error(`Card '${this.cardId}' cannot install an ordinary structural child wait outside a running activation.`);
+    if (this.#structuralChildId || this.#ordinaryStructuralRelationship) throw new Error(`Card '${this.cardId}' already owns a structural child relationship.`);
+    const child = this.store.read(relationship.childCardId);
+    if (!child || child.parent !== this.cardId) throw new Error(`Card '${relationship.childCardId}' is not the immediate child of '${this.cardId}'.`);
+    this.#structuralChildId = relationship.childCardId;
+    this.#ordinaryStructuralRelationship = Object.freeze({ ...relationship });
+    this.deps.runtimeProjectionChanged();
+    return this.#ordinaryStructuralRelationship;
+  }
+  endOrdinaryStructuralWait(relationship: StructuralChildRelationship): void {
+    if (this.#ordinaryStructuralRelationship !== relationship || this.#structuralChildId !== relationship.childCardId) throw new Error(`Card '${this.cardId}' structural child relationship changed before settlement.`);
+    this.#ordinaryStructuralRelationship = null;
+    this.#structuralChildId = null;
+    this.deps.runtimeProjectionChanged();
+  }
   get claim(): 'open' | 'claimed_result' | 'claimed_cancel' | 'claimed_stop' { return this.#terminalClaim; }
 
   stop(operation: RuntimeStopOperation): Promise<void> {
@@ -522,6 +540,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       cardId: card.id,
       store: owner.store,
       children: { get: (childId) => owner.childCardActor(childId) },
+      ownerStructuralWait: { begin: (relationship) => owner.beginOrdinaryStructuralWait(relationship), end: (relationship) => owner.endOrdinaryStructuralWait(relationship) },
       cancelCard: owner.deps.cancelCard,
       provider: owner.deps.provider,
       conversations: owner.deps.conversations,

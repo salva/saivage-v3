@@ -53,7 +53,6 @@ type ProjectionSnapshot = {
   status: ReturnType<SupervisorRuntimeApi['getStatus']>;
   runtimeCardId: string | null;
   cards: string[];
-  agents: Array<{ agentId: string; phase: string }>;
   readiness: string;
 };
 
@@ -63,7 +62,6 @@ function projectionSnapshot(supervisor: SupervisorRuntimeApi, intervention: Runt
     status: supervisor.getStatus(),
     runtimeCardId: supervisor.getRuntimeState()?.current_card_id ?? null,
     cards: actorRuntime.cards.map(({ cardId }) => cardId),
-    agents: actorRuntime.agents.map(({ agentId, phase }) => ({ agentId, phase })),
     readiness: intervention.interventionReadiness(),
   };
 }
@@ -132,23 +130,27 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     snapshots.length = 0;
 
     const launched = supervisor.launchStartedProject(prepared.launch);
-    expect(launched).toEqual(supervisor.getRuntimeState());
+    expect(supervisor.getRuntimeState()).toMatchObject({
+      project_id: launched.project_id,
+      status: launched.status,
+      current_card_id: launched.current_card_id,
+      pid: launched.pid,
+      started_at: launched.started_at,
+    });
     expect(() => supervisor.launchStartedProject(prepared.launch)).toThrow('foreign, stale, or already consumed');
     expect(snapshots).toMatchObject([
-      { status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: ['project'], agents: [], readiness: 'stopped' },
-      { status: { status: 'running', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'], agents: [], readiness: 'not_ready' },
+      { status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: ['project'], readiness: 'stopped' },
+      { status: { status: 'running', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'], readiness: 'not_ready' },
     ]);
 
-    await waitUntil(() => snapshots.some(({ agents }) => agents.length === 1));
-    const insertion = snapshots.find(({ agents }) => agents.length === 1)!;
-    expect(insertion.agents[0]?.phase).toBe('idle');
-    await waitUntil(() => snapshots.some(({ agents }) => agents[0]?.phase === 'calling_provider'));
+    await waitUntil(() => supervisor.captureAutonomousExecutingLlmSnapshots().length === 1);
+    expect(supervisor.captureAutonomousExecutingLlmSnapshots()[0]).toMatchObject({ role: 'planner', cardId: 'project', activity: { mode: 'active' } });
 
     snapshots.length = 0;
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
     expect(snapshots[0]).toMatchObject({ status: { status: 'closing', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'] });
-    expect(snapshots.some(({ status, cards, agents }) => status.status === 'closing' && cards.includes('project') && agents.length === 0)).toBe(true);
-    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'stopped' });
+    expect(snapshots.some(({ status, cards }) => status.status === 'closing' && cards.includes('project'))).toBe(true);
+    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], readiness: 'stopped' });
   });
 
   it('publishes root admission through CardService before a later launch failure', async () => {
@@ -326,7 +328,8 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const owner = internals.cardActors.get('project');
     if (!owner) throw new Error('root actor ownership was not installed');
     expect(internals.liveCardActors.get('project')).toBe(owner);
-    expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [{ cardId: 'project' }], agents: [{ cardId: 'project', role: 'planner' }] });
+    expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [{ cardId: 'project' }] });
+    expect(supervisor.getActorRuntimeReadModel()).not.toHaveProperty('agents');
 
     releaseTerminal();
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
@@ -335,10 +338,10 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(internals.liveCardActors.has('project')).toBe(false);
     expect(internals.cardActors.has('project')).toBe(false);
-    expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [], agents: [] });
+    expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [] });
     expect(supervisor.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(intervention.interventionReadiness()).toBe('stopped');
-    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'stopped' });
+    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], readiness: 'stopped' });
   });
 
   it('publishes natural failed completion only after failed status and empty ownership are visible', async () => {
@@ -370,7 +373,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
 
     expect(cards.read('project')).toMatchObject({ status: 'failed', version_seq: runningVersion + 1 });
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
-    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], agents: [], readiness: 'stopped' });
+    expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], readiness: 'stopped' });
   });
 
   it('rejects stale settled-actor release without changing current ownership', async () => {
@@ -440,7 +443,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(invocations).toHaveLength(1);
     expect(invocations[0]?.role).toBe('executor');
     expect(invocations[0]?.sessionId).toBe(`executor:${terminal.id}`);
-    expect(supervisor.getActorRuntimeReadModel().agents).toEqual([expect.objectContaining({ role: 'executor', cardId: terminal.id })]);
+    expect(supervisor.getActorRuntimeReadModel()).toEqual({ pauseMode: 'running', cards: expect.any(Array) });
 
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
     expect(internals.cardActors.size).toBe(0);
@@ -472,7 +475,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(invocations[1]?.role).toBe('executor');
     expect(invocations[1]?.sessionId).toBe(invocations[0]?.sessionId);
     expect(invocations[1]?.inputId).not.toBe(invocations[0]?.inputId);
-    expect(supervisor.getActorRuntimeReadModel().agents).toEqual([expect.objectContaining({ role: 'executor', cardId: terminal.id })]);
+    expect(supervisor.getActorRuntimeReadModel()).toEqual({ pauseMode: 'running', cards: expect.any(Array) });
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });
 
@@ -843,7 +846,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(internals.runIdentity).toBeNull();
     expect(internals.liveCardActors.size).toBe(0);
     expect(internals.cardActors.size).toBe(0);
-    expect(supervisor.getActorRuntimeReadModel()).toEqual({ pauseMode: 'idle', cards: [], agents: [] });
+    expect(supervisor.getActorRuntimeReadModel()).toEqual({ pauseMode: 'idle', cards: [] });
     expect(provider.completeTurn).not.toHaveBeenCalled();
   });
 
@@ -885,7 +888,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const internals = supervisor as unknown as SupervisorInternals;
     const owner = internals.liveCardActors.get(child.id)!;
     const processor = owner.processor!;
-    const llm = (processor as import('../../../src/runtime/actors/base-main-llm-card-processor-actor.js').BaseMainLLMCardProcessorActor).listLlmActors()[0]!;
+    const llm = [...(processor as import('../../../src/runtime/actors/base-main-llm-card-processor-actor.js').BaseMainLLMCardProcessorActor).activeLlmActors.values()][0]!;
     const activation = owner.awaitSettlement();
     let callerSettled = false;
     void activation.then(() => { callerSettled = true; });

@@ -16,10 +16,6 @@ export const publicCardActorStates = ['backlog', 'changed', 'blocked', 'failed',
 export type PublicCardActorState = typeof publicCardActorStates[number];
 export const publicCardActorStateSchema = z.enum(publicCardActorStates);
 
-export const publicAgentPhases = ['idle', 'calling_provider', 'waiting_for_tool'] as const;
-export type PublicAgentPhase = typeof publicAgentPhases[number];
-export const publicAgentPhaseSchema = z.enum(publicAgentPhases);
-
 export const actorPauseModes = ['idle', 'running', 'paused', 'unknown'] as const;
 export type ActorPauseMode = typeof actorPauseModes[number];
 export const actorPauseModeSchema = z.enum(actorPauseModes);
@@ -33,11 +29,4 @@ export function toPublicCardActorState(value: unknown): PublicCardActorState {
   const result = publicCardActorStateSchema.safeParse(value);
   if (!result.success) throw new Error(`Unknown card actor state '${String(value)}'.`);
   return result.data;
-}
-
-export function toPublicAgentPhase(value: unknown): PublicAgentPhase {
-  const phase = parseLlmActorPhase(value);
-  if (phase === 'waiting_tool') return 'waiting_for_tool';
-  if (phase === 'idle' || phase === 'calling_provider') return phase;
-  throw new Error(`Unknown LLM actor phase '${String(value)}'.`);
 }

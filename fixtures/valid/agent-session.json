@@ -1,10 +1,9 @@
 {
-  "id": "session-0001",
+  "id": "executor:card-a",
   "role": "executor",
-  "goal_card_id": "goal-0001",
-  "card_id": "code-0001",
-  "status": "done",
+  "goal_card_id": "project",
+  "card_id": "card-a",
+  "status": "inactive",
   "started_at": "2025-01-01T02:30:00.000Z",
-  "completed_at": "2025-01-01T04:30:00.000Z",
   "model": "claude-sonnet-4-20250514"
 }
