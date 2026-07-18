@@ -15,7 +15,7 @@ export function listConversationSessionIds(projectRoot: string): ConversationSes
   return listDirectConversationSessionIds(projectRoot);
 }
 
-export type UserContextMessageCategory = 'notification' | 'reviewer_descendant' | 'continuation_hook';
+export type UserContextMessageCategory = 'notification' | 'reviewer_descendant' | 'process_transition' | 'process_node' | 'continuation_hook';
 
 export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
 
@@ -103,15 +103,13 @@ function buildAnalystActivationMarker(inputId: string): AgentMessage {
   });
 }
 
-export function appendRecoveryNotice(conversations: ConversationFileContext, sessionId: ConversationSessionId, inputId: string, disposition: 'ordinary_interruption' | 'reconstructed_barrier'): AgentMessage {
+export function appendRecoveryNotice(conversations: ConversationFileContext, sessionId: ConversationSessionId, inputId: string, disposition: 'ordinary_interruption'): AgentMessage {
   const message = agentMessageSchema.parse({
     id: `${inputId}:model-recovered`,
     session_id: sessionId,
     role: 'system',
     kind: 'model_recovered',
-    content: disposition === 'ordinary_interruption'
-      ? 'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.'
-      : 'The interrupted child barrier completed, and its matching activate_card result was durably recorded before this activation resumed.',
+    content: 'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.',
     round_id: roundId('pre', inputId),
     message_index: 0,
     block_index: 1,

@@ -57,6 +57,8 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     summarizerProvider: deps.summarizerProvider,
     processRunner: deps.processRunner,
     promptTemplates: deps.promptTemplates,
+    cardProcesses: deps.cardProcesses,
+    processPrompts: deps.processPrompts,
     runtimeGate: deps.runtimeGate,
     mcpManagerProvider: deps.mcpManagerProvider,
     now: deps.now,

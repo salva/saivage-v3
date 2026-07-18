@@ -237,13 +237,6 @@ export type {
 } from './operator-events.js';
 
 export type {
-  PlannerStatus,
-  PlannerResult,
-  ExecutorResult,
-  ReviewerResult,
-} from './agent-execution.js';
-
-export type {
   Contract,
   ContractTerminalDescriptor,
   ContractToolDefinition,
@@ -258,32 +251,5 @@ export { describeTerminals } from './describe-terminals.js';
 export { jsonSchemaToProse } from './json-schema-to-prose.js';
 
 export {
-  ResultEnvelopeSchema,
   TERMINAL_RESULT_TOOL_NAME,
-  type ResultEnvelope,
 } from './result-envelope.js';
-
-export {
-  PlannerResultEnvelopeSchema,
-  type PlannerResultEnvelope,
-} from './planner-envelope.js';
-export {
-  ExecutorResultEnvelopeSchema,
-  type ExecutorResultEnvelope,
-} from './executor-envelope.js';
-export {
-  ReviewerResultEnvelopeSchema,
-  type ReviewerResultEnvelope,
-} from './reviewer-envelope.js';
-
-export {
-  createPlannerContract,
-  type PlannerEnvelope,
-  type PlannerTypedResult,
-} from './planner-contract.js';
-export {
-  createExecutorContract,
-} from './executor-contract.js';
-export {
-  createReviewerContract,
-} from './reviewer-contract.js';

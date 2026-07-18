@@ -29,6 +29,7 @@ interface PlannerControlStore {
   create?(input: NewCardInput): CardRecord;
   mutateCard?(cardId: string, changes: CardPatch, ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): CardRecord;
   setStatus(cardId: string, status: 'changed' | 'running'): CardRecord;
+  activateStopped(cardId: string): CardRecord;
   reorderChildren?(parentId: string, orderedChildIds: string[], ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): ReorderChildrenResult;
 }
 
@@ -188,7 +189,7 @@ async function activateCard(ctx: PlannerControlProviderContext, record: Activate
     } else {
       pending = actor.activate(
         { kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId },
-        () => { ctx.store.setStatus(record.card_id, 'running'); },
+        () => { if (child.status === 'stopped') ctx.store.activateStopped(record.card_id); else ctx.store.setStatus(record.card_id, 'running'); },
       );
     }
     let activation: CardActivationOutcome;

@@ -99,23 +99,4 @@ describe('stable same-session recovery', () => {
     ]));
   });
 
-  it('projects the reconstructed actual settlement through Generic, Chat, Codex, and Responses', () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reconstructed-transports-'));
-    initProjectTree(projectRoot);
-    roots.push(projectRoot);
-    const sessionId: ConversationSessionId = 'planner:project';
-    const base = { session_id: sessionId, round_id: 'r-pre-dddddddddddddddddddddddddddddddd', message_index: 0, block_index: 0, timestamp: '2026-07-18T00:00:00.000Z' };
-    appendConversationBatch(projectRoot, [
-      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
-      { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-a' }) } }] }), tool: 'activate_card', tool_call_id: 'call-1', message_index: 1 },
-    ] satisfies AgentMessage[]);
-    stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']), reconstructedSettlement: { kind: 'reconstructed_barrier', childCardId: 'card-a', outcome: { status: 'done', summary: 'complete', result: { kind: 'done', summary: 'complete' } } }, signal: new AbortController().signal });
-    const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId));
-    const actual = providerConversation.messages.at(-1)!;
-    expect(JSON.parse(actual.content)).toEqual({ success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'complete', result: { kind: 'done', summary: 'complete' } } });
-    expect(codexMessages(providerConversation.messages)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'function_call_output', call_id: 'call-1', output: actual.content })]));
-    expect(responsesInputFromProviderConversation(providerConversation)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'function_call_output', call_id: 'call-1', output: actual.content })]));
-    const chat = buildOpenAIChatRequest({ provider: 'openai', model: 'gpt-test', account: 'default', protocol: 'openai-chat' } as never, 'system', providerConversation, { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, terminalToolOffered: [], temperature: 0, max_tokens: 10, stream: false } as never);
-    expect(chat.messages).toContainEqual({ role: 'tool', content: actual.content, tool_call_id: 'call-1' });
-  });
 });

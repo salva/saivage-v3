@@ -435,7 +435,7 @@ describe('CardActor authoritative cancellation', () => {
     const rootOwner = actor('project');
     const goalOwner = actor(goal.id);
     const leafOwner = actor(leaf.id);
-    const leafSettlement = leafOwner.actor.prepareRunning({ kind: 'parent', cardId: goal.id });
+    const leafSettlement = leafOwner.actor.prepareRunning({ kind: 'parent', cardId: goal.id }, 'STOPPED');
     const goalSettlement = goalOwner.actor.installStructuralWait(leafOwner.actor, { kind: 'parent', cardId: 'project' });
     rootOwner.actor.installStructuralWait(goalOwner.actor, { kind: 'root' });
     leafOwner.actor.startPreparedProcessor();
@@ -530,7 +530,7 @@ describe('CardActor authoritative cancellation', () => {
     const directChild = makeActor(first.id);
     currentness.setChain(['project']);
     currents.length = 0;
-    directChild.value.prepareRunning({ kind: 'parent', cardId: 'project' });
+    directChild.value.prepareRunning({ kind: 'parent', cardId: 'project' }, 'STOPPED');
     const directWait = directChild.value.awaitSettlement({ kind: 'parent', cardId: 'project' });
     directChild.value.startPreparedProcessor();
     expect(currents).toEqual([first.id]);
@@ -540,7 +540,7 @@ describe('CardActor authoritative cancellation', () => {
     expect(currents).toEqual([first.id, 'project']);
 
     const structuralChild = makeActor(second.id);
-    const structuralSettlement = structuralChild.value.prepareRunning({ kind: 'parent', cardId: 'project' });
+    const structuralSettlement = structuralChild.value.prepareRunning({ kind: 'parent', cardId: 'project' }, 'STOPPED');
     parent.value.installStructuralWait(structuralChild.value, { kind: 'root' });
     expect(parent.value.structuralChildId).toBe(second.id);
     currentness.setChain(['project', second.id]);

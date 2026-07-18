@@ -4,7 +4,6 @@ import type { CardActivationInput, CardProcessorActor } from './card-actor.js';
 import { deferred, type Deferred } from './deferred.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
-import { ReconstructedActivationResultAppendError } from './conversation-recovery.js';
 
 export type CardProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -41,7 +40,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     this.runTask((taskSignal) => tracker.run(AbortSignal.any([signal, taskSignal]), (operationSignal) => run(input, operationSignal)), {
       on_done: (outcome) => { void tracker.trackConsumer(() => this.finishActivation(outcome)); },
       on_failed: (error) => { void tracker.trackConsumer(() => {
-        if (isRuntimeStoppedInterruption(error) || error instanceof ReconstructedActivationResultAppendError) { this.failActivation(error); return; }
+        if (isRuntimeStoppedInterruption(error)) { this.failActivation(error); return; }
         this.finishActivation(this.activationFailureOutcome(error.message));
       }); },
     });

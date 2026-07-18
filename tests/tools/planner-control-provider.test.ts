@@ -75,6 +75,7 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     events.push('status-running');
     return card('running');
   });
+  const activateStopped = jest.fn((_cardId: string) => { events.push('status-running'); return card('running'); });
   const mutateCard = jest.fn<NonNullable<PlannerControlProviderContext['store']['mutateCard']>>((_cardId, changes) => card(admission?.child.status ?? 'backlog', changes));
   const reorderChildren = jest.fn<NonNullable<PlannerControlProviderContext['store']['reorderChildren']>>(() => options.reorderResult ?? { ok: true, changed: 2 });
   const beginStructuralWait = jest.fn<PlannerControlProviderContext['beginStructuralWait']>((relationship) => { events.push('relationship-installed'); return relationship; });
@@ -85,6 +86,7 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     mutateCard,
     reorderChildren,
     setStatus,
+    activateStopped,
   };
   const provider = createPlannerControlProvider({
     projectRoot: options.projectRoot ?? '/test/planner-control',
@@ -104,6 +106,7 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     get,
     readActivationAdmission,
     setStatus,
+    activateStopped,
     mutateCard,
     reorderChildren,
     beginStructuralWait,
@@ -121,6 +124,13 @@ describe('planner activate_card dependency-completion admission', () => {
     expect(test.events).toEqual(expect.arrayContaining(['relationship-installed', 'barrier-installed', 'relationship-cleared']));
     expect(test.events.indexOf('relationship-installed')).toBeLessThan(test.events.indexOf('barrier-installed'));
     expect(test.events.indexOf('barrier-installed')).toBeLessThan(test.events.indexOf('relationship-cleared'));
+  });
+  it('reuses a stopped child through the narrow stopped activation admission', async () => {
+    const test = harness(projection(card('stopped')));
+    await expect(test.invoke()).resolves.toMatchObject({ success: true, data: { card_id: CHILD, outcome: 'done' } });
+    expect(test.activateStopped).toHaveBeenCalledWith(CHILD);
+    expect(test.setStatus).not.toHaveBeenCalled();
+    expect(test.actor.activate).toHaveBeenCalledTimes(1);
   });
   it('clears the exact ordinary structural relationship when child settlement rejects', async () => {
     const test = harness(projection(card()), { activate: jest.fn<Actor['activate']>(async () => { throw new Error('child rejected'); }) });

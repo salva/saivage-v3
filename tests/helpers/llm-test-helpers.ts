@@ -2,6 +2,8 @@ import type { LlmCompleteOptions, LlmCompleteResult, ProviderTurnCompletion, Too
 import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import type { CompactorPort } from '../../src/runtime/actors/llm-actor.js';
 import type { SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
+import { compileCardProcesses } from '../../src/runtime/card-process/card-process-config.js';
+import { cardProcessesSchema } from '../../src/agents/config-schema.js';
 
 export const testCompactionPolicy: AutonomousCompactionPolicy = {
   input_budget_tokens: 100_000,
@@ -25,6 +27,15 @@ export const testAutonomousCompaction = {
   compactor: testCompactor,
   compactionConfig: testCompactionPolicy,
   summarizerProvider: unusedSummarizerProvider,
+  cardProcesses: compileCardProcesses(cardProcessesSchema.parse({
+    planning: { entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'recover', prompt: 'stopped-recovery' } }, nodes: {
+      plan: { role: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: [{ name: 'status.md', updated: true }], edges: { complete_direct: { target: { terminal: 'DONE' } }, admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } },
+      review: { role: 'reviewer', prompt: 'review', correction_prompt: 'correct-review-result', records: [{ name: 'review.md', updated: true }], edges: { approved: { target: { terminal: 'DONE' } }, revision_required: { target: { node: 'plan' }, prompt: 'review-to-plan' }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } },
+      recover: { role: 'planner', prompt: 'recover', correction_prompt: 'correct-plan-result', records: [{ name: 'status.md', updated: true }], edges: { complete_direct: { target: { terminal: 'DONE' } }, admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } },
+    } },
+    terminal: { entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } }, nodes: { execute: { role: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { done: { target: { terminal: 'DONE' } }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } } } },
+  })),
+  processPrompts: { get: (_cardType: string, promptId: string) => `test process prompt: ${promptId}` },
 };
 
 export function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {

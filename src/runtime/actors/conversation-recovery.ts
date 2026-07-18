@@ -1,14 +1,12 @@
-import { conversationSessionIdentity, type AgentMessage, type MessageKind, type ConversationSessionId } from '../../schemas/index.js';
+import type { AgentMessage, MessageKind, ConversationSessionId } from '../../schemas/index.js';
 import {
   loggedToolCallIdentity,
   loggedToolCallKey,
   loggedToolResultIdentity,
 } from '../../schemas/message-identity.js';
 import { readConversationMessages } from './conversation-session.js';
-import { appendProviderVisibleSyntheticFailedToolResult, appendProviderVisibleSyntheticToolResult } from './llm-delivery-log.js';
+import { appendProviderVisibleSyntheticFailedToolResult } from './llm-delivery-log.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
-import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
-import { formatActivateCardResult, parseActivateCardArguments, type CardActivationOutcome } from '../../contracts/tool-api.js';
 import { inspectCanonicalCallSettlementPairs } from './conversation-call-pairs.js';
 
 export type ConversationImplicitState =
@@ -60,60 +58,23 @@ export function classifyConversation(messages: readonly AgentMessage[], terminal
 
 export type RoleSessionStabilization =
   | { disposition: 'clean'; messages: AgentMessage[] }
-  | { disposition: 'ordinary_interruption'; messages: AgentMessage[] }
-  | { disposition: 'reconstructed_barrier'; messages: AgentMessage[] };
-
-export interface ReconstructedBarrierSettlement {
-  kind: 'reconstructed_barrier';
-  childCardId: string;
-  outcome: CardActivationOutcome;
-}
-
-export class ReconstructedActivationResultAppendError extends Error {
-  constructor(cause: unknown) {
-    super('Reconstructed activate_card result append outcome became unknown.', { cause });
-    this.name = 'ReconstructedActivationResultAppendError';
-  }
-}
+  | { disposition: 'ordinary_interruption'; messages: AgentMessage[] };
 
 export function stabilizeRoleSession(args: {
   projectRoot: string;
   sessionId: ConversationSessionId;
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
-  reconstructedSettlement?: ReconstructedBarrierSettlement;
-  signal?: AbortSignal;
 }): RoleSessionStabilization {
   const messages = readConversationMessages(args.projectRoot, args.sessionId).physicalRows;
   const activationIndexes = messages.flatMap((message, index) => isActivationOpen(message) ? [index] : []);
   if (activationIndexes.length === 0) {
     validateCallSettlementPairs(messages, null, false, args.terminalToolNames);
-    if (args.reconstructedSettlement) throw new Error('Reconstructed child barrier requires an interrupted planner activation.');
     return { disposition: 'clean', messages };
   }
   const latestActivationIndex = activationIndexes.at(-1)!;
-  const interrupted = !latestRoundCleanlyClosed(messages.slice(latestActivationIndex), args.terminalToolNames, conversationSessionIdentity(args.sessionId).role === 'reviewer');
+  const interrupted = !latestRoundCleanlyClosed(messages.slice(latestActivationIndex), args.terminalToolNames);
   const unmatched = validateCallSettlementPairs(messages, latestActivationIndex, interrupted, args.terminalToolNames);
-  if (args.reconstructedSettlement) {
-    if (conversationSessionIdentity(args.sessionId).role !== 'planner') throw new Error('Reconstructed child barrier settlement is planner-only.');
-    if (!args.signal) throw new Error('Reconstructed child barrier settlement requires its activation signal.');
-    if (!unmatched) throw new Error('Reconstructed child barrier has no unmatched tool call.');
-    const call = parseReconstructedActivateCardCall(unmatched.message, args.reconstructedSettlement.childCardId);
-    const result = formatActivateCardResult(call.card_id, args.reconstructedSettlement.outcome);
-    args.signal.throwIfAborted();
-    try {
-      appendProviderVisibleSyntheticToolResult(args.conversations, {
-        sessionId: args.sessionId,
-        sourceInputId: unmatched.sourceInputId,
-        toolCallId: unmatched.toolCallId,
-        toolName: unmatched.toolName,
-        result,
-      });
-    } catch (error) {
-      throw new ReconstructedActivationResultAppendError(error);
-    }
-    return { disposition: 'reconstructed_barrier', messages };
-  }
   if (unmatched) {
     appendProviderVisibleSyntheticFailedToolResult(args.conversations, {
       sessionId: args.sessionId,
@@ -130,21 +91,6 @@ export function stabilizeRoleSession(args: {
   };
 }
 
-function parseReconstructedActivateCardCall(message: AgentMessage, childCardId: string) {
-  let embedded: ReturnType<typeof parseToolCallMessage>;
-  try {
-    embedded = parseToolCallMessage(JSON.parse(message.content));
-  } catch (error) {
-    throw new Error(`Reconstructed activate_card call '${message.id}' has malformed content: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (embedded.id !== message.tool_call_id) throw new Error(`Reconstructed activate_card call '${message.id}' embedded id does not match tool_call_id.`);
-  if (embedded.name !== message.tool) throw new Error(`Reconstructed activate_card call '${message.id}' embedded name does not match tool metadata.`);
-  if (embedded.name !== 'activate_card' || message.tool !== 'activate_card') throw new Error(`Reconstructed child barrier call '${message.id}' is not activate_card.`);
-  const parsed = parseActivateCardArguments(embedded.args);
-  if (parsed.card_id !== childCardId) throw new Error(`Reconstructed activate_card call '${message.id}' targets '${parsed.card_id}', not immediate child '${childCardId}'.`);
-  return parsed;
-}
-
 function isActivationOpen(message: AgentMessage): boolean {
   if (message.kind !== 'activity') return false;
   try {
@@ -158,7 +104,7 @@ function isActivationOpen(message: AgentMessage): boolean {
   }
 }
 
-function latestRoundCleanlyClosed(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>, reviewerSession: boolean): boolean {
+function latestRoundCleanlyClosed(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>): boolean {
   const calls = new Map<string, AgentMessage>();
   for (const message of messages) {
     if (message.kind === 'tool_call') calls.set(loggedToolCallKey(toolCallIdentity(message)), message);
@@ -168,7 +114,6 @@ function latestRoundCleanlyClosed(messages: readonly AgentMessage[], terminalToo
     if (!call || !call.tool || !terminalToolNames.has(call.tool)) continue;
     const payload = parseResultPayload(message);
     if (payload.success === true) return true;
-    if (reviewerSession && payload.success === false && (payload.data as { reason?: unknown } | undefined)?.reason === 'pending_notifications') return true;
   }
   return false;
 }

@@ -51,7 +51,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   }
 
   executingLlmSnapshot(): ExecutingLlmSnapshot | null {
-    if (!this.hasPendingActivation() || (this.state() !== 'planning' && this.state() !== 'executing')) return null;
+    if (!this.hasPendingActivation() || this.state() !== 'running') return null;
     const llm = this.#currentExecutingLlm;
     if (!llm) return null;
     const identity = parseLlmActorId(llm.agentId);
@@ -72,6 +72,11 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     this.#currentExecutingLlm = to;
     to.resetExecutingActivity();
     this.runtimeProjectionChanged();
+  }
+
+  protected selectExecutingLlm(llm: ConversationLLMActor): void {
+    if (!this.#currentExecutingLlm) this.setCurrentExecutingLlm(llm);
+    else if (this.#currentExecutingLlm !== llm) this.handoffExecutingLlm(this.#currentExecutingLlm, llm);
   }
 
   protected toolInvocationContext(llm: ConversationLLMActor, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): LlmToolInvocationContext {
