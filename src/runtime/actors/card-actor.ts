@@ -1,5 +1,4 @@
-import { BaseActor } from '../micro-actor/index.js';
-import type { ActorDefinition } from '../micro-actor/index.js';
+import { BaseActor, compileActorDefinition } from '../micro-actor/index.js';
 import type { CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardPatch, NewCardInput } from '../../cards/card-api.js';
@@ -112,18 +111,18 @@ export interface CardActorDeps {
   isRuntimeClosing(): boolean;
 }
 
-export class CardActor extends BaseActor {
-  static _actor: ActorDefinition = {
-    initial: 'parked',
-    states: {
-      parked: { parked: true, on: { activate: 'running', wait: 'structural_wait', cancel: 'cancelled' } },
-      structural_wait: { parked: true, on: { child_settled: 'running', claim_cancel: 'cancelling', settled: 'parked' } },
-      running: { on: { settled: 'parked', claim_cancel: 'cancelling' } },
-      cancelling: { parked: true, on: { cancel: 'cancelled' } },
-      cancelled: { terminal: true },
-    },
-  };
+const CARD_ACTOR_DEFINITION = compileActorDefinition({
+  initial: 'parked',
+  states: {
+    parked: { parked: true, on: { activate: 'running', wait: 'structural_wait', cancel: 'cancelled' } },
+    structural_wait: { parked: true, on: { child_settled: 'running', claim_cancel: 'cancelling', settled: 'parked' } },
+    running: { on: { settled: 'parked', claim_cancel: 'cancelling' } },
+    cancelling: { parked: true, on: { cancel: 'cancelled' } },
+    cancelled: { terminal: true },
+  },
+});
 
+export class CardActor extends BaseActor {
   readonly cardId: string;
   readonly deps: CardActorDeps;
   processor: CardProcessorActor | null;
@@ -145,7 +144,11 @@ export class CardActor extends BaseActor {
   #stopSettlementEventQueued = false;
 
   constructor(args: { card: CardRecord; deps: CardActorDeps; deferProcessorStart?: boolean }) {
-    super();
+    super(CARD_ACTOR_DEFINITION, {
+      enter: ({ target }) => {
+        if (target === 'running') this.beginProcessorActivation();
+      },
+    });
     this.cardId = args.card.id;
     this.deps = args.deps;
     this.store = args.deps.storeForCard(this.cardId);
@@ -400,10 +403,6 @@ export class CardActor extends BaseActor {
   async joinForApplicationStop(): Promise<void> {
     await this.processor?.joinActivation();
     await this.awaitLifecycleSettlement();
-  }
-
-  _on_enter__running(): void {
-    this.beginProcessorActivation();
   }
 
   private beginProcessorActivation(): void {

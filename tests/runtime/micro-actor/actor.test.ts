@@ -1,228 +1,179 @@
 import { describe, expect, it } from '@jest/globals';
-import { BaseActor, InternalActorError } from '../../../src/runtime/micro-actor/index.js';
+import {
+  BaseActor,
+  compileActorDefinition,
+  InternalActorError,
+} from '../../../src/runtime/micro-actor/index.js';
+import type {
+  ActorCallbackBindings,
+  CompiledActorDefinition,
+} from '../../../src/runtime/micro-actor/index.js';
+
+class TestActor extends BaseActor {
+  constructor(definition: CompiledActorDefinition, callbacks?: ActorCallbackBindings) {
+    super(definition, callbacks);
+  }
+
+  event(name: string): void { this.sendEvent(name); }
+  parkedEvent(name: string): void { this.parkedSendEvent(name); }
+  task<Result>(run: (signal: AbortSignal) => Promise<Result>, onDoneEvent?: string): void {
+    this.runTask(run, onDoneEvent === undefined ? undefined : { on_done_event: onDoneEvent });
+  }
+}
 
 describe('start', () => {
   it('creates a live actor and processes events from task completions', async () => {
-    class StepActor extends BaseActor {
-      static _actor = {
-        initial: 'a',
-        states: {
-          a: { on: { go: 'b' } },
-          b: { on: { go: 'c' } },
-          c: { on: { go: 'done' } },
-          done: { terminal: true },
-        },
-      };
-      log: string[] = [];
+    const definition = compileActorDefinition({
+      initial: 'a',
+      states: {
+        a: { on: { go: 'b' } },
+        b: { on: { go: 'c' } },
+        c: { on: { go: 'done' } },
+        done: { terminal: true },
+      },
+    });
+    const log: string[] = [];
+    let actor!: TestActor;
+    actor = new TestActor(definition, {
+      enter: ({ target }) => {
+        log.push(`enter:${target}`);
+        if (target !== 'done') actor.task(() => Promise.resolve(), 'go');
+      },
+    });
 
-      _on_enter__a() {
-        this.log.push('enter:a');
-        this.runTask(
-          () => Promise.resolve(undefined),
-          { on_done: () => { this.sendEvent('go'); } },
-        );
-      }
-
-      _on_enter__b() {
-        this.log.push('enter:b');
-        this.runTask(
-          () => Promise.resolve(undefined),
-          { on_done: () => { this.sendEvent('go'); } },
-        );
-      }
-
-      _on_enter__c() {
-        this.log.push('enter:c');
-        this.runTask(
-          () => Promise.resolve(undefined),
-          { on_done: () => { this.sendEvent('go'); } },
-        );
-      }
-
-      _on_enter__done() {
-        this.log.push('enter:done');
-      }
-    }
-
-    const actor = new StepActor();
     actor.start();
     expect(actor.state()).toBe('a');
-    expect(actor.log).toEqual(['enter:a']);
+    expect(log).toEqual(['enter:a']);
 
     await eventually(() => expect(actor.state()).toBe('done'));
-    expect(actor.log).toEqual(['enter:a', 'enter:b', 'enter:c', 'enter:done']);
+    expect(log).toEqual(['enter:a', 'enter:b', 'enter:c', 'enter:done']);
   });
 
-  it('calls the initial state enter hook', () => {
-    class EnterActor extends BaseActor {
-      static _actor = {
-        initial: 'ready',
-        states: {
-          ready: { on: { go: 'done' } },
-          done: { terminal: true },
-        },
-      };
-      entered = false;
-      _on_enter__ready() {
-        this.entered = true;
-        this.runTask(
-          () => Promise.resolve(undefined),
-          { on_done: () => { this.sendEvent('go'); } },
-        );
-      }
-    }
+  it('uses the exact frozen start context and invokes no transition callback', () => {
+    const definition = compileActorDefinition({ states: { ready: { terminal: true } } });
+    const contexts: unknown[] = [];
+    const actor = new TestActor(definition, {
+      enter: (context) => contexts.push(context),
+      transition: (context) => contexts.push(context),
+    });
 
-    const actor = new EnterActor();
     actor.start();
-    expect(actor.entered).toBe(true);
+
+    expect(contexts).toEqual([{
+      source: null,
+      event: null,
+      target: 'ready',
+      reentered: false,
+      sequence: null,
+    }]);
+    expect(Object.isFrozen(contexts[0])).toBe(true);
   });
 
-  it('can restart from a terminal state', async () => {
-    class RestartableActor extends BaseActor {
-      static _actor = {
-        initial: 'ready',
-        states: {
-          ready: { on: { finish: 'done' } },
-          done: { terminal: true },
-        },
-      };
-      entered = 0;
+  it('does not invoke callbacks during construction and freezes bindings', () => {
+    const definition = compileActorDefinition({ states: { idle: { terminal: true } } });
+    const enter = () => { throw new Error('construction callback ran'); };
+    const callbacks: ActorCallbackBindings = { enter };
 
-      _on_enter__ready() {
-        this.entered += 1;
-        this.runTask(
-          () => Promise.resolve(undefined),
-          { on_done_event: 'finish' },
-        );
-      }
-    }
+    expect(() => new TestActor(definition, callbacks)).not.toThrow();
+    expect(Object.isFrozen(callbacks)).toBe(true);
+  });
 
-    const actor = new RestartableActor();
+  it('propagates start-entry failure synchronously after assigning state', () => {
+    const actor = new TestActor(
+      compileActorDefinition({ states: { idle: { terminal: true } } }),
+      { enter: () => { throw new Error('start failed'); } },
+    );
+
+    expect(() => actor.start()).toThrow('start failed');
+    expect(actor.state()).toBe('idle');
+  });
+
+  it('can restart from a terminal state with the same definition and bindings', () => {
+    let entered = 0;
+    const actor = new TestActor(
+      compileActorDefinition({ states: { done: { terminal: true } } }),
+      { enter: () => { entered++; } },
+    );
+
     actor.start();
-    await eventually(() => expect(actor.state()).toBe('done'));
-
     actor.start();
 
-    expect(actor.state()).toBe('ready');
-    expect(actor.entered).toBe(2);
+    expect(entered).toBe(2);
   });
 
   it('rejects starting from a non-terminal state', () => {
-    class RunningActor extends BaseActor {
-      static _actor = {
-        initial: 'running',
-        states: {
-          running: { on: { finish: 'done' } },
-          done: { terminal: true },
-        },
-      };
-
-      _on_enter__running() {
-        this.runTask(() => new Promise(() => {}));
-      }
-    }
-
-    const actor = new RunningActor();
+    const actor = new TestActor(
+      compileActorDefinition({ states: { idle: { parked: true } } }),
+    );
     actor.start();
 
     expect(() => actor.start()).toThrow(InternalActorError);
   });
 });
 
-describe('_on_state_changed', () => {
-  it('fires on start with oldState undefined before _on_enter', () => {
-    class TestActor extends BaseActor {
-      static _actor = {
-        initial: 'idle',
-        states: {
-          idle: { terminal: true },
-        },
-      };
-      log: string[] = [];
-
-      protected _on_state_changed(oldState: string | undefined, newState: string): void {
-        this.log.push(`changed:${oldState ?? 'undefined'}:${newState}`);
-      }
-
-      _on_enter__idle() {
-        this.log.push('enter:idle');
-      }
-    }
-
-    const actor = new TestActor();
+describe('transition callbacks', () => {
+  it('passes the exact transition context after state assignment and before enter', async () => {
+    const definition = compileActorDefinition({
+      states: {
+        idle: { parked: true, on: { go: 'active' } },
+        active: { terminal: true },
+      },
+    });
+    const log: string[] = [];
+    const contexts: unknown[] = [];
+    let actor!: TestActor;
+    actor = new TestActor(definition, {
+      leave: (context) => { log.push(`leave:${actor.state()}`); contexts.push(context); },
+      transition: (context) => { log.push(`transition:${actor.state()}`); contexts.push(context); },
+      enter: (context) => {
+        if (context.source !== null) log.push(`enter:${actor.state()}`);
+        contexts.push(context);
+      },
+    });
     actor.start();
+    log.length = 0;
+    contexts.length = 0;
 
-    expect(actor.log).toEqual(['changed:undefined:idle', 'enter:idle']);
+    actor.parkedEvent('go');
+    await eventually(() => expect(actor.state()).toBe('active'));
+
+    expect(log).toEqual(['leave:idle', 'transition:active', 'enter:active']);
+    expect(contexts).toHaveLength(3);
+    expect(contexts[0]).toBe(contexts[1]);
+    expect(contexts[1]).toBe(contexts[2]);
+    expect(contexts[0]).toEqual({
+      source: 'idle',
+      event: 'go',
+      target: 'active',
+      reentered: false,
+      sequence: 1,
+    });
+    expect(Object.isFrozen(contexts[0])).toBe(true);
   });
 
-  it('fires on state transition with old and new state before _on_enter', async () => {
-    class TestActor extends BaseActor {
-      static _actor = {
-        initial: 'idle',
-        states: {
-          idle: { parked: true, on: { go: 'active' } },
-          active: { terminal: true },
-        },
-      };
-      log: string[] = [];
-
-      protected _on_state_changed(oldState: string | undefined, newState: string): void {
-        this.log.push(`changed:${oldState}:${newState}`);
-      }
-
-      _on_enter__idle() {
-        this.log.push('enter:idle');
-      }
-
-      _on_enter__active() {
-        this.log.push('enter:active');
-      }
-
-      go() {
-        this.parkedSendEvent('go');
-      }
-    }
-
-    const actor = new TestActor();
+  it('does not invoke callbacks for an ordinary same-state transition', async () => {
+    const calls: string[] = [];
+    const actor = new TestActor(
+      compileActorDefinition({ states: { idle: { parked: true, on: { noop: 'idle' } } } }),
+      {
+        leave: () => calls.push('leave'),
+        transition: () => calls.push('transition'),
+        enter: ({ source }) => { if (source !== null) calls.push('enter'); },
+      },
+    );
     actor.start();
-    actor.log = [];
-    actor.go();
 
-    await eventually(() => expect(actor.log).toEqual(['changed:idle:active', 'enter:active']));
-  });
+    actor.parkedEvent('noop');
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-  it('does not fire when dispatch returns the same state', async () => {
-    class TestActor extends BaseActor {
-      static _actor = {
-        initial: 'idle',
-        states: {
-          idle: { parked: true, on: { noop: 'idle' } },
-        },
-      };
-      changes = 0;
-
-      protected _on_state_changed(): void {
-        this.changes++;
-      }
-
-      noop() {
-        this.parkedSendEvent('noop');
-      }
-    }
-
-    const actor = new TestActor();
-    actor.start();
-    const initial = actor.changes;
-    actor.noop();
-
-    await eventually(() => expect(actor.state()).toBe('idle'));
-    expect(actor.changes).toBe(initial);
+    expect(calls).toEqual([]);
+    expect(actor.state()).toBe('idle');
   });
 });
 
 async function eventually(assertion: () => void): Promise<void> {
   let lastError: unknown;
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 30; i++) {
     try {
       assertion();
       return;

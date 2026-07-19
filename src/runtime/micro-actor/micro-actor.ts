@@ -1,8 +1,13 @@
-// BaseActor design and implementation are frozen except for the explicitly
-// authorized in-memory lifecycle-settlement hook. Any further core change
-// requires user approval.
-
-import type { ActorDefinition, CompiledActorDefinition, CompiledStateDefinition } from './types.js';
+import type {
+  ActorCallbackBindings,
+  ActorDefinition,
+  ActorStartContext,
+  ActorTransitionContext,
+  CompiledActorDefinition,
+  CompiledStateDefinition,
+  CompiledTransitionDefinition,
+  TransitionDefinition,
+} from './types.js';
 
 export class InternalActorError extends Error {
   constructor(message: string) {
@@ -24,11 +29,6 @@ export class InvalidActorDefinitionError extends Error {
     this.name = 'InvalidActorDefinitionError';
   }
 }
-
-export type ActorClassWithDefinition = Function & {
-  _actor?: ActorDefinition;
-  _compiled_actor?: CompiledActorDefinition;
-};
 
 export type RunTaskOptions<Result = unknown> = {
   on_done?: (result: Result) => void;
@@ -62,7 +62,8 @@ type Task<Result = unknown> = {
 };
 
 export abstract class BaseActor {
-  #definition: CompiledActorDefinition | undefined;
+  readonly #definition: CompiledActorDefinition;
+  readonly #callbacks: ActorCallbackBindings;
   #currentState: string | undefined;
   #nextEvent: { name: string; sequence: number } | undefined;
   #queuedEventSequence = 0;
@@ -74,20 +75,31 @@ export abstract class BaseActor {
   #actorMainPromise: Promise<void> | undefined;
   #actorMainRunning = false;
 
+  protected constructor(
+    definition: CompiledActorDefinition,
+    callbacks: ActorCallbackBindings = EMPTY_ACTOR_CALLBACK_BINDINGS,
+  ) {
+    this.#definition = definition;
+    this.#callbacks = Object.freeze(callbacks);
+  }
+
   state(): string {
     return this.#currentState!;
   }
 
   start(): void {
-    if (this.#currentState !== undefined && !this.#definition!.states.get(this.#currentState)?.terminal) {
+    if (this.#currentState !== undefined && !this.#definition.states.get(this.#currentState)?.terminal) {
       throw new InternalActorError(`Cannot start actor from non-terminal state "${this.#currentState}"`);
     }
-    const definition = getCompiledActorDefinition(this.constructor as ActorClassWithDefinition);
-    this.#definition = definition;
-    const oldState = this.#currentState;
-    this.#currentState = definition.initial;
-    this._on_state_changed(oldState, this.#currentState);
-    this.#callHandler('enter');
+    this.#currentState = this.#definition.initial;
+    const context: ActorStartContext = Object.freeze({
+      source: null,
+      event: null,
+      target: this.#definition.initial,
+      reentered: false,
+      sequence: null,
+    });
+    this.#callbacks.enter?.(context);
     this.#ensureActorMain();
   }
 
@@ -104,7 +116,7 @@ export abstract class BaseActor {
     if (currentState === undefined) {
       throw new InternalActorError('Cannot send parked event before actor start');
     }
-    if (!this.#definition!.states.get(currentState)?.parked) {
+    if (!this.#definition.states.get(currentState)?.parked) {
       throw new InternalActorError(`Cannot send parked event from non-parked state "${currentState}"`);
     }
     this.sendEvent(name);
@@ -113,10 +125,10 @@ export abstract class BaseActor {
 
   protected runTask<Result>(run: (signal: AbortSignal) => Promise<Result>, options?: RunTaskOptions<Result>): void {
     const currentState = this.#currentState!;
-    if (this.#definition!.states.get(currentState)?.terminal) {
+    if (this.#definition.states.get(currentState)?.terminal) {
       throw new InternalActorError(`Cannot start task in terminal state "${currentState}"`);
     }
-    if (this.#definition!.states.get(currentState)?.parked) {
+    if (this.#definition.states.get(currentState)?.parked) {
       throw new InternalActorError(`Cannot start task in parked state "${currentState}"`);
     }
     const controller = new AbortController();
@@ -139,28 +151,32 @@ export abstract class BaseActor {
     });
   }
 
-  protected _on_state_changed(_oldState: string | undefined, _newState: string): void {
-  }
-
-  #dispatchEvent(eventName: string): string {
+  #dispatchEvent(eventName: string, sequence: number): string {
     const currentState = this.#currentState!;
-    const stateDef = this.#definition!.states.get(currentState)!;
+    const stateDef = this.#definition.states.get(currentState)!;
 
-    const targetState = stateDef.on[eventName];
-    if (targetState === undefined) return currentState;
+    const transition = stateDef.on.get(eventName);
+    if (transition === undefined) return currentState;
 
-    if (targetState === currentState) return currentState;
+    if (transition.target === currentState && !transition.reenter) return currentState;
 
-    this.#callHandler('leave');
+    const context: ActorTransitionContext = Object.freeze({
+      source: currentState,
+      event: eventName,
+      target: transition.target,
+      reentered: transition.reenter,
+      sequence,
+    });
+    this.#callbacks.leave?.(context);
     for (const task of this.#stateTasks.values()) {
       task.controller.abort();
     }
     this.#stateTasks.clear();
-    this.#currentState = targetState;
-    this._on_state_changed(currentState, targetState);
-    this.#callHandler('enter');
+    this.#currentState = transition.target;
+    this.#callbacks.transition?.(context);
+    this.#callbacks.enter?.(context);
 
-    return targetState;
+    return transition.target;
   }
 
   async #actorMain(): Promise<void> {
@@ -170,7 +186,7 @@ export abstract class BaseActor {
         if (event !== undefined) {
           this.#nextEvent = undefined;
           try {
-            this.#dispatchEvent(event.name);
+            this.#dispatchEvent(event.name, event.sequence);
             this.#settledEventSequence = event.sequence;
           } catch (error) {
             this.#settledEventSequence = event.sequence;
@@ -182,11 +198,11 @@ export abstract class BaseActor {
           continue;
         }
 
-        if (this.#definition!.states.get(this.#currentState!)?.terminal) {
+        if (this.#definition.states.get(this.#currentState!)?.terminal) {
           return;
         }
 
-        if (this.#definition!.states.get(this.#currentState!)?.parked) {
+        if (this.#definition.states.get(this.#currentState!)?.parked) {
           return;
         }
 
@@ -258,52 +274,6 @@ export abstract class BaseActor {
     }
   }
 
-  #callHandler(hook: 'enter' | 'leave'): boolean {
-    const method = this.#getMethod(`_on_${hook}__${this.#currentState!}`);
-    if (method) {
-      method.call(this);
-      return true;
-    }
-    return false;
-  }
-
-  #getMethod(methodName: string): Function | undefined {
-    const value = (this as unknown as Record<string, unknown>)[methodName];
-    return typeof value === 'function' ? value : undefined;
-  }
-}
-
-export function getCompiledActorDefinition(ctor: ActorClassWithDefinition): CompiledActorDefinition {
-  if (Object.hasOwn(ctor, '_compiled_actor') && ctor._compiled_actor) {
-    return ctor._compiled_actor;
-  }
-
-  const definition = getActorDefinition(ctor);
-  if (!definition) {
-    throw new InvalidActorDefinitionError(
-      `${ctor.name || '<anonymous>'} must provide static _actor`,
-    );
-  }
-
-  const compiled = compileActorDefinition(definition);
-  Object.defineProperty(ctor, '_compiled_actor', {
-    value: compiled,
-    enumerable: false,
-    configurable: true,
-    writable: true,
-  });
-  return compiled;
-}
-
-function getActorDefinition(ctor: ActorClassWithDefinition): ActorDefinition | undefined {
-  let current: Function | null = ctor;
-  while (current && current !== Function.prototype) {
-    if (Object.hasOwn(current, '_actor')) {
-      return (current as ActorClassWithDefinition)._actor;
-    }
-    current = Object.getPrototypeOf(current);
-  }
-  return undefined;
 }
 
 export function compileActorDefinition(definition: ActorDefinition): CompiledActorDefinition {
@@ -360,42 +330,88 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
       );
     }
 
-    for (const [eventName, targetState] of Object.entries(stateDef.on ?? {})) {
+    for (const [eventName, transition] of Object.entries(stateDef.on ?? {})) {
       if (eventName === '') {
         throw new InvalidActorDefinitionError(
           `Event name must be non-empty in state "${stateName}"`,
         );
       }
+      const targetState = transitionTarget(transition);
       if (!(targetState in definition.states)) {
         throw new InvalidActorDefinitionError(
           `Transition target "${targetState}" in state "${stateName}" for event "${eventName}" does not exist in states`,
         );
       }
+      if (typeof transition !== 'string' && transition.reenter === true && targetState !== stateName) {
+        throw new InvalidActorDefinitionError(
+          `Transition in state "${stateName}" for event "${eventName}" targets "${targetState}" with reenter:true; reentry requires the source and target state to match`,
+        );
+      }
     }
   }
 
-  const compiledStates = new Map<string, CompiledStateDefinition>();
+  const compiledStates: Array<readonly [string, CompiledStateDefinition]> = [];
   for (const [stateName, stateDef] of Object.entries(definition.states)) {
-    const on: Record<string, string> = { ...(stateDef.on ?? {}) };
+    const on = new Map<string, CompiledTransitionDefinition>();
+    for (const [eventName, transition] of Object.entries(stateDef.on ?? {})) {
+      on.set(eventName, compileTransition(transition));
+    }
 
     if (definition.sequence) {
       const index = definition.sequence.indexOf(stateName);
       if (index >= 0 && index < definition.sequence.length - 1) {
-        if (!('done' in on)) {
-          on.done = definition.sequence[index + 1]!;
+        if (!on.has('done')) {
+          on.set('done', Object.freeze({ target: definition.sequence[index + 1]!, reenter: false }));
         }
       }
     }
 
-    compiledStates.set(stateName, {
-      on,
+    compiledStates.push([stateName, Object.freeze({
+      on: immutableMap(on),
       terminal: stateDef.terminal,
       parked: stateDef.parked,
-    });
+    })]);
   }
 
-  return {
+  return Object.freeze({
     initial: definition.initial ?? stateNames[0]!,
-    states: compiledStates,
-  };
+    states: immutableMap(compiledStates),
+  });
+}
+
+const EMPTY_ACTOR_CALLBACK_BINDINGS: ActorCallbackBindings = Object.freeze({});
+
+function transitionTarget(transition: TransitionDefinition): string {
+  return typeof transition === 'string' ? transition : transition.target;
+}
+
+function compileTransition(transition: TransitionDefinition): CompiledTransitionDefinition {
+  return Object.freeze({
+    target: transitionTarget(transition),
+    reenter: typeof transition !== 'string' && transition.reenter === true,
+  });
+}
+
+class ImmutableMap<Key, Value> implements ReadonlyMap<Key, Value> {
+  readonly #map: Map<Key, Value>;
+
+  constructor(entries: Iterable<readonly [Key, Value]>) {
+    this.#map = new Map(entries);
+    Object.freeze(this);
+  }
+
+  get size(): number { return this.#map.size; }
+  get(key: Key): Value | undefined { return this.#map.get(key); }
+  has(key: Key): boolean { return this.#map.has(key); }
+  entries(): MapIterator<[Key, Value]> { return this.#map.entries(); }
+  keys(): MapIterator<Key> { return this.#map.keys(); }
+  values(): MapIterator<Value> { return this.#map.values(); }
+  forEach(callbackfn: (value: Value, key: Key, map: ReadonlyMap<Key, Value>) => void, thisArg?: unknown): void {
+    for (const [key, value] of this.#map) callbackfn.call(thisArg, value, key, this);
+  }
+  [Symbol.iterator](): MapIterator<[Key, Value]> { return this.#map[Symbol.iterator](); }
+}
+
+function immutableMap<Key, Value>(entries: Iterable<readonly [Key, Value]>): ReadonlyMap<Key, Value> {
+  return new ImmutableMap(entries);
 }

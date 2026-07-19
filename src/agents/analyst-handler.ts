@@ -30,7 +30,7 @@ import { invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type To
 import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { ManagedProcessScope } from '../runtime/process-runner.js';
-import { BaseActor, type ActorDefinition } from '../runtime/micro-actor/index.js';
+import { BaseActor, compileActorDefinition } from '../runtime/micro-actor/index.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
@@ -177,15 +177,15 @@ type PendingAnalystTurn = {
   onActivity?: ActivityCallback;
 };
 
-export class AnalystSessionActor extends BaseActor {
-  static _actor: ActorDefinition = {
-    initial: 'idle',
-    states: {
-      idle: { parked: true, on: { submit: 'conversing' } },
-      conversing: { on: { done: 'idle', failed: 'idle', cancel: 'idle' } },
-    },
-  };
+const ANALYST_SESSION_ACTOR_DEFINITION = compileActorDefinition({
+  initial: 'idle',
+  states: {
+    idle: { parked: true, on: { submit: 'conversing' } },
+    conversing: { on: { done: 'idle', failed: 'idle', cancel: 'idle' } },
+  },
+});
 
+export class AnalystSessionActor extends BaseActor {
   private readonly llm: ConversationLLMActor;
   private pendingTurn: PendingAnalystTurn | null = null;
   private result: Deferred<AnalystTurnResult> | null = null;
@@ -200,7 +200,11 @@ export class AnalystSessionActor extends BaseActor {
   private readonly retiredOperationTrackers: ActivationOperationTracker[] = [];
 
   constructor(private readonly args: { projectRoot: string; sessionId: AnalystConversationSessionId; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
-    super();
+    super(ANALYST_SESSION_ACTOR_DEFINITION, {
+      enter: ({ target }) => {
+        if (target === 'conversing') this.enterConversing();
+      },
+    });
     this.processScope = args.runtimeDeps.processRunner.createDirectScope(args.runtimeDeps.analystProcessRootScope, `analyst-session:${args.sessionId}`, 'operator_session');
     this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, compactor: args.runtimeDeps.compactor, summarizerProvider: args.runtimeDeps.summarizerProvider, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus), runtimeProjectionChanged: args.runtimeDeps.runtimeProjectionChanged });
   }
@@ -251,7 +255,7 @@ export class AnalystSessionActor extends BaseActor {
     return Object.freeze({ sessionId: this.sessionId, agentId: this.llm.agentId, role: 'analyst', cardId: null, activity: this.llm.executingActivity() });
   }
 
-  _on_enter__conversing(): void {
+  private enterConversing(): void {
     const turn = this.pendingTurn;
     const result = this.result;
     if (!turn || !result) throw new Error(`Analyst session '${this.sessionId}' entered conversing without a pending turn.`);

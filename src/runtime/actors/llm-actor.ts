@@ -1,5 +1,4 @@
-import { BaseActor } from '../micro-actor/index.js';
-import type { ActorDefinition } from '../micro-actor/index.js';
+import { BaseActor, compileActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
 import { parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
@@ -53,16 +52,16 @@ type TurnStateUpdate = {
 
 export type LLMToolContinuationContextHook = (continuationInputId: string) => { messages: readonly ProviderVisibleUserContextMessage[]; afterAppend?: () => void } | undefined;
 
-export class ConversationLLMActor extends BaseActor {
-  static _actor: ActorDefinition = {
-    initial: 'idle',
-    states: {
-      idle: { parked: true, on: { turn: 'calling_provider' } },
-      calling_provider: { on: { done: 'idle', failed: 'idle', tool_call: 'waiting_tool' } },
-      waiting_tool: { parked: true, on: { turn: 'calling_provider', abandon: 'idle' } },
-    },
-  };
+const CONVERSATION_LLM_ACTOR_DEFINITION = compileActorDefinition({
+  initial: 'idle',
+  states: {
+    idle: { parked: true, on: { turn: 'calling_provider' } },
+    calling_provider: { on: { done: 'idle', failed: 'idle', tool_call: 'waiting_tool' } },
+    waiting_tool: { parked: true, on: { turn: 'calling_provider', abandon: 'idle' } },
+  },
+});
 
+export class ConversationLLMActor extends BaseActor {
   readonly projectRoot: string;
   readonly agentId: ConversationSessionId;
   readonly provider: LLMProviderPort;
@@ -88,7 +87,12 @@ export class ConversationLLMActor extends BaseActor {
   readonly runtimeProjectionChanged?: () => void;
 
   constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher; runtimeProjectionChanged?: () => void }) {
-    super();
+    super(CONVERSATION_LLM_ACTOR_DEFINITION, {
+      enter: ({ target }) => {
+        if (target === 'calling_provider') this.enterCallingProvider();
+      },
+      transition: () => this.runtimeProjectionChanged?.(),
+    });
     this.projectRoot = args.projectRoot;
     this.agentId = parseConversationSessionId(args.agentId);
     this.provider = args.provider;
@@ -246,7 +250,7 @@ export class ConversationLLMActor extends BaseActor {
     this.parkedSendEvent('abandon');
   }
 
-  _on_enter__calling_provider(): void {
+  private enterCallingProvider(): void {
     this.#providerBoundaryEntered = false;
     this.#completionPersistenceEntered = false;
     try {
@@ -611,10 +615,6 @@ export class ConversationLLMActor extends BaseActor {
   protected assertProviderReplayBoundary(): void {
     if (!this.#providerBoundaryEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover before entering the provider boundary.`);
     if (this.#completionPersistenceEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover after completion persistence began.`);
-  }
-
-  protected override _on_state_changed(oldState: string | undefined, _newState: string): void {
-    if (oldState !== undefined) this.runtimeProjectionChanged?.();
   }
 
 }

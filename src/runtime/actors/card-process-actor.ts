@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BaseActor, type ActorDefinition } from '../micro-actor/index.js';
+import { BaseActor, compileActorDefinition } from '../micro-actor/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardActivationInput, CardActor, CardCancellationResult, CardProcessorActor } from './card-actor.js';
 import { ConversationLLMActor, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from './llm-actor.js';
@@ -25,8 +25,16 @@ import { parseConversationSessionId } from '../../schemas/index.js';
 
 type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
+const CARD_PROCESS_ACTOR_DEFINITION = compileActorDefinition({
+  initial: 'idle',
+  states: {
+    idle: { parked: true, on: { activate: 'running' } },
+    running: { on: { done: 'settled', blocked: 'settled', failed: 'settled' } },
+    settled: { parked: true, on: { activate: 'running' } },
+  },
+});
+
 export class CardProcessActor extends BaseActor implements CardProcessorActor {
-  static _actor: ActorDefinition = { initial: 'idle', states: { idle: { parked: true, on: { activate: 'running' } }, running: { on: { done: 'settled', blocked: 'settled', failed: 'settled' } }, settled: { parked: true, on: { activate: 'running' } } } };
   readonly projectRoot: string;
   readonly cardId: string;
   readonly process: CompiledCardProcess;
@@ -48,7 +56,11 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #currentExecutingLlm: ConversationLLMActor | null = null;
 
   constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; children: { get(cardId: string): CardActor | null }; ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void }; cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>; notifyCard?: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher }) {
-    super();
+    super(CARD_PROCESS_ACTOR_DEFINITION, {
+      enter: ({ target }) => {
+        if (target === 'running') this.enterRunning();
+      },
+    });
     this.projectRoot = args.projectRoot;
     this.cardId = args.cardId;
     this.process = args.process;
@@ -134,7 +146,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     return Object.freeze({ sessionId: parseConversationSessionId(llm.agentId), agentId: llm.agentId, role: identity.role, cardId: identity.cardId, activity: llm.executingActivity() });
   }
 
-  _on_enter__running(): void {
+  private enterRunning(): void {
     if (!this.#result || !this.#activationInput || !this.#activationSignal) throw new Error(`Card process '${this.cardId}' entered running without activation input.`);
     const input = this.#activationInput;
     const signal = this.#activationSignal;
