@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { activePromptPairs, type PromptCardTypeKey, type PromptRoleKey } from '../schemas/index.js';
 
 export type AgentRoleKey = PromptRoleKey;
@@ -19,8 +18,8 @@ export interface ProcessRolePromptTemplateRegistry extends PromptTemplateRegistr
 }
 
 export interface PromptTemplateRegistryOptions {
-  defaultRoot?: string;
-  overrideRoot?: string;
+  readonly defaultRoot: string;
+  readonly overrideRoot?: string;
 }
 
 export interface PromptToolDisplay {
@@ -51,10 +50,6 @@ export class PromptTemplateRenderError extends Error {
     super(`Prompt template error for ${cardType}/${role}: ${reason}: ${token}`);
     this.name = 'PromptTemplateRenderError';
   }
-}
-
-function bundledDefaultsRoot(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'prompts');
 }
 
 function pairKey(cardType: PromptCardTypeKey, role: AgentRoleKey): string {
@@ -185,8 +180,8 @@ function validateProcessTemplate(cardType: PromptCardTypeKey, role: AgentRoleKey
   }
 }
 
-export function createPromptTemplateRegistry(options: PromptTemplateRegistryOptions = {}): ProcessRolePromptTemplateRegistry {
-  const defaultRoot = options.defaultRoot ?? bundledDefaultsRoot();
+export function createPromptTemplateRegistry(options: PromptTemplateRegistryOptions): ProcessRolePromptTemplateRegistry {
+  const defaultRoot = options.defaultRoot;
   const templatesByPair = new Map<string, { readonly path: string; readonly template: string; readonly tokens: readonly TemplateToken[] }>();
 
   for (const [cardType, role] of activePromptPairs) {

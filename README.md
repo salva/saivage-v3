@@ -214,6 +214,8 @@ npm run validate:release
 
 The same Cards browser authority covers obsolete/missing detail recovery, one responsive **Back to Cards** action with ordinary browser history, complete selected-card teardown and invalidation/reconnect suppression, independent hierarchy refresh, and retained tree identity after detail 404.
 
+The backend build gate and `validate:release` run a post-build compiled prompt-composition smoke after copying `src/prompts` to `dist/prompts`. Run `npm run test:compiled-prompt-composition` to repeat that focused packaged-layout check against existing build output.
+
 To use a locally installed Chrome for release validation, run:
 
 ```bash
