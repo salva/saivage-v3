@@ -20,7 +20,9 @@ describe('direct card history and operator read models', () => {
     cards.stopRunningForRecovery(card.id);
     const readModel = new CardsReadModelService(root, cards, { getRuntimeState: () => null });
 
-    expect(readModel.getCard(card.id)).toMatchObject({ body: { card: { status: 'stopped', lifecycle: { status: 'stopped' }, allowedActions: ['card.start', 'card.cancel', 'card.delete'], operator_summary: { terminal: false, blocked: false, hasError: false } } } });
+    const detail = readModel.getCard(card.id);
+    expect(detail).toMatchObject({ body: { card: { status: 'stopped', lifecycle: { status: 'stopped' }, allowedActions: ['card.start', 'card.cancel', 'card.delete'], operator_summary: { lifecycleStatus: 'stopped', blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 } } } });
+    expect((detail.body as { card: { operator_summary: unknown } }).card.operator_summary).not.toHaveProperty('terminal');
     expect(readModel.getChildren('project')).toMatchObject({ body: { children: [{ id: card.id, status: 'stopped' }] } });
     expect(cards.listCardHistory(card.id)).toMatchObject({ kind: 'found', value: [expect.objectContaining({ snapshot: expect.objectContaining({ status: 'running' }) }), expect.objectContaining({ snapshot: expect.objectContaining({ status: 'backlog' }) })] });
   });
@@ -48,7 +50,9 @@ describe('direct card history and operator read models', () => {
     expect(orderedCardsForTree(cards).map((card) => card.id)).toEqual(['project', first.id, second.id]);
     expect(computeCardLogicalPath(cards, first)).toBe('1');
     expect(computeCardLogicalPath(cards, second)).toBe('2');
-    expect(toCardView(cards, cards.read(first.id)!)).toMatchObject({ id: first.id, logical_path: '1', operator_summary: { terminal: false } });
+    const firstView = toCardView(cards, cards.read(first.id)!);
+    expect(firstView).toMatchObject({ id: first.id, logical_path: '1', operator_summary: { lifecycleStatus: 'backlog', blocked: false, hasError: false, stale: false } });
+    expect(firstView.operator_summary).not.toHaveProperty('terminal');
     const missing = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
     expect(toCardRefView(cards, missing)).toEqual({ id: missing, logical_path: null, title: null, missing: true });
   });

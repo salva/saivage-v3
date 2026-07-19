@@ -22,7 +22,7 @@ const card = {
   title: 'Synthetic dashboard smoke card',
   status: 'done',
   lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
-  operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
+  operator_summary: { lifecycleStatus: 'done', blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
   tags: ['smoke'],
   priority: 90,
   urgency: 'normal',
@@ -47,7 +47,7 @@ const projectCard = {
   priority: 50,
   status: 'running',
   lifecycle: { status: 'running', result: null, error: null, completed_at: null },
-  operator_summary: { lifecycleStatus: 'running', terminal: false, blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
+  operator_summary: { lifecycleStatus: 'running', blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
   version_seq: 1,
 };
 

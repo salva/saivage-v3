@@ -1,6 +1,7 @@
 import { EventBus, type Subscription, type SubscriptionOptions } from '../../events/index.js';
 import { cardRecordSchema, type CardNotification, type CardRecord, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
+import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/card-api.js';
 import { CardActor, type CardActorDeps, type CardCancellationResult } from './card-actor.js';
 import { toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
@@ -24,7 +25,7 @@ import type { ReadModelChanges } from '../../application/read-model-changes.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { RuntimeContainmentError, RuntimeStoppedInterruption, isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
 import type { RuntimeProcessIdentity } from '../lock.js';
-import type { CompiledCardProcesses, CardProcessEntry } from '../card-process/card-process-config.js';
+import { cardProcessEntryForStatus, type CompiledCardProcesses, type CardProcessEntry } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import { stabilizeRoleSession } from './conversation-recovery.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
@@ -162,7 +163,9 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     } else {
       const root = this.options.actorStore.read(PROJECT_CARD_ID);
       if (!root) throw new Error(`Root card record '${PROJECT_CARD_ID}' is missing.`);
-      entry = root.status === 'backlog' ? 'BACKLOG' : root.status === 'changed' ? 'CHANGED' : root.status === 'blocked' ? 'BLOCKED' : root.status === 'stopped' ? 'STOPPED' : (() => { throw new Error(`Project card in status '${root.status}' cannot start.`); })();
+      const freshEntry = cardProcessEntryForStatus(root.status);
+      if (freshEntry === null) throw new Error(`Project card in status '${root.status}' cannot start.`);
+      entry = freshEntry;
       if (root.status === 'stopped') this.options.actorStore.activateStopped(PROJECT_CARD_ID); else this.options.actorStore.setStatus(PROJECT_CARD_ID, 'running');
       chain = selectLinkedRunningChain(this.options.actorStore);
     }
@@ -214,7 +217,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult {
     const card = this.options.actorStore.read(cardId);
     if (!card) return { ok: false, reason: 'missing_card', cardId };
-    if (card.status === 'done' || card.status === 'failed' || card.status === 'cancelled') return { ok: false, reason: 'terminal_card', cardId, status: card.status };
+    if (!acceptsCardNotifications(card.status)) return { ok: false, reason: 'terminal_card', cardId, status: card.status as 'done' | 'failed' | 'cancelled' };
     this.options.actorStore.enqueueNotification(cardId, notification);
     return { ok: true, notificationId: notification.id };
   }
@@ -222,6 +225,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   async cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> {
     const card = this.options.actorStore.read(cardId);
     if (!card) throw new Error(`Card '${cardId}' not found.`);
+    if (!canCancelCardStatus(card.status)) throw new Error(`Card '${cardId}' in status '${card.status}' cannot be cancelled.`);
     const capturedIdentity = this.runIdentity;
     const live = this.liveCardActors.get(cardId);
     if (live) {
@@ -330,7 +334,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
 
   private async cancelNonrunningSubtree(cardId: string, cancelled: string[]): Promise<void> {
     const card = this.options.actorStore.read(cardId);
-    if (!card || card.status === 'done' || card.status === 'cancelled') return;
+    if (!card || !canCancelCardStatus(card.status)) return;
     const live = this.liveCardActors.get(cardId);
     if (live) { const result = await live.cancel({ reason: 'ancestor cancelled', cancelled_at: this.now() }); cancelled.push(...result.cancelled_card_ids); return; }
     if (card.status === 'running') throw new Error(`Running card '${cardId}' has no live activation owner.`);

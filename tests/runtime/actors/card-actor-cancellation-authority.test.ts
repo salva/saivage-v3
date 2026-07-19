@@ -264,6 +264,25 @@ describe('CardActor authoritative cancellation', () => {
     await expect(activation).resolves.toMatchObject({ status: 'done' });
   });
 
+  it('re-enters a blocked child through BLOCKED with a fresh actor after settlement', async () => {
+    const childCard = cards.create(child('project', 'blocked child'));
+    const first = actor(childCard.id);
+    const firstActivation = first.actor.activate({ kind: 'parent', cardId: 'project' }, () => cards.setStatus(childCard.id, 'running'));
+    await Promise.resolve();
+    first.processor.input!.claimResult();
+    first.processor.outcome.resolve({ status: 'blocked', summary: 'waiting', result: { kind: 'blocked', summary: 'waiting', resume_reason: 'test' } });
+    await expect(firstActivation).resolves.toMatchObject({ status: 'blocked' });
+    expect(cards.read(childCard.id)?.status).toBe('blocked');
+
+    const second = actor(childCard.id);
+    const secondActivation = second.actor.activate({ kind: 'parent', cardId: 'project' }, () => cards.setStatus(childCard.id, 'running'));
+    await Promise.resolve();
+    expect(second.processor.input).toMatchObject({ entry: 'BLOCKED', caller: { kind: 'parent', cardId: 'project' } });
+    second.processor.input!.claimResult();
+    second.processor.outcome.resolve({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } });
+    await expect(secondActivation).resolves.toMatchObject({ status: 'done' });
+  });
+
   it('fails in place when terminal publication throws before publication', async () => {
     const owned = actor('project');
     const activation = prepareBacklogRoot(owned);
@@ -315,14 +334,25 @@ describe('CardActor authoritative cancellation', () => {
     consoleError.mockRestore();
   });
 
-  it('recursively claims live descendants, cancels inactive descendants, and preserves done descendants', async () => {
+  it('recursively claims live descendants, cancels every cancellable status, and preserves done/cancelled descendants', async () => {
     const activeChild = cards.create(child('project', 'active'));
     const inactiveChild = cards.create(child('project', 'inactive'));
     const doneChild = cards.create(child('project', 'done'));
+    const failedChild = cards.create(child('project', 'failed'));
+    const blockedChild = cards.create(child('project', 'blocked'));
+    const stoppedChild = cards.create(child('project', 'stopped'));
+    const cancelledChild = cards.create(child('project', 'cancelled'));
     cards.setStatus(inactiveChild.id, 'running');
     cards.setStatus(inactiveChild.id, 'changed');
     cards.setStatus(doneChild.id, 'running');
     cards.commitTerminalLifecyclePatch(doneChild.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'kept' }, error: null, completed_at: '2026-07-15T00:00:00.000Z' } });
+    cards.setStatus(failedChild.id, 'running');
+    cards.commitTerminalLifecyclePatch(failedChild.id, { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'retry' }, error: 'retry', completed_at: '2026-07-15T00:00:00.000Z' } });
+    cards.setStatus(blockedChild.id, 'running');
+    cards.commitTerminalLifecyclePatch(blockedChild.id, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' }, error: 'wait', completed_at: null } });
+    cards.setStatus(stoppedChild.id, 'running');
+    cards.stopRunningForRecovery(stoppedChild.id);
+    cards.setStatus(cancelledChild.id, 'cancelled');
     const parent = actor('project');
     const liveChild = actor(activeChild.id);
     const parentResult = prepareBacklogRoot(parent);
@@ -330,19 +360,26 @@ describe('CardActor authoritative cancellation', () => {
     await Promise.resolve();
     cardRuntimeSnapshots.length = 0;
     const result = await parent.actor.cancel({ reason: 'cancel subtree' });
-    expect(result.cancelled_card_ids).toEqual([activeChild.id, inactiveChild.id, 'project']);
+    expect(result.cancelled_card_ids).toEqual([activeChild.id, inactiveChild.id, failedChild.id, blockedChild.id, stoppedChild.id, 'project']);
     await expect(parentResult).resolves.toMatchObject({ status: 'cancelled' });
     await expect(childResult).resolves.toMatchObject({ status: 'cancelled' });
     expect(cards.read(activeChild.id)?.status).toBe('cancelled');
     expect(cards.read(inactiveChild.id)?.status).toBe('cancelled');
     expect(cards.read(doneChild.id)?.status).toBe('done');
+    expect(cards.read(failedChild.id)?.status).toBe('cancelled');
+    expect(cards.read(blockedChild.id)?.status).toBe('cancelled');
+    expect(cards.read(stoppedChild.id)?.status).toBe('cancelled');
+    expect(cards.read(cancelledChild.id)?.status).toBe('cancelled');
     expect(liveLookup.size).toBe(0);
     expect(lookup.size).toBe(0);
     expect(releaseSettledActor).toHaveBeenCalledTimes(2);
-    expect(cardRuntimeSnapshots).toHaveLength(3);
+    expect(cardRuntimeSnapshots).toHaveLength(6);
     expect(cardRuntimeSnapshots[0]?.[activeChild.id]).toBe('cancelled');
     expect(cardRuntimeSnapshots[1]?.[inactiveChild.id]).toBe('cancelled');
-    expect(cardRuntimeSnapshots[2]?.project).toBe('cancelled');
+    expect(cardRuntimeSnapshots[2]?.[failedChild.id]).toBe('cancelled');
+    expect(cardRuntimeSnapshots[3]?.[blockedChild.id]).toBe('cancelled');
+    expect(cardRuntimeSnapshots[4]?.[stoppedChild.id]).toBe('cancelled');
+    expect(cardRuntimeSnapshots[5]?.project).toBe('cancelled');
   });
 
   it('fails fast for a running descendant without an exact live owner', async () => {

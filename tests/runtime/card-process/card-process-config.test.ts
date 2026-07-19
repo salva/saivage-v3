@@ -6,7 +6,8 @@ import * as YAML from 'yaml';
 
 import { cardProcessesSchema, type CardProcessesSource } from '../../../src/agents/config-schema.js';
 import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
-import { compileCardProcesses } from '../../../src/runtime/card-process/card-process-config.js';
+import { cardProcessEntryForStatus, compileCardProcesses } from '../../../src/runtime/card-process/card-process-config.js';
+import type { CardStatus } from '../../../src/schemas/index.js';
 import { createProcessPromptRegistry } from '../../../src/runtime/card-process/process-prompt-registry.js';
 
 const roots: string[] = [];
@@ -23,6 +24,19 @@ function expectCompileFailure(change: (value: CardProcessesSource) => void, mess
 }
 
 describe('card process source and compilation', () => {
+  it.each([
+    ['backlog', 'BACKLOG'],
+    ['running', null],
+    ['blocked', 'BLOCKED'],
+    ['changed', 'CHANGED'],
+    ['stopped', 'STOPPED'],
+    ['done', null],
+    ['failed', null],
+    ['cancelled', null],
+  ] satisfies Array<[CardStatus, 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED' | null]>)('maps %s to its pre-running process entry', (status, entry) => {
+    expect(cardProcessEntryForStatus(status)).toBe(entry);
+  });
+
   it('compiles the authoritative graph with distinct entry and terminal BLOCKED namespaces', () => {
     const compiled = compileCardProcesses(source());
     expect(compiled.planning.entries.get('BLOCKED')).toEqual({ targetNodeId: 'plan', promptId: null });

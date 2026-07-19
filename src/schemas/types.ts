@@ -73,7 +73,6 @@ export interface CardRecord {
 }
 export interface CardOperatorSummary {
   lifecycleStatus: CardStatus;
-  terminal: boolean;
   blocked: boolean;
   hasError: boolean;
   error: string | null;

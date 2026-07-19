@@ -48,7 +48,7 @@ function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.Refin
 }
 export const cardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.lazy(() => z.object(cardRecordShape).superRefine(refineCardLifecycle));
 export const persistedCardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.lazy(() => z.object(cardRecordShape).strict().superRefine(refineCardLifecycle));
-export const cardOperatorSummarySchema: z.ZodType<import('./types.js').CardOperatorSummary> = z.object({ lifecycleStatus: cardStatusSchema, terminal: z.boolean(), blocked: z.boolean(), hasError: z.boolean(), error: z.string().nullable(), completedAt: z.string().nullable(), stale: z.boolean(), actionCount: z.number().int().nonnegative() });
+export const cardOperatorSummarySchema: z.ZodType<import('./types.js').CardOperatorSummary> = z.object({ lifecycleStatus: cardStatusSchema, blocked: z.boolean(), hasError: z.boolean(), error: z.string().nullable(), completedAt: z.string().nullable(), stale: z.boolean(), actionCount: z.number().int().nonnegative() });
 export const operatorCardSchema = z.object({ ...cardRecordShape, allowedActions: z.array(cardActionSchema), operator_summary: cardOperatorSummarySchema }).strict().superRefine(refineCardLifecycle);
 export const cardViewSchema: z.ZodType<import('./types.js').CardView> = cardRecordSchema.and(z.object({ logical_path: z.string().nullable(), operator_summary: cardOperatorSummarySchema }));
 export const cardRefViewSchema: z.ZodType<import('./types.js').CardRefView> = z.object({ id: z.string().min(1), logical_path: z.string().nullable(), title: z.string().nullable(), missing: z.boolean().optional() });

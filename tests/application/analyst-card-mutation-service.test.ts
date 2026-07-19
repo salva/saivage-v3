@@ -54,6 +54,24 @@ describe('analyst stopped card mutations', () => {
     expect(service.validateReorder(FIRST, [])).toEqual({ allowed: true });
   });
 
+  it.each([
+    { status: 'backlog', allowed: true }, { status: 'running', allowed: true }, { status: 'blocked', allowed: true }, { status: 'changed', allowed: true },
+    { status: 'stopped', allowed: true }, { status: 'done', allowed: false }, { status: 'failed', allowed: true }, { status: 'cancelled', allowed: false },
+  ] as const)('applies cancellation membership to $status', ({ status, allowed }) => {
+    const target = { id: FIRST, type: 'code', parent: 'project', status } as CardRecord;
+    const store = { read: () => target, getDescendantIds: () => [] } as unknown as CardService;
+    expect(new DefaultAnalystCardMutationService(store, 'web-chat').validateCancel(FIRST).allowed).toBe(allowed);
+  });
+
+  it.each([
+    { status: 'backlog', allowed: true }, { status: 'running', allowed: false }, { status: 'blocked', allowed: true }, { status: 'changed', allowed: true },
+    { status: 'stopped', allowed: true }, { status: 'done', allowed: false }, { status: 'failed', allowed: false }, { status: 'cancelled', allowed: false },
+  ] as const)('applies create-parent membership and Analyst running denial to $status', ({ status, allowed }) => {
+    const parent = { id: FIRST, type: 'goal', parent: 'project', status } as CardRecord;
+    const store = { read: () => parent } as unknown as CardService;
+    expect(new DefaultAnalystCardMutationService(store, 'web-chat').validateCreate({ type: 'code', parent: FIRST, title: 'child', brief: 'brief' }).allowed).toBe(allowed);
+  });
+
   it('writes a stopped brief and preserves stopped lifecycle', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-stopped-brief-'));
     try {

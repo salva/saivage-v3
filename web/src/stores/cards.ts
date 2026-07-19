@@ -35,12 +35,11 @@ const message = (error: unknown, fallback: string) => error instanceof Error ? e
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
 export interface CardLifecycleSummary {
-  status: CardStatus; terminal: boolean; phase: 'planned' | 'ready' | 'running' | 'blocked' | 'stopped' | 'completed' | 'failed' | 'cancelled';
+  status: CardStatus; phase: 'planned' | 'ready' | 'running' | 'blocked' | 'stopped' | 'completed' | 'failed' | 'cancelled';
   explanation: string; completionState: 'not-started' | 'in-progress' | 'blocked' | 'stopped' | 'failed' | 'cancelled' | 'marked-done'; error: string | null;
   startedAt: string | null; completedAt: string | null; durationMs: number | null; childCounts?: Record<CardStatus, number>;
   hasActiveChildren?: boolean; hasBlockingChildren?: boolean; dependencyIds: string[]; blockedByDependencyIds: string[];
 }
-const terminalStatuses = new Set<CardStatus>(['done', 'failed', 'cancelled']);
 function lifecyclePhase(status: CardStatus): CardLifecycleSummary['phase'] {
   if (status === 'backlog') return 'planned'; if (status === 'running') return 'running'; if (status === 'blocked') return 'blocked';
   if (status === 'stopped') return 'stopped';
@@ -53,7 +52,7 @@ function completionState(status: CardStatus): CardLifecycleSummary['completionSt
 }
 export function deriveCardLifecycleSummary(card: CardRecord, children?: readonly CardRecord[]): CardLifecycleSummary {
   const projection = children === undefined ? {} : (() => { const counts = { backlog: 0, running: 0, blocked: 0, changed: 0, stopped: 0, done: 0, failed: 0, cancelled: 0 } satisfies Record<CardStatus, number>; for (const child of children) counts[child.status] += 1; return { childCounts: counts, hasActiveChildren: children.some((child) => child.status === 'running'), hasBlockingChildren: children.some((child) => child.status === 'blocked' || child.status === 'failed') }; })();
-  return { status: card.status, terminal: terminalStatuses.has(card.status), phase: lifecyclePhase(card.status), explanation: '', completionState: completionState(card.status), error: card.lifecycle.error ?? null, startedAt: card.started_at ?? null, completedAt: card.lifecycle.completed_at ?? null, durationMs: null, ...projection, dependencyIds: card.depends_on, blockedByDependencyIds: [] };
+  return { status: card.status, phase: lifecyclePhase(card.status), explanation: '', completionState: completionState(card.status), error: card.lifecycle.error ?? null, startedAt: card.started_at ?? null, completedAt: card.lifecycle.completed_at ?? null, durationMs: null, ...projection, dependencyIds: card.depends_on, blockedByDependencyIds: [] };
 }
 
 export function cardRouteChain(cardId: string): string[] {

@@ -15,7 +15,7 @@ const card = {
   title: 'Synthetic dashboard smoke card',
   status: 'done',
   lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
-  operator_summary: { lifecycleStatus: 'done', terminal: true, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
+  operator_summary: { lifecycleStatus: 'done', blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
   tags: ['smoke'],
   priority: 90,
   urgency: 'normal',
@@ -48,11 +48,11 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
     });
   });
 
+  await page.addInitScript((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
   await page.goto(`/cards/${smokeCardId}`);
-  await page.evaluate((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
-  await page.reload();
 
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
+  await page.getByText('Metadata', { exact: true }).click();
 
   const container = page.locator('.card-detail-container');
   await expect(container).toHaveJSProperty('isConnected', true);

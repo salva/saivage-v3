@@ -1,5 +1,4 @@
 import { PROJECT_CARD_ID, type CardService } from '../../cards/card-api.js';
-import { TERMINAL_STATUSES } from '../../permissions/index.js';
 import type { CardOperatorSummary, CardRecord, CardRefView, CardView } from '../../schemas/index.js';
 
 export function computeCardLogicalPath(store: CardService, card: CardRecord): string | null {
@@ -63,7 +62,6 @@ export function toCardOperatorSummary(card: CardRecord): CardOperatorSummary {
   const lifecycle = card.lifecycle;
   return {
     lifecycleStatus: lifecycle.status,
-    terminal: TERMINAL_STATUSES.has(lifecycle.status),
     blocked: lifecycle.status === 'blocked',
     hasError: Boolean(lifecycle.error),
     error: lifecycle.error ?? null,

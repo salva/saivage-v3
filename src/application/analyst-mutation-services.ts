@@ -1,8 +1,7 @@
 import type { CardService } from '../cards/card-api.js';
-import { PROJECT_CARD_ID } from '../cards/card-api.js';
+import { analystBriefEditEffect, canCancelCardStatus, canCreateChildInStatus, PROJECT_CARD_ID } from '../cards/card-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
-import { decide } from '../permissions/index.js';
 import type { CardRecord, CardStatus, CardType, ControlActionSurface } from '../schemas/index.js';
 import { propagateAnalystBriefEdit, propagateChange } from '../runtime/changed-propagation.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
@@ -84,8 +83,7 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
     if (input.parent === null) return { allowed: false, reason: 'non-project card requires a parent' };
     const parent = this.store.read(input.parent);
     if (!parent) return { allowed: false, reason: `parent '${input.parent}' does not exist` };
-    const permission = decide({ role: 'analyst', action: 'card.create', targetState: parent.status });
-    if (!permission.allowed) return permission;
+    if (!canCreateChildInStatus(parent.status) || parent.status === 'running') return { allowed: false, reason: 'wrong_state' };
     if (input.status !== undefined && input.status !== 'backlog') return { allowed: false, reason: 'Analyst-created cards must start in backlog' };
     return { allowed: true };
   }
@@ -97,8 +95,7 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
       if (!card) continue;
       if (card.id === PROJECT_CARD_ID) return { allowed: false, reason: 'root project card cannot be deleted' };
       for (const candidate of subtree(this.store, id)) {
-        const permission = decide({ role: 'analyst', action: 'card.delete', targetState: candidate.status });
-        if (!permission.allowed) return permission;
+        if (candidate.status === 'running') return { allowed: false, reason: 'wrong_state' };
       }
     }
     return { allowed: true };
@@ -108,7 +105,7 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
     const card = this.store.read(cardId);
     if (!card) return { allowed: false, reason: `card '${cardId}' does not exist` };
     if (card.id === PROJECT_CARD_ID) return { allowed: false, reason: 'root project card cannot be cancelled' };
-    const denied = subtree(this.store, cardId).find((candidate) => candidate.status === 'done' || candidate.status === 'cancelled');
+    const denied = subtree(this.store, cardId).find((candidate) => !canCancelCardStatus(candidate.status));
     if (denied) return { allowed: false, reason: `card '${denied.id}' is ${denied.status}` };
     return { allowed: true };
   }
@@ -116,13 +113,11 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
   validateReorder(parentId: string, orderedChildIds: readonly string[]): { allowed: true } | { allowed: false; reason: string } {
     const parent = this.store.read(parentId);
     if (!parent) return { allowed: false, reason: `parent '${parentId}' does not exist` };
-    const permission = decide({ role: 'analyst', action: 'card.reorder_child', targetState: parent.status });
-    if (!permission.allowed) return { allowed: false, reason: `parent '${parentId}' is ${parent.status}` };
+    if (parent.status === 'running') return { allowed: false, reason: `parent '${parentId}' is ${parent.status}` };
     const current = this.store.listChildren(parentId);
     if (current.length !== orderedChildIds.length || current.some((id) => !orderedChildIds.includes(id))) return { allowed: false, reason: 'reorder_set_mismatch' };
     for (const id of orderedChildIds) for (const candidate of subtree(this.store, id)) {
-      const childPermission = decide({ role: 'analyst', action: 'card.reorder_child', targetState: candidate.status });
-      if (!childPermission.allowed) return { allowed: false, reason: `child subtree '${id}' contains '${candidate.id}' in status ${candidate.status}` };
+      if (candidate.status === 'running') return { allowed: false, reason: `child subtree '${id}' contains '${candidate.id}' in status ${candidate.status}` };
     }
     return { allowed: true };
   }
@@ -133,8 +128,7 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
     if (parent === null) return failure(`Cannot create ${input.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
     const parentCard = this.store.read(parent);
     if (!parentCard) return failure(`Parent card '${parent}' does not exist.`, { parent });
-    const permission = decide({ role: 'analyst', action: 'card.create', targetState: parentCard.status });
-    if (!permission.allowed) return failure(`create_card denied for parent '${parentCard.id}' in status '${parentCard.status}' (${permission.reason}).`, { parent: parentCard.id, status: parentCard.status });
+    if (!canCreateChildInStatus(parentCard.status) || parentCard.status === 'running') return failure(`create_card denied for parent '${parentCard.id}' in status '${parentCard.status}' (wrong_state).`, { parent: parentCard.id, status: parentCard.status });
     if (input.status !== undefined && input.status !== 'backlog') return failure('Analyst create_card can only create backlog child cards. Card creation does not dispatch work or set lifecycle state.', { status: input.status });
     const card = this.store.create({ type: input.type, parent, title: input.title, brief: input.brief, status: input.status ?? 'backlog', tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: 'analyst', depends_on: input.depends_on ?? [], related: input.related ?? [] });
     try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch { /* notification is best effort */ }
@@ -143,7 +137,7 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
 
   delete(ids: readonly string[]): ToolResult {
     try {
-      const result = this.store.deleteSubtrees(ids, { actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' }, (card) => decide({ role: 'analyst', action: 'card.delete', targetState: card.status }).allowed);
+      const result = this.store.deleteSubtrees(ids, { actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' }, (card) => card.status !== 'running');
       return { success: true, data: { deleted: result.deleted, top_level_deleted: result.requested } };
     } catch (error) { return failure((error as Error).message); }
   }
@@ -162,12 +156,11 @@ export class DefaultAnalystCardMutationService implements AnalystCardMutationSer
   reorder(parentId: string, orderedChildIds: readonly string[]): ToolResult {
     const parent = this.store.read(parentId);
     if (!parent) return failure(`Parent card '${parentId}' not found.`, { parentId });
-    const permission = decide({ role: 'analyst', action: 'card.reorder_child', targetState: parent.status });
-    if (!permission.allowed) return failure(`reorder_child denied for parent '${parent.id}' in status '${parent.status}' (${permission.reason}).`, { parentId, status: parent.status });
+    if (parent.status === 'running') return failure(`reorder_child denied for parent '${parent.id}' in status '${parent.status}' (wrong_state).`, { parentId, status: parent.status });
     for (const childId of orderedChildIds) {
       const child = this.store.read(childId);
       if (!child) continue;
-      const blocked = subtree(this.store, child.id).find((candidate) => !decide({ role: 'analyst', action: 'card.reorder_child', targetState: candidate.status }).allowed);
+      const blocked = subtree(this.store, child.id).find((candidate) => candidate.status === 'running');
       if (blocked) return failure(`reorder_child denied for child subtree '${child.id}' because '${blocked.id}' is in status '${blocked.status}'.`, { childId, blockedCardId: blocked.id, status: blocked.status });
     }
     const result = this.store.reorderChildren(parentId, [...orderedChildIds], { actor: 'analyst', surface: this.surface, reason: 'analyst reorder_child' });
@@ -248,7 +241,7 @@ export class DefaultAnalystBriefRecordMutationService implements AnalystBriefRec
     }
     const card = this.store.read(target.cardId);
     if (!card) throw new Error(`Card '${target.cardId}' not found.`);
-    if (!['backlog', 'stopped', 'done', 'failed', 'running'].includes(card.status)) throw new Error(`Analyst brief edits require target card status backlog, stopped, done, failed, or running. Current status is ${card.status}.`);
+    if (analystBriefEditEffect(card.status) === null) throw new Error(`Analyst brief edits do not support target card status ${card.status}.`);
     try { this.store.readRecord(target.cardId, 'brief.md', 'open'); throw new Error(`Cannot write '${target.recordUrl}': latest brief.md version is open.`); } catch (error) { if (error instanceof Error && error.message.startsWith('Cannot write')) throw error; }
     return { cardId: target.cardId, recordUrl: target.recordUrl };
   }

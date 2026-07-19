@@ -213,12 +213,24 @@ describe('CardService final reset-only contracts', () => {
     expect(cards.create(input(parent.id)).id).toBe(`${parent.id}-${THIRD_SEGMENT}`);
   });
 
-  it.each(['blocked', 'done', 'failed', 'cancelled'] as const)('rejects a %s parent before claiming its next child', (status) => {
+  it('publishes and links a child under an unresolved blocked planning parent', () => {
     const cards = new CardService(root);
     const parent = cards.create({ ...input(), type: 'goal' });
     cards.setStatus(parent.id, 'running');
-    if (status === 'blocked') cards.commitTerminalLifecyclePatch(parent.id, { status, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null } });
-    else if (status === 'cancelled') cards.setStatus(parent.id, status);
+    cards.commitTerminalLifecyclePatch(parent.id, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null } });
+
+    const child = cards.create(input(parent.id));
+
+    expect(child).toMatchObject({ id: `${parent.id}-a`, parent: parent.id, status: 'backlog' });
+    expect(cards.listChildren(parent.id)).toEqual([child.id]);
+    expect(cards.read(parent.id)?.children).toEqual([child.id]);
+  });
+
+  it.each(['done', 'failed', 'cancelled'] as const)('rejects a %s parent before claiming its next child', (status) => {
+    const cards = new CardService(root);
+    const parent = cards.create({ ...input(), type: 'goal' });
+    cards.setStatus(parent.id, 'running');
+    if (status === 'cancelled') cards.setStatus(parent.id, status);
     else cards.commitTerminalLifecyclePatch(parent.id, { status, lifecycle: status === 'done'
       ? { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' }
       : { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-17T00:00:00.000Z' } });

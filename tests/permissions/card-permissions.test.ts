@@ -32,8 +32,8 @@ describe('permission-by-state matrix', () => {
     expect(decide({ role: 'analyst', action: 'card.delete', targetState: 'changed' })).toEqual({ allowed: true });
     expect(decide({ role: 'analyst', action: 'card.reorder_child', targetState: 'changed' })).toEqual({ allowed: true });
     expect(decide({ role: 'analyst', action: 'card.reorder_child', targetState: 'running' })).toEqual({ allowed: false, reason: 'wrong_state' });
-    expect(allowedActions('operator', 'failed')).toEqual(['card.delete']);
-    expect(allowedActions('operator', 'running')).toEqual([]);
+    expect(allowedActions('operator', 'failed')).toEqual(['card.cancel', 'card.delete']);
+    expect(allowedActions('operator', 'running')).toEqual(['card.cancel']);
   });
 
   it('rejects removed card.restart action vocabulary', () => {

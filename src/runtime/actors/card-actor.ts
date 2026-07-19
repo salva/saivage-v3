@@ -2,7 +2,7 @@ import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
-import type { CardPatch, NewCardInput } from '../../cards/card-api.js';
+import { canCancelCardStatus, type CardPatch, type NewCardInput } from '../../cards/card-api.js';
 import type { CardMutationContext } from '../../cards/lifecycle.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
@@ -23,7 +23,7 @@ import type { ActiveCardLeaf } from '../active-card-leaf.js';
 import { isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import type { ExecutingLlmSnapshot, StructuralChildRelationship } from './executing-llm-snapshot.js';
-import type { CardProcessEntry, CompiledCardProcesses } from '../card-process/card-process-config.js';
+import { cardProcessEntryForStatus, type CardProcessEntry, type CompiledCardProcesses } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 
 export interface CardActivationInput {
@@ -181,10 +181,10 @@ export class CardActor extends BaseActor {
     if (!this.isValidParentCaller(card, caller)) {
       return Promise.reject(new Error(`Card '${this.cardId}' cannot be activated by caller '${caller.cardId ?? caller.kind}'.`));
     }
-    if (!isActivatable(card.status)) {
+    const entry = cardProcessEntryForStatus(card.status);
+    if (entry === null) {
       return Promise.reject(new Error(`Card '${this.cardId}' in status '${card.status}' is not activatable.`));
     }
-    const entry = activationEntry(card.status);
     if (this.state() !== 'parked') {
       return Promise.reject(new Error(`Card '${this.cardId}' cannot activate from actor state '${this.state()}'.`));
     }
@@ -509,7 +509,7 @@ export class CardActor extends BaseActor {
   private async cancelDescendantIds(parentId: string, reason: CardCancelReason, cancelledIds: string[]): Promise<void> {
     for (const childId of this.store.listChildren(parentId)) {
       const child = this.store.read(childId);
-      if (!child || child.status === 'done' || child.status === 'cancelled') continue;
+      if (!child || !canCancelCardStatus(child.status)) continue;
       const live = this.deps.liveLookup.get(childId);
       if (live) {
         const result = await live.cancel({ reason: `ancestor cancelled: ${reason.reason}`, cancelled_at: reason.cancelled_at });
@@ -583,18 +583,6 @@ export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcom
     status_text: outcome.summary,
     status_text_updated_at: completedAt,
   };
-}
-
-export function isActivatable(status: CardStatus): boolean {
-  return status === 'backlog' || status === 'changed' || status === 'blocked' || status === 'stopped';
-}
-
-function activationEntry(status: CardStatus): CardProcessEntry {
-  if (status === 'backlog') return 'BACKLOG';
-  if (status === 'changed') return 'CHANGED';
-  if (status === 'blocked') return 'BLOCKED';
-  if (status === 'stopped') return 'STOPPED';
-  throw new Error(`Card status '${status}' has no process entry.`);
 }
 
 import { randomUUID } from 'node:crypto';

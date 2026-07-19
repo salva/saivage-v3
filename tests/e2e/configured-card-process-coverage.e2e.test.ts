@@ -37,6 +37,54 @@ async function availablePort(): Promise<number> { const probe = createNetServer(
 async function writeConfig(root: string): Promise<void> { writeFileSync(join(root, '.saivage', 'saivage.yaml'), YAML.stringify({ models: { default: ['test-model'], max_tokens: { analyst: 200 } }, providers: { test: { models: ['test-model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } }, card_processes: DEFAULT_CARD_PROCESSES, runtime: { continuous_improvement: false }, server: { host: '127.0.0.1', port: await availablePort() } })); }
 
 describe('configured card-process substantive E2E coverage', () => {
+  it('settles and re-enters blocked configured work, then creates under the blocked planning parent', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-blocked-reentry-e2e-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'blocked goal', brief: 'recover blocked work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: goal.id, title: 'blocked implementation', brief: 'block once, then finish', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const calls = { project: 0, goal: 0, child: 0 };
+    const childStatusesAtEntry: string[] = [];
+    let childStatusBeforeReentry: string | null = null;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+      if (input.sessionId === 'planner:project') {
+        calls.project += 1;
+        if (calls.project === 1) return complete(tool('activate-goal', 'activate_card', { card_id: goal.id }));
+        if (calls.project === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?v=next', content: 'Goal remains blocked.' }));
+        return complete(tool('block-project', 'emit_result', { outcome: 'blocked', summary: 'Goal remains blocked.' }));
+      }
+      if (input.sessionId === `planner:${goal.id}`) {
+        calls.goal += 1;
+        if (calls.goal === 1) return complete(tool('activate-child-first', 'activate_card', { card_id: child.id }));
+        if (calls.goal === 2) { childStatusBeforeReentry = cards.read(child.id)!.status; return complete(tool('activate-child-again', 'activate_card', { card_id: child.id })); }
+        if (calls.goal === 3) return complete(tool('write-goal-status', 'write', { path: 'record:///status.md?v=next', content: 'Goal is externally blocked.' }));
+        return complete(tool('block-goal', 'emit_result', { outcome: 'blocked', summary: 'Goal is externally blocked.' }));
+      }
+      if (input.sessionId === `executor:${child.id}`) {
+        calls.child += 1;
+        childStatusesAtEntry.push(cards.read(child.id)!.status);
+        if (calls.child === 1) return complete(tool('write-child-status-first', 'write', { path: 'record:///status.md?v=next', content: 'Waiting once.' }));
+        if (calls.child === 2) return complete(tool('block-child', 'emit_result', { outcome: 'blocked', summary: 'Waiting once.' }));
+        if (calls.child === 3) return complete(tool('write-child-status-second', 'write', { path: 'record:///status.md?v=next', content: 'Recovered and complete.' }));
+        return complete(tool('complete-child', 'emit_result', { outcome: 'done', summary: 'Recovered and complete.' }));
+      }
+      throw new Error(`Unexpected provider session '${input.sessionId}'.`);
+    }) };
+    const runtime = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, appLogs: { projectRoot: root }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, processRunner: new ProcessRunner(root, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' } });
+
+    const prepared = await runtime.beginStartProject(); if (!prepared.accepted) throw new Error('Run was rejected'); runtime.launchStartedProject(prepared.launch);
+    await waitUntil(() => runtime.getStatus().status === 'stopped');
+
+    expect(calls).toEqual({ project: 3, goal: 4, child: 4 });
+    expect(childStatusBeforeReentry).toBe('blocked');
+    expect(childStatusesAtEntry).toEqual(['running', 'running', 'running', 'running']);
+    expect(cards.read(child.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'Recovered and complete.' } } });
+    expect(cards.read(goal.id)).toMatchObject({ status: 'blocked', lifecycle: { result: { kind: 'blocked', summary: 'Goal is externally blocked.' } } });
+
+    const later = cards.create({ type: 'test', parent: goal.id, title: 'new blocked-parent child', brief: 'new work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    expect(later).toMatchObject({ parent: goal.id, status: 'backlog' });
+    expect(cards.listChildren(goal.id)).toEqual([child.id, later.id]);
+  });
+
   it('delivers late notifications in active executor, planner, and reviewer nodes before accepting the full chain', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-process-notifications-e2e-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 
 import type { CardActivationAdmissionProjection, CardPatch, CardService, NewCardInput } from '../cards/card-api.js';
+import { canCancelCardStatus } from '../cards/card-api.js';
 import {
   activateCardArgumentsSchema,
   formatActivateCardResult,
@@ -80,7 +81,7 @@ export function createPlannerControlProvider(ctx: PlannerControlProviderContext)
       defineTool({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: cancelCardSchema, executor: async (args) => cancelCard(ctx, args) }),
       defineTool({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardArgumentsSchema, executor: async (args, _signal, invocation) => activateCard(ctx, args, invocation) }),
       defineTool({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: reorderChildSchema, executor: async (args) => reorderChild(ctx, args) }),
-      defineTool({ name: 'queue_notification', description: 'Queue operator context on one nonterminal card for its planner or executor.', inputSchema: queueNotificationSchema, executor: async (args) => queueNotificationTool(ctx, args) }),
+      defineTool({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', inputSchema: queueNotificationSchema, executor: async (args) => queueNotificationTool(ctx, args) }),
     ],
   };
 }
@@ -166,7 +167,7 @@ async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<ty
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');
   const child = requireImmediateChild(ctx, record.card_id, 'cancel_card');
   if (!child.success) return child;
-  if (['done', 'cancelled'].includes(child.card.status)) return failure(`cancel_card cannot cancel ${child.card.status === 'cancelled' ? 'already-cancelled' : child.card.status} child '${record.card_id}'.`);
+  if (!canCancelCardStatus(child.card.status)) return failure(`cancel_card cannot cancel ${child.card.status === 'cancelled' ? 'already-cancelled' : child.card.status} child '${record.card_id}'.`);
   try { return { success: true, data: await ctx.cancelCard(record.card_id, record.reason ?? 'planner_cancel_card') }; }
   catch (error) { if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
 }

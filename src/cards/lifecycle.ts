@@ -1,6 +1,7 @@
 import { cardNotificationSchema, isTerminalCardType, type CardNotification, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
+import { acceptsCardNotifications } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
 
 export interface CardMutationContext {
@@ -73,13 +74,6 @@ const EXPLICIT_LIFECYCLE_WRITE_REASONS: ReadonlySet<string> = new Set([
   'terminal lifecycle commit',
 ]);
 
-const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
-  'done',
-  'failed',
-  'blocked',
-  'cancelled',
-]);
-
 const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
   backlog: ['running', 'cancelled'],
   running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog'],
@@ -106,10 +100,6 @@ const TRACKED_FIELDS = [
 
 export function isTerminalType(type: CardType): boolean {
   return isTerminalCardType(type);
-}
-
-export function isTerminalState(state: CardStatus): boolean {
-  return TERMINAL_STATES.has(state);
 }
 
 export function canTransition(from: CardStatus, to: CardStatus): boolean {
@@ -217,7 +207,7 @@ export function validateMutablePatch(
     );
   }
 
-  if (isTerminalState(existing.status)) {
+  if (LIFECYCLE_LOCKED_STATES.has(existing.status)) {
     for (const key of changedKeys) {
       if ((explicitLifecycleWrite || explicitStatusTransition) && TERMINAL_LIFECYCLE_FIELDS.has(key)) continue;
       if (existing.status === 'blocked' && key === 'pending_notifications') continue;
@@ -261,9 +251,9 @@ export function buildUpdatedCard(
     updated_at: stamp,
     depth: newDepth,
     depends_on: newDependsOn,
-    pending_notifications: status === 'done' || status === 'failed' || status === 'cancelled'
-      ? []
-      : changes.pending_notifications ?? existing.pending_notifications,
+    pending_notifications: acceptsCardNotifications(status)
+      ? changes.pending_notifications ?? existing.pending_notifications
+      : [],
     version_seq: existing.version_seq + 1,
   };
 }
@@ -299,7 +289,7 @@ export function briefContentForNewCard(input: NewCardInput): string {
 }
 
 export function enqueueCardNotification(card: CardRecord, notification: CardNotification): CardRecord {
-  if (card.status === 'done' || card.status === 'failed' || card.status === 'cancelled') throw new Error(`Cannot queue notification for terminal card '${card.id}' in status '${card.status}'.`);
+  if (!acceptsCardNotifications(card.status)) throw new Error(`Cannot queue notification for terminal card '${card.id}' in status '${card.status}'.`);
   const parsed = cardNotificationSchema.parse(notification);
   if (card.pending_notifications.some((candidate) => candidate.id === parsed.id)) throw new Error(`Notification '${parsed.id}' already exists on card '${card.id}'.`);
   return { ...card, pending_notifications: [...card.pending_notifications, parsed] };

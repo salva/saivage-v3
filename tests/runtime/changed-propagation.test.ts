@@ -39,3 +39,30 @@ describe('stopped changed propagation', () => {
     expect(notify.mock.calls.map(([id]) => id)).toEqual(['card-a', 'card-b', 'project']);
   });
 });
+
+describe('Analyst brief status effects', () => {
+  it.each([
+    { status: 'backlog', reopens: false },
+    { status: 'running', reopens: false },
+    { status: 'stopped', reopens: false },
+    { status: 'blocked', reopens: true },
+    { status: 'done', reopens: true },
+    { status: 'failed', reopens: true },
+  ] as const)('$status is accepted and reopen=$reopens', ({ status, reopens }) => {
+    const card = record('card-a', status, 'code');
+    const setStatus = jest.fn();
+    const store = { read: () => card, getAncestors: () => [], setStatus } as unknown as CardService;
+    const notify = jest.fn(() => ({ ok: true as const, notificationId: 'n' }));
+
+    expect(propagateAnalystBriefEdit(store, card.id, { kind: 'analyst_edit', summary: 'edited' }, notify).flipped)
+      .toEqual(reopens ? [{ card_id: card.id, previous_status: status }] : []);
+    expect(setStatus).toHaveBeenCalledTimes(reopens ? 1 : 0);
+  });
+
+  it.each(['changed', 'cancelled'] as const)('rejects %s', (status) => {
+    const card = record('card-a', status, 'code');
+    const store = { read: () => card, getAncestors: () => [], setStatus: jest.fn() } as unknown as CardService;
+    expect(() => propagateAnalystBriefEdit(store, card.id, { kind: 'analyst_edit', summary: 'edited' }, () => ({ ok: true, notificationId: 'n' })))
+      .toThrow(`does not support target card status '${status}'`);
+  });
+});

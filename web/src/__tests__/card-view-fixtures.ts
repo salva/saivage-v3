@@ -53,7 +53,6 @@ export function cardView(id: string, overrides: CardOverrides = {}): CardRecord 
     allowedActions: [],
     operator_summary: {
       lifecycleStatus: lifecycle.status,
-      terminal: ['done', 'failed', 'cancelled'].includes(lifecycle.status),
       blocked: lifecycle.status === 'blocked',
       hasError: lifecycle.error !== null,
       error: lifecycle.error,

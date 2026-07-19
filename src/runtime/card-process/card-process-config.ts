@@ -1,9 +1,17 @@
 import type { CardProcessSource, CardProcessesSource } from '../../agents/config-schema.js';
-import { planningCardTypeValues, terminalCardTypeValues, type CardType } from '../../schemas/index.js';
+import { planningCardTypeValues, terminalCardTypeValues, type CardStatus, type CardType } from '../../schemas/index.js';
 import { recordSlotDefinitionForFilename } from '../records/record-slots.js';
 
 export type CardProcessFamily = 'planning' | 'terminal';
 export type CardProcessEntry = 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED';
+
+export function cardProcessEntryForStatus(status: CardStatus): CardProcessEntry | null {
+  if (status === 'backlog') return 'BACKLOG';
+  if (status === 'changed') return 'CHANGED';
+  if (status === 'blocked') return 'BLOCKED';
+  if (status === 'stopped') return 'STOPPED';
+  return null;
+}
 export type CardProcessTerminal = 'DONE' | 'BLOCKED' | 'FAILED';
 export type ProcessRole = 'planner' | 'reviewer' | 'executor';
 export type ProcessRecordFilename = 'brief.md' | 'status.md' | 'review.md';

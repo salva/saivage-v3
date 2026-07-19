@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { AnalystIssue, CardStatus } from '../schemas/index.js';
 import type { CardService } from '../cards/card-api.js';
+import { analystBriefEditEffect } from '../cards/card-api.js';
 import { sanitizeAnalystText } from '../sanitization/analyst-sanitization.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from './runtime-api.js';
 
 const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'blocked']);
-const ANALYST_BRIEF_FLIPPABLE: ReadonlySet<CardStatus> = new Set(['done', 'failed']);
+const ANALYST_BRIEF_FLIPPABLE: ReadonlySet<CardStatus> = new Set(['blocked', 'done', 'failed']);
 
 export type ChangeOrigin =
   | { kind: 'analyst_edit'; summary: string }
@@ -113,7 +114,11 @@ export function propagateAnalystBriefEdit(store: PropagationStore, editedCardId:
 
   let flipped: ChangedPropagation['flipped'];
   let notifyRecipients: string[];
+  const effect = analystBriefEditEffect(edited.status);
 
+  if (effect === null) {
+    throw new Error(`Analyst brief edit propagation does not support target card status '${edited.status}'.`);
+  }
   if (edited.status === 'running') {
     flipped = [];
     notifyRecipients = [editedCardId];
@@ -125,13 +130,11 @@ export function propagateAnalystBriefEdit(store: PropagationStore, editedCardId:
     const path = ancestorPathExcludingEdited(store, editedCardId);
     flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;
     notifyRecipients = analystBriefAncestorRecipients(store, path);
-  } else if (edited.status === 'done' || edited.status === 'failed') {
+  } else if (effect === 'reopen') {
     const path = ancestorPathIncludingEdited(store, editedCardId);
     flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;
     notifyRecipients = analystBriefEditedCardAndAncestorRecipients(store, path, editedCardId);
-  } else {
-    throw new Error(`Analyst brief edit propagation does not support target card status '${edited.status}'.`);
-  }
+  } else throw new Error(`Analyst brief edit effect '${effect}' has no propagation path for status '${edited.status}'.`);
 
   const summary = originSummary(origin);
   notifyOnce(notifyRecipients, notifyCard, origin.kind, summary);

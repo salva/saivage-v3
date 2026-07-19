@@ -51,7 +51,6 @@ import {
   canTransition,
   collectChangedFields,
   enqueueCardNotification,
-  isTerminalState,
   isTerminalType,
   prunePartialPatch,
   removeCardNotifications,
@@ -61,6 +60,7 @@ import {
   type CardMutationContext,
   type NewCardInput,
 } from './lifecycle.js';
+import { canCreateChildInStatus } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
 import type { CardNotification } from '../schemas/types.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
@@ -99,7 +99,7 @@ function historyEntry(prior: CardRecord, kind: CardHistoryEntry['kind'], ctx: Ca
 }
 
 function assertChildParentAdmission(parent: CardRecord, message: string): void {
-  if (isTerminalType(parent.type) || isTerminalState(parent.status)) throw new Error(`${message} '${parent.id}'.`);
+  if (isTerminalType(parent.type) || !canCreateChildInStatus(parent.status)) throw new Error(`${message} '${parent.id}'.`);
 }
 
 export class CardService {

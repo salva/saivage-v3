@@ -88,6 +88,36 @@ describe('Supervisor running-chain and non-domain Stop', () => {
   let projectRoot: string;
   afterEach(() => { if (projectRoot) rmSync(projectRoot, { recursive: true, force: true }); });
 
+  it.each([
+    { status: 'backlog', entry: 'BACKLOG' },
+    { status: 'changed', entry: 'CHANGED' },
+    { status: 'blocked', entry: 'BLOCKED' },
+    { status: 'stopped', entry: 'STOPPED' },
+  ] as const)('keeps fresh-root $status admission Supervisor-owned through $entry', async ({ status, entry }) => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-fresh-root-'));
+    initProjectTree(projectRoot);
+    const cards = new CardService(projectRoot);
+    if (status !== 'backlog') {
+      cards.setStatus('project', 'running');
+      if (status === 'changed') cards.setStatus('project', 'changed');
+      if (status === 'blocked') cards.commitTerminalLifecyclePatch('project', { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' }, error: 'wait', completed_at: null } });
+      if (status === 'stopped') cards.stopRunningForRecovery('project');
+    }
+    const activateStopped = jest.spyOn(cards, 'activateStopped');
+    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
+      projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(),
+      provider: { completeTurn: async () => { throw new Error('not launched'); } },
+      conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: new ReadModelChangeBroadcaster(),
+      processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
+    });
+
+    const prepared = await supervisor.beginStartProject();
+    if (!prepared.accepted) throw new Error('runtime start was not accepted');
+    expect(prepared.launch).toMatchObject({ entry });
+    expect(cards.read('project')?.status).toBe('running');
+    expect(activateStopped).toHaveBeenCalledTimes(status === 'stopped' ? 1 : 0);
+  });
+
   it('publishes launch ownership boundaries in exact synchronous projection order and Stop only after complete clearing', async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-projection-order-'));
     initProjectTree(projectRoot);

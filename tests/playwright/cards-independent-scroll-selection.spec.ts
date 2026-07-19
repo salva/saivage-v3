@@ -21,7 +21,7 @@ function card(id: string, title: string, children: string[] = [], status: 'backl
     title,
     status,
     lifecycle: { status, result: status === 'blocked' ? { kind: 'blocked', summary: 'blocked' } : null, error: status === 'blocked' ? 'blocked' : null, completed_at: null },
-    operator_summary: { lifecycleStatus: status, terminal: false, blocked: status === 'blocked', hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
+    operator_summary: { lifecycleStatus: status, blocked: status === 'blocked', hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
     tags: [], priority: 0, urgency: 'normal', created_by: 'user', created_at: now, updated_at: now,
     depends_on: [], related: [], pending_notifications: [], allowedActions: [], version_seq: 1,
   };

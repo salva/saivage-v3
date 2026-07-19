@@ -9,6 +9,7 @@ import { redactTextForOutbound } from '../redaction/index.js';
 import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
 import type { CardService } from '../cards/card-api.js';
 import { propagateAnalystBriefEdit } from '../runtime/changed-propagation.js';
+import { analystBriefEditEffect } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
@@ -336,7 +337,7 @@ function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path:
   }
   const card = ctx.store.read(target.cardId);
   if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
-  if (card.status !== 'backlog' && card.status !== 'stopped' && card.status !== 'done' && card.status !== 'failed' && card.status !== 'running') throw toolInputError(`Analyst brief edits require target card status backlog, stopped, done, failed, or running. Current status is ${card.status}.`);
+  if (analystBriefEditEffect(card.status) === null) throw toolInputError(`Analyst brief edits do not support target card status ${card.status}.`);
   try { ctx.store.readRecord(target.cardId, 'brief.md', 'open'); throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`); } catch (error) { if (error instanceof WorkspaceToolInputError) throw error; }
   return target;
 }

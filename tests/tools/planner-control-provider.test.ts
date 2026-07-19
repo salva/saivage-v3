@@ -182,11 +182,20 @@ describe('planner activate_card dependency-completion admission', () => {
     expect(test.mutateCard).toHaveBeenCalledWith(CHILD, { title: 'Retitle stopped work' }, { actor: 'planner', surface: 'runtime', reason: 'planner edit_card' });
   });
 
+  it.each(['blocked', 'failed'] as const)('reopens an immediate %s child before editing', async (status) => {
+    const test = harness(projection(card(status)));
+
+    await expect(invokeTool(test.surface, 'edit_card', { card_id: CHILD, title: 'Retitle reopened work' }))
+      .resolves.toMatchObject({ success: true });
+    expect(test.setStatus).toHaveBeenCalledWith(CHILD, 'changed');
+    expect(test.mutateCard).toHaveBeenCalledWith(CHILD, { title: 'Retitle reopened work' }, { actor: 'planner', surface: 'runtime', reason: 'planner edit_card' });
+  });
+
   it.each([
     { name: 'real reorder', result: { ok: true as const, changed: 2 }, success: true, outcome: 'ok' },
     { name: 'no-op reorder', result: { ok: true as const, changed: 0 }, success: true, outcome: 'ok' },
     { name: 'mismatch', result: { ok: false as const, reason: 'ordered child ids do not match current children', missing: [CHILD], extra: [DEPENDENCY_A] }, success: false, outcome: 'error' },
-  ])('preserves reorder result and audit shapes for $name', async ({ result, success, outcome }) => {
+  ])('preserves running-parent planner reorder result and audit shapes for $name', async ({ result, success, outcome }) => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-planner-reorder-'));
     try {
       initProjectTree(root);
