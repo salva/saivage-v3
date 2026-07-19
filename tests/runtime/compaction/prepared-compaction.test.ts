@@ -106,7 +106,7 @@ describe('prepared compaction estimates', () => {
     const inputs: LlmInvocationInput[] = [];
     const summarizerProvider = { completeTurn: async (input: LlmInvocationInput) => {
       inputs.push(input);
-      const body = buildOpenAIResponsesRequest({ provider: 'openai', account: null, model: 'gpt-5.6' }, input.systemPrompt, input.providerConversation, { inputId: input.inputId, phase: 'tools', contract_id: 'summary', contractName: 'summary', terminalToolOffered: [], tools: [], tool_choice: { kind: 'auto' } });
+      const body = buildOpenAIResponsesRequest({ provider: 'openai', account: null, model: 'gpt-5.6' }, input.systemPrompt, input.providerConversation, { inputId: input.inputId, contract_id: 'summary', contractName: 'summary', terminalToolOffered: [], tools: [], tool_choice: 'auto' });
       expect(JSON.stringify(body.input)).toContain('private summary source');
       return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] };
     }, projectProviderExchanges: jest.fn() };

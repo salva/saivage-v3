@@ -50,9 +50,8 @@ export class LlmProviderGateway implements LlmInvocationClient {
 
   private assertCandidateCapabilities(candidate: Candidate, opts: LlmCompleteOptions): void {
     if (!this.registry) return;
-    const tools = opts.phase === 'terminal' ? [opts.terminalToolDefinition] : opts.tools;
     const request = capabilityRequestForLlmOptions({
-      tools,
+      tools: opts.tools,
       stream: opts.stream,
     });
     const capabilities = this.registry.getEffectiveCapabilities(candidate);

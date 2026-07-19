@@ -5,7 +5,6 @@ import type {
   LlmCompleteResult,
   ProviderTurnCompletion,
   ToolCall,
-  ToolDefinition,
   LlmUsage,
   ProviderConversationProjection,
 } from './llm-contracts.js';
@@ -35,11 +34,6 @@ interface ChatMessage {
   tool_call_id?: string;
 }
 
-interface ChatToolChoice {
-  type: 'function';
-  function: { name: string };
-}
-
 interface ChatCompletionRequest {
   model: string;
   messages: ChatMessage[];
@@ -47,7 +41,7 @@ interface ChatCompletionRequest {
   max_tokens: number;
   stream: boolean;
   tools?: readonly WireToolDefinitionChat[];
-  tool_choice?: 'auto' | ChatToolChoice;
+  tool_choice?: 'auto';
   parallel_tool_calls?: false;
 }
 
@@ -241,7 +235,6 @@ function requestParamsFromOptions(opts: LlmCompleteOptions, offeredToolsCount: n
     temperature: opts.temperature ?? 0.7,
     max_tokens: opts.max_tokens ?? 4096,
     stream: opts.stream ?? false,
-    phase: opts.phase,
     offered_tools_count: offeredToolsCount,
   };
 }
@@ -282,15 +275,6 @@ export function buildOpenAIChatRequest(
 
   const sanitized = sanitizeToolCallSequences(apiMessages);
 
-  const tools: ToolDefinition[] =
-    opts.phase === 'terminal' ? [opts.terminalToolDefinition] : opts.tools;
-  const toolChoice: 'auto' | ChatToolChoice =
-    opts.phase === 'terminal'
-      ? { type: 'function', function: { name: opts.terminalToolName } }
-      : opts.tool_choice.kind === 'required_named'
-        ? { type: 'function', function: { name: opts.tool_choice.toolName } }
-        : 'auto';
-
   const body: ChatCompletionRequest = {
     model: candidate.model,
     messages: sanitized,
@@ -298,9 +282,9 @@ export function buildOpenAIChatRequest(
     max_tokens: opts.max_tokens ?? 4096,
     stream: opts.stream ?? false,
   };
-  if (tools.length > 0) {
-    body.tools = serializeToolsForChat(tools);
-    body.tool_choice = toolChoice;
+  if (opts.tools.length > 0) {
+    body.tools = serializeToolsForChat(opts.tools);
+    body.tool_choice = opts.tool_choice;
     body.parallel_tool_calls = false;
   }
   return body;

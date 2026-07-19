@@ -883,7 +883,7 @@ describe('LlmClient provider capability guardrails', () => {
         'sess-cap',
         toolsOpts({
           tools: [{ type: 'function', function: { name: 'do_work', description: 'work', parameters: { type: 'object' } } }],
-          tool_choice: { kind: 'auto' },
+          tool_choice: 'auto',
         }))).rejects.toThrow(/unsupported_tools_mode/);
       expect(cap.body).toBe('');
     } finally {
@@ -926,7 +926,7 @@ describe('LlmClient provider capability guardrails', () => {
         'sess-codex-overridden',
         toolsOpts({
           tools: [{ type: 'function', function: { name: 'do_work', description: 'work', parameters: { type: 'object' } } }],
-          tool_choice: { kind: 'auto' },
+          tool_choice: 'auto',
         }))).rejects.toThrow(/unsupported_tools_mode|unsupported_exclusive_tool_choice/);
       expect(cap.body).toBe('');
     } finally {

@@ -87,9 +87,9 @@ describe('stable same-session recovery', () => {
       expect.objectContaining({ type: 'function_call_output', call_id: 'call-1', output: failed.content }),
     ]));
     const chat = buildOpenAIChatRequest(
-      { provider: 'openai', model: 'gpt-test', account: 'default', protocol: 'openai-chat' } as never,
+      { provider: 'openai', model: 'gpt-test', account: 'default' },
       'system', providerConversation,
-      { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, terminalToolOffered: [], temperature: 0, max_tokens: 10, stream: false } as never,
+      { inputId: 'wire-check', contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto', terminalToolOffered: [], temperature: 0, max_tokens: 10, stream: false },
     );
     expect(chat.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'assistant', tool_calls: [expect.objectContaining({ id: 'call-1' })] }),

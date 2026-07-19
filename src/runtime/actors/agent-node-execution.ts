@@ -93,7 +93,7 @@ export class AgentNodeExecution {
       const baseline = new Map(node.requiredRecords.map((record) => [record.filename, this.captureRecord(record.filename)]));
       const prepared = this.buildLlmInput(node, input, sessionId, inputId, contract, surface);
       const initialOutcome = await llm.turn(prepared, signal);
-      const loop = await runContractRepairLoop<AcceptedNodeResult>({
+      return await runContractRepairLoop<AcceptedNodeResult>({
         initialOutcome,
         isTerminalToolName: (name) => contract.isTerminalToolName(name),
         fail: (message) => { throw new Error(message); },
@@ -141,8 +141,6 @@ export class AgentNodeExecution {
           return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId));
         },
       });
-      if (loop.kind === 'restart') throw new Error(`Node '${node.id}' repair loop cannot restart.`);
-      return loop.value;
     } finally {
       await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
     }

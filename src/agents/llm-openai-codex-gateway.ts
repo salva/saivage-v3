@@ -1,6 +1,6 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
-import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderConversationProjection, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderConversationProjection, type ProviderTurnCompletion } from './llm-contracts.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/message-identity.js';
 import { LlmRequestError } from './llm-errors.js';
@@ -58,7 +58,7 @@ export class OpenAICodexGateway {
       contractName: opts.contractName,
       candidate,
       endpoint,
-      requestParams: { stream: true, phase: opts.phase, offered_tools_count: opts.phase === 'terminal' ? 1 : opts.tools.length },
+      requestParams: { stream: true, offered_tools_count: opts.tools.length },
       terminalToolOffered: opts.terminalToolOffered,
       sourceInputId: opts.inputId,
     });
@@ -128,15 +128,6 @@ export function buildOpenAICodexRequest(
   if (input.length === 0) {
     input.push({ role: 'user', content: [{ type: 'input_text', text: 'Proceed with the task described in the instructions.' }] });
   }
-  const tools: ToolDefinition[] = opts.phase === 'terminal'
-    ? [opts.terminalToolDefinition]
-    : opts.tools;
-  // Codex Responses API uses flat tool_choice: either 'auto' or a string tool name.
-  const toolChoice: string = opts.phase === 'terminal'
-    ? opts.terminalToolName
-    : opts.tool_choice.kind === 'required_named'
-      ? opts.tool_choice.toolName
-      : 'auto';
   const body: Record<string, unknown> = {
     model: candidate.model,
     store: false,
@@ -144,9 +135,9 @@ export function buildOpenAICodexRequest(
     instructions: [systemPrompt, ...systemContext].join('\n\n--- system context ---\n'),
     input,
   };
-  if (tools.length > 0) {
-    body.tools = serializeToolsForCodex(tools);
-    body.tool_choice = toolChoice;
+  if (opts.tools.length > 0) {
+    body.tools = serializeToolsForCodex(opts.tools);
+    body.tool_choice = opts.tool_choice;
     body.parallel_tool_calls = false;
   }
   return body;

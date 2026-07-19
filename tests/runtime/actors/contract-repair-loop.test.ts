@@ -37,7 +37,7 @@ describe('runContractRepairLoop', () => {
       onNonTerminalTool: async () => plainTextOutcome,
     });
 
-    expect(result).toEqual({ kind: 'done', value: 'accepted after repairs' });
+    expect(result).toBe('accepted after repairs');
     expect(next).toHaveBeenCalledTimes(5);
     expect(fail).not.toHaveBeenCalled();
   });
@@ -54,7 +54,7 @@ describe('runContractRepairLoop', () => {
       onNonTerminalTool: async () => plainTextOutcome,
     });
 
-    expect(result).toEqual({ kind: 'done', value: 'failed: provider unavailable' });
+    expect(result).toBe('failed: provider unavailable');
     expect(fail).toHaveBeenCalledTimes(1);
     expect(fail).toHaveBeenCalledWith('provider unavailable');
   });
@@ -69,19 +69,6 @@ describe('runContractRepairLoop', () => {
       onNonTerminalTool: async () => plainTextOutcome,
     });
 
-    expect(result).toEqual({ kind: 'done', value: 'plain text' });
-  });
-
-  it('returns restart as a first-class control result', async () => {
-    const result = await runContractRepairLoop({
-      initialOutcome: terminalToolOutcome('initial'),
-      isTerminalToolName: (name) => name === 'finish',
-      fail: (message) => `failed: ${message}`,
-      onPlainText: (_outcome, control) => control.done('plain text'),
-      onTerminalTool: (_outcome, control) => control.restart(),
-      onNonTerminalTool: async () => plainTextOutcome,
-    });
-
-    expect(result).toEqual({ kind: 'restart' });
+    expect(result).toBe('plain text');
   });
 });

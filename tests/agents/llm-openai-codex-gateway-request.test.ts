@@ -46,26 +46,28 @@ const SAMPLE_TOOL: ToolDefinition = {
 };
 
 describe('buildOpenAICodexRequest wire shape', () => {
-  it('terminal phase: flat tool shape, string tool_choice, disables parallel tool calls, no response_format', () => {
+  it('preserves the ordered operational and terminal tool surface with auto choice and parallel calls disabled', () => {
     const opts: LlmCompleteOptions = {
       inputId: 'test:input:1',
-      phase: 'terminal',
       contract_id: 'test.v1',
       contractName: 'planner',
       terminalToolOffered: ['emit_result'],
-      terminalToolName: 'emit_result',
-      terminalToolDefinition: PLANNER_TERMINAL_TOOL,
+      tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL],
+      tool_choice: 'auto',
     };
     const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, opts);
 
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
     expect(body.parallel_tool_calls).toBe(false);
-    // Codex Responses API uses a bare string tool_choice for required-named
-    // selection (NOT the nested-function shape used by Chat Completions).
-    expect(body.tool_choice).toBe('emit_result');
-    // Flat tool entry: no nested `function` wrapper.
+    expect(body.tool_choice).toBe('auto');
     expect(body.tools).toEqual([
+      {
+        type: 'function',
+        name: 'glob',
+        description: 'find files',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+      },
       {
         type: 'function',
         name: 'emit_result',
@@ -78,39 +80,21 @@ describe('buildOpenAICodexRequest wire shape', () => {
   });
 
   it('omits the configured completion quantity and universally projects system context into instructions', () => {
-    const opts: LlmCompleteOptions = { inputId: 'test:input:1', phase: 'tools', contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: { kind: 'auto' }, max_tokens: 777 };
+    const opts: LlmCompleteOptions = { inputId: 'test:input:1', contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 777 };
     const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }] }, opts);
     expect(Object.prototype.hasOwnProperty.call(body, 'max_output_tokens')).toBe(false);
     expect(body.instructions).toContain('compacted context');
     expect(body.input).toEqual([{ role: 'user', content: [{ type: 'input_text', text: 'Proceed with the task described in the instructions.' }] }]);
   });
 
-  it("tools phase with tool_choice 'auto': tool_choice serialized as the string 'auto'", () => {
-    const opts: LlmCompleteOptions = {
-      inputId: 'test:input:1',
-      phase: 'tools',
-      contract_id: 'test.v1',
-      contractName: 'planner',
-      terminalToolOffered: [],
-      tools: [SAMPLE_TOOL],
-      tool_choice: { kind: 'auto' },
-    };
-    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, opts);
-
-    expect(body.tool_choice).toBe('auto');
-    expect(body.parallel_tool_calls).toBe(false);
-    expect(JSON.stringify(body)).not.toContain('response_format');
-  });
-
   it('no-tools (analyst message mode): omits tools, tool_choice, parallel_tool_calls', () => {
     const opts: LlmCompleteOptions = {
       inputId: 'test:input:1',
-      phase: 'tools',
       contract_id: 'test.v1',
       contractName: 'analyst',
       terminalToolOffered: [],
       tools: [],
-      tool_choice: { kind: 'auto' },
+      tool_choice: 'auto',
     };
     const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, opts);
 
@@ -124,12 +108,11 @@ describe('buildOpenAICodexRequest wire shape', () => {
 describe('OpenAICodexGateway context failure evidence', () => {
   const opts = (): LlmCompleteOptions => ({
     inputId: 'test:input:context',
-    phase: 'tools',
     contract_id: 'test.v1',
     contractName: 'planner',
     terminalToolOffered: [],
     tools: [],
-    tool_choice: { kind: 'auto' },
+    tool_choice: 'auto',
     recorder: createProviderExchangeRecorder({ sessionId: 'analyst:global' }),
   });
 
@@ -147,6 +130,7 @@ describe('OpenAICodexGateway context failure evidence', () => {
         failure: { kind: 'input_context_exhausted', status: 200 },
         provider_exchanges: [{ status: 'error', response_status: 200, error: { status: 200 } }],
       });
+    expect(options.recorder!.settledAttempts()[0]!.request_params).not.toHaveProperty('phase');
   });
 
   it('records HTTP 400 for the same typed evidence returned before an SSE stream opens', async () => {

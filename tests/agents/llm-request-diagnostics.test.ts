@@ -37,9 +37,8 @@ const tool: ToolDefinition = {
 
 const opts: LlmCompleteOptions = {
   inputId: 'test:input:1',
-  phase: 'tools',
   tools: [tool],
-  tool_choice: { kind: 'auto' },
+  tool_choice: 'auto',
   temperature: 0,
   max_tokens: 1234,
   stream: false,
@@ -82,6 +81,7 @@ describe('LLM request section diagnostics', () => {
     expect(diagnostic).toContain('message_count=1');
     expect(diagnostic).toContain('tool_count=1');
     expect(diagnostic).toContain('max_tokens=1234');
+    expect(diagnostic).not.toContain('phase=');
     expect(diagnostic).toContain('likely_largest_section=completion_budget');
     expect(diagnostic).not.toContain('system sssss');
     expect(diagnostic).not.toContain('message mmmmm');

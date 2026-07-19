@@ -31,16 +31,12 @@ export interface ToolCall {
   };
 }
 
-export type TerminalChoice =
-  | { kind: 'auto' }
-  | { kind: 'required_named'; toolName: string };
-
 export interface LlmModelParams {
   temperature?: number;
   max_tokens?: number;
 }
 
-interface LlmCompleteOptionsBase extends LlmModelParams {
+export interface LlmCompleteOptions extends LlmModelParams {
   inputId: string;
   stream?: boolean;
   signal?: AbortSignal;
@@ -50,21 +46,9 @@ interface LlmCompleteOptionsBase extends LlmModelParams {
   contractName: string;
   terminalToolOffered: readonly string[];
   builtCandidateRequest?: BuiltCandidateRequest;
-}
-
-export interface LlmCompleteOptionsTools extends LlmCompleteOptionsBase {
-  phase: 'tools';
   tools: ToolDefinition[];
-  tool_choice: TerminalChoice;
+  tool_choice: 'auto';
 }
-
-export interface LlmCompleteOptionsTerminal extends LlmCompleteOptionsBase {
-  phase: 'terminal';
-  terminalToolName: string;
-  terminalToolDefinition: ToolDefinition;
-}
-
-export type LlmCompleteOptions = LlmCompleteOptionsTools | LlmCompleteOptionsTerminal;
 
 export interface LlmUsage {
   prompt_tokens?: number;

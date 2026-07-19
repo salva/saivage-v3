@@ -1,5 +1,5 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
-import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderConversationProjection, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteOptions, type LlmCompleteResult, type ProviderConversationProjection, type ProviderTurnCompletion } from './llm-contracts.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifyHttpFailure, classifyTransportFailure } from './llm-failure-classifiers.js';
 import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
@@ -7,8 +7,6 @@ import { serializeToolsForResponses, type WireToolDefinitionResponses } from './
 import { responsesInputFromProviderConversation } from './llm-openai-responses-mapper.js';
 import { parseOpenAIResponsesJson, readOpenAIResponsesStream } from './llm-openai-responses-parser.js';
 import type { EffectiveProviderCapabilities } from './provider-capabilities.js';
-
-interface ResponsesToolChoiceNamed { type: 'function'; name: string }
 
 interface OpenAIResponsesRequest {
   model: string;
@@ -19,7 +17,7 @@ interface OpenAIResponsesRequest {
   stream: boolean;
   max_output_tokens: number;
   tools?: readonly WireToolDefinitionResponses[];
-  tool_choice?: 'auto' | ResponsesToolChoiceNamed;
+  tool_choice?: 'auto';
   parallel_tool_calls?: false;
   reasoning?: { effort?: 'minimal' | 'low' | 'medium' | 'high' };
 }
@@ -54,7 +52,7 @@ export class OpenAIResponsesGateway {
       contractName: opts.contractName,
       candidate,
       endpoint,
-      requestParams: requestParamsFromBody(opts, requestBody),
+      requestParams: requestParamsFromBody(requestBody),
       terminalToolOffered: opts.terminalToolOffered,
       sourceInputId: opts.inputId,
     });
@@ -106,8 +104,6 @@ export class OpenAIResponsesGateway {
 
 export function buildOpenAIResponsesRequest(candidate: Candidate, systemPrompt: string, providerConversation: ProviderConversationProjection, opts: LlmCompleteOptions, capabilities?: Pick<EffectiveProviderCapabilities, 'responsesReasoning'>): OpenAIResponsesRequest {
   const systemContext = providerConversation.messages.filter((message) => message.role === 'system' && (message.kind === 'model_recovered' || message.kind === 'text')).map((message) => message.content);
-  const tools: ToolDefinition[] = opts.phase === 'terminal' ? [opts.terminalToolDefinition] : opts.tools;
-  const toolChoice: 'auto' | ResponsesToolChoiceNamed = opts.phase === 'terminal' ? { type: 'function', name: opts.terminalToolName } : opts.tool_choice.kind === 'required_named' ? { type: 'function', name: opts.tool_choice.toolName } : 'auto';
   const body: OpenAIResponsesRequest = {
     model: candidate.model,
     instructions: [systemPrompt, ...systemContext].join('\n\n--- system context ---\n'),
@@ -117,17 +113,17 @@ export function buildOpenAIResponsesRequest(candidate: Candidate, systemPrompt: 
     max_output_tokens: opts.max_tokens ?? 4096,
     stream: opts.stream === true,
   };
-  if (tools.length > 0) {
-    body.tools = serializeToolsForResponses(tools);
-    body.tool_choice = toolChoice;
+  if (opts.tools.length > 0) {
+    body.tools = serializeToolsForResponses(opts.tools);
+    body.tool_choice = opts.tool_choice;
     body.parallel_tool_calls = false;
   }
   if (capabilities?.responsesReasoning) body.reasoning = capabilities.responsesReasoning;
   return body;
 }
 
-function requestParamsFromBody(opts: LlmCompleteOptions, body: OpenAIResponsesRequest): Record<string, unknown> {
-  return { phase: opts.phase, stream: body.stream, offered_tools_count: body.tools?.length ?? 0, max_output_tokens: body.max_output_tokens, include: body.include, store: body.store, reasoning_keys: body.reasoning ? Object.keys(body.reasoning).sort() : [] };
+function requestParamsFromBody(body: OpenAIResponsesRequest): Record<string, unknown> {
+  return { stream: body.stream, offered_tools_count: body.tools?.length ?? 0, max_output_tokens: body.max_output_tokens, include: body.include, store: body.store, reasoning_keys: body.reasoning ? Object.keys(body.reasoning).sort() : [] };
 }
 
 function firedTerminalFromResult(result: LlmCompleteResult, opts: LlmCompleteOptions): string | null {

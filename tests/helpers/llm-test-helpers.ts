@@ -39,7 +39,7 @@ export const testAutonomousCompaction = {
 };
 
 export function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
-  return { inputId: 'test:input:1', phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...(extra as object) } as LlmCompleteOptions;
+  return { inputId: 'test:input:1', tools: [], tool_choice: 'auto', contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...extra };
 }
 
 export function asMessage(value: LlmCompleteResult | ProviderTurnCompletion): { content: string; tool_calls: ToolCall[]; finishReason: string } {

@@ -1,5 +1,5 @@
 import type { AgentMessage } from '../schemas/index.js';
-import type { LlmCompleteOptions, ToolDefinition } from './llm-contracts.js';
+import type { LlmCompleteOptions } from './llm-contracts.js';
 
 export interface LlmRequestDiagnosticMessage {
   role: string;
@@ -26,7 +26,6 @@ export interface LlmRequestSectionSizes {
   tools_chars: number;
   tools_estimated_tokens: number;
   max_tokens: number | null;
-  phase: LlmCompleteOptions['phase'];
   estimated_prompt_tokens: number;
   estimated_total_tokens_with_completion: number;
   likely_largest_section: 'system_prompt' | 'messages' | 'tools' | 'completion_budget';
@@ -34,10 +33,6 @@ export interface LlmRequestSectionSizes {
 
 function estimateTextTokens(text: string): number {
   return Math.ceil(text.length / 4);
-}
-
-function toolsForOptions(opts: LlmCompleteOptions): ToolDefinition[] {
-  return opts.phase === 'terminal' ? [opts.terminalToolDefinition] : opts.tools;
 }
 
 function measureSections(
@@ -88,7 +83,6 @@ function measureSections(
     tools_chars: toolsChars,
     tools_estimated_tokens: toolsTokens,
     max_tokens: maxTokens,
-    phase: opts.phase,
     estimated_prompt_tokens: systemPromptTokens + messagesTokens + toolsTokens,
     estimated_total_tokens_with_completion: systemPromptTokens + messagesTokens + toolsTokens + (maxTokens ?? 0),
     likely_largest_section: candidates[0].section,
@@ -100,7 +94,7 @@ export function measureLlmRequestSectionSizes(
   messages: AgentMessage[],
   opts: LlmCompleteOptions,
 ): LlmRequestSectionSizes {
-  const toolJson = JSON.stringify(toolsForOptions(opts));
+  const toolJson = JSON.stringify(opts.tools);
   return measureSections(
     systemPrompt,
     messages.map((message) => ({
@@ -109,7 +103,7 @@ export function measureLlmRequestSectionSizes(
       tool: message.tool,
       content: message.content,
     })),
-    toolsForOptions(opts).length,
+    opts.tools.length,
     toolJson.length,
     opts,
   );
@@ -129,7 +123,7 @@ export function formatLlmRequestSectionSizes(sizes: LlmRequestSectionSizes): str
   const largest = sizes.largest_message
     ? `largest_message=index:${sizes.largest_message.index},role:${sizes.largest_message.role},kind:${sizes.largest_message.kind},tool:${sizes.largest_message.tool ?? '_'},chars:${sizes.largest_message.chars},est_tokens:${sizes.largest_message.estimated_tokens}`
     : 'largest_message=none';
-  return `[request_section_sizes system_prompt_chars=${sizes.system_prompt_chars} system_prompt_est_tokens=${sizes.system_prompt_estimated_tokens} message_count=${sizes.message_count} messages_chars=${sizes.messages_chars} messages_est_tokens=${sizes.messages_estimated_tokens} ${largest} tool_count=${sizes.tool_count} tools_chars=${sizes.tools_chars} tools_est_tokens=${sizes.tools_estimated_tokens} max_tokens=${sizes.max_tokens ?? 'unset'} phase=${sizes.phase} estimated_prompt_tokens=${sizes.estimated_prompt_tokens} estimated_total_tokens_with_completion=${sizes.estimated_total_tokens_with_completion} likely_largest_section=${sizes.likely_largest_section}]`;
+  return `[request_section_sizes system_prompt_chars=${sizes.system_prompt_chars} system_prompt_est_tokens=${sizes.system_prompt_estimated_tokens} message_count=${sizes.message_count} messages_chars=${sizes.messages_chars} messages_est_tokens=${sizes.messages_estimated_tokens} ${largest} tool_count=${sizes.tool_count} tools_chars=${sizes.tools_chars} tools_est_tokens=${sizes.tools_estimated_tokens} max_tokens=${sizes.max_tokens ?? 'unset'} estimated_prompt_tokens=${sizes.estimated_prompt_tokens} estimated_total_tokens_with_completion=${sizes.estimated_total_tokens_with_completion} likely_largest_section=${sizes.likely_largest_section}]`;
 }
 
 export function appendLlmRequestSectionSizesDiagnostic(

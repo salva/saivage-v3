@@ -9,7 +9,7 @@ import { useAgentStore } from '../stores/agents';
 function exchange(overrides: Partial<ProviderExchangePayload> = {}): ProviderExchangePayload {
   return {
     contract_id: 'planner.v1', contract_name: 'planner', transport: 'generic', provider: 'test-provider', model: 'test-model',
-    source_input_id: 'planner:card:1', attempt_index: 0, request_params: { temperature: 0, max_tokens: 1000 },
+    source_input_id: 'planner:card:1', attempt_index: 0, request_params: { endpoint: 'https://provider.test/v1/chat/completions', method: 'POST', temperature: 0, max_tokens: 1000, stream: false, offered_tools_count: 1 },
     started_at: '2026-05-23T10:00:00.000Z', completed_at: '2026-05-23T10:00:01.000Z', status: 'ok', response_status: 200,
     terminal_tool_fired: 'emit_result', assistant_output_ids: ['planner:card:1:tool-call:call-1'], ...overrides,
   } as ProviderExchangePayload;
@@ -57,6 +57,7 @@ describe('RawLlmExchangePanel', () => {
     expect(wrapper.text()).toContain('Raw HTTP request and response bodies are not persisted');
     const blocks = wrapper.findAllComponents(CodeBlock);
     expect(blocks[0].props('code')).toContain('temperature');
+    expect(blocks[0].props('code')).not.toContain('phase');
     expect(blocks[1].props('code')).toContain('assistant_output_ids');
     expect(blocks[1].props('code')).not.toContain('bodyRaw');
   });

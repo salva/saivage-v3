@@ -1,7 +1,7 @@
 import type { OperationalAgentRole } from '../schemas/index.js';
 import type { ProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import type {
-  LlmCompleteOptionsTools,
+  LlmCompleteOptions,
   LlmModelParams,
   ToolDefinition,
 } from './llm-contracts.js';
@@ -14,7 +14,7 @@ export function buildLlmOptions(
   signal: AbortSignal | undefined,
   inputId: string,
   recorder?: ProviderExchangeRecorder,
-): LlmCompleteOptionsTools {
+): LlmCompleteOptions {
   return {
     inputId,
     temperature: modelParams.temperature,
@@ -25,8 +25,7 @@ export function buildLlmOptions(
     contract_id: `${role}.v1`,
     contractName: role,
     terminalToolOffered,
-    phase: 'tools',
     tools,
-    tool_choice: { kind: 'auto' },
+    tool_choice: 'auto',
   };
 }

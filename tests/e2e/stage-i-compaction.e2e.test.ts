@@ -225,7 +225,7 @@ describe('Stage-I compaction contracts', () => {
       expect(result.providerConversation.messages.some((row) => row.id === 'private-1')).toBe(result.providerConversation.messages.some((row) => row.id === 'public-1'));
       expect(estimateMessageTokens(rows[4]!)).toBe(0);
       expect(estimateMessageTokens(rows[5]!)).toBeGreaterThan(0);
-      const body = buildOpenAIResponsesRequest({ provider: 'openai', account: null, model: 'gpt-5.6' }, 'system', result.providerConversation, { inputId: 'wire-check', phase: 'tools', contract_id: 'c', contractName: 'c', terminalToolOffered: [], tools: [], tool_choice: { kind: 'auto' } });
+      const body = buildOpenAIResponsesRequest({ provider: 'openai', account: null, model: 'gpt-5.6' }, 'system', result.providerConversation, { inputId: 'wire-check', contract_id: 'c', contractName: 'c', terminalToolOffered: [], tools: [], tool_choice: 'auto' });
       expect(JSON.stringify(body)).not.toContain('context_compaction');
       if (result.providerConversation.messages.some((row) => row.id === 'private-1')) expect(JSON.stringify(body.input)).toContain('private');
     } finally { rmSync(root, { recursive: true, force: true }); }
