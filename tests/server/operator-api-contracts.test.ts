@@ -54,10 +54,15 @@ describe('operator API runtime contract without runtime ledgers', () => {
     for (const removed of ['activeWork', 'diagnostics']) expect(() => parseOperatorResponse('runtime.status', { ...validStatus, actorRuntime: { ...validStatus.actorRuntime, [removed]: removed === 'diagnostics' ? [] : 'none' } })).toThrow();
   });
 
-  it('accepts only current_card_id on the runtime card-runs contract', () => {
-    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_planners: [], cards_with_pending_corrections: [] };
+  it('accepts the exact runtime card-runs contract', () => {
+    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_planners: [] };
     expect(parseOperatorResponse('runtime.cardRuns', response)).toEqual(response);
     expect(() => parseOperatorResponse('runtime.cardRuns', { ...response, active_card_run: null })).toThrow();
+  });
+
+  it('rejects removed cards_with_pending_corrections from runtime card-runs', () => {
+    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_planners: [] };
+    expect(() => parseOperatorResponse('runtime.cardRuns', { ...response, cards_with_pending_corrections: [] })).toThrow();
   });
 
   it('retains concrete runtime response schemas without a runtime summary contract', () => {

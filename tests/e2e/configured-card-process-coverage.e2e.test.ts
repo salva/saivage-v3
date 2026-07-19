@@ -93,7 +93,7 @@ describe('configured card-process substantive E2E coverage', () => {
     const app = await startApp({ argv: ['node', 'test', 'start', '--project-root', root], env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined } }); apps.push(app);
     const detail = await app.server.fastify.inject({ method: 'GET', url: `/api/cards/${child.id}` });
     expect(detail.statusCode).toBe(200); expect(detail.json()).toMatchObject({ card: { id: child.id, status: 'stopped', lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } } });
-    expect(detail.json().card.allowedActions).toEqual(expect.arrayContaining(['card.start', 'card.cancel', 'card.delete']));
+    expect(detail.json().card.allowedActions).toEqual(['card.start', 'card.cancel', 'card.delete']);
     expect(detail.json().card.allowedActions).not.toContain('card.restart');
     const children = await app.server.fastify.inject({ method: 'GET', url: '/api/cards/project/children' });
     expect(children.statusCode).toBe(200); expect(children.json().children).toEqual(expect.arrayContaining([expect.objectContaining({ id: child.id, status: 'stopped' })]));

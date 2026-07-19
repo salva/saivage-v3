@@ -37,7 +37,7 @@ export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'st
 export type CardStatus = typeof cardStatusValues[number];
 
 
-export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.restart', 'card.reorder_child'] as const;
+export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.reorder_child'] as const;
 export type CardAction = typeof cardActionValues[number];
 export type RuntimeDispatchOwnership =
   | { kind: 'direct'; source: 'project_root' | 'operator' | 'startup_repair' }

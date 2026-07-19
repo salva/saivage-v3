@@ -18,7 +18,6 @@ const FRIENDLY_ACTIONS: Record<string, string> = {
   webfetch: 'Fetch',
   activate_card: 'Activate',
   cancel_card: 'Cancel',
-  restart_card: 'Restart',
   delete_card: 'Delete',
   create_card: 'Create',
   edit_card: 'Edit card',

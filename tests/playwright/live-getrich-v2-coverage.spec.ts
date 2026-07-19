@@ -97,7 +97,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     expect(body).toHaveProperty('current_card_id');
     expect(Array.isArray(body.active_breadcrumb)).toBe(true);
     expect(Array.isArray(body.dormant_planners)).toBe(true);
-    expect(Array.isArray(body.cards_with_pending_corrections)).toBe(true);
+    expect(body).not.toHaveProperty('cards_with_pending_corrections');
   });
 
   test('GET /api/agents/:id returns the per-session envelope', async ({ request }) => {

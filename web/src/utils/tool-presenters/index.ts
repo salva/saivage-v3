@@ -9,7 +9,6 @@ import './wait_process';
 import './kill_process';
 import './activate_card';
 import './cancel_card';
-import './restart_card';
 import './delete_card';
 import './create_card';
 import './edit_card';

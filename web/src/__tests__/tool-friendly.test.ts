@@ -41,9 +41,11 @@ describe('friendlyAction', () => {
     expect(friendlyAction('mcp__github__create_issue')).toBe('MCP');
     expect(friendlyAction('custom_analyzer')).toBe('Analyzer');
     expect(friendlyAction('totally_new_tool')).toBe('Tool');
+    expect(friendlyAction('restart_card')).toBe('Card');
     expect(isKnownTool('read')).toBe(true);
     expect(isKnownTool('mcp__anything')).toBe(false);
     expect(isKnownTool('brand_new_tool')).toBe(false);
+    expect(isKnownTool('restart_card')).toBe(false);
   });
 });
 

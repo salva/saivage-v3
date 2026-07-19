@@ -11,6 +11,28 @@ describe('tool presenter registry', () => {
     expect(presentToolResult(JSON.stringify({ content: 'a\nb', total_lines: 2 }), { tool: 'read' })).toMatchObject({ icon: '↩', name: 'read', status: 'ok' });
   });
 
+  it('uses the generic presenter for removed restart_card', () => {
+    const call = presentToolCall(callEnvelope('restart_card', { cardId: 'card-a' }));
+    expect(call).toEqual({
+      icon: '🔧',
+      name: 'restart_card',
+      headline: [{ kind: 'text', text: '(cardId)' }],
+      detail: [{ kind: 'text', text: '{"cardId":"card-a"}' }],
+      body: { cardId: 'card-a' },
+      bodyKind: 'json',
+    });
+
+    const result = presentToolResult(JSON.stringify({ cardId: 'card-a', status: 'done' }), { tool: 'restart_card' });
+    expect(result).toEqual({
+      icon: '↩',
+      status: 'ok',
+      name: 'restart_card',
+      headline: [{ kind: 'text', text: '{"cardId":"card-a","status":"done"}' }],
+      body: { cardId: 'card-a', status: 'done' },
+      bodyKind: 'json',
+    });
+  });
+
   it('readToolCallMessage raises on legacy {toolCalls:[...]} wrapper', () => { // legacy_message_shape: negative-test
     const legacy = JSON.stringify({ toolCalls: [{ name: 'x', params: {} }] }); // legacy_message_shape: negative-test
     expect(() => readToolCallMessage(legacy)).toThrow(/toolCalls/);

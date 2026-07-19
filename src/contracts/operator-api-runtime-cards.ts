@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import {
   operatorCardSchema,
-  cardStatusSchema,
   cardHistoryEntrySchema,
   cardHistoryHeaderSchema,
   runtimeStateSchema,
@@ -94,12 +93,6 @@ export const RuntimeCardRunsResponseSchema = z.object({
     goal_card_id: cardIdSchema,
     planner_session_id: z.string(),
     latest_self_report: z.record(z.string(), z.unknown()).nullable(),
-  }).strict()),
-  cards_with_pending_corrections: z.array(z.object({
-    card_id: cardIdSchema,
-    status: cardStatusSchema,
-    note_count: z.number().int().nonnegative(),
-    last_note_at: z.string().nullable(),
   }).strict()),
 }).strict();
 

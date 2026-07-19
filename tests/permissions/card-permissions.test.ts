@@ -2,9 +2,11 @@ import { describe, expect, it } from '@jest/globals';
 
 import { allowedActions, decide } from '../../src/permissions/index.js';
 import { CARD_ACTIONS, CARD_STATES, PERMISSION_ROLES } from '../../src/permissions/card-permissions.js';
+import { cardActionSchema } from '../../src/schemas/index.js';
 
 describe('permission-by-state matrix', () => {
   it('has an explicit decision for every current role/action/state triple', () => {
+    expect(CARD_ACTIONS).toEqual(['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.reorder_child']);
     let count = 0;
     for (const role of PERMISSION_ROLES) {
       for (const action of CARD_ACTIONS) {
@@ -20,19 +22,22 @@ describe('permission-by-state matrix', () => {
   });
 
   it('allows and denies representative lifecycle decisions from the central matrix', () => {
-    expect(decide({ role: 'planner', action: 'card.restart', targetState: 'failed' })).toEqual({ allowed: true });
-    expect(decide({ role: 'planner', action: 'card.restart', targetState: 'running' })).toEqual({ allowed: false, reason: 'wrong_state' });
+    expect(decide({ role: 'planner', action: 'card.start', targetState: 'stopped' })).toEqual({ allowed: true });
+    expect(decide({ role: 'planner', action: 'card.start', targetState: 'failed' })).toEqual({ allowed: false, reason: 'wrong_state' });
     expect(decide({ role: 'reviewer', action: 'card.delete', targetState: 'failed' })).toEqual({ allowed: false, reason: 'not_authorized' });
     expect(decide({ role: 'analyst', action: 'card.create', targetState: 'backlog' })).toEqual({ allowed: true });
     expect(decide({ role: 'analyst', action: 'card.create', targetState: 'running' })).toEqual({ allowed: false, reason: 'wrong_state' });
     expect(decide({ role: 'analyst', action: 'card.cancel', targetState: 'blocked' })).toEqual({ allowed: true });
     expect(decide({ role: 'analyst', action: 'card.cancel', targetState: 'done' })).toEqual({ allowed: false, reason: 'wrong_state' });
     expect(decide({ role: 'analyst', action: 'card.delete', targetState: 'changed' })).toEqual({ allowed: true });
-    expect(decide({ role: 'analyst', action: 'card.restart', targetState: 'done' })).toEqual({ allowed: false, reason: 'not_authorized' });
     expect(decide({ role: 'analyst', action: 'card.reorder_child', targetState: 'changed' })).toEqual({ allowed: true });
     expect(decide({ role: 'analyst', action: 'card.reorder_child', targetState: 'running' })).toEqual({ allowed: false, reason: 'wrong_state' });
-    expect(allowedActions('operator', 'failed')).toContain('card.restart');
-    expect(allowedActions('operator', 'running')).not.toContain('card.restart');
+    expect(allowedActions('operator', 'failed')).toEqual(['card.delete']);
+    expect(allowedActions('operator', 'running')).toEqual([]);
+  });
+
+  it('rejects removed card.restart action vocabulary', () => {
+    expect(cardActionSchema.safeParse('card.restart').success).toBe(false);
   });
 
   it('classifies stopped exhaustively for every role', () => {
@@ -41,6 +46,5 @@ describe('permission-by-state matrix', () => {
     expect(allowedActions('analyst', 'stopped')).toEqual(['card.create', 'card.cancel', 'card.delete', 'card.reorder_child']);
     expect(allowedActions('executor', 'stopped')).toEqual([]);
     expect(allowedActions('reviewer', 'stopped')).toEqual([]);
-    expect(decide({ role: 'planner', action: 'card.restart', targetState: 'stopped' })).toEqual({ allowed: false, reason: 'wrong_state' });
   });
 });
