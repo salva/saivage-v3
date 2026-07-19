@@ -31,11 +31,10 @@ function referencedPromptIds(processes: CompiledCardProcesses): ReadonlyMap<Card
   const idsByCardType = new Map<CardType, Set<ProcessPromptId>>();
   for (const process of [processes.planning, processes.terminal]) {
     const ids = new Set<ProcessPromptId>();
-    for (const entry of process.entries.values()) if (entry.promptId !== null) ids.add(entry.promptId);
-    for (const node of process.nodes.values()) {
-      ids.add(node.promptId);
-      ids.add(node.correctionPromptId);
-      for (const edge of node.edges.values()) if (edge.promptId !== null) ids.add(edge.promptId);
+    for (const promptId of process.transitionPrompts.values()) ids.add(promptId);
+    for (const state of process.states.values()) if (state.kind === 'node') {
+      ids.add(state.promptId);
+      ids.add(state.correctionPromptId);
     }
     for (const cardType of cardTypesForProcess(process)) idsByCardType.set(cardType, new Set(ids));
   }

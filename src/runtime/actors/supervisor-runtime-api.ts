@@ -267,7 +267,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   getStatus() { return { status: this.status, currentCardId: this.currentness.activeCardId(), pid: this.options.processIdentity.pid, startedAt: this.options.processIdentity.startedAt }; }
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
-    const cards = [...this.cardActors.values()].flatMap((actor) => { const card = this.options.actorStore.read(actor.cardId); return card ? [{ cardId: actor.cardId, actorState: toPublicCardActorState(card.status) }] : []; });
+    const cards = [...this.cardActors.values()].flatMap((actor) => { const card = this.options.actorStore.read(actor.cardId); return card ? [{ cardId: actor.cardId, actorState: toPublicCardActorState(card.status), processState: actor.processor?.processPosition() ?? null }] : []; });
     return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', cards };
   }
   captureAutonomousExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[] {

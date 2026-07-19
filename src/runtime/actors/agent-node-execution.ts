@@ -6,7 +6,8 @@ import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
 import type { CardRecord, ConversationSessionId } from '../../schemas/index.js';
 import type { CardActivationInput, CardActor, CardCancellationResult } from './card-actor.js';
 import type { CardService } from '../../cards/card-service.js';
-import type { CompiledProcessEdge, CompiledProcessEntry, CompiledProcessNode, ProcessRole } from '../card-process/card-process-config.js';
+import { processNodeOutcomes, processNodeTransition, processTransitionPromptKey, type CompiledCardProcess, type ProcessNodeMetadata, type ProcessRole } from '../card-process/card-process-config.js';
+import type { ActorTransitionContext } from '../micro-actor/index.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import type { ConversationLLMActor, LLMActorOutcome } from './llm-actor.js';
 import type { PreparedLlmInvocationInput } from './llm-invocation.js';
@@ -32,12 +33,9 @@ export interface AcceptedNodeResult {
   readonly outcome: string;
   readonly summary: string;
   readonly recordUrls: readonly string[];
-  readonly edge: CompiledProcessEdge;
 }
 
-export type NodeTransition =
-  | { readonly kind: 'entry'; readonly entry: string; readonly definition: CompiledProcessEntry }
-  | { readonly kind: 'edge'; readonly sourceNodeId: string; readonly result: AcceptedNodeResult };
+export type NodeTransition = Readonly<{ context: ActorTransitionContext; acceptedResult: AcceptedNodeResult | null }>;
 
 type NodeResult = { outcome: string; summary: string };
 type NodeEnvelope = { kind: 'result'; payload: NodeResult };
@@ -77,9 +75,9 @@ export class AgentNodeExecution {
 
   beginActivation(): void { this.#stabilizedRoles.clear(); }
 
-  async execute(args: { node: CompiledProcessNode; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<AcceptedNodeResult> {
-    const { node, input, signal } = args;
-    const contract = createNodeContract(node);
+  async execute(args: { process: CompiledCardProcess; stateId: string; node: ProcessNodeMetadata; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<AcceptedNodeResult> {
+    const { process, stateId, node, input, signal } = args;
+    const contract = createNodeContract(process, stateId);
     const sessionId = sessionFor(node.role, this.deps.cardId);
     const llm = this.host.createLlm(sessionId);
     this.host.selectLlm(llm);
@@ -89,7 +87,7 @@ export class AgentNodeExecution {
     let reviewerPair = node.role === 'reviewer' ? this.captureReviewerPair(input.card.id) : null;
     try {
       const inputId = this.host.freshInputId();
-      this.prepareNodeEntry(node, args.transition, input, sessionId, inputId, contract, surface, reviewerPair);
+      this.prepareNodeEntry(process, node, args.transition, input, sessionId, inputId, contract, surface, reviewerPair);
       const baseline = new Map(node.requiredRecords.map((record) => [record.filename, this.captureRecord(record.filename)]));
       const prepared = this.buildLlmInput(node, input, sessionId, inputId, contract, surface);
       const initialOutcome = await llm.turn(prepared, signal);
@@ -102,8 +100,9 @@ export class AgentNodeExecution {
           let parsed: NodeResult;
           try { parsed = verifyTerminalToolOutcome(contract, terminalOutcome).result.result; }
           catch (error) { return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [errorMessage(error)]) }, signal)); }
-          const edge = node.edges.get(parsed.outcome);
-          if (!edge) throw new Error(`Compiled node '${node.id}' has no edge for outcome '${parsed.outcome}'.`);
+          const route = processNodeTransition(process, stateId, parsed.outcome);
+          const target = process.states.get(route.target);
+          if (!target || (target.kind !== 'node' && target.kind !== 'terminal')) throw new Error(`Compiled node '${node.nodeId}' has invalid target '${route.target}'.`);
           const selected = input.notificationDelivery.selectNotifications();
           if (selected.length > 0) {
             const messages: ProviderVisibleUserContextMessage[] = [
@@ -123,15 +122,15 @@ export class AgentNodeExecution {
               return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `Review context is stale: ${stale}.` }, signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } })));
             }
           }
-          if (edge.target.kind === 'terminal' && edge.target.port === 'DONE' && (input.card.type === 'project' || input.card.type === 'goal')) {
+           if (target.kind === 'terminal' && target.terminal === 'DONE' && (input.card.type === 'project' || input.card.type === 'goal')) {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
             if (blocker) return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }, signal));
           }
-          if (edge.target.kind === 'terminal') input.claimResult();
+           if (target.kind === 'terminal') input.claimResult();
           const recordUrls = this.closeAcceptedRecords(node, records.candidates);
           llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
-          cleanupStatus = edge.target.kind === 'terminal' ? terminalCleanupStatus(edge.target.port) : 'done';
-          return control.done(Object.freeze({ outcome: parsed.outcome, summary: parsed.summary, recordUrls: Object.freeze(recordUrls), edge }));
+           cleanupStatus = target.kind === 'terminal' ? terminalCleanupStatus(target.terminal) : 'done';
+           return control.done(Object.freeze({ outcome: parsed.outcome, summary: parsed.summary, recordUrls: Object.freeze(recordUrls) }));
         },
         onNonTerminalTool: async (toolOutcome) => {
           const toolResult = surface.tools.has(toolOutcome.toolName)
@@ -146,7 +145,7 @@ export class AgentNodeExecution {
     }
   }
 
-  private prepareNodeEntry(node: CompiledProcessNode, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contract: Contract<NodeEnvelope, NodeTypedResult>, surface: InvocationSurface, reviewerPair: ReviewerContextPair | null): void {
+  private prepareNodeEntry(process: CompiledCardProcess, node: ProcessNodeMetadata, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contract: Contract<NodeEnvelope, NodeTypedResult>, surface: InvocationSurface, reviewerPair: ReviewerContextPair | null): void {
     if (!this.#stabilizedRoles.has(node.role)) {
       if (!input.alreadyStabilizedRoles.has(node.role)) stabilizeRoleSession({ projectRoot: this.deps.projectRoot, sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
       this.#stabilizedRoles.add(node.role);
@@ -160,24 +159,29 @@ export class AgentNodeExecution {
     if (reviewerPair) roleContext.push(reviewerPair.exactContext);
     roleContext.forEach((message, index) => this.host.publishConversationEntry(appendUserContextMessage(this.deps.conversations, sessionId, inputId, message === reviewerPair?.exactContext ? 'reviewer_descendant' : 'notification', index, message)));
     if (selected.length > 0) input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id));
-    const transitionMessage = this.transitionContext(input.card, transition);
+    const transitionMessage = this.transitionContext(process, input.card, transition);
     if (transitionMessage) this.host.publishConversationEntry(appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_transition', 0, transitionMessage));
     this.host.publishConversationEntry(appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_node', 0, { role: 'user', content: this.deps.processPrompts.get(input.card.type, node.promptId) }));
     void contract; void surface;
   }
 
-  private transitionContext(card: CardRecord, transition: NodeTransition): ProviderVisibleUserContextMessage | null {
-    if (transition.kind === 'entry') {
-      if (!transition.definition.promptId) return null;
-      const fixed = transition.entry === 'STOPPED' ? 'The prior live card process was lost or stopped. Its graph position was discarded; recover from current durable facts.' : `Enter the configured process through lifecycle port ${transition.entry}.`;
-      return { role: 'user', content: `${fixed}\n\n${this.deps.processPrompts.get(card.type, transition.definition.promptId)}` };
+  private transitionContext(process: CompiledCardProcess, card: CardRecord, transition: NodeTransition): ProviderVisibleUserContextMessage | null {
+    const { context, acceptedResult } = transition;
+    const promptId = process.transitionPrompts.get(processTransitionPromptKey(context.source, context.event));
+    if (context.source.startsWith('entry:')) {
+      const entry = context.source.slice('entry:'.length);
+      if (entry === 'STOPPED') {
+        if (!promptId) throw new Error('STOPPED process entry has no configured prompt.');
+        return { role: 'user', content: `The prior live card process was lost or stopped. Its graph position was discarded; recover from current durable facts.\n\n${this.deps.processPrompts.get(card.type, promptId)}` };
+      }
+      return promptId ? { role: 'user', content: this.deps.processPrompts.get(card.type, promptId) } : null;
     }
-    const { result } = transition;
-    const edgePrompt = result.edge.promptId ? `\n\n${this.deps.processPrompts.get(card.type, result.edge.promptId)}` : '';
-    return { role: 'user', content: `Previous process node: ${transition.sourceNodeId}\nAccepted outcome: ${result.outcome}\nSummary: ${result.summary}\nRecords:\n${result.recordUrls.map((url) => `- ${url}`).join('\n') || '(none)'}${edgePrompt}` };
+    if (!acceptedResult || context.event !== `result:${acceptedResult.outcome}` || context.source !== `node:${context.source.slice('node:'.length)}`) throw new Error('Node transition context disagrees with its staged accepted result.');
+    const edgePrompt = promptId ? `\n\n${this.deps.processPrompts.get(card.type, promptId)}` : '';
+    return { role: 'user', content: `Previous process node: ${context.source.slice('node:'.length)}\nAccepted outcome: ${acceptedResult.outcome}\nSummary: ${acceptedResult.summary}\nRecords:\n${acceptedResult.recordUrls.map((url) => `- ${url}`).join('\n') || '(none)'}${edgePrompt}` };
   }
 
-  private buildLlmInput(node: CompiledProcessNode, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contract: Contract<NodeEnvelope, NodeTypedResult>, surface: InvocationSurface): PreparedLlmInvocationInput {
+  private buildLlmInput(node: ProcessNodeMetadata, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contract: Contract<NodeEnvelope, NodeTypedResult>, surface: InvocationSurface): PreparedLlmInvocationInput {
     const systemPrompt = this.deps.promptTemplates.render(input.card.type, node.role, {
       cardId: input.card.id, cardTitle: input.card.title, cardBrief: cardBriefForPrompt(this.deps.store, input.card), contractDescription: contract.describe(),
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), ...(node.role === 'executor' ? { cardType: input.card.type } : {}),
@@ -199,11 +203,11 @@ export class AgentNodeExecution {
     return this.deps.processRunner.createDirectScope(this.deps.processRunner.runtimeRootScope, `card-activation:${input.activationId}:node:${ordinal}`, 'runtime_card');
   }
 
-  private correction(node: CompiledProcessNode, violations: readonly string[]): string { return `${this.deps.processPrompts.get(this.deps.store.read(this.deps.cardId)!.type, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }
+  private correction(node: ProcessNodeMetadata, violations: readonly string[]): string { return `${this.deps.processPrompts.get(this.deps.store.read(this.deps.cardId)!.type, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }
   private ordinaryNotificationContext(input: CardActivationInput, _inputId: string) { const selected = input.notificationDelivery.selectNotifications(); return selected.length === 0 ? undefined : { messages: selected.map((notification) => ({ role: 'user' as const, content: notification.content })), afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }; }
 
   private captureRecord(filename: string): RecordEvidence { const projection = readCandidate(this.deps.store, this.deps.cardId, filename, false); return projection ? evidence(projection) : null; }
-  private validateRecords(node: CompiledProcessNode, baseline: ReadonlyMap<string, RecordEvidence>): { candidates: Map<string, RecordProjection> } | { violations: string[] } {
+  private validateRecords(node: ProcessNodeMetadata, baseline: ReadonlyMap<string, RecordEvidence>): { candidates: Map<string, RecordProjection> } | { violations: string[] } {
     const candidates = new Map<string, RecordProjection>(); const violations: string[] = [];
     for (const required of node.requiredRecords) {
       const candidate = readCandidate(this.deps.store, this.deps.cardId, required.filename, true);
@@ -216,7 +220,7 @@ export class AgentNodeExecution {
     }
     return violations.length > 0 ? { violations } : { candidates };
   }
-  private closeAcceptedRecords(node: CompiledProcessNode, candidates: ReadonlyMap<string, RecordProjection>): string[] {
+  private closeAcceptedRecords(node: ProcessNodeMetadata, candidates: ReadonlyMap<string, RecordProjection>): string[] {
     const currentCard = this.deps.store.read(this.deps.cardId); if (!currentCard) throw new Error(`Card '${this.deps.cardId}' disappeared before record closure.`);
     return node.requiredRecords.map(({ filename }) => { const candidate = candidates.get(filename)!; if (candidate.artifact.state !== 'open') return candidate.recordUrl; const current = this.deps.store.readRecord(this.deps.cardId, filename, 'open'); return this.deps.store.closeRecord(this.deps.cardId, filename, current.version, node.role, currentCard.version_seq).recordUrl; });
   }
@@ -229,11 +233,14 @@ export class AgentNodeExecution {
   private reviewerStaleReason(cardId: string, before: ReviewerSnapshot): string | null { const after = this.captureReviewerSnapshot(cardId); return JSON.stringify(before) === JSON.stringify(after) ? null : 'reviewed subtree or included status records changed during review'; }
 }
 
-function createNodeContract(node: CompiledProcessNode): Contract<NodeEnvelope, NodeTypedResult> {
-  const outcomes = node.outcomes as [string, ...string[]];
+function createNodeContract(process: CompiledCardProcess, stateId: string): Contract<NodeEnvelope, NodeTypedResult> {
+  const node = process.states.get(stateId);
+  if (!node || node.kind !== 'node') throw new Error(`Process '${process.family}' has no node state '${stateId}'.`);
+  const nodeOutcomes = processNodeOutcomes(process, stateId);
+  const outcomes = nodeOutcomes as [string, ...string[]];
   const schema = z.object({ outcome: z.enum(outcomes), summary: z.string().trim().min(1).max(2000) }).strict();
   const terminal: ContractTerminalDescriptor = { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', schema, toolDefinition: { type: 'function', function: { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', parameters: zodToJsonSchemaMini(schema) as Record<string, unknown> } } };
-  return { name: `card-process:${node.id}`, terminals: [terminal], describe: () => `Call emit_result with exactly two fields: outcome (one of: ${node.outcomes.join(' | ')}) and summary (a trimmed non-empty string of at most 2000 characters).`, isTerminalToolName: (name) => name === TERMINAL_RESULT_TOOL_NAME, verify: (call) => { if (call.name !== TERMINAL_RESULT_TOOL_NAME) return { ok: false, violation: { code: 'terminal_tool_unexpected', message: `Unexpected terminal tool '${call.name}'.`, locator: call.id } }; const parsed = schema.safeParse(call.args); return parsed.success ? { ok: true, terminalName: TERMINAL_RESULT_TOOL_NAME, envelope: { kind: 'result', payload: parsed.data } } : { ok: false, violation: { code: 'terminal_tool_invalid_envelope', message: parsed.error.message, locator: call.id } }; }, project: (envelope) => ({ kind: 'result', result: envelope.payload }) };
+  return { name: `card-process:${node.nodeId}`, terminals: [terminal], describe: () => `Call emit_result with exactly two fields: outcome (one of: ${nodeOutcomes.join(' | ')}) and summary (a trimmed non-empty string of at most 2000 characters).`, isTerminalToolName: (name) => name === TERMINAL_RESULT_TOOL_NAME, verify: (call) => { if (call.name !== TERMINAL_RESULT_TOOL_NAME) return { ok: false, violation: { code: 'terminal_tool_unexpected', message: `Unexpected terminal tool '${call.name}'.`, locator: call.id } }; const parsed = schema.safeParse(call.args); return parsed.success ? { ok: true, terminalName: TERMINAL_RESULT_TOOL_NAME, envelope: { kind: 'result', payload: parsed.data } } : { ok: false, violation: { code: 'terminal_tool_invalid_envelope', message: parsed.error.message, locator: call.id } }; }, project: (envelope) => ({ kind: 'result', result: envelope.payload }) };
 }
 function sessionFor(role: ProcessRole, cardId: string): ConversationSessionId { return role === 'planner' ? plannerActorId(cardId) : role === 'reviewer' ? reviewerActorId(cardId) : executorActorId(cardId); }
 function terminalCleanupStatus(port: 'DONE' | 'BLOCKED' | 'FAILED'): 'done' | 'blocked' | 'failed' { return port === 'DONE' ? 'done' : port === 'BLOCKED' ? 'blocked' : 'failed'; }

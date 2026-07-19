@@ -21,7 +21,7 @@ describe('CardProcessActor configured graph execution', () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess; conversationPublisher?: { entryAppended(entry: import('../../../src/schemas/index.js').AgentMessage): void }; removeNotifications?: (store: CardService, cardId: string, ids: readonly string[]) => void; onClaim?: () => void } = {}) {
+  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess; entry?: 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED'; runtimeProjectionChanged?: () => void; conversationPublisher?: { entryAppended(entry: import('../../../src/schemas/index.js').AgentMessage): void }; removeNotifications?: (store: CardService, cardId: string, ids: readonly string[]) => void; onClaim?: () => void } = {}) {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-card-process-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
@@ -35,11 +35,11 @@ describe('CardProcessActor configured graph execution', () => {
       store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined },
       cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn }, conversations: { projectRoot }, appLogs: { projectRoot },
       processRunner, promptTemplates: { render: (_type, _role, values) => String(values.contractDescription) },
-      runtimeProjectionChanged: () => undefined, conversationPublisher: options.conversationPublisher, ...testAutonomousCompaction,
+      runtimeProjectionChanged: options.runtimeProjectionChanged ?? (() => undefined), conversationPublisher: options.conversationPublisher, ...testAutonomousCompaction,
     });
     actor.start();
     const claimResult = jest.fn(() => options.onClaim?.());
-    const input = () => ({ activationId: 'activation-test', card: store.read(cardId)!, caller: { kind: 'root' as const }, entry: 'BACKLOG' as const, claimResult, alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(), notificationDelivery: { selectNotifications: () => store.read(cardId)!.pending_notifications, removeNotifications: (ids: readonly string[]) => { options.removeNotifications ? options.removeNotifications(store, cardId, ids) : store.removeNotifications(cardId, [...ids]); } } });
+    const input = () => ({ activationId: 'activation-test', card: store.read(cardId)!, caller: { kind: 'root' as const }, entry: options.entry ?? 'BACKLOG', claimResult, alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(), notificationDelivery: { selectNotifications: () => store.read(cardId)!.pending_notifications, removeNotifications: (ids: readonly string[]) => { options.removeNotifications ? options.removeNotifications(store, cardId, ids) : store.removeNotifications(cardId, [...ids]); } } });
     return { projectRoot, cardId, store, processRunner, actor, claimResult, input };
   }
 
@@ -51,6 +51,17 @@ describe('CardProcessActor configured graph execution', () => {
     expect(roles).toEqual(['planner']);
     expect(h.claimResult).toHaveBeenCalledTimes(1);
     expect(h.store.readRecord('project', 'status.md', 'latest').artifact.content).toBe('complete');
+  });
+
+  it.each(['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const)('routes %s through observable entry and first-node states with exact optional prompt behavior', async (entry) => {
+    const positions: string[] = [];
+    let h!: ReturnType<typeof harness>;
+    h = harness(async () => { const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'complete'); return tool('done', 'complete_direct'); }, { entry, runtimeProjectionChanged: () => { if (h) positions.push(h.actor.processPosition().stateId); } });
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
+    expect(positions).toEqual(expect.arrayContaining([`entry:${entry}`, `node:${entry === 'STOPPED' ? 'recover' : 'plan'}`, 'terminal:DONE']));
+    const transitionRows = readConversation(h.projectRoot, 'planner:project').sourceRows.filter((row) => row.role === 'user' && row.content !== 'test process prompt: plan' && row.content !== 'test process prompt: recover');
+    if (entry === 'STOPPED') expect(transitionRows.map((row) => row.content)).toEqual([expect.stringContaining('graph position was discarded')]);
+    else expect(transitionRows).toEqual([]);
   });
 
   it('admits reviewer with zero children and preserves role-context then transition then node-prompt order', async () => {
@@ -87,6 +98,37 @@ describe('CardProcessActor configured graph execution', () => {
     release(tool('complete', 'complete_direct'));
     await expect(first).resolves.toMatchObject({ status: 'done' });
     expect(h.actor.executingLlmSnapshot()).toBeNull();
+  });
+
+  it('retains tracker and LLM containment after terminal transition for noncooperative raw work', async () => {
+    const h = harness(() => new Promise<ProviderTurnCompletion>(() => undefined));
+    const activation = h.actor.activate(h.input(), new AbortController().signal);
+    for (let count = 0; count < 100 && h.actor.executingLlmSnapshot() === null; count += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.actor.executingLlmSnapshot()).not.toBeNull();
+    const reason = new Error('contain noncooperative node');
+    h.actor.disposeActivation(reason);
+    h.actor.suppressContinuationAndPrepareJoin(reason);
+    await expect(activation).resolves.toMatchObject({ status: 'failed', summary: reason.message });
+    expect(h.actor.processPosition()).toMatchObject({ kind: 'terminal', terminal: 'FAILED' });
+    await expect(h.actor.joinActivation()).resolves.toEqual(expect.arrayContaining([{ status: 'external_dependency_abandoned', abandonedCount: 1 }]));
+  });
+
+  it('keeps a non-aborted delayed LLM and tracker join pending through terminal settlement', async () => {
+    let release!: (completion: ProviderTurnCompletion) => void;
+    const h = harness(() => new Promise<ProviderTurnCompletion>((resolve) => { release = resolve; }));
+    const activation = h.actor.activate(h.input(), new AbortController().signal);
+    for (let count = 0; count < 100 && h.actor.executingLlmSnapshot() === null; count += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+    const reason = new Error('close continuation after admitted winner');
+    h.actor.suppressContinuationAndPrepareJoin(reason);
+    let joined = false;
+    const joining = h.actor.joinActivation().then((outcomes) => { joined = true; return outcomes; });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(joined).toBe(false);
+    const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'complete');
+    release(tool('complete', 'complete_direct'));
+    await expect(activation).resolves.toMatchObject({ status: 'done' });
+    expect(h.actor.processPosition()).toMatchObject({ kind: 'terminal', terminal: 'DONE' });
+    await expect(joining).resolves.toEqual([{ status: 'joined' }, { status: 'joined' }]);
   });
 
   it('captures one baseline across correction and accepts a later revision of the same open record', async () => {
@@ -248,6 +290,29 @@ describe('CardProcessActor configured graph execution', () => {
     expect(createScope.mock.calls.map(([, ownerId]) => ownerId)).toEqual(['card-activation:activation-test:node:0', 'card-activation:activation-test:node:1']);
     expect(cleanup).toHaveBeenCalledTimes(2);
     expect(h.claimResult).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses actor transitions for cross-node and explicit self reentry with exact zero-based ordinals', async () => {
+    const source = cardProcessesSchema.parse({ planning: DEFAULT_CARD_PROCESSES.planning, terminal: { entries: { BACKLOG: { node: 'first' }, CHANGED: { node: 'first' }, BLOCKED: { node: 'first' }, STOPPED: { node: 'first', prompt: 'stopped-recovery' } }, nodes: {
+      first: { role: 'executor', prompt: 'implement', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { next: { target: { node: 'second' } } } },
+      second: { role: 'executor', prompt: 'verify', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { again: { target: { node: 'second' }, prompt: 'implementation-to-verification' }, done: { target: { terminal: 'DONE' } } } },
+    } } });
+    const ordinals: number[] = [];
+    let calls = 0;
+    let h!: ReturnType<typeof harness>;
+    h = harness(async () => {
+      calls += 1;
+      const position = h.actor.processPosition();
+      if (position.kind !== 'node') throw new Error('expected node position');
+      ordinals.push(position.executionOrdinal);
+      const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, `node ${calls}`);
+      return tool(`result-${calls}`, calls === 1 ? 'next' : calls === 2 ? 'again' : 'done');
+    }, { cardType: 'code', process: compileCardProcesses(source).terminal });
+    const createScope = jest.spyOn(h.processRunner, 'createDirectScope');
+    await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
+    expect(ordinals).toEqual([0, 1, 2]);
+    expect(createScope.mock.calls.map(([, ownerId]) => ownerId)).toEqual(['card-activation:activation-test:node:0', 'card-activation:activation-test:node:1', 'card-activation:activation-test:node:2']);
+    expect(readConversation(h.projectRoot, `executor:${h.cardId}`).sourceRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open'))).toHaveLength(3);
   });
 
   it('closes multiple records in configured order and supplies their exact URLs to a same-role next node', async () => {

@@ -70,7 +70,16 @@ export const RuntimeStatusResponseSchema = z.object({
   pid: z.number().int().positive(),
   actorRuntime: z.object({
     pauseMode: actorPauseModeSchema,
-    cards: z.array(z.object({ cardId: cardIdSchema, actorState: publicCardActorStateSchema }).strict()),
+    cards: z.array(z.object({
+      cardId: cardIdSchema,
+      actorState: publicCardActorStateSchema,
+      processState: z.discriminatedUnion('kind', [
+        z.object({ family: z.enum(['planning', 'terminal']), stateId: z.string().min(1), kind: z.literal('ready') }).strict(),
+        z.object({ family: z.enum(['planning', 'terminal']), stateId: z.string().min(1), kind: z.literal('entry'), entry: z.enum(['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED']) }).strict(),
+        z.object({ family: z.enum(['planning', 'terminal']), stateId: z.string().min(1), kind: z.literal('node'), nodeId: z.string().min(1), executionOrdinal: z.number().int().nonnegative().safe() }).strict(),
+        z.object({ family: z.enum(['planning', 'terminal']), stateId: z.string().min(1), kind: z.literal('terminal'), terminal: z.enum(['DONE', 'BLOCKED', 'FAILED']) }).strict(),
+      ]).nullable(),
+    }).strict()),
   }).strict(),
   serverAvailability: ServerAvailabilitySchema.optional(),
 }).strict();

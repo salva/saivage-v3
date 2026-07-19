@@ -179,13 +179,14 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   for (const process of [cardProcesses.planning, cardProcesses.terminal]) {
     for (const cardType of cardTypesForProcess(process)) {
-      for (const node of process.nodes.values()) {
+      for (const [stateId, node] of process.states) {
+        if (node.kind !== 'node') continue;
         promptTemplates.validateProcessNode(cardType, node.role, {
           cardId: 'startup-validation-card',
           cardTitle: 'Startup prompt validation',
           cardBrief: 'Startup validates the effective role template before actor construction.',
           cardType,
-          contractDescription: describeNodeResultContract(node),
+          contractDescription: describeNodeResultContract(process, stateId),
           toolList: '- startup-validation: no runtime tool invocation',
         });
       }

@@ -243,13 +243,13 @@ describe('PromptTemplateRegistry', () => {
     for (const port of ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const) processSource.terminal.entries[port].node = 'implement';
     const compiled = compileCardProcesses(processSource);
     const registry = createPromptTemplateRegistry({ defaultRoot: 'src/prompts' });
-    const planner = describeNodeResultContract(compiled.planning.nodes.get('plan')!);
-    const reviewer = describeNodeResultContract(compiled.planning.nodes.get('review')!);
+    const planner = describeNodeResultContract(compiled.planning, 'node:plan');
+    const reviewer = describeNodeResultContract(compiled.planning, 'node:review');
     expect(registry.validateProcessNode('goal', 'planner', variables('planner', { contractDescription: planner }))).toContain('complete_direct | admit_review | blocked | failed');
     expect(registry.validateProcessNode('goal', 'reviewer', variables('reviewer', { contractDescription: reviewer }))).toContain('approved | revision_required | blocked | failed');
     for (const cardType of ['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const) {
-      const implementContract = describeNodeResultContract(compiled.terminal.nodes.get('implement')!);
-      const verifyContract = describeNodeResultContract(compiled.terminal.nodes.get('verify')!);
+      const implementContract = describeNodeResultContract(compiled.terminal, 'node:implement');
+      const verifyContract = describeNodeResultContract(compiled.terminal, 'node:verify');
       const implement = registry.validateProcessNode(cardType, 'executor', variables('executor', { cardType, contractDescription: implementContract }));
       const verify = registry.validateProcessNode(cardType, 'executor', variables('executor', { cardType, contractDescription: verifyContract }));
       for (const rendered of [implement, verify]) {

@@ -54,6 +54,13 @@ describe('operator API runtime contract without runtime ledgers', () => {
     for (const removed of ['activeWork', 'diagnostics']) expect(() => parseOperatorResponse('runtime.status', { ...validStatus, actorRuntime: { ...validStatus.actorRuntime, [removed]: removed === 'diagnostics' ? [] : 'none' } })).toThrow();
   });
 
+  it('requires strict live process state and a nonnegative safe node ordinal', () => {
+    const base = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [{ cardId: 'project', actorState: 'running', processState: { family: 'planning', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] } };
+    expect(parseOperatorResponse('runtime.status', base)).toEqual(base);
+    expect(() => parseOperatorResponse('runtime.status', { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ cardId: 'project', actorState: 'running' }] } })).toThrow();
+    for (const executionOrdinal of [-1, Number.MAX_SAFE_INTEGER + 1, 0.5]) expect(() => parseOperatorResponse('runtime.status', { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ ...base.actorRuntime.cards[0], processState: { ...base.actorRuntime.cards[0]!.processState, executionOrdinal } }] } })).toThrow();
+  });
+
   it('accepts the exact runtime card-runs contract', () => {
     const response = { current_card_id: 'project', active_breadcrumb: [], dormant_planners: [] };
     expect(parseOperatorResponse('runtime.cardRuns', response)).toEqual(response);

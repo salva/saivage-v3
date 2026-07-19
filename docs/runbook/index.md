@@ -26,6 +26,8 @@ Analyst primary and continuation calls retain ordinary Analyst role routing. Sum
 
 The selected `.saivage/saivage.yaml` must contain complete strict `card_processes.planning` and `card_processes.terminal` graphs. Use the exact default graph in the README: all `BACKLOG | CHANGED | BLOCKED | STOPPED` entries are required, STOPPED names a process prompt, edges use tagged `{target:{node:...}}` or `{target:{terminal:DONE|FAILED|BLOCKED}}`, and only node-target edges may name an edge prompt. Process prompt defaults live at `src/prompts/<card-type>/process/<identity>.md`; project overrides live at `.saivage/config/prompts/<card-type>/process/<identity>.md`.
 
+Startup compiles each graph into one immutable process-actor topology. Runtime status may expose its current transient entry/node/terminal state and zero-based node ordinal, but neither is persisted. After Stop or process restart, Run stabilizes canonical conversations and enters configured STOPPED from current card facts; it never resumes or repairs an old node. Do not edit generated files to attempt cursor repair.
+
 Before preserving prompt configuration and resetting generated state, audit every `.saivage/config/prompts/<card-type>/<role>.md` override. This old form is rejected:
 
 ```markdown

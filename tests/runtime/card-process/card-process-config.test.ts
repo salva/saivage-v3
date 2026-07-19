@@ -39,11 +39,14 @@ describe('card process source and compilation', () => {
 
   it('compiles the authoritative graph with distinct entry and terminal BLOCKED namespaces', () => {
     const compiled = compileCardProcesses(source());
-    expect(compiled.planning.entries.get('BLOCKED')).toEqual({ targetNodeId: 'plan', promptId: null });
-    expect(compiled.planning.nodes.get('plan')!.edges.get('blocked')!.target).toEqual({ kind: 'terminal', port: 'BLOCKED' });
-    expect(compiled.planning.nodes.get('plan')!.outcomes).toEqual(['complete_direct', 'admit_review', 'blocked', 'failed']);
-    expect((compiled.planning.entries as Map<unknown, unknown>).set).toBeUndefined();
-    expect(Object.isFrozen(compiled.planning.nodes.get('plan')!.outcomes)).toBe(true);
+    expect(compiled.planning.states.get('entry:BLOCKED')).toEqual({ kind: 'entry', entry: 'BLOCKED' });
+    expect(compiled.planning.states.get('terminal:BLOCKED')).toEqual({ kind: 'terminal', terminal: 'BLOCKED' });
+    expect(compiled.planning.definition.states.get('node:plan')!.on.get('result:blocked')).toEqual({ target: 'terminal:BLOCKED', reenter: false });
+    expect([...compiled.planning.definition.states.get('node:plan')!.on.keys()]).toEqual(['result:complete_direct', 'result:admit_review', 'result:blocked', 'result:failed', 'execution:failed']);
+    expect((compiled.planning.states as Map<unknown, unknown>).set).toBeUndefined();
+    expect((compiled.planning.definition.states as Map<unknown, unknown>).set).toBeUndefined();
+    expect(compiled.planning.states.get('node:plan')).not.toHaveProperty('outcomes');
+    expect(compiled.planning.states.get('node:plan')).not.toHaveProperty('edges');
   });
 
   it('requires exactly both families, all entries, strict tagged edge objects, and a STOPPED prompt', () => {
@@ -107,7 +110,17 @@ describe('card process source and compilation', () => {
     };
     value.terminal.nodes.execute.edges.done = { target: { node: 'verify' }, prompt: 'shared' };
     const compiled = compileCardProcesses(value);
-    expect(compiled.terminal.nodes.get('verify')!.edges.get('again')!.target).toEqual({ kind: 'node', nodeId: 'execute' });
+    expect(compiled.terminal.definition.states.get('node:verify')!.on.get('result:again')).toEqual({ target: 'node:execute', reenter: false });
+    expect(compiled.terminal.transitionPrompts.values().next().value).toBeDefined();
+  });
+
+  it('compiles same-node outcomes as explicit external reentry without prompt topology duplication', () => {
+    const value = source();
+    value.terminal.nodes.execute.edges.again = { target: { node: 'execute' }, prompt: 'implementation-to-verification' };
+    const process = compileCardProcesses(value).terminal;
+    expect(process.definition.states.get('node:execute')!.on.get('result:again')).toEqual({ target: 'node:execute', reenter: true });
+    expect(process.transitionPrompts.get('12:node:executeresult:again')).toBe('implementation-to-verification');
+    expect(process.transitionPrompts.get('12:node:executeresult:again')).not.toEqual(expect.objectContaining({ target: expect.anything() }));
   });
 });
 

@@ -7,6 +7,8 @@ import { createServer as createNetServer } from 'node:net';
 import * as YAML from 'yaml';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { cardProcessesSchema } from '../../src/agents/config-schema.js';
+import { compileCardProcesses } from '../../src/runtime/card-process/card-process-config.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { DefaultAnalystBriefRecordMutationService } from '../../src/application/analyst-mutation-services.js';
 import { startApp, type App } from '../../src/boot/app.js';
@@ -37,6 +39,34 @@ async function availablePort(): Promise<number> { const probe = createNetServer(
 async function writeConfig(root: string): Promise<void> { writeFileSync(join(root, '.saivage', 'saivage.yaml'), YAML.stringify({ models: { default: ['test-model'], max_tokens: { analyst: 200 } }, providers: { test: { models: ['test-model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } }, card_processes: DEFAULT_CARD_PROCESSES, runtime: { continuous_improvement: false }, server: { host: '127.0.0.1', port: await availablePort() } })); }
 
 describe('configured card-process substantive E2E coverage', () => {
+  it('executes cross-node and same-node reentry as live process states with ordinals 0, 1, 2', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-configured-reentry-e2e-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const configured = cardProcessesSchema.parse({
+      planning: { entries: { BACKLOG: { node: 'first' }, CHANGED: { node: 'first' }, BLOCKED: { node: 'first' }, STOPPED: { node: 'first', prompt: 'stopped-recovery' } }, nodes: {
+        first: { role: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: [{ name: 'status.md', updated: true }], edges: { next: { target: { node: 'second' }, prompt: 'plan-to-review' } } },
+        second: { role: 'planner', prompt: 'recover', correction_prompt: 'correct-plan-result', records: [{ name: 'status.md', updated: true }], edges: { again: { target: { node: 'second' }, prompt: 'review-to-plan' }, complete: { target: { terminal: 'DONE' } } } },
+      } },
+      terminal: DEFAULT_CARD_PROCESSES.terminal,
+    });
+    const positions: Array<{ stateId: string; executionOrdinal: number }> = [];
+    let runtime!: SupervisorRuntimeApi;
+    let calls = 0;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => {
+      calls += 1;
+      const processState = runtime.getActorRuntimeReadModel().cards.find(({ cardId }) => cardId === 'project')?.processState;
+      if (!processState || processState.kind !== 'node') throw new Error('Expected live node process projection.');
+      positions.push({ stateId: processState.stateId, executionOrdinal: processState.executionOrdinal });
+      const open = cards.openRecord('project', 'status.md'); cards.editRecord('project', 'status.md', open.version, `step ${calls}`);
+      return complete(tool(`result-${calls}`, 'emit_result', { outcome: calls === 1 ? 'next' : calls === 2 ? 'again' : 'complete', summary: `step ${calls}` }));
+    }) };
+    runtime = new SupervisorRuntimeApi({ ...testAutonomousCompaction, cardProcesses: compileCardProcesses(configured), projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, appLogs: { projectRoot: root }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, processRunner: new ProcessRunner(root, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' } });
+    const prepared = await runtime.beginStartProject(); if (!prepared.accepted) throw new Error('Run was rejected'); runtime.launchStartedProject(prepared.launch);
+    await waitUntil(() => runtime.getStatus().status === 'stopped');
+    expect(positions).toEqual([{ stateId: 'node:first', executionOrdinal: 0 }, { stateId: 'node:second', executionOrdinal: 1 }, { stateId: 'node:second', executionOrdinal: 2 }]);
+    expect(cards.read('project')?.status).toBe('done');
+  });
+
   it('settles and re-enters blocked configured work, then creates under the blocked planning parent', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-blocked-reentry-e2e-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);

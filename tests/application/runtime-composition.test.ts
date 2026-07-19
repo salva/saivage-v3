@@ -62,7 +62,7 @@ describe('runtime compaction composition', () => {
     expect(runtimeApiFactory).toHaveBeenCalledTimes(1);
     expect(app.runtimeApi).toBe(app.runtimeControl);
     expect(app.runtimeApi).not.toBe(runtimeApiFactory.mock.results[0]!.value);
-    expect(deps.cardProcesses.planning.nodes.get('plan')?.outcomes).toEqual(['complete_direct', 'admit_review', 'blocked', 'failed']);
+    expect([...deps.cardProcesses.planning.definition.states.get('node:plan')!.on.keys()].filter((event) => event.startsWith('result:'))).toEqual(['result:complete_direct', 'result:admit_review', 'result:blocked', 'result:failed']);
     expect(deps.processPrompts.get('goal', 'plan' as any)).toContain('current planning step');
     expect(deps.compactionPolicy).toEqual({ input_budget_tokens: 10000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim' });
     expect(app.analystDeps.compactionPolicy).toBe(deps.compactionPolicy);

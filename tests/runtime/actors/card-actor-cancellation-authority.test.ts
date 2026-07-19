@@ -52,6 +52,7 @@ class ControlledProcessor implements CardProcessorActor {
     return result;
   }
   pendingJoinTaskCount(): number { return 0; }
+  processPosition() { return { family: 'terminal' as const, stateId: 'lifecycle:ready', kind: 'ready' as const }; }
   executingLlmSnapshot(): null { return null; }
 }
 

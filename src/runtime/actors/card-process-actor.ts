@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BaseActor, compileActorDefinition } from '../micro-actor/index.js';
+import { BaseActor, type ActorLifecycleContext, type ActorTransitionContext } from '../micro-actor/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardActivationInput, CardActor, CardCancellationResult, CardProcessorActor } from './card-actor.js';
 import { ConversationLLMActor, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from './llm-actor.js';
@@ -13,9 +13,9 @@ import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
-import type { CompiledCardProcess } from '../card-process/card-process-config.js';
+import type { CompiledCardProcess, ProcessPosition } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
-import { AgentNodeExecution, type NodeTransition } from './agent-node-execution.js';
+import { AgentNodeExecution, type AcceptedNodeResult, type NodeTransition } from './agent-node-execution.js';
 import type { ExecutingLlmSnapshot, LlmToolInvocationContext, StructuralChildRelationship } from './executing-llm-snapshot.js';
 import { deferred, type Deferred } from './deferred.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
@@ -24,15 +24,6 @@ import { parseLlmActorId } from './ids.js';
 import { parseConversationSessionId } from '../../schemas/index.js';
 
 type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
-
-const CARD_PROCESS_ACTOR_DEFINITION = compileActorDefinition({
-  initial: 'idle',
-  states: {
-    idle: { parked: true, on: { activate: 'running' } },
-    running: { on: { done: 'settled', blocked: 'settled', failed: 'settled' } },
-    settled: { parked: true, on: { activate: 'running' } },
-  },
-});
 
 export class CardProcessActor extends BaseActor implements CardProcessorActor {
   readonly projectRoot: string;
@@ -52,14 +43,18 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #activationSignal: AbortSignal | null = null;
   #operationTracker: ActivationOperationTracker | null = null;
   #joiningLlmActors: readonly ConversationLLMActor[] | null = null;
+  #activationJoin: Promise<readonly InvocationJoinOutcome[]> | null = null;
   #llmInvocationsDisposed = false;
   #currentExecutingLlm: ConversationLLMActor | null = null;
+  #executionOrdinal: number | null = null;
+  #stagedResult: AcceptedNodeResult | null = null;
+  #stagedFailure: Error | null = null;
+  #activationSettled = false;
 
   constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; children: { get(cardId: string): CardActor | null }; ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void }; cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>; notifyCard?: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher }) {
-    super(CARD_PROCESS_ACTOR_DEFINITION, {
-      enter: ({ target }) => {
-        if (target === 'running') this.enterRunning();
-      },
+    super(args.process.definition, {
+      enter: (context) => this.#enterProcessState(context),
+      transition: (context) => this.#processTransitioned(context),
     });
     this.projectRoot = args.projectRoot;
     this.cardId = args.cardId;
@@ -71,48 +66,29 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#summarizerProvider = args.summarizerProvider;
     this.#conversationPublisher = args.conversationPublisher;
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;
-    this.#runner = new AgentNodeExecution({
-      projectRoot: args.projectRoot,
-      cardId: args.cardId,
-      store: args.store,
-      children: args.children,
-      ownerStructuralWait: args.ownerStructuralWait,
-      cancelCard: args.cancelCard,
-      notifyCard: args.notifyCard,
-      appLogs: args.appLogs,
-      processRunner: args.processRunner,
-      mcpManagerProvider: args.mcpManagerProvider ?? (() => undefined),
-      promptTemplates: args.promptTemplates,
-      processPrompts: args.processPrompts,
-      conversations: args.conversations,
-      compactionConfig: args.compactionConfig,
-    }, {
-      createLlm: (id) => this.#createMainLlm(id),
-      selectLlm: (llm) => this.#selectExecutingLlm(llm),
-      freshInputId: () => this.#freshSourceInputId(),
-      toolContext: (llm, outcome) => this.#toolInvocationContext(llm, outcome),
-      publishConversationEntry: (entry) => this.#conversationPublisher?.entryAppended(entry),
+    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, children: args.children, ownerStructuralWait: args.ownerStructuralWait, cancelCard: args.cancelCard, notifyCard: args.notifyCard, appLogs: args.appLogs, processRunner: args.processRunner, mcpManagerProvider: args.mcpManagerProvider ?? (() => undefined), promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
+      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), toolContext: (llm, outcome) => this.#toolInvocationContext(llm, outcome), publishConversationEntry: (entry) => this.#conversationPublisher?.entryAppended(entry),
     });
   }
 
   activate(input: CardActivationInput, signal: AbortSignal): Promise<ProcessOutcome> {
-    if (this.#result && this.#isActiveState(this.state())) return this.#result.promise;
-    if (this.#result) return Promise.reject(new Error(`Card process '${this.cardId}' already has a pending activation.`));
-    if (!this.#canActivateFrom(this.state())) return Promise.reject(new Error(`Card process '${this.cardId}' cannot activate from '${this.state()}'.`));
+    if (this.#result && !this.#activationSettled) return this.#result.promise;
+    if (this.#result) return Promise.reject(new Error(`Card process '${this.cardId}' has already completed its activation.`));
+    if (this.state() !== 'lifecycle:ready') return Promise.reject(new Error(`Card process '${this.cardId}' cannot activate from '${this.state()}'.`));
     this.#activationInput = input;
     this.#activationSignal = signal;
+    this.#executionOrdinal = null;
+    this.#activationSettled = false;
     this.#operationTracker = new ActivationOperationTracker();
+    this.#runner.beginActivation();
     this.#result = deferred<ProcessOutcome>();
-    this.parkedSendEvent('activate');
+    this.parkedSendEvent(`activate:${input.entry}`);
     return this.#result.promise;
   }
 
   disposeActivation(reason: unknown): void {
     this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
-    if (!this.#llmInvocationsDisposed) {
-      for (const llm of this.#joiningLlmActors) llm.disposeInvocations(reason);
-      this.#llmInvocationsDisposed = true;
-    }
+    if (!this.#llmInvocationsDisposed) { for (const llm of this.#joiningLlmActors) llm.disposeInvocations(reason); this.#llmInvocationsDisposed = true; }
     this.#operationTracker?.revoke(reason);
   }
 
@@ -122,9 +98,14 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#operationTracker?.closeAdmission(reason);
   }
 
-  async joinActivation(): Promise<readonly InvocationJoinOutcome[]> {
+  joinActivation(): Promise<readonly InvocationJoinOutcome[]> {
     const actors = this.#joiningLlmActors;
     if (!actors) throw new Error(`Processor '${this.cardId}' must dispose activation admission before join.`);
+    this.#activationJoin ??= this.#performActivationJoin(actors);
+    return this.#activationJoin;
+  }
+
+  async #performActivationJoin(actors: readonly ConversationLLMActor[]): Promise<readonly InvocationJoinOutcome[]> {
     const outcomes = await Promise.all(actors.map((llm) => llm.joinInvocationSettlement()));
     const processorOutcomes = await this.#joinProcessorActivation();
     const hadActors = this.#activeLlmActors.size > 0;
@@ -133,12 +114,21 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     return [...outcomes, ...processorOutcomes];
   }
 
-  pendingJoinTaskCount(): number {
-    return (this.#operationTracker?.pendingCount() ?? 0) + (this.#joiningLlmActors ?? []).reduce((count, llm) => count + llm.pendingInvocationCount(), 0);
+  pendingJoinTaskCount(): number { return (this.#operationTracker?.pendingCount() ?? 0) + (this.#joiningLlmActors ?? []).reduce((count, llm) => count + llm.pendingInvocationCount(), 0); }
+
+  processPosition(): ProcessPosition {
+    const stateId = this.state();
+    const metadata = this.process.states.get(stateId);
+    if (!metadata) throw new Error(`Process '${this.process.family}' has no metadata for current state '${stateId}'.`);
+    if (metadata.kind === 'ready') return Object.freeze({ family: this.process.family, stateId, kind: 'ready' });
+    if (metadata.kind === 'entry') return Object.freeze({ family: this.process.family, stateId, kind: 'entry', entry: metadata.entry });
+    if (metadata.kind === 'terminal') return Object.freeze({ family: this.process.family, stateId, kind: 'terminal', terminal: metadata.terminal });
+    if (this.#executionOrdinal === null) throw new Error(`Process node '${stateId}' has no execution ordinal.`);
+    return Object.freeze({ family: this.process.family, stateId, kind: 'node', nodeId: metadata.nodeId, executionOrdinal: this.#executionOrdinal });
   }
 
   executingLlmSnapshot(): ExecutingLlmSnapshot | null {
-    if (this.#result === null || this.state() !== 'running') return null;
+    if (!this.#result || this.process.states.get(this.state())?.kind !== 'node') return null;
     const llm = this.#currentExecutingLlm;
     if (!llm) return null;
     const identity = parseLlmActorId(llm.agentId);
@@ -146,62 +136,62 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     return Object.freeze({ sessionId: parseConversationSessionId(llm.agentId), agentId: llm.agentId, role: identity.role, cardId: identity.cardId, activity: llm.executingActivity() });
   }
 
-  private enterRunning(): void {
-    if (!this.#result || !this.#activationInput || !this.#activationSignal) throw new Error(`Card process '${this.cardId}' entered running without activation input.`);
+  #enterProcessState(context: ActorLifecycleContext): void {
+    const metadata = this.process.states.get(context.target);
+    if (!metadata) throw new Error(`Process '${this.process.family}' entered unknown state '${context.target}'.`);
+    if (metadata.kind === 'ready') return;
+    if (!this.#result || !this.#activationInput || !this.#activationSignal || !this.#operationTracker) throw new Error(`Card process '${this.cardId}' entered '${context.target}' without an activation.`);
+    if (metadata.kind === 'entry') {
+      if (this.#activationInput.entry !== metadata.entry) throw new Error(`Card process '${this.cardId}' activation entry disagrees with state '${context.target}'.`);
+      this.sendEvent('entry:route');
+      return;
+    }
+    if (metadata.kind === 'terminal') { this.#settleTerminal(metadata.terminal, context); return; }
+    if (context.source === null || this.#executionOrdinal === null) throw new Error(`Process node '${context.target}' requires an external transition and ordinal.`);
+    const transition: NodeTransition = Object.freeze({ context, acceptedResult: this.#stagedResult });
+    this.#stagedResult = null;
     const input = this.#activationInput;
-    const signal = this.#activationSignal;
+    const activationSignal = this.#activationSignal;
     const tracker = this.#operationTracker;
-    if (!tracker) throw new Error(`Card process '${this.cardId}' has no activation operation tracker.`);
-    this.runTask((taskSignal) => tracker.run(AbortSignal.any([signal, taskSignal]), (operationSignal) => this.#runActivation(input, operationSignal)), {
-      on_done: (outcome) => { void tracker.trackConsumer(() => this.#finishActivation(outcome)); },
-      on_failed: (error) => { void tracker.trackConsumer(() => {
-        if (isRuntimeStoppedInterruption(error)) { this.#failActivation(error); return; }
-        this.#finishActivation({ status: 'failed', summary: error.message, result: { kind: 'failed', summary: error.message } });
-      }); },
+    const ordinal = this.#executionOrdinal;
+    this.runTask((stateSignal) => tracker.run(AbortSignal.any([activationSignal, stateSignal]), (operationSignal) => this.#runner.execute({ process: this.process, stateId: context.target, node: metadata, transition, input, signal: operationSignal, nodeOrdinal: ordinal })), {
+      on_done: (accepted) => { void tracker.trackConsumer(() => this.#acceptNodeResult(context.target, accepted)); },
+      on_failed: (error) => { void tracker.trackConsumer(() => this.#acceptNodeFailure(error)); },
     });
   }
 
-  async #runActivation(input: CardActivationInput, signal: AbortSignal): Promise<ProcessOutcome> {
-    this.#runner.beginActivation();
-    const entry = this.process.entries.get(input.entry); if (!entry) throw new Error(`Process '${this.process.family}' has no '${input.entry}' entry.`);
-    let transition: NodeTransition = { kind: 'entry', entry: input.entry, definition: entry }; let nodeId = entry.targetNodeId; let ordinal = 0;
-    for (;;) { signal.throwIfAborted(); const node = this.process.nodes.get(nodeId); if (!node) throw new Error(`Process '${this.process.family}' targets missing node '${nodeId}'.`); const accepted = await this.#runner.execute({ node, transition, input, signal, nodeOrdinal: ordinal++ }); if (accepted.edge.target.kind === 'terminal') return mapTerminal(accepted.edge.target.port, accepted.summary); transition = { kind: 'edge', sourceNodeId: node.id, result: accepted }; nodeId = accepted.edge.target.nodeId; }
-  }
-
-  #createMainLlm(agentId: string): ConversationLLMActor {
-    const existing = this.#activeLlmActors.get(agentId);
-    if (existing) return existing;
-    const llm = new ConversationLLMActor({ projectRoot: this.projectRoot, agentId, provider: this.#provider, conversations: this.#conversations, gate: this.#gate, compactor: this.#compactor, summarizerProvider: this.#summarizerProvider, conversationPublisher: this.#conversationPublisher, runtimeProjectionChanged: this.#runtimeProjectionChanged });
-    llm.start();
-    this.#activeLlmActors.set(agentId, llm);
-    this.#runtimeProjectionChanged();
-    return llm;
-  }
-
-  #selectExecutingLlm(llm: ConversationLLMActor): void {
-    const current = this.#currentExecutingLlm;
-    if (!current) {
-      this.#currentExecutingLlm = llm;
-      llm.resetExecutingActivity();
-      this.#runtimeProjectionChanged();
-      return;
+  #processTransitioned(context: ActorTransitionContext): void {
+    const source = this.process.states.get(context.source);
+    const target = this.process.states.get(context.target);
+    if (!source || !target) throw new Error(`Process transition '${context.source}' -> '${context.target}' has missing metadata.`);
+    if (source.kind === 'entry' && target.kind === 'node') this.#executionOrdinal = 0;
+    else if (source.kind === 'node' && target.kind === 'node') {
+      if (!context.event.startsWith('result:') || this.#executionOrdinal === null) throw new Error(`Process node transition '${context.event}' cannot reserve an ordinal.`);
+      this.#executionOrdinal += 1;
     }
-    if (current === llm) return;
-    if (current.executingActivity().mode !== 'active') throw new Error(`Processor '${this.cardId}' cannot hand off an LLM actor while waiting.`);
-    this.#currentExecutingLlm = llm;
-    llm.resetExecutingActivity();
     this.#runtimeProjectionChanged();
   }
 
-  #toolInvocationContext(llm: ConversationLLMActor, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): LlmToolInvocationContext {
-    if (this.#currentExecutingLlm !== llm || outcome.agentId !== llm.agentId) throw new Error(`Tool call '${outcome.toolCallId}' does not belong to the current LLM actor.`);
-    const identity = { sessionId: parseConversationSessionId(llm.agentId), sourceInputId: outcome.inputId, toolCallId: outcome.toolCallId, toolName: outcome.toolName };
-    return { ...identity, waits: llm.waitCallbacks(identity) };
+  #acceptNodeResult(sourceState: string, accepted: AcceptedNodeResult): void {
+    if (this.state() !== sourceState) throw new Error(`Node result for '${sourceState}' arrived in '${this.state()}'.`);
+    const event = `result:${accepted.outcome}`;
+    if (!this.process.definition.states.get(sourceState)?.on.has(event)) throw new Error(`Node '${sourceState}' returned unconfigured outcome '${accepted.outcome}'.`);
+    this.#stagedResult = accepted;
+    this.sendEvent(event);
   }
 
-  #freshSourceInputId(): string { return randomUUID(); }
+  #acceptNodeFailure(error: Error): void { this.#stagedFailure = error; this.sendEvent('execution:failed'); }
 
-  #finishActivation(outcome: ProcessOutcome): void {
+  #settleTerminal(terminal: 'DONE' | 'BLOCKED' | 'FAILED', context: ActorLifecycleContext): void {
+    if (context.source === null) throw new Error(`Process terminal '${terminal}' cannot be an initial state.`);
+    const failure = this.#stagedFailure;
+    const accepted = this.#stagedResult;
+    if (context.event === 'execution:failed') { if (!failure || accepted) throw new Error(`FAILED terminal has invalid staged failure state.`); }
+    else {
+      if (!accepted || failure || context.event !== `result:${accepted.outcome}`) throw new Error(`Process terminal '${terminal}' has invalid staged result state.`);
+      const route = this.process.definition.states.get(context.source)?.on.get(context.event);
+      if (route?.target !== context.target) throw new Error(`Process terminal route disagrees with compiled definition.`);
+    }
     if (this.#currentExecutingLlm?.executingActivity().mode === 'waiting') throw new Error(`Processor '${this.cardId}' settled while its current LLM actor was waiting.`);
     this.#currentExecutingLlm = null;
     this.#runtimeProjectionChanged();
@@ -211,36 +201,30 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
       this.#activeLlmActors.clear();
       if (hadActors) this.#runtimeProjectionChanged();
     }
-    this.#result?.resolve(outcome);
-    this.#result = null;
-    this.#activationInput = null;
-    this.#activationSignal = null;
-    this.sendEvent(outcome.status);
-  }
-
-  #failActivation(error: Error): void {
-    if (this.#currentExecutingLlm?.executingActivity().mode === 'waiting') throw new Error(`Processor '${this.cardId}' failed while its current LLM actor was waiting.`);
-    this.#currentExecutingLlm = null;
-    this.#runtimeProjectionChanged();
-    this.#result?.reject(error);
-    this.#result = null;
-    this.#activationInput = null;
-    this.#activationSignal = null;
-    this.sendEvent('failed');
-  }
-
-  async #joinProcessorActivation(): Promise<readonly InvocationJoinOutcome[]> {
-    const tracker = this.#operationTracker;
-    if (!tracker) {
-      await this.awaitLifecycleSettlement();
-      return [];
+    if (failure && isRuntimeStoppedInterruption(failure)) this.#result!.reject(failure);
+    else {
+      const summary = failure?.message ?? accepted!.summary;
+      const outcome: ProcessOutcome = terminal === 'DONE'
+        ? { status: 'done', summary, result: { kind: 'done', summary } }
+        : terminal === 'BLOCKED'
+          ? { status: 'blocked', summary, result: { kind: 'blocked', summary, resume_reason: summary } }
+          : { status: 'failed', summary, result: { kind: 'failed', summary } };
+      this.#result!.resolve(outcome);
     }
-    const outcome = await tracker.join();
-    await this.awaitLifecycleSettlement();
-    return [outcome];
+    this.#activationInput = null;
+    this.#activationSignal = null;
+    this.#stagedResult = null;
+    this.#stagedFailure = null;
+    this.#activationSettled = true;
   }
 
-  #canActivateFrom(state: string): boolean { return state === 'idle' || state === 'settled'; }
-  #isActiveState(state: string): boolean { return state !== 'idle' && state !== 'settled'; }
+  #createMainLlm(agentId: string): ConversationLLMActor {
+    const existing = this.#activeLlmActors.get(agentId); if (existing) return existing;
+    const llm = new ConversationLLMActor({ projectRoot: this.projectRoot, agentId, provider: this.#provider, conversations: this.#conversations, gate: this.#gate, compactor: this.#compactor, summarizerProvider: this.#summarizerProvider, conversationPublisher: this.#conversationPublisher, runtimeProjectionChanged: this.#runtimeProjectionChanged });
+    llm.start(); this.#activeLlmActors.set(agentId, llm); this.#runtimeProjectionChanged(); return llm;
+  }
+  #selectExecutingLlm(llm: ConversationLLMActor): void { const current = this.#currentExecutingLlm; if (!current) { this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); return; } if (current === llm) return; if (current.executingActivity().mode !== 'active') throw new Error(`Processor '${this.cardId}' cannot hand off an LLM actor while waiting.`); this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); }
+  #toolInvocationContext(llm: ConversationLLMActor, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): LlmToolInvocationContext { if (this.#currentExecutingLlm !== llm || outcome.agentId !== llm.agentId) throw new Error(`Tool call '${outcome.toolCallId}' does not belong to the current LLM actor.`); const identity = { sessionId: parseConversationSessionId(llm.agentId), sourceInputId: outcome.inputId, toolCallId: outcome.toolCallId, toolName: outcome.toolName }; return { ...identity, waits: llm.waitCallbacks(identity) }; }
+  #freshSourceInputId(): string { return randomUUID(); }
+  async #joinProcessorActivation(): Promise<readonly InvocationJoinOutcome[]> { const tracker = this.#operationTracker; if (!tracker) { await this.awaitLifecycleSettlement(); return []; } const outcome = await tracker.join(); await this.awaitLifecycleSettlement(); return [outcome]; }
 }
-function mapTerminal(port: 'DONE' | 'BLOCKED' | 'FAILED', summary: string): ProcessOutcome { return port === 'DONE' ? { status: 'done', summary, result: { kind: 'done', summary } } : port === 'BLOCKED' ? { status: 'blocked', summary, result: { kind: 'blocked', summary, resume_reason: summary } } : { status: 'failed', summary, result: { kind: 'failed', summary } }; }

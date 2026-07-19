@@ -160,6 +160,8 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(snapshots).toMatchObject([
       { status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: ['project'], readiness: 'stopped' },
       { status: { status: 'running', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'], readiness: 'not_ready' },
+      { status: { status: 'running', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'], readiness: 'not_ready' },
+      { status: { status: 'running', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'], readiness: 'not_ready' },
     ]);
 
     await waitUntil(() => supervisor.captureAutonomousExecutingLlmSnapshots().length === 1);
@@ -348,7 +350,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const owner = internals.cardActors.get('project');
     if (!owner) throw new Error('root actor ownership was not installed');
     expect(internals.liveCardActors.get('project')).toBe(owner);
-    expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [{ cardId: 'project' }] });
+    expect(supervisor.getActorRuntimeReadModel()).toMatchObject({ cards: [{ cardId: 'project', processState: { family: 'planning', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] });
     expect(supervisor.getActorRuntimeReadModel()).not.toHaveProperty('agents');
 
     releaseTerminal();

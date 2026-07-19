@@ -12,6 +12,8 @@ This implementation note is subordinate to [System Architecture](./system-archit
 - Pause is one request flag and one parked frontier. Stop interrupts open work for restartable containment; only when domain cancellation already owns the claim does Stop join that exact actor's cancellation settlement.
 - Stable planner/executor/reviewer session owners locally settle only the latest interrupted conversation round.
 - The micro-actor lifecycle exposes only initial-state `start()`; no recover or rehydrate entrypoint exists.
+- Configured planning and terminal workflows compile once per family into shared entry/node/terminal actor definitions. `CardProcessActor` has no wrapper graph loop or cursor; accepted result events route through the definition, including explicit same-state reentry.
+- Live process position and zero-based node ordinal are process-local projections only. STOPPED recovery constructs a fresh actor and does not rehydrate prior process state.
 - Every actor constructor supplies an immutable compiled topology and per-instance generic lifecycle callbacks directly to `BaseActor`. Fixed topologies compile once and are shared; behavior is neither embedded in topology nor discovered through static properties, reflection, or state-named methods.
 - Start assigns the initial state and invokes only `enter`. External transitions run `leave`, source-task abort/clear, target assignment, `transition`, then `enter`; unknown events and ordinary same-state transitions run no callback.
 - Runtime state, actor snapshots, active reconstruction, recovery diagnostics, and replay coordinators do not exist.
