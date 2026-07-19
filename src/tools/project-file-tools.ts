@@ -9,7 +9,7 @@ import { redactTextForOutbound } from '../redaction/index.js';
 import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
 import type { CardService } from '../cards/card-api.js';
 import { propagateAnalystBriefEdit } from '../runtime/changed-propagation.js';
-import { analystBriefEditEffect } from '../cards/card-api.js';
+import { analystBriefEditEffect } from '../cards/status-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 

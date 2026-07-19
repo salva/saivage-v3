@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AnalystIssue, CardStatus } from '../schemas/index.js';
 import type { CardService } from '../cards/card-api.js';
-import { analystBriefEditEffect } from '../cards/card-api.js';
+import { analystBriefEditEffect } from '../cards/status-api.js';
 import { sanitizeAnalystText } from '../sanitization/analyst-sanitization.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from './runtime-api.js';

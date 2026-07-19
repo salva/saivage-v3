@@ -1,7 +1,7 @@
 import { EventBus, type Subscription, type SubscriptionOptions } from '../../events/index.js';
 import { cardRecordSchema, type CardNotification, type CardRecord, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
-import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/card-api.js';
+import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/status-api.js';
 import { CardActor, type CardActorDeps, type CardCancellationResult } from './card-actor.js';
 import { toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';

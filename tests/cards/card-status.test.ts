@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { acceptsCardNotifications, analystBriefEditEffect, canCancelCardStatus, canCreateChildInStatus } from '../../src/cards/card-api.js';
+import { acceptsCardNotifications, analystBriefEditEffect, canCancelCardStatus, canCreateChildInStatus } from '../../src/cards/status-api.js';
 import type { CardStatus } from '../../src/schemas/index.js';
 
 describe('card operation status decisions', () => {

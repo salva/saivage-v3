@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 
 import type { CardActivationAdmissionProjection, CardPatch, CardService, NewCardInput } from '../cards/card-api.js';
-import { canCancelCardStatus } from '../cards/card-api.js';
+import { canCancelCardStatus } from '../cards/status-api.js';
 import {
   activateCardArgumentsSchema,
   formatActivateCardResult,

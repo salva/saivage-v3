@@ -1,6 +1,6 @@
 import { cardActionValues, cardStatusValues } from '../schemas/index.js';
 import type { CardStatus } from '../schemas/index.js';
-import { canCancelCardStatus, canCreateChildInStatus } from '../cards/card-api.js';
+import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 
 export const PERMISSION_ROLES = ['operator', 'planner', 'analyst', 'executor', 'reviewer'] as const;
 export type PermissionRole = (typeof PERMISSION_ROLES)[number];
