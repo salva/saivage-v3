@@ -1,12 +1,4 @@
 export {
-  IndeterminatePublicationError,
-  PersistenceError,
-  PersistenceReadError,
-  PersistenceValidationError,
-  PersistenceVersionMismatch,
-  PersistenceWriteError,
-} from './errors.js';
-export {
   explainStateValidationRejection,
   readProjectFileAtomic,
 } from './file-tree.js';

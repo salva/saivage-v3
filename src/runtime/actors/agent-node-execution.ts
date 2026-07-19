@@ -10,11 +10,11 @@ import type { CompiledProcessEdge, CompiledProcessEntry, CompiledProcessNode, Pr
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import type { ConversationLLMActor, LLMActorOutcome } from './llm-actor.js';
 import type { PreparedLlmInvocationInput } from './llm-invocation.js';
-import type { ConversationFileContext } from '../../persistence/conversation-file.js';
+import { readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import { formatPromptToolList } from '../../utils/prompt-api.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
-import { appendActivationMarker, appendUserContextMessage, providerConversationProjection, readConversationMessages, type ProviderVisibleUserContextMessage } from './conversation-session.js';
+import { appendActivationMarker, appendUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { stabilizeRoleSession } from './conversation-recovery.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
@@ -23,8 +23,7 @@ import type { AppLogContext } from '../../persistence/app-log.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import type { StructuralChildRelationship } from './executing-llm-snapshot.js';
-import { plannerActorId, executorActorId } from './ids.js';
-import { reviewerSessionId } from '../reviewer-session.js';
+import { plannerActorId, reviewerActorId, executorActorId } from './ids.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import type { RecordProjection } from '../../persistence/authored-record-files.js';
@@ -186,7 +185,7 @@ export class AgentNodeExecution {
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), ...(node.role === 'executor' ? { cardType: input.card.type } : {}),
     });
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
-    return { inputId, agentId: sessionId, role: node.role, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversationMessages(this.deps.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools), capabilityRequest: { requiresTools: true }, episodeContext: { cardId: input.card.id, caller: input.caller, ...(node.role === 'planner' ? { children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.status, type: card.type, title: card.title })) } : {}) } };
+    return { inputId, agentId: sessionId, role: node.role, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools), capabilityRequest: { requiresTools: true }, episodeContext: { cardId: input.card.id, caller: input.caller, ...(node.role === 'planner' ? { children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.status, type: card.type, title: card.title })) } : {}) } };
   }
 
   private buildSurface(role: ProcessRole, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {
@@ -238,7 +237,7 @@ function createNodeContract(node: CompiledProcessNode): Contract<NodeEnvelope, N
   const terminal: ContractTerminalDescriptor = { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', schema, toolDefinition: { type: 'function', function: { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', parameters: zodToJsonSchemaMini(schema) as Record<string, unknown> } } };
   return { name: `card-process:${node.id}`, terminals: [terminal], describe: () => `Call emit_result with exactly two fields: outcome (one of: ${node.outcomes.join(' | ')}) and summary (a trimmed non-empty string of at most 2000 characters).`, isTerminalToolName: (name) => name === TERMINAL_RESULT_TOOL_NAME, verify: (call) => { if (call.name !== TERMINAL_RESULT_TOOL_NAME) return { ok: false, violation: { code: 'terminal_tool_unexpected', message: `Unexpected terminal tool '${call.name}'.`, locator: call.id } }; const parsed = schema.safeParse(call.args); return parsed.success ? { ok: true, terminalName: TERMINAL_RESULT_TOOL_NAME, envelope: { kind: 'result', payload: parsed.data } } : { ok: false, violation: { code: 'terminal_tool_invalid_envelope', message: parsed.error.message, locator: call.id } }; }, project: (envelope) => ({ kind: 'result', result: envelope.payload }) };
 }
-function sessionFor(role: ProcessRole, cardId: string): ConversationSessionId { return role === 'planner' ? plannerActorId(cardId) : role === 'reviewer' ? reviewerSessionId(cardId) : executorActorId(cardId); }
+function sessionFor(role: ProcessRole, cardId: string): ConversationSessionId { return role === 'planner' ? plannerActorId(cardId) : role === 'reviewer' ? reviewerActorId(cardId) : executorActorId(cardId); }
 function terminalCleanupStatus(port: 'DONE' | 'BLOCKED' | 'FAILED'): 'done' | 'blocked' | 'failed' { return port === 'DONE' ? 'done' : port === 'BLOCKED' ? 'blocked' : 'failed'; }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function isMissingRecord(error: unknown): boolean { return error instanceof Error && /Record '.+' does not exist\./.test(error.message); }

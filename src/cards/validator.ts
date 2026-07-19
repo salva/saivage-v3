@@ -1,4 +1,4 @@
-import type { CardHistoryEntry, CardRecord } from '../schemas/index.js';
+import type { CardRecord } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
 import { isTerminalType } from './lifecycle.js';
 import { CardServiceInvariantError } from './errors.js';
@@ -85,53 +85,4 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
     depthById,
     cardsInDepthOrder: [...cards].sort((a, b) => (depthById.get(a.id) ?? 0) - (depthById.get(b.id) ?? 0)),
   };
-}
-
-export function validateCardHistoryInvariant(
-  cardId: string,
-  cardVersionSeq: number,
-  jsonlPath: string,
-  entries: CardHistoryEntry[],
-): CardHistoryEntry[] {
-  if (cardVersionSeq === 1) {
-    if (entries.length > 0) {
-      throw new CardServiceInvariantError(
-        `Card '${cardId}' has version_seq=1 but history file '${jsonlPath}' contains ${entries.length} row(s). Recovery hint: 'saivage reset' or operator hand-edit.`,
-      );
-    }
-    return [];
-  }
-  const seen = new Set<string>();
-  const deduped: CardHistoryEntry[] = [];
-  for (const entry of entries) {
-    if (seen.has(entry.entry_id)) continue;
-    seen.add(entry.entry_id);
-    deduped.push(entry);
-  }
-  const expected = new Set<number>();
-  for (let version = 1; version < cardVersionSeq; version++) expected.add(version);
-  const observed = new Set<number>();
-  for (const entry of deduped) {
-    if (entry.version_seq < 1) {
-      throw new CardServiceInvariantError(
-        `Card '${cardId}' history at '${jsonlPath}' contains a row with version_seq=${entry.version_seq} (entry_id=${entry.entry_id}); positive sequence is required.`,
-      );
-    }
-    observed.add(entry.version_seq);
-  }
-  for (const version of expected) {
-    if (!observed.has(version)) {
-      throw new CardServiceInvariantError(
-        `Card '${cardId}' history at '${jsonlPath}' is missing version_seq=${version} (card.version_seq=${cardVersionSeq}). Recovery hint: 'saivage reset' or operator hand-edit.`,
-      );
-    }
-  }
-  for (const version of observed) {
-    if (!expected.has(version)) {
-      throw new CardServiceInvariantError(
-        `Card '${cardId}' history at '${jsonlPath}' has orphan version_seq=${version} (card.version_seq=${cardVersionSeq}). Recovery hint: 'saivage reset' or operator hand-edit.`,
-      );
-    }
-  }
-  return deduped;
 }

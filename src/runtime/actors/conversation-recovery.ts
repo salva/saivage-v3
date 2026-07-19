@@ -4,9 +4,9 @@ import {
   loggedToolCallKey,
   loggedToolResultIdentity,
 } from '../../schemas/message-identity.js';
-import { appendRecoveryNotice, isExactRecoveryNotice, readConversationMessages } from './conversation-session.js';
+import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-session.js';
 import { appendProviderVisibleSyntheticFailedToolResult } from './llm-delivery-log.js';
-import type { ConversationFileContext } from '../../persistence/conversation-file.js';
+import { readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { inspectCanonicalCallSettlementPairs } from './conversation-call-pairs.js';
 
 export type ConversationImplicitState =
@@ -66,7 +66,7 @@ export function stabilizeRoleSession(args: {
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
 }): RoleSessionStabilization {
-  const conversation = readConversationMessages(args.projectRoot, args.sessionId);
+  const conversation = readConversation(args.projectRoot, args.sessionId);
   const messages = conversation.physicalRows;
   const sourceRows = conversation.sourceRows;
   const activationIndexes = sourceRows.flatMap((message, index) => activationMarker(message) ? [index] : []);
@@ -108,7 +108,7 @@ export function stabilizeRoleSession(args: {
   appendRecoveryNotice(args.conversations, args.sessionId, marker.inputId, 'ordinary_interruption');
   return {
     disposition: 'ordinary_interruption',
-    messages: readConversationMessages(args.projectRoot, args.sessionId).physicalRows,
+    messages: readConversation(args.projectRoot, args.sessionId).physicalRows,
   };
 }
 

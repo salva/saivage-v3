@@ -1,10 +1,8 @@
-import { existsSync } from 'node:fs';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { CardService } from '../../cards/card-api.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import { listRecentReviews } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
-import { cardRecordsRoot } from '../../persistence/card-loader.js';
 import type { AuthPolicy } from '../auth-policy.js';
 
 export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardService, authPolicy: AuthPolicy): void {

@@ -6,12 +6,12 @@ import { parseConversationSessionId, type AgentMessage } from '../../schemas/ind
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
-import { appendUserContextMessage, readConversationMessages, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
+import { appendUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import type { ConversationChangePublisher } from './conversation-publisher.js';
-import type { ConversationFileContext } from '../../persistence/conversation-file.js';
+import { readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
 import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../../contracts/provider-exchange.js';
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
@@ -180,7 +180,7 @@ export class ConversationLLMActor extends BaseActor {
     this.input = {
       ...input,
       inputId: continuationInputId,
-      providerConversation: providerConversationProjection(readConversationMessages(this.projectRoot, input.sessionId)),
+      providerConversation: providerConversationProjection(readConversation(this.projectRoot, input.sessionId)),
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, result } },
     };
     this.waitingToolCall = null;
@@ -229,7 +229,7 @@ export class ConversationLLMActor extends BaseActor {
     return this.startProviderTurn({
       ...input,
       inputId: repairInputId,
-      providerConversation: providerConversationProjection(readConversationMessages(this.projectRoot, input.sessionId)),
+      providerConversation: providerConversationProjection(readConversation(this.projectRoot, input.sessionId)),
       episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
     }, { resetDeliveredToolCalls: false, signal });
   }
@@ -346,7 +346,7 @@ export class ConversationLLMActor extends BaseActor {
     const result = completion.result;
     if (persisted.kind === 'message' && result.kind === 'message') {
       this.conversationPublisher?.entryAppended(persisted.appended);
-      const activeConversation = readConversationMessages(this.projectRoot, input.sessionId);
+      const activeConversation = readConversation(this.projectRoot, input.sessionId);
       this.input = { ...input, providerConversation: providerConversationProjection(activeConversation) };
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.onTurnSettled();

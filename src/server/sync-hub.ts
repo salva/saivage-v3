@@ -1,5 +1,4 @@
-import type { DomainEvent, Subscription } from '../events/index.js';
-import type { OperatorBroadcastEventKind } from '../events/index.js';
+import type { DomainEvent, EventKind, Subscription } from '../events/index.js';
 import type { LiveSyncInvalidateTarget } from '../contracts/index.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { LiveSyncSocket } from './live-sync-socket.js';
@@ -14,7 +13,7 @@ export const liveSyncEventKinds = [
   'control_action_recorded',
   'analyst_tool_invoked',
   'conversation_changed',
-] as const satisfies readonly OperatorBroadcastEventKind[];
+] as const satisfies readonly EventKind[];
 
 export type LiveSyncEventKind = typeof liveSyncEventKinds[number];
 

@@ -4,16 +4,8 @@ import { GLOBAL_ANALYST_SESSION_ID, type AgentMessage, type MessageRole, type Co
 import type { ValidatedConversation } from '../../contracts/conversation-compaction.js';
 import type { ProviderConversationProjection } from '../../agents/llm-contracts.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
-import { appendConversationBatch, listConversationSessionIds as listDirectConversationSessionIds, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
+import { appendConversationBatch, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
-
-export function readConversationMessages(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation {
-  return readConversation(projectRoot, sessionId);
-}
-
-export function listConversationSessionIds(projectRoot: string): ConversationSessionId[] {
-  return listDirectConversationSessionIds(projectRoot);
-}
 
 export type UserContextMessageCategory = 'notification' | 'reviewer_descendant' | 'process_transition' | 'process_node' | 'continuation_hook';
 

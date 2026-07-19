@@ -3,8 +3,8 @@ import { ConversationSessionIdSchema, AnalystConversationSessionIdSchema } from 
 import { cardIdSchema } from './card-id.js';
 
 export type SeverityLevel = 'info' | 'warning' | 'error';
-export type OutboundPolicy = 'internal' | 'operator' | 'audit';
-export type EventDomain = 'runtime' | 'agent';
+type OutboundPolicy = 'internal' | 'operator' | 'audit';
+type EventDomain = 'runtime' | 'agent';
 
 const anyRecord = z.record(z.string(), z.unknown());
 
@@ -60,18 +60,9 @@ export const payloadSchemaByKind = Object.fromEntries(
 export type EventPayload<K extends EventKind> = K extends EventKind
   ? z.infer<z.ZodObject<(typeof EventRegistry)[K]['baseShape']>>
   : never;
-export type EventSeverity<K extends EventKind = EventKind> = (typeof EventRegistry)[K]['severity'];
 export const eventKindValues = Object.keys(EventRegistry) as EventKind[];
 export const runtimeEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].domain === 'runtime') as EventKind[];
 export const agentEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].domain === 'agent') as EventKind[];
-export const trackedEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].tracked);
-export const broadcastEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].broadcast);
-export const operatorBroadcastEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].broadcast && EventRegistry[kind].outbound === 'operator') as EventKind[];
-export type OperatorBroadcastEventKind = typeof operatorBroadcastEventKindValues[number];
-
-export function isOperatorBroadcastEventKind(kind: string): kind is OperatorBroadcastEventKind {
-  return (operatorBroadcastEventKindValues as readonly string[]).includes(kind);
-}
 
 export function getEventSeverity(kind: EventKind): SeverityLevel {
   return EventRegistry[kind].severity;

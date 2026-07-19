@@ -42,10 +42,6 @@ export {
   eventKindValues,
   runtimeEventKindValues,
   agentEventKindValues,
-  trackedEventKindValues,
-  broadcastEventKindValues,
-  operatorBroadcastEventKindValues,
-  isOperatorBroadcastEventKind,
   getEventSeverity,
   buildLoggedEventSchema,
 } from './event-catalog.js';
@@ -160,11 +156,7 @@ export type {
 } from './types.js';
 export type {
   SeverityLevel,
-  OutboundPolicy,
-  EventDomain,
   EventPayload,
-  EventSeverity,
-  OperatorBroadcastEventKind,
 } from './event-catalog.js';
 export {
   cardTypeSchema,

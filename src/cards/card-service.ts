@@ -109,9 +109,7 @@ export class CardService {
   constructor(readonly projectRoot: string, private readonly eventBus = new EventBus(), private readonly readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster(), private readonly cardAppendIo?: GrowingFileIo) {}
 
   setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void { this.notifyCard = notifyCard; }
-  cards(): CardService { return this; }
   get recordReader() { return { record: (cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest') => this.readRecord(cardId, filename, version), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
-  get namespace() { return { activeCardIds: () => this.list().map((card) => card.id), isActiveCardId: (cardId: string) => this.read(cardId) !== null }; }
 
   private state(): CardIndex {
     const state = new CardIndex();

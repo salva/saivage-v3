@@ -1,19 +1,12 @@
 import { createHash } from 'node:crypto';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, ConversationSessionId } from '../../schemas/index.js';
-import type { LlmCompleteResult, ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
+import type { ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
-import { readConversationMessages } from './conversation-session.js';
-import { appendConversationBatch, type ConversationFileContext } from '../../persistence/conversation-file.js';
+import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
-export {
-  loggedToolCallKey,
-  sourceInputIdFromToolCallMessageId,
-  sourceInputIdFromToolResultMessageId,
-} from '../../schemas/message-identity.js';
-
-export interface ToolSettlementRecord {
+interface ToolSettlementRecord {
   session_id: ConversationSessionId;
   source_input_id: string;
   tool_call_id: string;
@@ -22,17 +15,17 @@ export interface ToolSettlementRecord {
   created_at: string;
 }
 
-export interface SyntheticFailedToolResultPayload {
+interface SyntheticFailedToolResultPayload {
   success: false;
   error: string;
   data?: unknown;
 }
 
-export type ProviderVisibleToolResult =
+type ProviderVisibleToolResult =
   | { success: true; data: unknown }
   | { success: false; error: string; data?: unknown };
 
-export interface LoggedToolCall {
+interface LoggedToolCall {
   agent_id: string;
   source_input_id: string;
   tool_call_id: string;
@@ -68,16 +61,6 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
   }));
   appendConversationBatch(conversations.projectRoot, messages, conversations.changes);
   return messages;
-}
-
-export function appendLlmTurnFinished(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, result: LlmCompleteResult): void {
-  if (result.kind === 'message') {
-    appendLlmTurnMessage(conversations, input, result.content);
-    return;
-  }
-  result.tool_calls.forEach((toolCall, index) => {
-    appendToolCallMessage(conversations, input, toolCall, index);
-  });
 }
 
 export function appendLlmTurnMessage(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, content: string): AgentMessage {
@@ -150,7 +133,7 @@ export function appendToolResult(conversations: ConversationFileContext, record:
 }
 
 export function readLoggedToolCall(projectRoot: string, sessionId: ConversationSessionId, agentId: string, sourceInputId: string, toolCallId: string): LoggedToolCall {
-  const matches = readConversationMessages(projectRoot, sessionId)
+  const matches = readConversation(projectRoot, sessionId)
     .physicalRows
     .filter((message) => message.session_id === sessionId && message.kind === 'tool_call' && message.id === `${sourceInputId}:tool-call:${toolCallId}` && message.tool_call_id === toolCallId);
   if (matches.length === 0) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' input '${sourceInputId}' was not found.`);
@@ -165,17 +148,7 @@ export function readLoggedToolCall(projectRoot: string, sessionId: ConversationS
   }
 }
 
-export function appendTerminalProjectedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string }): AgentMessage {
-  return appendSyntheticToolResult(conversations, {
-    sessionId: record.sessionId,
-    sourceInputId: record.sourceInputId,
-    toolCallId: record.toolCallId,
-    toolName: record.toolName,
-    result: { projected: true },
-  });
-}
-
-export function toolCallAgentMessage(input: CanonicalLlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {
+function toolCallAgentMessage(input: CanonicalLlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {
   return agentMessageSchema.parse({
     id: `${input.inputId}:tool-call:${toolCall.id}`,
     session_id: input.sessionId,
@@ -201,7 +174,7 @@ export function appendLlmTurnToolCallBatch(conversations: ConversationFileContex
   return visible;
 }
 
-export function toolResultAgentMessage(record: ToolSettlementRecord): AgentMessage {
+function toolResultAgentMessage(record: ToolSettlementRecord): AgentMessage {
   return agentMessageSchema.parse({
     id: `${record.source_input_id}:tool-result:${record.tool_call_id}`,
     session_id: record.session_id,
@@ -245,7 +218,7 @@ export function appendProviderVisibleSyntheticFailedToolResult(conversations: Co
   return appendProviderVisibleSyntheticToolResult(conversations, { ...record, result: payload });
 }
 
-export function appendLlmTurnToolCall(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, toolCall: ToolCall): AgentMessage {
+function appendLlmTurnToolCall(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, toolCall: ToolCall): AgentMessage {
   return appendToolCallMessage(conversations, input, toolCall, 0);
 }
 

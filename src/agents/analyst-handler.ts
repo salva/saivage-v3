@@ -19,11 +19,11 @@ import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
-import { appendAnalystIngressBatch, appendAnalystRestartBatch, providerConversationProjection, readConversationMessages } from '../runtime/actors/conversation-session.js';
+import { appendAnalystIngressBatch, appendAnalystRestartBatch, providerConversationProjection } from '../runtime/actors/conversation-session.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { createConversationChangePublisher } from '../runtime/actors/conversation-publisher.js';
-import type { ConversationFileContext } from '../persistence/conversation-file.js';
+import { readConversation, type ConversationFileContext } from '../persistence/conversation-file.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
@@ -307,7 +307,7 @@ export class AnalystSessionActor extends BaseActor {
       this.pendingRestartConfirmation = false;
       if (input.userContent === 'RESTART SERVER') return this.scheduleConfirmedRestart(input);
     }
-    const store = this.args.runtimeDeps.cardStore.cards();
+    const store = this.args.runtimeDeps.cardStore;
     const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
     const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
     const previousToolCallFingerprints = new Set<string>();
@@ -458,7 +458,7 @@ export class AnalystSessionActor extends BaseActor {
       role: 'analyst',
       sessionId: this.sessionId,
       systemPrompt,
-      providerConversation: providerConversationProjection(readConversationMessages(this.args.projectRoot, this.sessionId)),
+      providerConversation: providerConversationProjection(readConversation(this.args.projectRoot, this.sessionId)),
       tools,
       terminalToolNames: [],
       modelParams: { temperature: modelParams.temperature },
@@ -601,7 +601,7 @@ export class AnalystRuntime {
   getAvailableToolNames(actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat'): string[] {
     const processScope = this.args.runtimeDeps.processRunner.createDirectScope(this.args.runtimeDeps.analystProcessRootScope, 'analyst-tool-catalog', 'operator_session');
     try {
-      const catalogStore = this.args.runtimeDeps.cardStore.cards();
+      const catalogStore = this.args.runtimeDeps.cardStore;
       const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store: catalogStore, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
       return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
     } finally {

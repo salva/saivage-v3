@@ -1,7 +1,7 @@
 import type { CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardService } from '../../cards/card-api.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
-import { listConversationSessionIds } from '../../runtime/actors/conversation-session.js';
+import { listConversationSessionIds } from '../../persistence/conversation-file.js';
 
 export interface CardBreadcrumbNode { card_id: string; card_type: string; title: string; status_text?: string; }
 export interface DormantPlannerRow { goal_card_id: string; planner_session_id: string; latest_self_report: Record<string, unknown> | null; }

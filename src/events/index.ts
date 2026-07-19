@@ -3,18 +3,11 @@ export {
   eventKindValues,
   runtimeEventKindValues,
   agentEventKindValues,
-  trackedEventKindValues,
-  broadcastEventKindValues,
-  operatorBroadcastEventKindValues,
-  isOperatorBroadcastEventKind,
   getEventSeverity,
   buildLoggedEventSchema,
   type SeverityLevel,
-  type OutboundPolicy,
   type EventKind,
   type EventPayload,
-  type EventSeverity,
-  type OperatorBroadcastEventKind,
 } from './registry.js';
 
 export {

@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
-import { PROJECT_CARD_ID } from '../cards/card-api.js';
-import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
-import { orderedCardsForTree, toCardView, computeCardLogicalPath } from '../application/read-models/card-view.js';
+import type { CardStatus, CardType } from '../schemas/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import {
@@ -19,8 +17,7 @@ import {
   urgencySchema,
 } from './tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { cardSummary, defaultParentForCreate, getStore, normalizeParentValue, preflightEnum, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
-import { recordSlotDefinitions } from '../runtime/records/record-slots.js';
+import { defaultParentForCreate, getStore, normalizeParentValue, preflightEnum, toolFailureFromError } from './analyst-tool-helpers.js';
 import { commitCancelCard, commitCreateCard, commitDeleteCards, commitReorderChildren, recheckCancelCard, recheckCreateCard, recheckDeleteCards, recheckReorderChildren } from '../application/analyst-mutation-operations.js';
 
 const createCardInput = z.object({
@@ -63,53 +60,6 @@ export async function delete_card(ctx: ToolContext, params: { ids: string[] }, s
 
 export async function cancel_card(ctx: ToolContext, params: { cardId: string; reason?: string }, signal?: AbortSignal): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, lifecycle: 'runtime_cancellation', recheck: recheckCancelCard, commit: commitCancelCard }, signal);
-}
-
-export async function list_cards(ctx: ToolContext, params: { status?: CardStatus | CardStatus[]; type?: CardType | CardType[]; parent?: string; tag?: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); let cards = orderedCardsForTree(store);
-    if (params.status) { const statuses = Array.isArray(params.status) ? params.status : [params.status]; cards = cards.filter((c) => statuses.includes(c.status)); }
-    if (params.type) { const types = Array.isArray(params.type) ? params.type : [params.type]; cards = cards.filter((c) => types.includes(c.type)); }
-    if (params.parent !== undefined) cards = params.parent === null ? cards.filter((c) => c.parent === null) : cards.filter((c) => store.listChildren(params.parent!).includes(c.id));
-    if (params.tag) cards = cards.filter((c) => c.tags.includes(params.tag!));
-    return { success: true, data: cards.map((c) => ({ id: c.id, logical_path: computeCardLogicalPath(store, c), type: c.type, title: c.title, status: c.status, priority: c.priority, parent: c.parent, tags: c.tags })) };
-  } catch (err) { return toolFailureFromError(err); }
-}
-
-export async function get_card(ctx: ToolContext, params: { id: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure(`Card '${params.id}' not found.`, { id: params.id });
-    const children = store.listChildren(params.id).map((cid) => store.read(cid)).filter((c): c is CardRecord => c !== null).map((child) => cardSummary(child, store));
-    const records = cardRecordSummaries(store, params.id);
-    return { success: true, data: { ...toCardView(store, card), effective_updated_at: effectiveUpdatedAt(store, params.id), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
-  } catch (err) { return toolFailureFromError(err); }
-}
-
-function effectiveUpdatedAt(store: ReturnType<typeof getStore>, cardId: string): string | null {
-  const committedTimes = [store.recordReader.cardArtifacts(cardId).current.committed_at, ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch { return null; } })].filter((value): value is string => value !== null && value !== undefined);
-  if (committedTimes.length === 0) return null;
-  return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
-}
-
-function cardRecordSummaries(store: ReturnType<typeof getStore>, cardId: string): Array<Record<string, unknown>> {
-  return recordSlotDefinitions()
-    .filter((definition) => definition.exposed)
-    .map((definition) => {
-      try {
-        const record = store.readRecord(cardId, definition.filename);
-        const content = record.artifact.content; const max = 4000;
-        return { filename: definition.filename, path: `record:///${definition.filename}`, url: record.recordUrl, latest: record.version, format: definition.format, schema: definition.schema, writers: definition.writers, size: Buffer.byteLength(content), modifiedAt: record.artifact.committed_at, writer: record.artifact.writer, inline: { content: content.slice(0, max), truncated: content.length > max } };
-      } catch { return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null }; }
-    });
-}
-
-interface TreeNode { id: string; type: string; title: string; status: string; logical_path: string | null; children: TreeNode[]; }
-function buildNode(store: import('../cards/card-api.js').CardService, id: string): TreeNode | null {
-  const card = store.read(id); if (!card) return null;
-  return { id: card.id, logical_path: computeCardLogicalPath(store, card), type: card.type, title: card.title, status: card.status, children: store.listChildren(id).map((cid) => buildNode(store, cid)).filter((n): n is TreeNode => n !== null) };
-}
-
-export async function get_tree(ctx: ToolContext, params: { rootId?: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const rootId = params.rootId ?? PROJECT_CARD_ID; if (!store.read(rootId)) return toolFailure(`Root card '${rootId}' not found.`, { rootId }); const tree = buildNode(store, rootId); if (!tree) return toolFailure(`Failed to build tree from '${rootId}'.`); return { success: true, data: tree }; }
-  catch (err) { return toolFailureFromError(err); }
 }
 
 export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
