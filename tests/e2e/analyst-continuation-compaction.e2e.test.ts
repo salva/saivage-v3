@@ -12,8 +12,8 @@ import { ReadModelChangeBroadcaster } from '../../src/application/read-model-cha
 import { CardService } from '../../src/cards/card-service.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
-import { EventBus } from '../../src/events/index.js';
-import { createErrorLog, createEventLog } from '../../src/observability/index.js';
+import { EventBus, type DomainEvent } from '../../src/events/index.js';
+import { createEventLog } from '../../src/observability/index.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { classifyConversationRounds, estimateMessageTokens } from '../../src/runtime/actors/compaction/round-classifier.js';
@@ -74,6 +74,8 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
       card_processes: DEFAULT_CARD_PROCESSES,
     });
     const eventBus = new EventBus();
+    const analystToolEvents: DomainEvent<'analyst_tool_invoked'>[] = [];
+    const analystToolSubscription = eventBus.subscribe('analyst_tool_invoked', (event) => { analystToolEvents.push(event); });
     const readModelChanges = new ReadModelChangeBroadcaster();
     const appLogs = { projectRoot, changes: readModelChanges };
     const cardStore = new CardService(projectRoot, eventBus, readModelChanges);
@@ -84,7 +86,6 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
       configAuthority: testConfigAuthority(projectRoot),
       eventBus,
       eventLogger: createEventLog(projectRoot, appLogs, eventBus),
-      errorLogger: createErrorLog(projectRoot, appLogs, eventBus),
       appLogs,
       cardStore,
       readModelChanges,
@@ -102,6 +103,10 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
     expect(response).toMatchObject({ sessionId: 'analyst:global', restart: null });
     expect(response.toolInvocations).toHaveLength(1);
     expect(response.toolInvocations![0]).toMatchObject({ tool: 'list_cards', params: {}, result: { success: true } });
+    expect(analystToolEvents).toHaveLength(1);
+    expect(analystToolEvents[0]!.payload).toEqual({ sessionId: 'analyst:global', tool: 'list_cards', success: true, summary: 'completed' });
+    expect(analystToolEvents[0]!.payload).not.toHaveProperty('params');
+    expect(analystToolEvents[0]!.payload).not.toHaveProperty('result');
     expect(primaryRequests).toHaveLength(4);
     expect(continuationInputId).not.toBeNull();
     expect(primaryRequests[2]!.inputId).toBe(continuationInputId);
@@ -157,6 +162,7 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
     expect(latestProjection.messages.filter((row) => row.id.endsWith(':rendered'))).toHaveLength(1);
     expect(latestProjection.messages.find((row) => row.id.endsWith(':rendered'))!.content).toBe(conversation.latestCompaction!.renderedContext);
     expect(latestProjection.messages.some((row) => row.kind === 'context_compaction')).toBe(false);
+    analystToolSubscription.unsubscribe();
   });
 });
 

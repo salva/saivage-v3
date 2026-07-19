@@ -10,7 +10,7 @@ import { createRuntimeApplication } from '../../src/application/runtime-composit
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { EventBus } from '../../src/events/index.js';
-import { createErrorLog, createEventLog } from '../../src/observability/index.js';
+import { createEventLog } from '../../src/observability/index.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 
@@ -43,7 +43,7 @@ describe('required autonomous compaction E2E', () => {
     const eventBus = new EventBus();
     const readModelChanges = new ReadModelChangeBroadcaster();
     const appLogs = { projectRoot, changes: readModelChanges };
-    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs, eventBus), errorLogger: createErrorLog(projectRoot, appLogs, eventBus), appLogs, cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges });
+    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs, eventBus), appLogs, cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges });
 
     await application.runtimeApi.start();
     await application.runtimeApi.startProject();

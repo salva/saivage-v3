@@ -9,7 +9,7 @@ import { createRuntimeApplication, type RuntimeApiFactoryDeps } from '../../src/
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { EventBus } from '../../src/events/index.js';
-import { createErrorLog, createEventLog } from '../../src/observability/index.js';
+import { createEventLog } from '../../src/observability/index.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
@@ -35,7 +35,7 @@ function services(runtimeApiFactory: (deps: RuntimeApiFactoryDeps) => any, selec
   const appLogs = { projectRoot, changes: readModelChanges };
   return {
     projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config: selectedConfig, configAuthority: testConfigAuthority(projectRoot), eventBus,
-    eventLogger: createEventLog(projectRoot, appLogs, eventBus), errorLogger: createErrorLog(projectRoot, appLogs, eventBus), appLogs,
+    eventLogger: createEventLog(projectRoot, appLogs, eventBus), appLogs,
     cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges, runtimeApiFactory,
   };
 }
@@ -60,6 +60,8 @@ describe('runtime compaction composition', () => {
     const app = createRuntimeApplication(services(runtimeApiFactory));
 
     expect(runtimeApiFactory).toHaveBeenCalledTimes(1);
+    expect(app.runtimeApi).toBe(app.runtimeControl);
+    expect(app.runtimeApi).not.toBe(runtimeApiFactory.mock.results[0]!.value);
     expect(deps.cardProcesses.planning.nodes.get('plan')?.outcomes).toEqual(['complete_direct', 'admit_review', 'blocked', 'failed']);
     expect(deps.processPrompts.get('goal', 'plan' as any)).toContain('current planning step');
     expect(deps.compactionPolicy).toEqual({ input_budget_tokens: 10000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim' });

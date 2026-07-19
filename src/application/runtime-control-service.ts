@@ -33,7 +33,6 @@ export interface RuntimeControlMechanics extends Omit<RuntimeApi, 'pause' | 'res
 
 export class RuntimeControlService implements RuntimeApi {
   constructor(private readonly options: {
-    projectRoot: string;
     interventionBinding: RuntimeInterventionBinding;
     mechanics?: RuntimeControlMechanics;
   }) {}
@@ -46,41 +45,29 @@ export class RuntimeControlService implements RuntimeApi {
   cleanupForApplicationStop(): Promise<void> { return this.requireMechanics().cleanupForApplicationStop(); }
 
   async startProject(): Promise<StartProjectResult> {
-    try {
-      this.options.interventionBinding.markNotReady();
-      const prepared = await this.requireMechanics().beginStartProject();
-      this.options.interventionBinding.markNotReady();
-      if (!prepared.accepted) {
-        return prepared.result;
-      }
-      const runtime = this.requireMechanics().launchStartedProject(prepared.launch);
-      const result: StartProjectResult = { runtime, status: runtime.status, started: true, stopped: false };
-      return result;
-    } catch (error) {
-      throw error;
+    this.options.interventionBinding.markNotReady();
+    const prepared = await this.requireMechanics().beginStartProject();
+    this.options.interventionBinding.markNotReady();
+    if (!prepared.accepted) {
+      return prepared.result;
     }
+    const runtime = this.requireMechanics().launchStartedProject(prepared.launch);
+    const result: StartProjectResult = { runtime, status: runtime.status, started: true, stopped: false };
+    return result;
   }
 
   pause(): void {
-    try {
-      const mechanics = this.requireMechanics();
-      const prepared = mechanics.beginPause();
-      this.options.interventionBinding.markNotReady();
-      if (prepared.settled) this.options.interventionBinding.markPausedReady();
-    } catch (error) {
-      throw error;
-    }
+    const mechanics = this.requireMechanics();
+    const prepared = mechanics.beginPause();
+    this.options.interventionBinding.markNotReady();
+    if (prepared.settled) this.options.interventionBinding.markPausedReady();
   }
 
   resume(): void {
-    try {
-      const mechanics = this.requireMechanics();
-      mechanics.beginResume();
-      this.options.interventionBinding.markNotReady();
-      mechanics.finishResume();
-    } catch (error) {
-      throw error;
-    }
+    const mechanics = this.requireMechanics();
+    mechanics.beginResume();
+    this.options.interventionBinding.markNotReady();
+    mechanics.finishResume();
   }
 
   async stopProject(): Promise<StopProjectResult> {

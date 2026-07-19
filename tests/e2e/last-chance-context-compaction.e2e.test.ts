@@ -13,7 +13,7 @@ import { createRuntimeApplication } from '../../src/application/runtime-composit
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { EventBus } from '../../src/events/index.js';
-import { createErrorLog, createEventLog } from '../../src/observability/index.js';
+import { createEventLog } from '../../src/observability/index.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
@@ -78,7 +78,7 @@ describe('ordinary-runtime last-chance context compaction E2E', () => {
     const readModelChanges = new ReadModelChangeBroadcaster();
     const appLogs = { projectRoot, changes: readModelChanges };
     const cards = new CardService(projectRoot, eventBus, readModelChanges);
-    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs, eventBus), errorLogger: createErrorLog(projectRoot, appLogs, eventBus), appLogs, cardStore: cards, readModelChanges });
+    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs, eventBus), appLogs, cardStore: cards, readModelChanges });
 
     await application.runtimeApi.start();
     await application.runtimeApi.startProject();

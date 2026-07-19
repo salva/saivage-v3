@@ -8,7 +8,7 @@ import {
 } from './analyst-prompt.js';
 import { CardService } from '../cards/card-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
-import type { EventBus, EventPayload } from '../events/index.js';
+import type { EventBus } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
 import type { EventLog } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
@@ -90,7 +90,6 @@ export interface AnalystRuntimeDeps {
   runtime: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'stopProject' | 'cancelCard' | 'notifyCard' | 'getStatus'>;
   runtimeControl?: import('../application/runtime-control-service.js').RuntimeControlApplicationPort;
   eventLogger?: EventLog;
-  emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   eventBus: EventBus;
   mcpManager?: McpManager;
   provider: LLMProviderPort;
@@ -160,7 +159,7 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
 
 function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: AnalystConversationSessionId, tool: string, result: ToolResult): void {
   const payload = summarizeForBroadcast(tool, result);
-  deps.emitAnalystToolInvoked({ sessionId, tool, success: result.success, ...payload });
+  deps.eventBus.emit('analyst_tool_invoked', { sessionId, tool, success: result.success, ...payload });
 }
 
 function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardService; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {

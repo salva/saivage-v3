@@ -19,10 +19,10 @@ function mechanics(): RuntimeControlMechanics {
     beginResume: jest.fn(() => undefined),
     finishResume: jest.fn(),
     notifyCard: (_cardId, notification) => ({ ok: true, notificationId: notification.id }),
-    subscribe: () => ({ id: 'test', pause() {}, resume() {}, unsubscribe() {} }),
-    getStatus: () => ({ status: 'running', currentCardId: 'project', pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }),
-    getRuntimeState: () => state,
-    getActorRuntimeReadModel: () => ({ pauseMode: 'running', cards: [] }),
+    subscribe: jest.fn(() => ({ id: 'test', pause() {}, resume() {}, unsubscribe() {} })),
+    getStatus: jest.fn(() => ({ status: 'running' as const, currentCardId: 'project', pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
+    getRuntimeState: jest.fn(() => state),
+    getActorRuntimeReadModel: jest.fn(() => ({ pauseMode: 'running' as const, cards: [] })),
     captureAutonomousExecutingLlmSnapshots: () => [],
   };
 }
@@ -30,11 +30,17 @@ function mechanics(): RuntimeControlMechanics {
 describe('RuntimeControlService process-local control', () => {
   it('starts through source-free preparation and launches the prepared project', async () => {
     const runtime = mechanics();
-    const service = new RuntimeControlService({ projectRoot: '/project', interventionBinding: new RuntimeInterventionBinding(), mechanics: runtime });
+    const interventionBinding = new RuntimeInterventionBinding();
+    const markNotReady = jest.spyOn(interventionBinding, 'markNotReady');
+    const service = new RuntimeControlService({ interventionBinding, mechanics: runtime });
 
     await expect(service.startProject()).resolves.toEqual({ runtime: state, status: 'running', started: true, stopped: false });
     expect(runtime.beginStartProject).toHaveBeenCalledWith();
     expect(runtime.launchStartedProject).toHaveBeenCalledWith(launch);
+    expect(markNotReady).toHaveBeenCalledTimes(2);
+    expect(markNotReady.mock.invocationCallOrder[0]).toBeLessThan((runtime.beginStartProject as jest.Mock).mock.invocationCallOrder[0]!);
+    expect((runtime.beginStartProject as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(markNotReady.mock.invocationCallOrder[1]!);
+    expect(markNotReady.mock.invocationCallOrder[1]).toBeLessThan((runtime.launchStartedProject as jest.Mock).mock.invocationCallOrder[0]!);
     expect(service.getRuntimeState()).toBe(state);
   });
 
@@ -42,13 +48,20 @@ describe('RuntimeControlService process-local control', () => {
     const runtime = mechanics();
     let projected = state;
     runtime.getRuntimeState = jest.fn(() => projected);
-    const service = new RuntimeControlService({ projectRoot: '/project', interventionBinding: new RuntimeInterventionBinding(), mechanics: runtime });
+    const service = new RuntimeControlService({ interventionBinding: new RuntimeInterventionBinding(), mechanics: runtime });
     await service.startProject();
     projected = { ...state, status: 'paused', current_card_id: 'card-a', updated_at: '2026-07-18T00:00:02.000Z' };
     expect(service.getRuntimeState()).toBe(projected);
     service.pause();
     service.resume();
+    const subscription = service.subscribe({ handler: () => {} });
+    expect(service.getStatus()).toEqual({ status: 'running', currentCardId: 'project', pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' });
+    expect(service.getActorRuntimeReadModel()).toEqual({ pauseMode: 'running', cards: [] });
+    expect(subscription.id).toBe('test');
     expect(runtime.getRuntimeState).toHaveBeenCalledTimes(1);
+    expect(runtime.getStatus).toHaveBeenCalledTimes(1);
+    expect(runtime.getActorRuntimeReadModel).toHaveBeenCalledTimes(1);
+    expect(runtime.subscribe).toHaveBeenCalledTimes(1);
     expect(runtime.beginPause).toHaveReturnedWith({ settled: false });
     expect(runtime.beginResume).toHaveBeenCalledWith();
   });
@@ -57,17 +70,54 @@ describe('RuntimeControlService process-local control', () => {
     const runtime = mechanics();
     (runtime.launchStartedProject as jest.Mock).mockImplementation(() => { throw new Error('launch failed'); });
     runtime.getRuntimeState = jest.fn(() => null);
-    const service = new RuntimeControlService({ projectRoot: '/project', interventionBinding: new RuntimeInterventionBinding(), mechanics: runtime });
+    const service = new RuntimeControlService({ interventionBinding: new RuntimeInterventionBinding(), mechanics: runtime });
     await expect(service.startProject()).rejects.toThrow('launch failed');
     expect(service.getRuntimeState()).toBeNull();
   });
 
   it('keeps project stop separate from terminal application disposal', async () => {
     const runtime = mechanics();
-    const service = new RuntimeControlService({ projectRoot: '/project', interventionBinding: new RuntimeInterventionBinding(), mechanics: runtime });
+    const interventionBinding = new RuntimeInterventionBinding();
+    const service = new RuntimeControlService({ interventionBinding, mechanics: runtime });
     await expect(service.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(interventionBinding.interventionReadiness()).toBe('stopped');
     expect(runtime.stopProject).toHaveBeenCalledTimes(1);
     await service.cleanupForApplicationStop();
     expect(runtime.cleanupForApplicationStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves pause, resume, and stop mechanics order around readiness transitions', async () => {
+    const runtime = mechanics();
+    const interventionBinding = new RuntimeInterventionBinding();
+    interventionBinding.markStoppedReady();
+    const markNotReady = jest.spyOn(interventionBinding, 'markNotReady');
+    const markPausedReady = jest.spyOn(interventionBinding, 'markPausedReady');
+    const markStoppedReady = jest.spyOn(interventionBinding, 'markStoppedReady');
+    (runtime.beginPause as jest.Mock).mockReturnValue({ settled: true });
+    const service = new RuntimeControlService({ interventionBinding, mechanics: runtime });
+
+    service.pause();
+    expect(interventionBinding.interventionReadiness()).toBe('paused');
+    expect((runtime.beginPause as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(markNotReady.mock.invocationCallOrder[0]!);
+    expect(markNotReady.mock.invocationCallOrder[0]).toBeLessThan(markPausedReady.mock.invocationCallOrder[0]!);
+
+    service.resume();
+    expect(interventionBinding.interventionReadiness()).toBe('not_ready');
+    expect((runtime.beginResume as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(markNotReady.mock.invocationCallOrder[1]!);
+    expect(markNotReady.mock.invocationCallOrder[1]).toBeLessThan((runtime.finishResume as jest.Mock).mock.invocationCallOrder[0]!);
+
+    await service.stopProject();
+    expect(interventionBinding.interventionReadiness()).toBe('stopped');
+    expect((runtime.stopProject as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(markStoppedReady.mock.invocationCallOrder[0]!);
+  });
+
+  it('does not mark stopped-ready when containment fails', async () => {
+    const runtime = mechanics();
+    (runtime.stopProject as jest.Mock).mockImplementation(async () => { throw new Error('containment failed'); });
+    const interventionBinding = new RuntimeInterventionBinding();
+    const service = new RuntimeControlService({ interventionBinding, mechanics: runtime });
+
+    await expect(service.stopProject()).rejects.toThrow('containment failed');
+    expect(interventionBinding.interventionReadiness()).toBe('not_ready');
   });
 });

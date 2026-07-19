@@ -228,7 +228,7 @@ function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Pr
   const scheduleRestart = jest.fn();
   const runtime = new AnalystRuntime({ projectRoot, config, runtimeDeps: {
     configAuthority: {}, cardStore: new CardService(projectRoot), runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard: jest.fn(), notifyCard: jest.fn(), getStatus: jest.fn() },
-    emitAnalystToolInvoked: jest.fn(), eventBus, provider: { completeTurn: primary, projectProviderExchanges }, processRunner: runner, analystProcessRootScope: runner.analystRootScope,
+    eventBus, provider: { completeTurn: primary, projectProviderExchanges }, processRunner: runner, analystProcessRootScope: runner.analystRootScope,
     compactionPolicy, compactor: { shouldCompact: preventive ? (compactImplementation === compact ? shouldCompact : () => true) : () => false, compact: compactImplementation }, summarizerProvider,
     conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), interventionReadiness: new RuntimeInterventionBinding(),
     runtimeProjectionChanged: jest.fn(), captureExecutingLlmSnapshots: () => [],
