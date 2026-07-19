@@ -52,6 +52,7 @@ class ControlledProcessor implements CardProcessorActor {
     return result;
   }
   pendingJoinTaskCount(): number { return 0; }
+  executingLlmSnapshot(): null { return null; }
 }
 
 describe('CardActor authoritative cancellation', () => {

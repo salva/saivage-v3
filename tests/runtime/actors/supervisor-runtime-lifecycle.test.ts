@@ -137,6 +137,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
 
     snapshots.length = 0;
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(supervisor.captureAutonomousExecutingLlmSnapshots()).toEqual([]);
     expect(snapshots[0]).toMatchObject({ status: { status: 'closing', currentCardId: 'project' }, runtimeCardId: 'project', cards: ['project'] });
     expect(snapshots.some(({ status, cards }) => status.status === 'closing' && cards.includes('project'))).toBe(true);
     expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], readiness: 'stopped' });

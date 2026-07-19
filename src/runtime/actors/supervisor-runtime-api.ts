@@ -2,7 +2,6 @@ import { EventBus, type Subscription, type SubscriptionOptions } from '../../eve
 import { cardRecordSchema, type CardNotification, type CardRecord, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { CardActor, type CardActorDeps, type CardCancellationResult } from './card-actor.js';
-import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import type { ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
@@ -268,7 +267,10 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', cards };
   }
   captureAutonomousExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[] {
-    return [...this.cardActors.values()].flatMap((actor) => actor.processor instanceof BaseMainLLMCardProcessorActor ? [actor.processor.executingLlmSnapshot()].filter((snapshot): snapshot is ExecutingLlmSnapshot => snapshot !== null) : []);
+    return [...this.cardActors.values()].flatMap((actor) => {
+      const snapshot = actor.processor?.executingLlmSnapshot() ?? null;
+      return snapshot ? [snapshot] : [];
+    });
   }
 
   private runtimeState(): RuntimeState | null {

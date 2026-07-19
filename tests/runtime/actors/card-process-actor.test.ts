@@ -57,6 +57,7 @@ describe('CardProcessActor configured graph execution', () => {
     const roles: string[] = [];
     const h = harness(async (input) => {
       roles.push(input.role);
+      expect(h.actor.executingLlmSnapshot()).toMatchObject({ role: input.role, cardId: 'project', activity: { mode: 'active' } });
       const filename = input.role === 'planner' ? 'status.md' : 'review.md';
       const open = h.store.openRecord('project', filename); h.store.editRecord('project', filename, open.version, input.role);
       return input.role === 'planner' ? tool('plan-review', 'admit_review', 'review it') : tool('review-approved', 'approved', 'approved');
@@ -65,12 +66,27 @@ describe('CardProcessActor configured graph execution', () => {
     expect(outcome.status).toBe('done');
     expect(roles).toEqual(['planner', 'reviewer']);
     expect(h.claimResult).toHaveBeenCalledTimes(1);
+    expect(h.actor.executingLlmSnapshot()).toBeNull();
     const reviewerRows = readConversation(h.projectRoot, 'reviewer:project').sourceRows.filter((row) => row.role === 'user');
     expect(reviewerRows.map((row) => row.content)).toEqual([
       'Descendant work:\n(none)',
       expect.stringContaining('Previous process node: plan'),
       'test process prompt: review',
     ]);
+  });
+
+  it('reuses one pending activation promise and clears its executing snapshot after settlement', async () => {
+    let release!: (completion: ProviderTurnCompletion) => void;
+    const h = harness(() => new Promise<ProviderTurnCompletion>((resolve) => { release = resolve; }));
+    const first = h.actor.activate(h.input(), new AbortController().signal);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.actor.executingLlmSnapshot()).toMatchObject({ role: 'planner', cardId: 'project', activity: { mode: 'active' } });
+    const second = h.actor.activate(h.input(), new AbortController().signal);
+    expect(second).toBe(first);
+    const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'complete');
+    release(tool('complete', 'complete_direct'));
+    await expect(first).resolves.toMatchObject({ status: 'done' });
+    expect(h.actor.executingLlmSnapshot()).toBeNull();
   });
 
   it('captures one baseline across correction and accepts a later revision of the same open record', async () => {

@@ -22,7 +22,7 @@ import type { CardService } from '../../cards/card-service.js';
 import type { ActiveCardLeaf } from '../active-card-leaf.js';
 import { isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
-import type { StructuralChildRelationship } from './executing-llm-snapshot.js';
+import type { ExecutingLlmSnapshot, StructuralChildRelationship } from './executing-llm-snapshot.js';
 import type { CardProcessEntry, CompiledCardProcesses } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 
@@ -59,6 +59,7 @@ export interface CardProcessorActor {
   suppressContinuationAndPrepareJoin(reason: unknown): void;
   joinActivation(): Promise<readonly InvocationJoinOutcome[]>;
   pendingJoinTaskCount(): number;
+  executingLlmSnapshot(): ExecutingLlmSnapshot | null;
 }
 
 export type ActorJoinOutcome =
