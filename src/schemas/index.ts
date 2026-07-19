@@ -1,12 +1,8 @@
 export {
-  actorKindSchema,
-  actorKinds,
   actorPauseModeSchema,
   actorPauseModes,
   llmActorPhaseSchema,
   llmActorPhases,
-  llmActorRoleSchema,
-  llmActorRoles,
   parseLlmActorPhase,
   publicCardActorStateSchema,
   publicCardActorStates,
@@ -31,10 +27,8 @@ export {
   type ConversationRole,
 } from './conversation-session-id.js';
 export type {
-  ActorKind,
   ActorPauseMode,
   LlmActorPhase,
-  LlmActorRole,
   PublicCardActorState,
 } from './actor-vocabulary.js';
 export {

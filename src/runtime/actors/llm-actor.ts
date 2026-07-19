@@ -2,9 +2,8 @@ import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
-import { parseConversationSessionId, type AgentMessage } from '../../schemas/index.js';
+import { parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
-import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
 import { appendUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import type { ToolResult } from '../../tools/invocation.js';
@@ -65,7 +64,7 @@ export class ConversationLLMActor extends BaseActor {
   };
 
   readonly projectRoot: string;
-  readonly agentId: string;
+  readonly agentId: ConversationSessionId;
   readonly provider: LLMProviderPort;
   readonly gate: RuntimeGate;
   input: CanonicalLlmInvocationInput | null = null;
@@ -90,9 +89,8 @@ export class ConversationLLMActor extends BaseActor {
 
   constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher; runtimeProjectionChanged?: () => void }) {
     super();
-    if (actorKindFromId(args.agentId) !== 'llm') throw new Error(`LLMActor requires an LLM actor id: ${args.agentId}`);
     this.projectRoot = args.projectRoot;
-    this.agentId = args.agentId;
+    this.agentId = parseConversationSessionId(args.agentId);
     this.provider = args.provider;
     this.conversations = args.conversations;
     this.gate = args.gate ?? new RuntimeGate();

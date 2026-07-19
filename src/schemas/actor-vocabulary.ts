@@ -1,13 +1,5 @@
 import { z } from 'zod';
 
-export const actorKinds = ['card', 'llm', 'processor'] as const;
-export type ActorKind = typeof actorKinds[number];
-export const actorKindSchema = z.enum(actorKinds);
-
-export const llmActorRoles = ['planner', 'reviewer', 'executor', 'analyst'] as const;
-export type LlmActorRole = typeof llmActorRoles[number];
-export const llmActorRoleSchema = z.enum(llmActorRoles);
-
 export const llmActorPhases = ['idle', 'calling_provider', 'waiting_tool'] as const;
 export type LlmActorPhase = typeof llmActorPhases[number];
 export const llmActorPhaseSchema = z.enum(llmActorPhases);

@@ -36,11 +36,17 @@ export interface CardActivationInput {
   claimResult(): void;
 }
 
-export interface CardActivationCaller {
-  kind: 'root' | 'parent';
-  cardId?: string;
+export interface RootCardActivationCaller {
+  kind: 'root';
+}
+
+export interface ParentCardActivationCaller {
+  kind: 'parent';
+  cardId: string;
   sessionId?: string | null;
 }
+
+export type CardActivationCaller = RootCardActivationCaller | ParentCardActivationCaller;
 
 export interface CardNotificationDeliveryPort {
   selectNotifications(): CardNotification[];
@@ -134,7 +140,6 @@ export class CardActor extends BaseActor {
   #ordinaryStructuralRelationship: StructuralChildRelationship | null = null;
   #activationEntry: CardProcessEntry | null = null;
   #alreadyStabilizedRoles: ReadonlySet<'planner' | 'reviewer' | 'executor'> = new Set();
-  #requiresStoppedAdmission = false;
   #continuationSuppressed = false;
   #stopSettlementEventQueued = false;
 
@@ -171,9 +176,9 @@ export class CardActor extends BaseActor {
     return CardActor.fromCard({ card, deps: this.deps });
   }
 
-  activate(caller: CardActivationCaller, parentAdmit?: () => void): Promise<CardActivationOutcome> {
+  activate(caller: ParentCardActivationCaller, parentAdmit: () => void): Promise<CardActivationOutcome> {
     const card = this.requireCard();
-    if (!this.isValidCaller(card, caller)) {
+    if (!this.isValidParentCaller(card, caller)) {
       return Promise.reject(new Error(`Card '${this.cardId}' cannot be activated by caller '${caller.cardId ?? caller.kind}'.`));
     }
     if (!isActivatable(card.status)) {
@@ -186,26 +191,20 @@ export class CardActor extends BaseActor {
     if (this.#result) {
       return Promise.reject(new Error(`Card '${this.cardId}' already has a pending activation.`));
     }
-    if (caller.kind === 'parent') {
-      if (!parentAdmit) return Promise.reject(new Error(`Card '${this.cardId}' activation requires its parent planner mutation capability.`));
-      parentAdmit();
-      if (this.requireCard().status !== 'running') return Promise.reject(new Error(`Parent planner did not admit child '${this.cardId}' as running.`));
-    }
+    parentAdmit();
+    if (this.requireCard().status !== 'running') return Promise.reject(new Error(`Parent planner did not admit child '${this.cardId}' as running.`));
     this.#activationEntry = entry;
     this.#alreadyStabilizedRoles = new Set();
-    this.#requiresStoppedAdmission = caller.kind === 'root' && entry === 'STOPPED';
     this.#activationId = randomUUID();
     this.#activationCaller = caller;
     this.#result = deferred<CardActivationOutcome>();
     this.#terminalClaim = 'open';
     this.#stopSettlementEventQueued = false;
     this.claimLiveOwnership();
-    if (caller.kind === 'parent') this.deps.currentness.enterChild(caller.cardId!, this.cardId);
+    this.deps.currentness.enterChild(caller.cardId, this.cardId);
     this.parkedSendEvent('activate');
     const pending = this.#result.promise;
-    return caller.kind === 'parent'
-      ? pending.finally(() => this.deps.currentness.resumeParent(this.cardId, caller.cardId!))
-      : pending;
+    return pending.finally(() => this.deps.currentness.resumeParent(this.cardId, caller.cardId));
   }
 
   restartRunning(caller: CardActivationCaller): Promise<CardActivationOutcome> {
@@ -221,7 +220,6 @@ export class CardActor extends BaseActor {
     this.#activationCaller = caller;
     this.#activationEntry = entry;
     this.#alreadyStabilizedRoles = alreadyStabilizedRoles;
-    this.#requiresStoppedAdmission = false;
     this.#result = deferred<CardActivationOutcome>();
     this.#terminalClaim = 'open';
     this.#stopSettlementEventQueued = false;
@@ -414,10 +412,6 @@ export class CardActor extends BaseActor {
       this.processor.start?.();
       this.#processorStarted = true;
     }
-    if (this.#activationCaller?.kind === 'root') {
-      if (this.#requiresStoppedAdmission) this.store.activateStopped(this.cardId);
-      else this.writeStoreStatus('running');
-    }
     if (!this.#result) throw new Error(`Card '${this.cardId}' entered running without pending activation.`);
     if (!this.#activationId) throw new Error(`Card '${this.cardId}' entered running without an activation id.`);
     const caller = this.#activationCaller;
@@ -463,7 +457,6 @@ export class CardActor extends BaseActor {
     this.#activationAbort = null;
     this.#activationCaller = null;
     this.#activationEntry = null;
-    this.#requiresStoppedAdmission = false;
     this.sendEvent('settled');
     this.releaseSettledOwnership();
     this.#result = null;
@@ -505,7 +498,6 @@ export class CardActor extends BaseActor {
     this.#result = null;
     this.#activationCaller = null;
     this.#activationEntry = null;
-    this.#requiresStoppedAdmission = false;
     this.#activationId = null;
     this.#activationAbort = null;
     if (this.state() === 'running') this.sendEvent('cancel');
@@ -531,9 +523,8 @@ export class CardActor extends BaseActor {
     }
   }
 
-  private isValidCaller(card: CardRecord, caller: CardActivationCaller): boolean {
-    if (card.parent === null) return caller.kind === 'root';
-    return caller.kind === 'parent' && caller.cardId === card.parent;
+  private isValidParentCaller(card: CardRecord, caller: CardActivationCaller): boolean {
+    return caller.kind === 'parent' && card.parent !== null && caller.cardId === card.parent;
   }
 
   private requireCard(): CardRecord {

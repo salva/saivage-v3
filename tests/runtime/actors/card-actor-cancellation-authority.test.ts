@@ -101,9 +101,42 @@ describe('CardActor authoritative cancellation', () => {
     return { actor: value, processor };
   }
 
+  function prepareBacklogRoot(owned: { actor: CardActor; processor: ControlledProcessor }): Promise<CardActivationOutcome> {
+    expect(cards.read('project')?.status).toBe('backlog');
+    cards.setStatus('project', 'running');
+    const activation = owned.actor.prepareRunning({ kind: 'root' }, 'BACKLOG');
+    owned.actor.startPreparedProcessor();
+    return activation;
+  }
+
+  it('rejects a forged direct-root activation before admission or activation side effects', async () => {
+    const owned = actor('project');
+    const callback = jest.fn();
+    const sendEvent = jest.spyOn(owned.actor as unknown as { sendEvent(name: string): void }, 'sendEvent');
+    const cardBefore = cards.read('project')!;
+    const projectionChanged = owned.actor.deps.runtimeProjectionChanged as jest.Mock;
+    projectionChanged.mockClear();
+
+    await expect(owned.actor.activate({ kind: 'root' } as never, callback)).rejects.toThrow("Card 'project' cannot be activated by caller 'root'.");
+
+    expect(callback).not.toHaveBeenCalled();
+    expect(cards.read('project')).toEqual(cardBefore);
+    expect(owned.actor.state()).toBe('parked');
+    expect(owned.actor.hasLiveActivation()).toBe(false);
+    expect(liveLookup.size).toBe(0);
+    expect(lookup.get('project')).toBe(owned.actor);
+    expect(owned.processor.input).toBeNull();
+    expect(sendEvent).not.toHaveBeenCalled();
+    expect(owned.actor.deps.currentness.enterChild).not.toHaveBeenCalled();
+    expect(owned.actor.deps.currentness.resumeParent).not.toHaveBeenCalled();
+    expect(projectionChanged).not.toHaveBeenCalled();
+    expect(releaseSettledActor).not.toHaveBeenCalled();
+    await expect(owned.actor.awaitSettlement()).rejects.toThrow("Card 'project' has no in-flight activation to await.");
+  });
+
   it('cancel-first revokes the activation, publishes once, settles the caller, and suppresses a late result', async () => {
     const owned = actor('project');
-    const activation = owned.actor.activate({ kind: 'root' });
+    const activation = prepareBacklogRoot(owned);
     await Promise.resolve();
     const cancellation = await owned.actor.cancel({ reason: 'operator cancelled' });
     expect(cancellation).toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['project'] });
@@ -124,7 +157,7 @@ describe('CardActor authoritative cancellation', () => {
 
   it('keeps cancellation publication and exact release observable before caller callbacks', async () => {
     const owned = actor('project');
-    const activation = owned.actor.activate({ kind: 'root' });
+    const activation = prepareBacklogRoot(owned);
     await Promise.resolve();
     const observations: string[] = [];
     void activation.then(() => observations.push(`activation:${cards.read('project')!.status}:${lookup.has('project')}`));
@@ -138,7 +171,7 @@ describe('CardActor authoritative cancellation', () => {
 
   it('result-first completes the synchronous claim and cancellation cannot overwrite it', async () => {
     const owned = actor('project');
-    const activation = owned.actor.activate({ kind: 'root' });
+    const activation = prepareBacklogRoot(owned);
     await Promise.resolve();
     owned.processor.input!.claimResult();
     owned.processor.outcome.resolve({ status: 'done', summary: 'accepted', result: { kind: 'done', summary: 'accepted' } });
@@ -158,7 +191,7 @@ describe('CardActor authoritative cancellation', () => {
     { label: 'claimed failed', claim: true, outcome: { status: 'failed' as const, summary: 'accepted failure', result: { kind: 'failed' as const, summary: 'accepted failure' } } },
   ])('publishes exactly one terminal version for $label before caller settlement and release', async ({ claim, outcome }) => {
     const owned = actor('project');
-    const activation = owned.actor.activate({ kind: 'root' });
+    const activation = prepareBacklogRoot(owned);
     await Promise.resolve();
     const runningVersion = cards.read('project')!.version_seq;
     if (claim) owned.processor.input!.claimResult();
@@ -206,9 +239,34 @@ describe('CardActor authoritative cancellation', () => {
     expect(sendEvent).toHaveBeenCalledWith('settled');
   });
 
+  it('admits a real stopped child before controlled processor activation with STOPPED entry', async () => {
+    const childCard = cards.create(child('project', 'stopped child'));
+    cards.setStatus(childCard.id, 'running');
+    cards.stopRunningForRecovery(childCard.id);
+    const owned = actor(childCard.id);
+    const statusAtProcessorActivation: string[] = [];
+    const activate = jest.spyOn(owned.processor, 'activate').mockImplementation((input) => {
+      statusAtProcessorActivation.push(cards.read(childCard.id)!.status);
+      owned.processor.input = input;
+      return owned.processor.outcome.promise;
+    });
+    const admission = jest.fn(() => cards.activateStopped(childCard.id));
+
+    const activation = owned.actor.activate({ kind: 'parent', cardId: 'project' }, admission);
+    await Promise.resolve();
+
+    expect(admission).toHaveBeenCalledTimes(1);
+    expect(activate).toHaveBeenCalledTimes(1);
+    expect(statusAtProcessorActivation).toEqual(['running']);
+    expect(owned.processor.input).toMatchObject({ entry: 'STOPPED', caller: { kind: 'parent', cardId: 'project' } });
+    owned.processor.input!.claimResult();
+    owned.processor.outcome.resolve({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } });
+    await expect(activation).resolves.toMatchObject({ status: 'done' });
+  });
+
   it('fails in place when terminal publication throws before publication', async () => {
     const owned = actor('project');
-    const activation = owned.actor.activate({ kind: 'root' });
+    const activation = prepareBacklogRoot(owned);
     let settled = false;
     void activation.finally(() => { settled = true; });
     await Promise.resolve();
@@ -235,7 +293,7 @@ describe('CardActor authoritative cancellation', () => {
     cards = new CardService(root, bus, new ReadModelChangeBroadcaster());
     const callbackFailure = new Error('post-publication callback failed');
     const owned = actor('project');
-    const activation = owned.actor.activate({ kind: 'root' });
+    const activation = prepareBacklogRoot(owned);
     let settled = false;
     void activation.finally(() => { settled = true; });
     await Promise.resolve();
@@ -267,7 +325,7 @@ describe('CardActor authoritative cancellation', () => {
     cards.commitTerminalLifecyclePatch(doneChild.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'kept' }, error: null, completed_at: '2026-07-15T00:00:00.000Z' } });
     const parent = actor('project');
     const liveChild = actor(activeChild.id);
-    const parentResult = parent.actor.activate({ kind: 'root' });
+    const parentResult = prepareBacklogRoot(parent);
     const childResult = liveChild.actor.activate({ kind: 'parent', cardId: 'project' }, () => cards.setStatus(activeChild.id, 'running'));
     await Promise.resolve();
     cardRuntimeSnapshots.length = 0;
@@ -291,7 +349,7 @@ describe('CardActor authoritative cancellation', () => {
     const orphan = cards.create(child('project', 'orphan running'));
     cards.setStatus(orphan.id, 'running');
     const parent = actor('project');
-    void parent.actor.activate({ kind: 'root' });
+    void prepareBacklogRoot(parent);
     await Promise.resolve();
     await expect(parent.actor.cancel({ reason: 'cancel subtree' })).rejects.toThrow(`Running card '${orphan.id}' has no live activation owner.`);
     expect(cards.read(orphan.id)?.status).toBe('running');
