@@ -42,8 +42,8 @@ describe('required autonomous compaction E2E', () => {
     });
     const eventBus = new EventBus();
     const readModelChanges = new ReadModelChangeBroadcaster();
-    const appLogs = { projectRoot, changes: readModelChanges };
-    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs, eventBus), appLogs, cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges });
+    const appLogs = { projectRoot };
+    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs), appLogs, cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges });
 
     await application.runtimeApi.start();
     await application.runtimeApi.startProject();

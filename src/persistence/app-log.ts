@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { join } from 'node:path';
 import { cardIdSchema } from '../schemas/card-id.js';
 
-import type { ReadModelChanges } from '../application/read-model-changes.js';
 import { providerExchangeLogDataSchema, providerExchangeLogId } from '../contracts/provider-exchange-log.js';
 import { contentReviewSchema, controlActionAuditEntrySchema, loggedEventSchema } from '../schemas/index.js';
 import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope } from './growing-file.js';
@@ -46,7 +45,7 @@ export const appLogEntrySchema = z.discriminatedUnion('type', [
 export type AppLogEntry = z.infer<typeof appLogEntrySchema>;
 export type AppLogEntryType = AppLogEntry['type'];
 export type AppLogEntryOfType<T extends AppLogEntryType> = Extract<AppLogEntry, { type: T }>;
-export interface AppLogContext { readonly projectRoot: string; readonly changes?: ReadModelChanges }
+export interface AppLogContext { readonly projectRoot: string }
 
 export function readAppLogEntries(projectRoot: string): AppLogEntry[];
 export function readAppLogEntries<T extends AppLogEntryType>(projectRoot: string, type: T): AppLogEntryOfType<T>[];
@@ -63,7 +62,7 @@ export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): 
   return type === undefined ? entries : entries.filter((entry) => entry.type === type);
 }
 
-export function appendAppLogEntry(projectRoot: string, entry: AppLogEntry, changes?: ReadModelChanges, publicationTemporaryId?: PublicationTemporaryIdFactory): AppLogEntry {
+export function appendAppLogEntry(projectRoot: string, entry: AppLogEntry, publicationTemporaryId?: PublicationTemporaryIdFactory): AppLogEntry {
   const parsed = appLogEntrySchema.parse(entry);
   const entries = readAppLogEntries(projectRoot);
   if (entries.some((candidate) => candidate.id === parsed.id)) throw new Error(`App log entry '${parsed.id}' already exists.`);
@@ -86,6 +85,5 @@ export function appendAppLogEntry(projectRoot: string, entry: AppLogEntry, chang
       publishFirstEnvelope(path, bytes, publicationTemporaryId);
     }
   } else appendEnvelope(path, bytes);
-  changes?.agentsChanged();
   return parsed;
 }

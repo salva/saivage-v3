@@ -41,8 +41,7 @@ export function recordControlAction(appLogs: AppLogContext, entry: Omit<ControlA
     outcome_summary: sanitizeAuditText(entry.outcome_summary),
     error: entry.error ? sanitizeAuditText(entry.error) : undefined,
   });
-  appendAppLogEntry(appLogs.projectRoot, { id: parsed.id, timestamp: parsed.created_at, type: 'control_action', data: parsed }, appLogs.changes);
-  eventBus.emit('control_action_record_appended', { record: parsed as unknown as Record<string, unknown> });
+  appendAppLogEntry(appLogs.projectRoot, { id: parsed.id, timestamp: parsed.created_at, type: 'control_action', data: parsed });
   eventBus.emit('control_action_recorded', {
     id: parsed.id,
     action: parsed.action,

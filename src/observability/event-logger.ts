@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { LoggedEvent, EventKind } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { loggedEventSchema } from '../schemas/index.js';
-import { EventBus } from '../events/index.js';
 import { appendAppLogEntry, readAppLogEntries, type AppLogContext } from '../persistence/app-log.js';
 import { appLogFile } from '../persistence/layout.js';
 
@@ -66,7 +65,7 @@ export interface EventLog {
   getLogPath(): string;
 }
 
-export function createEventLog(projectRoot: string, appLogs: AppLogContext, eventBus = new EventBus()): EventLog {
+export function createEventLog(projectRoot: string, appLogs: AppLogContext): EventLog {
   return {
 
   /**
@@ -85,8 +84,7 @@ export function createEventLog(projectRoot: string, appLogs: AppLogContext, even
       throw new Error(`LoggedEvent validation failed for kind '${event.kind}': ${parsed.error.message}`);
     }
 
-    appendAppLogEntry(appLogs.projectRoot, { id: parsed.data.id, timestamp: parsed.data.timestamp, type: 'event', data: parsed.data }, appLogs.changes);
-    eventBus.emit('event_log_record_appended', { record: parsed.data as unknown as Record<string, unknown> });
+    appendAppLogEntry(appLogs.projectRoot, { id: parsed.data.id, timestamp: parsed.data.timestamp, type: 'event', data: parsed.data });
     return parsed.data;
   },
 

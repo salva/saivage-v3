@@ -32,10 +32,10 @@ function services(runtimeApiFactory: (deps: RuntimeApiFactoryDeps) => any, selec
   initProjectTree(projectRoot);
   const eventBus = new EventBus();
   const readModelChanges = new ReadModelChangeBroadcaster();
-  const appLogs = { projectRoot, changes: readModelChanges };
+  const appLogs = { projectRoot };
   return {
     projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config: selectedConfig, configAuthority: testConfigAuthority(projectRoot), eventBus,
-    eventLogger: createEventLog(projectRoot, appLogs, eventBus), appLogs,
+    eventLogger: createEventLog(projectRoot, appLogs), appLogs,
     cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges, runtimeApiFactory,
   };
 }

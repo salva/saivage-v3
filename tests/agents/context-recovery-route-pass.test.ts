@@ -10,6 +10,7 @@ import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { testAppLogs } from '../helpers/app-logs.js';
+import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -38,7 +39,7 @@ describe('authoritative context route-pass ordering', () => {
 function invocationService(llmCallFn: LlmCallFn): InvocationService {
   const root = mkdtempSync(join(tmpdir(), 'saivage-context-route-pass-'));
   roots.push(root);
-  return new InvocationService({ projectRoot: root, saivageDir: root, appLogs: testAppLogs(root), registry: {} as never, router: { getLastCapabilitySkips: () => [] } as never, candidateAvailability: new MemoryCandidateAvailability(), llmCallFn });
+  return new InvocationService({ projectRoot: root, saivageDir: root, appLogs: testAppLogs(root), readModelChanges: new ReadModelChangeBroadcaster(), registry: {} as never, router: { getLastCapabilitySkips: () => [] } as never, candidateAvailability: new MemoryCandidateAvailability(), llmCallFn });
 }
 
 function errorAttempt(inputId: string, candidate: Candidate): ProviderExchangeAttempt {

@@ -1,8 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 import { buildLoggedEventSchema, EventRegistry, eventKindValues, payloadSchemaByKind } from '../../src/schemas/event-catalog.js';
+import { appLogEntrySchema } from '../../src/persistence/app-log.js';
 
 describe('EventRegistry', () => {
-  it('keeps only currently emitted event kinds', () => {
+  it('keeps the exact v1 event catalog, including replay-only append notifications', () => {
     expect(eventKindValues).toEqual([
       'runtime_diagnostic',
       'runtime_actionable_error',
@@ -17,6 +18,12 @@ describe('EventRegistry', () => {
       'event_log_record_appended',
       'error_log_record_appended',
     ]);
+  });
+
+  it.each(['control_action_record_appended', 'event_log_record_appended', 'error_log_record_appended'] as const)('strictly accepts representative durable %s rows', (kind) => {
+    const data = { id: `event-${kind}`, kind, timestamp: '2026-01-01T00:00:00.000Z', record: { durable: true } };
+    expect(buildLoggedEventSchema(kind).parse(data)).toEqual(data);
+    expect(appLogEntrySchema.parse({ id: data.id, timestamp: data.timestamp, type: 'event', data })).toEqual({ id: data.id, timestamp: data.timestamp, type: 'event', data });
   });
 
   it('does not contain removed legacy runtime, session, or LLM event kinds', () => {

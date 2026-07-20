@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { redactForOutbound } from '../redaction/index.js';
-import { EventBus } from '../events/index.js';
 import { appendAppLogEntry, errorRecordSchema, readAppLogEntries, type AppLogContext, type ErrorInput, type ErrorRecord } from '../persistence/app-log.js';
 import { appLogFile } from '../persistence/layout.js';
 
@@ -39,7 +38,7 @@ export interface ErrorLog {
   getErrorsPath(): string;
 }
 
-export function createErrorLog(projectRoot: string, appLogs: AppLogContext, eventBus = new EventBus()): ErrorLog {
+export function createErrorLog(projectRoot: string, appLogs: AppLogContext): ErrorLog {
   return {
 
   /**
@@ -58,8 +57,7 @@ export function createErrorLog(projectRoot: string, appLogs: AppLogContext, even
       phase: error.phase,
     }, 'error.log', { source: 'error-logger' }));
 
-    appendAppLogEntry(appLogs.projectRoot, { id: record.id, timestamp: record.timestamp, type: 'error', data: record }, appLogs.changes);
-    eventBus.emit('error_log_record_appended', { record: record as unknown as Record<string, unknown> });
+    appendAppLogEntry(appLogs.projectRoot, { id: record.id, timestamp: record.timestamp, type: 'error', data: record });
     return record;
   },
 

@@ -77,7 +77,7 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
     const analystToolEvents: DomainEvent<'analyst_tool_invoked'>[] = [];
     const analystToolSubscription = eventBus.subscribe('analyst_tool_invoked', (event) => { analystToolEvents.push(event); });
     const readModelChanges = new ReadModelChangeBroadcaster();
-    const appLogs = { projectRoot, changes: readModelChanges };
+    const appLogs = { projectRoot };
     const cardStore = new CardService(projectRoot, eventBus, readModelChanges);
     const application = createRuntimeApplication({
       processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' },
@@ -85,7 +85,7 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
       config,
       configAuthority: testConfigAuthority(projectRoot),
       eventBus,
-      eventLogger: createEventLog(projectRoot, appLogs, eventBus),
+      eventLogger: createEventLog(projectRoot, appLogs),
       appLogs,
       cardStore,
       readModelChanges,

@@ -1,11 +1,13 @@
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { controlActionAuditEntrySchema } from '../../src/schemas/validators.js';
 import { listControlActions, recordControlAction } from '../../src/persistence/control-action-audit.js';
 import { testAppLogs } from '../helpers/app-logs.js';
+import { EventBus } from '../../src/events/index.js';
+import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 
 
 let projectRoot: string;
@@ -20,6 +22,26 @@ afterEach(() => {
 });
 
 describe('control action audit persistence', () => {
+  it('emits only control_action_recorded after persistence and no Agent effect', () => {
+    const eventBus = new EventBus();
+    const kinds: string[] = [];
+    eventBus.subscribe({ handler: (event) => {
+      expect(listControlActions(projectRoot)).toHaveLength(1);
+      kinds.push(event.kind);
+    } });
+    const agentsChanged = jest.fn();
+    new ReadModelChangeBroadcaster().subscribe({ runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentsChanged, conversationChanged: jest.fn() });
+    const appLogs = testAppLogs(projectRoot);
+    expect(Object.keys(appLogs)).toEqual(['projectRoot']);
+
+    recordControlAction(appLogs, {
+      id: 'audit-effect', created_at: '2026-01-01T00:00:00.000Z', actor: 'analyst', surface: 'rest', action: 'runtime.pause', target_kind: 'runtime', target_id: 'project', params_summary: 'pause', outcome: 'ok', outcome_summary: 'paused',
+    }, eventBus);
+
+    expect(kinds).toEqual(['control_action_recorded']);
+    expect(agentsChanged).not.toHaveBeenCalled();
+  });
+
   it('appends and reloads validated redacted audit entries after recreation', () => {
     const created = recordControlAction(testAppLogs(projectRoot), {
       id: 'audit-1',

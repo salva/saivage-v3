@@ -34,6 +34,7 @@ function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvai
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-'));
   return new InvocationService({
     appLogs: testAppLogs(projectRoot),
+    readModelChanges: new ReadModelChangeBroadcaster(),
     projectRoot,
     saivageDir: mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-state-')),
     registry: {} as never,

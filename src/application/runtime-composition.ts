@@ -158,6 +158,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     eventLogger,
     candidateAvailability,
     appLogs: services.appLogs,
+    readModelChanges: services.readModelChanges,
   });
   const summarizerProvider: SummarizerProviderPort = {
     completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal, [summarizerCandidate])),

@@ -37,7 +37,7 @@ Saivage-owned persistence is direct stateless synchronous file I/O by the domain
 - `card-files.ts` owns direct deterministic child-namespace claiming, complete initial stream publication/proof, exact `card.jsonl` reads, append-only card versions/history, cumulative child links, and terminal tombstone rows.
 - `authored-record-files.ts` owns exact append-only `brief.jsonl`, `status.jsonl`, and `review.jsonl` streams. The initial brief is closed logical version 1; status and review use their strict open/edit/terminal revision transitions.
 - `conversation-file.ts` owns one stable append-only conversation per role session.
-- `app-log.ts` owns strict event, error, unrelated control-action, provider-exchange, and content-review entries.
+- `app-log.ts` owns the one strict unified append/read format for event, error, control-action, provider-exchange, and content-review entries. Domain producers construct those rows and own any post-commit effects; the app-log context contains only the project root.
 - `ResolvedConfigAuthority` owns selected YAML document reads, effective validation, and config mutation orchestration; `config-file.ts` owns canonical atomic replacement.
 - `auth-profile-file.ts` and `project-identity.ts` own their single canonical files.
 - `runtime/lock.ts` is the exceptional process-exclusion boundary only.
@@ -61,6 +61,8 @@ All file, directory, append, and lifecycle-lock creation uses ordinary Node defa
 Growing canonical JSONL files append one newline-terminated strict envelope with non-empty rows. An owning reader may truncate only an identifiable unterminated final suffix of that exact canonical file. Complete malformed data remains and fails.
 
 Provider-exchange publication policy belongs to its agent producer, not generic app-log persistence or the provider-exchange schema. Immediately before strict parse and append, a field-classified `provider.diagnostic` projection redacts descriptive contract/provider/model/account, finish/tool, and error text and recursively projects request-parameter values while preserving code-owned property names. It deliberately excludes exact session/source/output identities, generated log identity, attempt indexes, validated timestamps, discriminants, and non-string structure because those fields maintain durable linkage and ordering. Schemas validate the projected singular contract but never sanitize canonical bytes, and `app-log.ts` never guesses a sink policy.
+
+`InvocationService` directly receives `ReadModelChanges` and alone owns app-log-driven Agent freshness. After each provider-exchange append returns successfully, it strictly checks `session_id` with the shared canonical conversation-session schema and publishes exactly one Agent hint only on success. Event, error, control-action, and content-review rows, `summary:*` provider evidence, other noncanonical provider identities, and failed appends publish no Agent hint. The internal `control_action_record_appended`, `event_log_record_appended`, and `error_log_record_appended` kinds have no current emit sites, but their exact schemas remain in the v1 catalog so existing complete durable event rows still replay strictly; removing those discriminators requires a reset-only format cutover. `control_action_recorded` remains the post-append control-action domain event.
 
 ## 4. Card-Process Compilation And Execution
 

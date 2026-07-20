@@ -1,4 +1,5 @@
-import type { OperationalAgentRole } from '../schemas/index.js';
+import { ConversationSessionIdSchema, type OperationalAgentRole } from '../schemas/index.js';
+import type { ReadModelChanges } from '../application/read-model-changes.js';
 import type { EventLog } from '../observability/index.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
@@ -58,6 +59,7 @@ export interface InvocationServiceConfig {
   candidateAvailability: CandidateAvailability;
   llmCallFn?: LlmCallFn;
   appLogs: AppLogContext;
+  readModelChanges: ReadModelChanges;
 }
 
 export class InvocationService {
@@ -70,6 +72,7 @@ export class InvocationService {
   private readonly llmCallFn?: LlmCallFn;
   private readonly appLogs: AppLogContext;
   private readonly registry: ProviderRegistry;
+  private readonly readModelChanges: ReadModelChanges;
 
   constructor(config: InvocationServiceConfig) {
     this.projectRoot = config.projectRoot;
@@ -86,6 +89,7 @@ export class InvocationService {
     });
     this.llmCallFn = config.llmCallFn;
     this.appLogs = config.appLogs;
+    this.readModelChanges = config.readModelChanges;
   }
 
   async resolveCandidates(role: OperationalAgentRole, capabilityRequest: CapabilityRequest): Promise<Candidate[]> {
@@ -219,7 +223,8 @@ export class InvocationService {
       if (attempt.attempt_index === undefined) throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
       if (attempt.source_input_id !== sourceInputId) throw new Error(`Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`);
       const payload = projectProviderExchangeForPublication(attempt as ProviderExchangeAttempt & { attempt_index: number }, assistantOutputIds);
-      appendAppLogEntry(this.appLogs.projectRoot, providerExchangeAppLogEntry({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload }), this.appLogs.changes);
+      appendAppLogEntry(this.appLogs.projectRoot, providerExchangeAppLogEntry({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload }));
+      if (ConversationSessionIdSchema.safeParse(sessionId).success) this.readModelChanges.agentsChanged();
     }
   }
 

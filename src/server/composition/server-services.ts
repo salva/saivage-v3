@@ -56,9 +56,9 @@ export async function createServerServices(input: {
 
   const eventBus = new EventBus();
   const readModelChanges = new ReadModelChangeBroadcaster();
-  const appLogs: AppLogContext = { projectRoot, changes: readModelChanges };
-  const eventLogger = createEventLog(projectRoot, appLogs, eventBus);
-  const errorLogger = createErrorLog(projectRoot, appLogs, eventBus);
+  const appLogs: AppLogContext = { projectRoot };
+  const eventLogger = createEventLog(projectRoot, appLogs);
+  const errorLogger = createErrorLog(projectRoot, appLogs);
   const cardStore = new CardService(projectRoot, eventBus, readModelChanges);
   const liveSyncSocket = new LiveSyncSocket();
   terminal.registerAdmissionCloser('websocket-admission', () => liveSyncSocket.closeAdmission());

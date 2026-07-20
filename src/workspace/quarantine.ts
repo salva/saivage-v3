@@ -42,7 +42,7 @@ export function quarantineContent(params: {
   };
 
   const parsedReview = contentReviewSchema.parse(review);
-  appendAppLogEntry(params.appLogs.projectRoot, { id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview }, params.appLogs.changes);
+  appendAppLogEntry(params.appLogs.projectRoot, { id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview });
 
   return {
     review: parsedReview,
@@ -69,7 +69,7 @@ export function recordContentPass(
   };
 
   const parsedReview = contentReviewSchema.parse(review);
-  appendAppLogEntry(appLogs.projectRoot, { id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview }, appLogs.changes);
+  appendAppLogEntry(appLogs.projectRoot, { id: parsedReview.id, timestamp: now, type: 'content_review', data: parsedReview });
   return parsedReview;
 }
 

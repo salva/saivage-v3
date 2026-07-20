@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +9,7 @@ import { providerExchangeLogId } from '../../src/contracts/provider-exchange-log
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
 import { testAppLogs } from '../helpers/app-logs.js';
+import { ReadModelChangeBroadcaster, type ReadModelChanges } from '../../src/application/read-model-changes.js';
 
 const roots: string[] = [];
 const sessionId = 'planner:project';
@@ -22,6 +23,41 @@ afterEach(() => {
 });
 
 describe('provider exchange publication security projection', () => {
+  it('publishes one post-append Agent hint per canonical-session exchange and none for other identities or failure', () => {
+    const root = projectRoot();
+    const readableCounts: number[] = [];
+    const readModelChanges: ReadModelChanges = {
+      runtimeChanged: jest.fn(),
+      cardProjectionChanged: jest.fn(),
+      conversationChanged: jest.fn(),
+      agentsChanged: jest.fn(() => { readableCounts.push(readAppLogEntries(root, 'provider_exchange').length); }),
+      subscribe: jest.fn(() => ({ unsubscribe: jest.fn() })),
+    };
+    const service = invocationService(root, readModelChanges);
+
+    service.projectProviderExchanges('planner:project', sourceInputId, providerAttempts(), []);
+    expect(readableCounts).toEqual([1, 2]);
+    expect(readAppLogEntries(root, 'provider_exchange').map((row) => row.data.attempt_index)).toEqual([0, 1]);
+
+    for (const [ordinal, session] of ['analyst:global', 'reviewer:project', 'executor:project'].entries()) {
+      const input = `canonical-${ordinal}`;
+      service.projectProviderExchanges(session, input, [attemptFor(input, ordinal)], []);
+    }
+    expect(readableCounts).toEqual([1, 2, 3, 4, 5]);
+
+    for (const [ordinal, session] of ['summary:round-1', 'summary:merge', 'provider:other'].entries()) {
+      const input = `non-agent-${ordinal}`;
+      service.projectProviderExchanges(session, input, [attemptFor(input, ordinal)], []);
+    }
+    expect(readAppLogEntries(root, 'provider_exchange')).toHaveLength(8);
+    expect(readableCounts).toEqual([1, 2, 3, 4, 5]);
+
+    service.projectProviderExchanges('planner:project', 'empty', [], []);
+    expect(readableCounts).toHaveLength(5);
+    expect(() => service.projectProviderExchanges('planner:project', sourceInputId, [providerAttempts()[0]!], [])).toThrow(/already exists/);
+    expect(readableCounts).toHaveLength(5);
+  });
+
   it('redacts classified diagnostic fields before durable append without changing identity or source attempts', () => {
     const root = projectRoot();
     const service = invocationService(root);
@@ -175,17 +211,22 @@ function providerAttempts(): ProviderExchangeAttempt[] {
   ];
 }
 
+function attemptFor(input: string, attemptIndex: number): ProviderExchangeAttempt {
+  return { ...providerAttempts()[1]!, source_input_id: input, attempt_index: attemptIndex, completed_at: `2026-07-19T10:01:${String(attemptIndex).padStart(2, '0')}.000Z` };
+}
+
 function projectRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'saivage-provider-exchange-security-'));
   roots.push(root);
   return root;
 }
 
-function invocationService(root: string): InvocationService {
+function invocationService(root: string, readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster()): InvocationService {
   return new InvocationService({
     projectRoot: root,
     saivageDir: root,
     appLogs: testAppLogs(root),
+    readModelChanges,
     registry: {} as never,
     router: {} as never,
     candidateAvailability: {} as never,

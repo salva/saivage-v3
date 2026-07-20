@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createEventLog } from '../../src/observability/event-logger.js';
 import { createErrorLog } from '../../src/observability/error-logger.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
+import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -15,6 +16,9 @@ describe('direct event and error app-log producers', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-log-'));
     roots.push(root);
     const appLogs = { projectRoot: root };
+    expect(Object.keys(appLogs)).toEqual(['projectRoot']);
+    const agentsChanged = jest.fn();
+    new ReadModelChangeBroadcaster().subscribe({ runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentsChanged, conversationChanged: jest.fn() });
     const events = createEventLog(root, appLogs);
     const errors = createErrorLog(root, appLogs);
     events.appendEvent({ kind: 'runtime_diagnostic', id: 'event-1', timestamp: '2026-07-15T00:00:00.000Z', error_message: 'diagnostic' });
@@ -24,6 +28,7 @@ describe('direct event and error app-log producers', () => {
     expect(readAppLogEntries(root).map(({ type, id }) => [type, id])).toEqual([['event', 'event-1'], ['error', 'error-1'], ['event', 'event-2']]);
     expect(events.getEvents().map(({ id }) => id)).toEqual(['event-1', 'event-2']);
     expect(errors.getErrors({ cardId: 'project' })).toEqual([expect.objectContaining({ id: 'error-1', phase: 'planner' })]);
+    expect(agentsChanged).not.toHaveBeenCalled();
   });
 
   it('redacts secret-bearing metadata before direct append and rejects duplicate identities', () => {
