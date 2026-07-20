@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
-import { cardStatusValues, cardTypeValues, type AgentRole, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
+import { cardStatusValues, cardTypeValues, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
 import { recordSlotDefinitions } from '../runtime/records/record-slots.js';
@@ -14,9 +14,7 @@ interface CardInspectionStore {
 }
 
 export interface CardInspectionProviderContext {
-  readonly projectRoot: string;
-  readonly store?: CardInspectionStore;
-  readonly agentRole: Extract<AgentRole, 'planner' | 'executor' | 'reviewer' | 'analyst'>;
+  readonly store: CardInspectionStore;
 }
 
 const listCardsSchema = z.object({
@@ -30,7 +28,6 @@ const getCardSchema = z.object({ id: z.string() }).strict();
 const getTreeSchema = z.object({ rootId: z.string().optional() }).strict();
 
 export function createCardInspectionProvider(ctx: CardInspectionProviderContext): ToolProvider {
-  if (!ctx.store) throw new Error('Card inspection requires an injected card read model.');
   const store = ctx.store;
   return {
     providerName: 'card-inspection',
@@ -39,13 +36,13 @@ export function createCardInspectionProvider(ctx: CardInspectionProviderContext)
         name: 'list_cards',
         description: 'List and filter cards in the project.',
         inputSchema: listCardsSchema,
-        executor: async (args) => listCards(ctx.projectRoot, store, args),
+        executor: async (args) => listCards(store, args),
       }),
       defineTool({
         name: 'get_card',
         description: 'Get full details of a single card.',
         inputSchema: getCardSchema,
-        executor: async (args) => getCard(ctx.projectRoot, store, args.id),
+        executor: async (args) => getCard(store, args.id),
       }),
       defineTool({
         name: 'get_tree',
@@ -57,7 +54,7 @@ export function createCardInspectionProvider(ctx: CardInspectionProviderContext)
   };
 }
 
-function listCards(projectRoot: string, store: CardInspectionStore, params: z.infer<typeof listCardsSchema>): ToolResult {
+function listCards(store: CardInspectionStore, params: z.infer<typeof listCardsSchema>): ToolResult {
   let cards = orderedCardViews(store);
   if (params.status) {
     const statuses: CardStatus[] = Array.isArray(params.status) ? params.status : [params.status];
@@ -75,11 +72,10 @@ function listCards(projectRoot: string, store: CardInspectionStore, params: z.in
     const tag = params.tag;
     cards = cards.filter((card) => card.tags.includes(tag));
   }
-  void projectRoot;
   return { success: true, data: cards.map((card) => cardSummary(store, card)) };
 }
 
-function getCard(projectRoot: string, store: CardInspectionStore, cardId: string): ToolResult {
+function getCard(store: CardInspectionStore, cardId: string): ToolResult {
   const card = store.read(cardId);
   if (!card) return { success: false, error: `Card '${cardId}' not found.` };
   const children = childIds(store, cardId)

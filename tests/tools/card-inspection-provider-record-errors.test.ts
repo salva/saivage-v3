@@ -17,12 +17,12 @@ describe('card inspection authored-record summaries', () => {
     roots.push(root);
     initProjectTree(root);
     const cards = new CardService(root);
-    const normalSurface = buildInvocationSurface('analyst', [createCardInspectionProvider({ projectRoot: root, store: cards, agentRole: 'analyst' })]);
+    const normalSurface = buildInvocationSurface('analyst', [createCardInspectionProvider({ store: cards })]);
     await expect(invokeTool(normalSurface, 'get_card', { id: 'project' })).resolves.toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ records_by_filename: expect.objectContaining({ 'status.md': expect.objectContaining({ latest: null }), 'review.md': expect.objectContaining({ latest: null }) }) }) }));
 
     const hostile = new Error('HOSTILE_CARD_INSPECTION_READ');
     cards.readRecord = (() => { throw hostile; }) as CardService['readRecord'];
-    const surface = buildInvocationSurface('analyst', [createCardInspectionProvider({ projectRoot: root, store: cards, agentRole: 'analyst' })]);
+    const surface = buildInvocationSurface('analyst', [createCardInspectionProvider({ store: cards })]);
 
     await expect(invokeTool(surface, 'get_card', { id: 'project' })).rejects.toBe(hostile);
   });

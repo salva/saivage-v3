@@ -21,7 +21,7 @@ describe('card history provider', () => {
     const get = jest.spyOn(cards, 'getCardHistoryEntry');
     const diff = jest.spyOn(cards, 'diffCardHistory');
     const read = jest.spyOn(cards, 'read');
-    const provider = createCardHistoryProvider({ projectRoot: root, store: cards, agentRole: 'analyst' });
+    const provider = createCardHistoryProvider({ store: cards });
     const surface = buildInvocationSurface('analyst', [provider]);
 
     for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {

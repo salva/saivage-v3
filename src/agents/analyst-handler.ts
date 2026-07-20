@@ -307,7 +307,7 @@ export class AnalystSessionActor extends BaseActor {
     }
     const store = this.args.runtimeDeps.cardStore;
     const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
-    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpToolInvocation: ctx.mcpToolInvocation, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
+    const surface = buildRoleSurface({ role: 'analyst', toolContext: ctx });
     const previousToolCallFingerprints = new Set<string>();
     let noProgressDirectiveSent = false;
     const invocationInput = this.buildInvocationInput(input, surface);
@@ -597,7 +597,7 @@ export class AnalystRuntime {
     try {
       const catalogStore = this.args.runtimeDeps.cardStore;
       const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store: catalogStore, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
-      return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpToolInvocation: ctx.mcpToolInvocation, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
+      return Array.from(buildRoleSurface({ role: 'analyst', toolContext: ctx }).tools.keys());
     } finally {
       this.args.runtimeDeps.processRunner.closeScope(processScope);
     }

@@ -1,24 +1,16 @@
 import { z } from 'zod';
 import { cardIdSchema, positiveSafeIntegerSchema } from '../schemas/index.js';
 
-import type { AgentRole } from '../schemas/index.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
 export interface CardHistoryProviderContext {
-  readonly projectRoot: string;
   readonly store: ToolContext['store'];
-  readonly sessionId?: string;
-  readonly agentRole: Extract<AgentRole, 'planner' | 'executor' | 'reviewer' | 'analyst'>;
 }
 
 const listCardHistorySchema = z.object({ cardId: cardIdSchema }).strict();
 const getCardHistoryEntrySchema = z.object({ cardId: cardIdSchema, version_seq: positiveSafeIntegerSchema }).strict();
 const diffCardSchema = z.object({ cardId: cardIdSchema, fromSeq: positiveSafeIntegerSchema.optional(), toSeq: positiveSafeIntegerSchema.optional() }).strict();
-
-function getStore(ctx: CardHistoryProviderContext): ToolContext['store'] {
-  return ctx.store;
-}
 
 export function createCardHistoryProvider(ctx: CardHistoryProviderContext): ToolProvider {
   return {
@@ -47,8 +39,7 @@ export function createCardHistoryProvider(ctx: CardHistoryProviderContext): Tool
 }
 
 async function listCardHistory(ctx: CardHistoryProviderContext, params: z.infer<typeof listCardHistorySchema>): Promise<ToolResult> {
-  const store = getStore(ctx);
-  const result = store.listCardHistory(params.cardId);
+  const result = ctx.store.listCardHistory(params.cardId);
   if (result.kind === 'card-not-found') return { success: false, error: `Card '${params.cardId}' not found.` };
   const entries = result.value.map((entry) => ({
     card_id: entry.card_id,
@@ -64,15 +55,14 @@ async function listCardHistory(ctx: CardHistoryProviderContext, params: z.infer<
 }
 
 async function getCardHistoryEntry(ctx: CardHistoryProviderContext, params: z.infer<typeof getCardHistoryEntrySchema>): Promise<ToolResult> {
-  const result = getStore(ctx).getCardHistoryEntry(params.cardId, params.version_seq);
+  const result = ctx.store.getCardHistoryEntry(params.cardId, params.version_seq);
   if (result.kind === 'card-not-found') return { success: false, error: `Card '${params.cardId}' not found.` };
   if (result.kind === 'history-entry-not-found') return { success: false, error: `Card '${params.cardId}' has no history entry for version ${params.version_seq}.` };
   return { success: true, data: result.value };
 }
 
 async function diffCard(ctx: CardHistoryProviderContext, params: z.infer<typeof diffCardSchema>): Promise<ToolResult> {
-  const store = getStore(ctx);
-  const result = store.diffCardHistory(params.cardId, { fromSeq: params.fromSeq, toSeq: params.toSeq });
+  const result = ctx.store.diffCardHistory(params.cardId, { fromSeq: params.fromSeq, toSeq: params.toSeq });
   if (result.kind === 'card-not-found') return { success: false, error: `Card '${params.cardId}' not found.` };
   if (result.kind === 'invalid-pivots') return { success: false, error: `Invalid diff pivots ${result.from}..${result.to}.` };
   if (result.kind === 'diff-source-not-found') return { success: false, error: `Card '${params.cardId}' has no version ${result.missingVersionSeq}.` };

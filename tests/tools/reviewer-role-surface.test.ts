@@ -33,10 +33,10 @@ describe('reviewer role surface record access', () => {
     closeRecord(store, CHILD, 'status.md', 'First closed descendant status.', 'executor');
     closeRecord(store, CHILD, 'status.md', 'Latest closed descendant status.', 'executor');
 
-    const surface = buildRoleSurface('reviewer', {
+    const surface = buildRoleSurface({
+      role: 'reviewer',
       projectRoot,
       cardId: 'project',
-      sessionId: 'reviewer:project',
       store,
       mcpToolInvocation: unusedMcpToolInvocation,
     });

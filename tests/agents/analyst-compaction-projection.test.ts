@@ -15,17 +15,32 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
-import { compact, prepareCompaction, shouldCompact } from '../../src/runtime/actors/compaction/compactor.js';
+import { compact, estimateCanonicalStaticTokens, prepareCompaction, shouldCompact } from '../../src/runtime/actors/compaction/compactor.js';
 import { classifyConversationRounds } from '../../src/runtime/actors/compaction/round-classifier.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { validateConversationRows } from '../../src/contracts/conversation-compaction.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
+import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('Analyst continuation compaction safety', () => {
+  it('uses one identical terminal-free tool array for the prompt, provider, and prepared compaction', async () => {
+    let captured!: LlmInvocationInput;
+    const promptTemplates = { render: (_cardType: string, _role: string, values: Record<string, string>) => values.toolList } as never;
+    const { runtime } = harness(jest.fn(async (input: LlmInvocationInput) => { captured = input; return { result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }; }), jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false, false, promptTemplates);
+    await runtime.submit({ userContent: 'inspect the surface' });
+
+    const providerNames = captured.tools.map((definition) => definition.function.name);
+    const promptNames = captured.systemPrompt.split('\n').filter(Boolean).map((line) => line.slice(2, line.indexOf(':')));
+    expect(promptNames).toEqual(providerNames);
+    expect(providerNames).not.toContain('emit_result');
+    expect(captured.terminalToolNames).toEqual([]);
+    expect(captured.preparedCompaction?.estimatedStaticTokens).toBe(estimateCanonicalStaticTokens(captured.systemPrompt, captured.tools));
+  });
+
   it('exposes only the current Analyst operation through provider work, success, failure, cancellation, and an exact external wait', async () => {
     const unusedSummary = async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] });
     let runtime!: AnalystRuntime;
@@ -228,7 +243,7 @@ function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Pr
   const scheduleRestart = jest.fn();
   const runtime = new AnalystRuntime({ projectRoot, config, runtimeDeps: {
     configAuthority: {}, cardStore: new CardService(projectRoot), runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard: jest.fn(), notifyCard: jest.fn(), getStatus: jest.fn() },
-    eventBus, provider: { completeTurn: primary, projectProviderExchanges }, processRunner: runner, analystProcessRootScope: runner.analystRootScope,
+    eventBus, provider: { completeTurn: primary, projectProviderExchanges }, processRunner: runner, analystProcessRootScope: runner.analystRootScope, mcpToolInvocation: unusedMcpToolInvocation,
     compactionPolicy, compactor: { shouldCompact: preventive ? (compactImplementation === compact ? shouldCompact : () => true) : () => false, compact: compactImplementation }, summarizerProvider,
     conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), interventionReadiness: new RuntimeInterventionBinding(),
     runtimeProjectionChanged: jest.fn(), captureExecutingLlmSnapshots: () => [],

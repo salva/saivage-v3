@@ -40,6 +40,37 @@ function rewrite(root, path, transform) {
   writeFileSync(fullPath, transform(readFileSync(fullPath, 'utf8')));
 }
 
+function replaceChecked(root, path, target, replacement) {
+  rewrite(root, path, (source) => {
+    expect(source).toContain(target);
+    const changed = source.replace(target, replacement);
+    expect(changed).not.toBe(source);
+    return changed;
+  });
+}
+
+function replaceAllChecked(root, path, pattern, replacement, expectedCount) {
+  rewrite(root, path, (source) => {
+    const matches = source.match(pattern) ?? [];
+    expect(matches).toHaveLength(expectedCount);
+    const changed = source.replace(pattern, replacement);
+    expect(changed).not.toBe(source);
+    return changed;
+  });
+}
+
+function removeRoleCase(root, role, nextRole) {
+  rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => {
+    const startMarker = `    case '${role}':`;
+    const endMarker = `    case '${nextRole}':`;
+    const start = source.indexOf(startMarker);
+    const end = source.indexOf(endMarker);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    return source.slice(0, start) + source.slice(end);
+  });
+}
+
 function failureTypes(result) {
   return result.failures.map((failure) => failure.type);
 }
@@ -58,18 +89,18 @@ describe('source-derived Agent tool inventory', () => {
     expect(result.expected.get('analyst')).not.toContain('emit_result');
   });
 
-  it('reacts to runtime composition, provider, control, and terminal inputs', () => {
+  it('derives literal switch composition and autonomous-only terminal injection', () => {
     withFixture([...TOOL_SOURCES, DOC], (root) => {
-      rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => source.replace("planner: ['plannerControl', 'cardInspection', 'workspace', 'cardHistory', 'web']", "planner: ['plannerControl', 'cardInspection', 'workspace', 'cardHistory']"));
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "        createWebProvider({ projectRoot: context.projectRoot, cardId: context.cardId, agentRole: context.role, store: context.store, notifyCard: undefined }),\n      ]);\n    case 'reviewer':", "      ]);\n    case 'reviewer':");
       expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('planner')).not.toContain('websearch');
 
-      rewrite(root, 'src/tools/skill-provider.ts', (source) => source.replace("name: 'skill'", "name: 'fixture_skill'"));
+      replaceChecked(root, 'src/tools/skill-provider.ts', "name: 'skill'", "name: 'fixture_skill'");
       expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('executor')).toContain('fixture_skill');
 
-      rewrite(root, 'src/tools/analyst-tool-registry.ts', (source) => source.replace("  'create_card',", "  'fixture_control',"));
+      replaceChecked(root, 'src/tools/analyst-tool-registry.ts', "  'create_card',", "  'fixture_control',");
       expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('analyst')).toContain('fixture_control');
 
-      rewrite(root, 'src/contracts/result-envelope.ts', (source) => source.replace("'emit_result'", "'fixture_terminal'"));
+      replaceChecked(root, 'src/contracts/result-envelope.ts', "'emit_result'", "'fixture_terminal'");
       const terminalChanged = verifyAgentToolDocs({ projectRoot: root }).expected;
       expect(terminalChanged.get('planner')).toContain('fixture_terminal');
       expect(terminalChanged.get('executor')).toContain('fixture_terminal');
@@ -81,27 +112,109 @@ describe('source-derived Agent tool inventory', () => {
   it('rejects duplicate, unexpected, and malformed rows through real Markdown parsing', () => {
     withFixture([...TOOL_SOURCES, DOC], (root) => {
       const row = readFileSync(join(root, DOC), 'utf8').match(/^\| `planner` .*$/m)[0];
-      rewrite(root, DOC, (source) => source.replace('<!-- saivage:agent-tools:end -->', `${row}\n<!-- saivage:agent-tools:end -->`));
+      replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', `${row}\n<!-- saivage:agent-tools:end -->`);
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('duplicate-agent-role');
     });
     withFixture([...TOOL_SOURCES, DOC], (root) => {
-      rewrite(root, DOC, (source) => source.replace('<!-- saivage:agent-tools:end -->', "| `supervisor` | `` | `src/tools/role-invocation-surfaces.ts:40` |\n<!-- saivage:agent-tools:end -->"));
+      replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', "| `supervisor` | `` | `src/tools/role-invocation-surfaces.ts:40` |\n<!-- saivage:agent-tools:end -->");
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('unexpected-agent-role');
     });
     withFixture([...TOOL_SOURCES, DOC], (root) => {
-      rewrite(root, DOC, (source) => source.replace('| `planner` | `activate_card', '| `planner` | activate_card'));
+      replaceChecked(root, DOC, '| `planner` | `activate_card', '| `planner` | activate_card');
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('malformed-agent-tool-row');
     });
   });
 
-  it('fails closed for unknown providers and unresolved constructor branches', () => {
+  it('fails closed for missing, duplicate, unsupported, and all default cases', () => {
     withFixture([...TOOL_SOURCES, DOC], (root) => {
-      rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => source.replace("planner: ['plannerControl'", "planner: ['unknownProvider', 'plannerControl'"));
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unknown provider unknownProvider');
+      removeRoleCase(root, 'reviewer', 'executor');
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Missing provider-composition case for reviewer');
     });
     withFixture([...TOOL_SOURCES, DOC], (root) => {
-      rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => source.replace("role === 'analyst' ? createAnalystWorkspaceProvider", "role !== 'analyst' ? createAnalystWorkspaceProvider"));
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unsupported role-dependent provider condition');
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "    case 'executor':", "    case 'reviewer':");
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Duplicate provider-composition case for reviewer');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "    case 'executor':", "    case 'supervisor':");
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unsupported agent role case supervisor');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "    }\n  }\n}", "    }\n    default:\n      return buildInvocationSurface(context.role, []);\n  }\n}");
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Default provider-composition paths are unsupported');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "    }\n  }\n}", "    }\n    default:\n      return null;\n  }\n}");
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Default provider-composition paths are unsupported');
+    });
+  });
+
+  it('fails closed for nonliteral arrays and every unsupported provider-array entry form', () => {
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => {
+        const startMarker = "    case 'planner':\n      return buildInvocationSurface(context.role, [";
+        const start = source.indexOf(startMarker);
+        const end = source.indexOf('      ]);', start);
+        expect(start).toBeGreaterThanOrEqual(0);
+        expect(end).toBeGreaterThan(start);
+        return `${source.slice(0, start)}    case 'planner':\n      return buildInvocationSurface(context.role, plannerProviders);${source.slice(end + '      ]);'.length)}`;
+      });
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider composition must use an array literal');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createPlannerControlProvider({', '        ...createPlannerControlProvider({');
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider array contains a spread entry');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createCardInspectionProvider({ store: context.store }),', '        context.store,');
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider array contains an unsupported entry');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createCardInspectionProvider({ store: context.store }),', '        true ? createCardInspectionProvider({ store: context.store }) : createCardInspectionProvider({ store: context.store }),');
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider array contains an unsupported entry');
+    });
+  });
+
+  it('fails closed for unknown, computed, and otherwise indirect constructor or composition calls', () => {
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createPlannerControlProvider({', '        createUnknownProvider({');
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unknown provider constructor createUnknownProvider for planner');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createCardInspectionProvider({ store: context.store }),', "        providers['createCardInspectionProvider']({ store: context.store }),");
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider array contains an unsupported entry');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '      return buildInvocationSurface(context.role, [', '      return context.buildInvocationSurface(context.role, [');
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unsupported buildInvocationSurface return for planner');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => {
+        const start = source.indexOf("    case 'planner':\n      return buildInvocationSurface(context.role, [");
+        const end = source.indexOf('      ]);', start);
+        expect(start).toBeGreaterThanOrEqual(0);
+        expect(end).toBeGreaterThan(start);
+        const changedStart = source.slice(0, start).concat(source.slice(start, end).replace('      return buildInvocationSurface', '      const surface = buildInvocationSurface'));
+        return `${changedStart}      ]);\n      return surface;${source.slice(end + '      ]);'.length)}`;
+      });
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unsupported buildInvocationSurface return for planner');
+    });
+  });
+
+  it('requires complete and non-stale provider source navigation', () => {
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceAllChecked(root, 'src/tools/role-invocation-surfaces.ts', /createWebProvider/g, 'createFixtureProvider', 5);
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Missing provider source navigation for createFixtureProvider');
+    });
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceAllChecked(root, 'src/tools/role-invocation-surfaces.ts', /^\s*createSkillProvider\([^\n]+\),\n/gm, '', 3);
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unreferenced provider source navigation for createSkillProvider');
+    });
+  });
+
+  it('rejects duplicate tool names produced by composed providers', () => {
+    withFixture([...TOOL_SOURCES, DOC], (root) => {
+      replaceChecked(root, 'src/tools/web-tools.ts', "name: 'websearch'", "name: 'webfetch'");
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Duplicate resulting tool name for planner');
     });
   });
 });

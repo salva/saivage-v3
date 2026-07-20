@@ -14,6 +14,7 @@ import { readConversation, type ConversationEntryObserver } from '../../../src/p
 import { cardProcessesSchema } from '../../../src/agents/config-schema.js';
 import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
 import { compileCardProcesses, type CompiledCardProcess } from '../../../src/runtime/card-process/card-process-config.js';
+import { estimateCanonicalStaticTokens } from '../../../src/runtime/actors/compaction/compactor.js';
 
 const tool = (id: string, outcome: string, summary = outcome): ProviderTurnCompletion => ({ result: { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ outcome, summary }) } }] }, provider_exchanges: [] });
 
@@ -21,7 +22,7 @@ describe('CardProcessActor configured graph execution', () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess; entry?: 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED'; runtimeProjectionChanged?: () => void; observeEntry?: ConversationEntryObserver; removeNotifications?: (store: CardService, cardId: string, ids: readonly string[]) => void; onClaim?: () => void } = {}) {
+  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess; entry?: 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED'; runtimeProjectionChanged?: () => void; observeEntry?: ConversationEntryObserver; removeNotifications?: (store: CardService, cardId: string, ids: readonly string[]) => void; onClaim?: () => void; renderPrompt?: (toolList: string) => string } = {}) {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-card-process-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
@@ -33,8 +34,8 @@ describe('CardProcessActor configured graph execution', () => {
     const actor = new CardProcessActor({
       projectRoot, cardId, process: options.process ?? (options.cardType === 'code' ? testAutonomousCompaction.cardProcesses.terminal : testAutonomousCompaction.cardProcesses.planning),
       store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined },
-      cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn }, conversations: { projectRoot, observeEntry: options.observeEntry }, appLogs: { projectRoot },
-      processRunner, promptTemplates: { render: (_type, _role, values) => String(values.contractDescription) },
+      cancelCard: async () => { throw new Error('unused'); }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), provider: { completeTurn }, conversations: { projectRoot, observeEntry: options.observeEntry }, appLogs: { projectRoot },
+      processRunner, promptTemplates: { render: (_type, _role, values) => options.renderPrompt ? options.renderPrompt(values.toolList) : String(values.contractDescription) },
       runtimeProjectionChanged: options.runtimeProjectionChanged ?? (() => undefined), ...testAutonomousCompaction,
     });
     actor.start();
@@ -42,6 +43,39 @@ describe('CardProcessActor configured graph execution', () => {
     const input = () => ({ activationId: 'activation-test', card: store.read(cardId)!, caller: { kind: 'root' as const }, entry: options.entry ?? 'BACKLOG', claimResult, alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(), notificationDelivery: { selectNotifications: () => store.read(cardId)!.pending_notifications, removeNotifications: (ids: readonly string[]) => { options.removeNotifications ? options.removeNotifications(store, cardId, ids) : store.removeNotifications(cardId, [...ids]); } } });
     return { projectRoot, cardId, store, processRunner, actor, claimResult, input };
   }
+
+  it('keeps autonomous prompt tools operational-only and provider/compaction tools terminal-last for every role', async () => {
+    const captured: LlmInvocationInput[] = [];
+    const execute = async (cardType: 'project' | 'code', routeReviewer: boolean) => {
+      let h!: ReturnType<typeof harness>;
+      h = harness(async (input) => {
+        captured.push(input);
+        const filename = input.role === 'reviewer' ? 'review.md' : 'status.md';
+        const open = h.store.openRecord(h.cardId, filename);
+        h.store.editRecord(h.cardId, filename, open.version, `${input.role} evidence`);
+        return input.role === 'planner' && routeReviewer ? tool('route-reviewer', 'admit_review') : input.role === 'reviewer' ? tool('approve', 'approved') : tool('complete', input.role === 'planner' ? 'complete_direct' : 'done');
+      }, { cardType, renderPrompt: (toolList) => toolList });
+      await h.actor.activate(h.input(), new AbortController().signal);
+    };
+    await execute('project', false);
+    await execute('project', true);
+    await execute('code', false);
+
+    const byRole = new Map(captured.map((input) => [input.role, input]));
+    expect([...byRole.keys()].sort()).toEqual(['executor', 'planner', 'reviewer']);
+    for (const role of ['planner', 'reviewer', 'executor'] as const) {
+      const input = byRole.get(role)!;
+      const finalNames = input.tools.map((definition) => definition.function.name);
+      const operationalNames = finalNames.slice(0, -1);
+      const promptNames = input.systemPrompt.split('\n').filter(Boolean).map((line) => line.slice(2, line.indexOf(':')));
+      expect(promptNames).toEqual(operationalNames);
+      expect(promptNames).not.toContain('emit_result');
+      expect(finalNames).toEqual([...operationalNames, 'emit_result']);
+      expect(finalNames.filter((name) => name === 'emit_result')).toHaveLength(1);
+      expect(input.preparedCompaction?.estimatedStaticTokens).toBe(estimateCanonicalStaticTokens(input.systemPrompt, input.tools));
+      expect(input.preparedCompaction?.estimatedStaticTokens).not.toBe(estimateCanonicalStaticTokens(input.systemPrompt, input.tools.slice(0, -1)));
+    }
+  });
 
   it('routes complete_direct to DONE without reviewer and claims only after fresh status evidence', async () => {
     const roles: string[] = [];

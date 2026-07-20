@@ -42,7 +42,7 @@ export interface PlannerControlProviderContext {
   readonly store: PlannerControlStore;
   readonly children: { get(cardId: string): PlannerChildActor | null };
   readonly cancelCard: (cardId: string, reason: string) => Promise<{ card_id: string; status: 'cancelled'; cancelled_card_ids: string[] }>;
-  readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
+  readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
   readonly appLogs: AppLogContext;
   readonly beginStructuralWait: (relationship: StructuralChildRelationship) => StructuralChildRelationship;
   readonly endStructuralWait: (relationship: StructuralChildRelationship) => void;
@@ -146,7 +146,6 @@ function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof
 }
 
 function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof queueNotificationSchema>): ToolResult {
-  if (!ctx.notifyCard) throw new Error('Planner queue_notification requires the runtime card notification port.');
   const queued = queueNotification(record.card_id, record.kind, record.body, { actor: 'planner', surface: 'runtime' }, ctx.notifyCard);
   recordControlAction(ctx.appLogs, {
     actor: 'planner',

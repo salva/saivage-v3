@@ -263,32 +263,6 @@ const PROVIDER_SOURCE_NAVIGATION = new Map([
   ['createMcpProvider', 'src/tools/mcp-provider.ts'],
 ]);
 
-function evaluateRoleCondition(node, role) {
-  const condition = unwrapExpression(node);
-  if (!ts.isBinaryExpression(condition) || (condition.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken && condition.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsToken)) throw new Error('Unsupported role-dependent provider condition');
-  const left = unwrapExpression(condition.left);
-  const right = unwrapExpression(condition.right);
-  if (ts.isIdentifier(left) && left.text === 'role' && ts.isStringLiteral(right)) return role === right.text;
-  if (ts.isIdentifier(right) && right.text === 'role' && ts.isStringLiteral(left)) return role === left.text;
-  throw new Error('Unresolved role-dependent provider condition');
-}
-
-function selectedConstructorCall(node, role) {
-  const value = unwrapExpression(node);
-  if (ts.isConditionalExpression(value)) return selectedConstructorCall(evaluateRoleCondition(value.condition, role) ? value.whenTrue : value.whenFalse, role);
-  if (ts.isCallExpression(value) && ts.isIdentifier(value.expression)) return value.expression.text;
-  throw new Error(`Unresolved provider constructor branch for ${role}`);
-}
-
-function arrowResult(node) {
-  const value = unwrapExpression(node);
-  if (!ts.isArrowFunction(value)) throw new Error('Provider constructor must be an arrow function');
-  if (!ts.isBlock(value.body)) return value.body;
-  const returns = value.body.statements.filter(ts.isReturnStatement);
-  if (returns.length !== 1 || !returns[0].expression) throw new Error('Provider constructor block must have one explicit return');
-  return returns[0].expression;
-}
-
 function findFunction(ast, name) {
   const found = ast.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
   if (!found || !ts.isFunctionDeclaration(found) || !found.body) throw new Error(`Unable to resolve provider function ${name} in ${ast.fileName}`);
@@ -338,40 +312,97 @@ function terminalToolName(projectRoot, role) {
   return initializer.text;
 }
 
+const SUPPORTED_AGENT_ROLES = new Set(['planner', 'reviewer', 'executor', 'analyst']);
+const AUTONOMOUS_AGENT_ROLES = new Set(['planner', 'reviewer', 'executor']);
+
+function providerConstructorImports(ast) {
+  const names = new Set();
+  for (const statement of ast.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
+    for (const element of statement.importClause.namedBindings.elements) {
+      if (/^create[A-Z][A-Za-z0-9]*Provider$/.test(element.name.text)) names.add(element.name.text);
+    }
+  }
+  return names;
+}
+
+function isRoleDiscriminant(node, contextName) {
+  return ts.isPropertyAccessExpression(node)
+    && ts.isIdentifier(node.expression)
+    && node.expression.text === contextName
+    && node.name.text === 'role';
+}
+
+function directCaseReturn(clause, role) {
+  let statements = clause.statements;
+  if (statements.length === 1 && ts.isBlock(statements[0])) statements = statements[0].statements;
+  if (statements.length === 0 || !statements.slice(0, -1).every(ts.isVariableStatement)) throw new Error(`Unsupported provider-composition case shape for ${role}`);
+  const finalStatement = statements[statements.length - 1];
+  if (!ts.isReturnStatement(finalStatement) || !finalStatement.expression) throw new Error(`Unsupported provider-composition case shape for ${role}`);
+  return finalStatement.expression;
+}
+
+function providerCallsForCase(clause, role, contextName, recognizedConstructors) {
+  const returned = directCaseReturn(clause, role);
+  if (!ts.isCallExpression(returned)
+    || returned.questionDotToken
+    || returned.typeArguments?.length
+    || !ts.isIdentifier(returned.expression)
+    || returned.expression.text !== 'buildInvocationSurface'
+    || returned.arguments.length !== 2) {
+    throw new Error(`Unsupported buildInvocationSurface return for ${role}`);
+  }
+  if (!isRoleDiscriminant(returned.arguments[0], contextName)) throw new Error(`Unsupported buildInvocationSurface role argument for ${role}`);
+  const providers = returned.arguments[1];
+  if (!ts.isArrayLiteralExpression(providers)) throw new Error(`${role} provider composition must use an array literal`);
+  return providers.elements.map((element) => {
+    if (ts.isSpreadElement(element)) throw new Error(`${role} provider array contains a spread entry`);
+    if (!ts.isCallExpression(element)
+      || element.questionDotToken
+      || element.typeArguments?.length
+      || !ts.isIdentifier(element.expression)) {
+      throw new Error(`${role} provider array contains an unsupported entry`);
+    }
+    const functionName = element.expression.text;
+    if (!recognizedConstructors.has(functionName)) throw new Error(`Unknown provider constructor ${functionName} for ${role}`);
+    return functionName;
+  });
+}
+
 function extractImplementedAgentTools(projectRoot) {
   const source = sourceAst(projectRoot, 'src/tools/role-invocation-surfaces.ts');
-  const initializers = constInitializers(source.ast);
-  const roleOrder = requiredInitializer(initializers, 'ROLE_PROVIDER_ORDER', source.ast.fileName);
-  const constructors = requiredInitializer(initializers, 'PROVIDER_CONSTRUCTORS', source.ast.fileName);
-  if (!ts.isObjectLiteralExpression(roleOrder) || !ts.isObjectLiteralExpression(constructors)) throw new Error('Role provider composition must use object literals');
-  const constructorByName = new Map(constructors.properties.map((property) => {
-    if (!ts.isPropertyAssignment(property)) throw new Error('Unsupported provider constructor declaration');
-    return [propertyName(property.name), property.initializer];
-  }));
+  const functions = source.ast.statements.filter((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === 'buildRoleSurface');
+  if (functions.length !== 1 || !functions[0].body) throw new Error(`Expected exactly one buildRoleSurface implementation in ${source.ast.fileName}`);
+  const fn = functions[0];
+  if (fn.parameters.length !== 1 || !ts.isIdentifier(fn.parameters[0].name)) throw new Error('buildRoleSurface must have one statically named context parameter');
+  const contextName = fn.parameters[0].name.text;
+  const switches = fn.body.statements.filter(ts.isSwitchStatement);
+  if (switches.length !== 1 || !isRoleDiscriminant(switches[0].expression, contextName)) throw new Error('buildRoleSurface must contain one direct switch over its role discriminant');
+  const recognizedConstructors = providerConstructorImports(source.ast);
   const usedFunctions = new Set();
-  const usedProviders = new Set();
   const result = new Map();
-  for (const property of roleOrder.properties) {
-    if (!ts.isPropertyAssignment(property)) throw new Error('Unsupported role provider declaration');
-    const role = propertyName(property.name);
-    const providers = stringArray(property.initializer, `${role} provider order`);
+  for (const clause of switches[0].caseBlock.clauses) {
+    if (ts.isDefaultClause(clause)) {
+      throw new Error('Default provider-composition paths are unsupported');
+    }
+    if (!ts.isStringLiteral(clause.expression)) throw new Error('Agent role cases must use string literals');
+    const role = clause.expression.text;
+    if (!SUPPORTED_AGENT_ROLES.has(role)) throw new Error(`Unsupported agent role case ${role}`);
+    if (result.has(role)) throw new Error(`Duplicate provider-composition case for ${role}`);
+    const providers = providerCallsForCase(clause, role, contextName, recognizedConstructors);
     const names = [];
-    for (const provider of providers) {
-      const constructor = constructorByName.get(provider);
-      if (!constructor) throw new Error(`Unknown provider ${provider} for ${role}`);
-      usedProviders.add(provider);
-      const functionName = selectedConstructorCall(arrowResult(constructor), role);
+    for (const functionName of providers) {
       const relPath = PROVIDER_SOURCE_NAVIGATION.get(functionName);
       if (!relPath) throw new Error(`Missing provider source navigation for ${functionName}`);
       usedFunctions.add(functionName);
       names.push(...toolNamesFromProvider(projectRoot, functionName, relPath));
     }
-    if (role === 'planner' || role === 'executor' || role === 'reviewer') names.push(terminalToolName(projectRoot, role));
+    if (AUTONOMOUS_AGENT_ROLES.has(role)) names.push(terminalToolName(projectRoot, role));
     const unique = uniqueSorted(names);
     if (unique.length !== names.length) throw new Error(`Duplicate resulting tool name for ${role}`);
     result.set(role, unique);
   }
-  for (const provider of constructorByName.keys()) if (!usedProviders.has(provider)) throw new Error(`Unreferenced provider constructor ${provider}`);
+  for (const role of SUPPORTED_AGENT_ROLES) if (!result.has(role)) throw new Error(`Missing provider-composition case for ${role}`);
   for (const functionName of PROVIDER_SOURCE_NAVIGATION.keys()) if (!usedFunctions.has(functionName)) throw new Error(`Unreferenced provider source navigation for ${functionName}`);
   return result;
 }

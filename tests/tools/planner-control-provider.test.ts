@@ -95,6 +95,7 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     store,
     children: { get },
     cancelCard: async () => { throw new Error('unused'); },
+    notifyCard: () => ({ ok: true, notificationId: 'unused' }),
     appLogs: testAppLogs(options.projectRoot ?? '/test/planner-control'),
     beginStructuralWait,
     endStructuralWait,
