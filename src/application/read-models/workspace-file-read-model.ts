@@ -1,18 +1,11 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
 import type { OperatorApiHandlerResult, WorkspaceFilesListResponse } from '../../contracts/index.js';
 import { isReadBlocked, isRedacted, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
-import { SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
-interface ProjectCardRecordReader {
-  record(cardId: string, filename: string, version: number | 'latest' | 'open'): {
-    recordUrl: string;
-    version: number;
-    artifact: { state: string; content: string; committed_at?: string | null };
-  };
-  isActiveCardId(cardId: string): boolean;
-}
+import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
+import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
@@ -31,6 +24,23 @@ type ResolvedRequestPath =
   | ResolvedRequestPathBase & { safe: true; policyRelativePath: string }
   | ResolvedRequestPathBase & { safe: false; reason: string };
 
+type FilesAdmission =
+  | { kind: 'generic' }
+  | { kind: 'reserved-card' }
+  | { kind: 'rejected'; reason: string; responsePath: string; blockedSource?: true };
+
+const CANNOT_RESOLVE_REASON = 'Path cannot be resolved.';
+const MAX_CLASSIFIER_SYMLINK_EXPANSIONS = 40;
+
+function isContainedPath(parent: string, candidate: string): boolean {
+  const rel = relative(parent, candidate);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function isReservedCardPath(candidate: string, lexicalCardRoot: string, realCardRoot: string): boolean {
+  return isContainedPath(lexicalCardRoot, candidate) || isContainedPath(realCardRoot, candidate);
+}
+
 function isBinaryBuffer(buffer: Buffer): boolean {
   const length = Math.min(buffer.length, BINARY_SAMPLE_BYTES);
   if (length === 0) return false;
@@ -45,7 +55,11 @@ function isBinaryBuffer(buffer: Buffer): boolean {
 }
 
 export class WorkspaceFileReadModelService {
-  constructor(private readonly projectRoot: string, private readonly records: () => ProjectCardRecordReader) {}
+  private readonly canonicalCards: CanonicalCardFilesReadModel;
+
+  constructor(private readonly projectRoot: string, private readonly records: () => CanonicalCardFilesReader) {
+    this.canonicalCards = new CanonicalCardFilesReadModel(records);
+  }
 
   private resolveRequestedPath(requestedPath: string): ResolvedRequestPath {
     if (requestedPath.startsWith('work:///')) {
@@ -83,8 +97,134 @@ export class WorkspaceFileReadModelService {
       || (path.realTargetProjectRelativePath !== undefined && isRedacted(path.realTargetProjectRelativePath));
   }
 
+  private classifyAllowedNonCardAlias(policyRelativePath: string): 'generic' | 'reserved-card' | 'indeterminate' {
+    const lexicalProjectRoot = resolve(this.projectRoot);
+    let realProjectRoot: string;
+    try {
+      realProjectRoot = realpathSync(lexicalProjectRoot);
+    } catch {
+      return 'indeterminate';
+    }
+
+    const lexicalCardRoot = resolve(lexicalProjectRoot, SAIVAGE_CARDS_RELATIVE_DIR);
+    const realCardRoot = resolve(realProjectRoot, SAIVAGE_CARDS_RELATIVE_DIR);
+    let expandedPath = resolve(lexicalProjectRoot, policyRelativePath);
+    const expandedPaths = new Set<string>([expandedPath]);
+    const followedLinks = new Set<string>();
+    let expansions = 0;
+
+    for (;;) {
+      if (isReservedCardPath(expandedPath, lexicalCardRoot, realCardRoot)) return 'reserved-card';
+
+      const root = parse(expandedPath).root;
+      const components = relative(root, expandedPath).split(sep).filter((component) => component.length > 0);
+      let prefix = root;
+      let restarted = false;
+
+      for (let index = 0; index < components.length; index += 1) {
+        const componentPath = join(prefix, components[index]!);
+        let stat;
+        try {
+          stat = lstatSync(componentPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'generic';
+          return 'indeterminate';
+        }
+
+        if (!stat.isSymbolicLink()) {
+          prefix = componentPath;
+          continue;
+        }
+
+        if (expansions >= MAX_CLASSIFIER_SYMLINK_EXPANSIONS || followedLinks.has(componentPath)) return 'indeterminate';
+        followedLinks.add(componentPath);
+        expansions += 1;
+
+        let linkDestination: string;
+        try {
+          linkDestination = readlinkSync(componentPath);
+        } catch {
+          return 'indeterminate';
+        }
+        const destination = isAbsolute(linkDestination)
+          ? resolve(linkDestination)
+          : resolve(dirname(componentPath), linkDestination);
+        expandedPath = resolve(destination, ...components.slice(index + 1));
+        if (isReservedCardPath(expandedPath, lexicalCardRoot, realCardRoot)) return 'reserved-card';
+        if (expandedPaths.has(expandedPath)) return 'indeterminate';
+        expandedPaths.add(expandedPath);
+        restarted = true;
+        break;
+      }
+
+      if (!restarted) return 'generic';
+    }
+  }
+
+  private admitLexicalProjectPath(
+    requestedLexicalPath: string,
+    responsePath: string,
+    allowCanonicalCardDispatch: boolean,
+  ): FilesAdmission {
+    if (!requestedLexicalPath) return { kind: 'rejected', reason: 'Path is required.', responsePath };
+    if (requestedLexicalPath.includes('..')) {
+      return { kind: 'rejected', reason: 'Path traversal detected. Use of ".." is not allowed.', responsePath };
+    }
+
+    const projectRoot = resolve(this.projectRoot);
+    const absolutePath = resolve(requestedLexicalPath.startsWith('/') ? requestedLexicalPath : resolve(projectRoot, requestedLexicalPath));
+    if (!isContainedPath(projectRoot, absolutePath)) {
+      return { kind: 'rejected', reason: 'Path is outside the project root.', responsePath };
+    }
+    const rel = relative(projectRoot, absolutePath).split(sep).join('/') || '.';
+    const admittedResponsePath = allowCanonicalCardDispatch ? rel : responsePath;
+    if (isReadBlocked(rel)) {
+      return {
+        kind: 'rejected',
+        reason: `Access to "${admittedResponsePath}" is blocked for security reasons.`,
+        responsePath: admittedResponsePath,
+        blockedSource: true,
+      };
+    }
+
+    if (rel === SAIVAGE_CARDS_RELATIVE_DIR || rel.startsWith(`${SAIVAGE_CARDS_RELATIVE_DIR}/`)) {
+      return { kind: 'reserved-card' };
+    }
+
+    const aliasClassification = this.classifyAllowedNonCardAlias(rel);
+    if (aliasClassification === 'reserved-card') return { kind: 'reserved-card' };
+    if (aliasClassification === 'indeterminate') return { kind: 'rejected', reason: CANNOT_RESOLVE_REASON, responsePath };
+    return { kind: 'generic' };
+  }
+
+  private admitRequestedPath(requestedPath: string): FilesAdmission {
+    if (!requestedPath.startsWith('work:///')) return this.admitLexicalProjectPath(requestedPath, requestedPath, true);
+
+    let parsed;
+    try {
+      parsed = parseScopedPathUrl(requestedPath, 'work');
+    } catch (error) {
+      return { kind: 'rejected', reason: error instanceof Error ? error.message : String(error), responsePath: requestedPath };
+    }
+    if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== requestedPath) {
+      return { kind: 'rejected', reason: 'Invalid work URL.', responsePath: requestedPath };
+    }
+    const derivedProjectPath = `${SAIVAGE_WORK_RELATIVE_DIR}/${parsed.segments.join('/')}`;
+    return this.admitLexicalProjectPath(derivedProjectPath, requestedPath, false);
+  }
+
+  private reservedListResult(requestedPath: string): WorkspaceFilesListResult {
+    return this.canonicalCards.list(requestedPath);
+  }
+
+  private reservedContentResult(requestedPath: string): WorkspaceFileContentResult {
+    return this.canonicalCards.content(requestedPath);
+  }
+
   listFiles(requestedPath = '.'): WorkspaceFilesListResult {
-    if (this.inactiveCardPath(requestedPath)) return { statusCode: 404, body: { error: 'Path not found', path: requestedPath } };
+    const admission = this.admitRequestedPath(requestedPath);
+    if (admission.kind === 'rejected') return { statusCode: 403, body: { error: admission.reason } };
+    if (admission.kind === 'reserved-card') return this.reservedListResult(requestedPath);
     const resolvedPath = this.resolveRequestedPath(requestedPath);
     if (!resolvedPath.safe) return { statusCode: 403, body: { error: resolvedPath.reason } };
     if (this.isBlockedPath(resolvedPath)) return { statusCode: 403, body: { error: `Access to "${resolvedPath.responsePath}" is blocked for security reasons.` } };
@@ -94,7 +234,13 @@ export class WorkspaceFileReadModelService {
     if (!pathStat.isDirectory()) return { statusCode: 400, body: { error: 'Path is not a directory', path: responsePath } };
     const files = readdirSync(absolutePath).flatMap((entry: string): WorkspaceFilesListResponse['files'] => {
       const entryAbsolutePath = join(absolutePath, entry);
-      const lexicalEntryPath = relative(this.projectRoot, entryAbsolutePath).replace(/\\/g, '/');
+      const lexicalEntryPath = relative(resolve(this.projectRoot), entryAbsolutePath).split(sep).join('/');
+      if (kind === 'project' && resolvedPath.policyRelativePath === '.saivage' && entry === 'cards' && lexicalEntryPath === SAIVAGE_CARDS_RELATIVE_DIR) {
+        const row = this.canonicalCards.syntheticCardsRow();
+        return row ? [row] : [];
+      }
+      const childAdmission = this.admitLexicalProjectPath(lexicalEntryPath, lexicalEntryPath, false);
+      if (childAdmission.kind !== 'generic') return [];
       const containedEntry = resolveContainedProjectPath(this.projectRoot, lexicalEntryPath);
       if (!containedEntry.safe || !containedEntry.relativePath) return [];
       const entryPolicyPath = { policyRelativePath: containedEntry.relativePath, realTargetProjectRelativePath: containedEntry.realTargetProjectRelativePath };
@@ -109,7 +255,6 @@ export class WorkspaceFileReadModelService {
 
   readFileContent(requestedPath: string | undefined): WorkspaceFileContentResult {
     if (!requestedPath) return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
-    if (this.inactiveCardPath(requestedPath)) return { statusCode: 404, body: { error: 'File not found', path: requestedPath } };
     if (requestedPath.startsWith('record:///')) {
       try {
         const parsed = parseScopedPathUrl(requestedPath, 'record');
@@ -123,6 +268,13 @@ export class WorkspaceFileReadModelService {
         return { body: { path: record.recordUrl, size: Buffer.byteLength(record.artifact.content), contentType: 'text/markdown', content: record.artifact.content, redacted: false, sensitivity: 'normal', version: record.version, modifiedAt: record.artifact.committed_at } };
       } catch (error) { return { statusCode: 404, body: { error: error instanceof Error ? error.message : String(error), path: requestedPath } }; }
     }
+    const admission = this.admitRequestedPath(requestedPath);
+    if (admission.kind === 'rejected') {
+      return admission.blockedSource
+        ? { statusCode: 403, body: { error: admission.reason, path: admission.responsePath } }
+        : { statusCode: 403, body: { error: admission.reason } };
+    }
+    if (admission.kind === 'reserved-card') return this.reservedContentResult(requestedPath);
     const resolvedPath = this.resolveRequestedPath(requestedPath);
     if (!resolvedPath.safe) return { statusCode: 403, body: { error: resolvedPath.reason } };
     if (this.isBlockedPath(resolvedPath)) return { statusCode: 403, body: { error: `Access to "${resolvedPath.responsePath}" is blocked for security reasons.`, path: resolvedPath.responsePath } };
@@ -138,8 +290,4 @@ export class WorkspaceFileReadModelService {
     return { body: { path: responsePath, size: fileStat.size, contentType: 'text/plain', content: redacted ? redactTextForOutbound(content, 'operator.api', { source: 'workspace-file-read-model' }) : content, redacted, sensitivity: redacted ? 'sensitive-redacted' : 'normal' } };
   }
 
-  private inactiveCardPath(requestedPath: string): boolean {
-    const match = /^\.saivage\/cards\/([^/]+)(?:\/|$)/u.exec(requestedPath.replace(/^\.\//u, ''));
-    return match !== null && !this.records().isActiveCardId(match[1]!);
-  }
 }

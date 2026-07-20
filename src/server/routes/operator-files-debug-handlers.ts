@@ -5,7 +5,13 @@ import { defineOperatorContractHandlers, type OperatorProjectContext } from './o
 export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardServiceProvider: () => CardService }) {
   const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot, () => {
     const cards = options.cardServiceProvider();
-    return { record: cards.recordReader.record, isActiveCardId: (cardId: string) => cards.read(cardId) !== null };
+    return {
+      record: cards.recordReader.record,
+      getCanonicalCard: (cardId: string) => cards.getCanonicalCard(cardId),
+      getCanonicalCardChildren: (cardId: string) => cards.getCanonicalCardChildren(cardId),
+      getCanonicalCardFilesMetadata: (cardId: string) => cards.getCanonicalCardFilesMetadata(cardId),
+      getCanonicalCardFileContent: (cardId, slot, maximumBytes) => cards.getCanonicalCardFileContent(cardId, slot, maximumBytes),
+    };
   });
   const debugReadModel = new DebugReadModelService(options.projectRoot);
 

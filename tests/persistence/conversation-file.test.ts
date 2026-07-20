@@ -66,7 +66,6 @@ describe('conversation append observation boundary', () => {
     const trace: string[] = [];
     const changes = changesRecording(trace);
     const io: GrowingFileIo = {
-      read: ((...args: unknown[]) => { trace.push('read'); return Reflect.apply(readFileSync, undefined, args); }) as typeof readFileSync,
       open(path, flags) { trace.push('open'); return openSync(path, flags); },
       write: ((...args: unknown[]) => { trace.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
       fsync(fd) { trace.push('fsync'); fsyncSync(fd); },

@@ -131,7 +131,6 @@ describe('CardService final reset-only contracts', () => {
       return Reflect.apply(writeSync, undefined, args);
     }) as typeof writeSync;
     const io: GrowingFileIo = {
-      read: readFileSync,
       open(path, flags) {
         order.push('parent-link-open');
         const observer = new CardService(root);
@@ -607,16 +606,11 @@ describe('CardService final reset-only contracts', () => {
     const afterFailure: string[] = [];
     let failed = false;
     const record = (operation: string) => { operations.push(operation); if (failed) afterFailure.push(operation); };
-    const tracedRead = ((...args: unknown[]) => {
-      record('read');
-      return Reflect.apply(readFileSync, undefined, args);
-    }) as typeof readFileSync;
     const tracedWrite = ((...args: unknown[]) => {
       record('write');
       return Reflect.apply(writeSync, undefined, args);
     }) as typeof writeSync;
     const io: GrowingFileIo = {
-      read: tracedRead,
       open(path, flags) { record('open'); return openSync(path, flags); },
       write: tracedWrite,
       fsync(fd) {
@@ -651,7 +645,6 @@ describe('CardService final reset-only contracts', () => {
     let failed = false;
     const record = (operation: string) => { operations.push(operation); if (failed) afterFailure.push(operation); };
     const io: GrowingFileIo = {
-      read: readFileSync,
       open(path, flags) { record('open'); return openSync(path, flags); },
       write: ((...args: unknown[]) => { record('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
       fsync(fd) { record('fsync'); fsyncSync(fd); failed = true; throw new Error('reorder fsync'); },

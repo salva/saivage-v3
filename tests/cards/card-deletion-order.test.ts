@@ -55,7 +55,6 @@ describe('complete-union deletion admission and order', () => {
     const operations: string[] = [];
     let writes = 0;
     const failingIo: GrowingFileIo = {
-      read: readFileSync,
       open(path, flags) { operations.push(`open:${path}`); return openSync(path, flags); },
       write: ((...args: unknown[]) => {
         operations.push('write');
@@ -97,7 +96,6 @@ describe('complete-union deletion admission and order', () => {
     const failure = new Error('uncertain tombstone');
     const operations: string[] = [];
     const failingIo: GrowingFileIo = {
-      read: readFileSync,
       open(path, flags) { operations.push(`open:${path}`); return openSync(path, flags); },
       write: ((...args: unknown[]) => { operations.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
       fsync(fd) { operations.push('fsync'); fsyncSync(fd); throw failure; },

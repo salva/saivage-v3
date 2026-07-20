@@ -97,7 +97,6 @@ describe('direct child namespace claims', () => {
     const parentBytes = realFs.readFileSync(cardStreamFile(root, 'project'));
     const appendOperations: string[] = [];
     const io = {
-      read: ((...args: unknown[]) => { appendOperations.push('read'); return Reflect.apply(realFs.readFileSync, undefined, args); }) as typeof realFs.readFileSync,
       open: ((...args: unknown[]) => { appendOperations.push('open'); return Reflect.apply(realFs.openSync, undefined, args); }) as typeof realFs.openSync,
       write: ((...args: unknown[]) => { appendOperations.push('write'); return Reflect.apply(realFs.writeSync, undefined, args); }) as typeof realFs.writeSync,
       fsync: ((...args: unknown[]) => { appendOperations.push('fsync'); return Reflect.apply(realFs.fsyncSync, undefined, args); }) as typeof realFs.fsyncSync,

@@ -167,12 +167,12 @@ export function resolveContainedProjectPath(
         return {
           safe: false,
           absolutePath: resolvedPath,
-          relativePath: relative(resolvedRoot, resolvedPath).replace(/\\/g, '/') || '.',
+          relativePath: relative(resolvedRoot, resolvedPath).split(sep).join('/') || '.',
           reason: 'Symlink target is outside the project root.',
         };
       }
-      const rel = relative(resolvedRoot, resolvedPath).replace(/\\/g, '/');
-      const realTargetRel = relative(realRoot, realPath).replace(/\\/g, '/');
+      const rel = relative(resolvedRoot, resolvedPath).split(sep).join('/');
+      const realTargetRel = relative(realRoot, realPath).split(sep).join('/');
       return {
         safe: true,
         absolutePath: resolvedPath,
@@ -188,7 +188,7 @@ export function resolveContainedProjectPath(
     }
   }
 
-  const rel = relative(resolvedRoot, resolvedPath).replace(/\\/g, '/');
+  const rel = relative(resolvedRoot, resolvedPath).split(sep).join('/');
   return {
     safe: true,
     absolutePath: resolvedPath,

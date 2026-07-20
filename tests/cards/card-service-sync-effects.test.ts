@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { closeSync, ftruncateSync, fsyncSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, ftruncateSync, fsyncSync, mkdtempSync, openSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
@@ -127,7 +127,6 @@ describe('CardService scoped mutation-to-frame effects', () => {
 
     const failure = new Error('injected append failure');
     const failingIo: GrowingFileIo = {
-      read: readFileSync,
       open: openSync,
       write: writeSync,
       fsync(fd) { fsyncSync(fd); throw failure; },
@@ -149,7 +148,6 @@ describe('CardService scoped mutation-to-frame effects', () => {
 
     const failure = new Error('injected record close failure');
     const failingIo: GrowingFileIo = {
-      read: readFileSync,
       open: openSync,
       write: writeSync,
       fsync(fd) { fsyncSync(fd); throw failure; },

@@ -27,6 +27,10 @@ import {
   proveCreatedCardPublication,
   readCard,
   readCardArtifacts,
+  readCanonicalCard,
+  readCanonicalCardHierarchy,
+  readCanonicalCardFileContent,
+  readCanonicalCardFilesMetadata,
   readCardDetail,
   readCardDiffIndex,
   readCardHierarchy,
@@ -35,6 +39,11 @@ import {
   readLinkedChildren,
   readLinkedChildrenProjection,
   type CardTargetRead,
+  type CanonicalCardProjection,
+  type CanonicalLinkedChildrenProjection,
+  type CanonicalCardFileContentRead,
+  type CanonicalCardFileSlot,
+  type CanonicalCardFilesMetadataProjection,
 } from '../persistence/card-files.js';
 import type { CanonicalReadInstrumentation, GrowingFileIo } from '../persistence/growing-file.js';
 import type { ReadModelChanges } from '../application/read-model-changes.js';
@@ -75,6 +84,11 @@ export type CardActivationAdmissionProjection = {
 
 export interface CardDiffEntry { field: string; before: unknown; after: unknown }
 export type CardHistoryListResult = CardTargetRead<CardHistoryEntry[]>;
+export type CardServiceTargetRead<T> = CardTargetRead<T>;
+export type CanonicalCardReadProjection = CanonicalCardProjection;
+export type CanonicalCardChildrenReadProjection = CanonicalLinkedChildrenProjection;
+export type CanonicalCardFilesMetadataReadProjection = CanonicalCardFilesMetadataProjection;
+export type { CanonicalCardFileContentRead, CanonicalCardFileSlot };
 export type CardHistoryEntryResult = CardTargetRead<CardHistoryEntry> | { readonly kind: 'history-entry-not-found'; readonly versionSeq: number };
 export type CardHistoryDiffResult =
   | { readonly kind: 'found'; readonly from: number; readonly to: number; readonly diff: CardDiffEntry[] }
@@ -230,6 +244,18 @@ export class CardService {
 
   getCardDetail(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
     return clone(readCardDetail(this.projectRoot, id, instrumentation));
+  }
+  getCanonicalCard(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalCardReadProjection> {
+    return readCanonicalCard(this.projectRoot, id, instrumentation);
+  }
+  getCanonicalCardChildren(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalCardChildrenReadProjection> {
+    return readCanonicalCardHierarchy(this.projectRoot, id, instrumentation);
+  }
+  getCanonicalCardFilesMetadata(id: string): CardTargetRead<CanonicalCardFilesMetadataReadProjection> {
+    return readCanonicalCardFilesMetadata(this.projectRoot, id);
+  }
+  getCanonicalCardFileContent(id: string, slot: CanonicalCardFileSlot, maximumBytes: number): CanonicalCardFileContentRead {
+    return readCanonicalCardFileContent(this.projectRoot, id, slot, maximumBytes);
   }
   getCardChildren(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<{ parent: CardRecord; activeChildren: CardRecord[] }> {
     return clone(readCardHierarchy(this.projectRoot, id, instrumentation));

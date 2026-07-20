@@ -8,7 +8,7 @@ import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 
 const roots: string[] = [];
 const row = z.object({ value: z.number().int() }).strict();
-const io: GrowingFileIo = { read: readFileSync, open: openSync, write: writeSync, fsync: fsyncSync, truncate: ftruncateSync, close: closeSync };
+const io: GrowingFileIo = { open: openSync, write: writeSync, fsync: fsyncSync, truncate: ftruncateSync, close: closeSync };
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 function target(): string { const root = mkdtempSync(join(tmpdir(), 'saivage-growing-')); roots.push(root); return join(root, 'stream.jsonl'); }
 
@@ -40,7 +40,6 @@ describe('strict growing-file boundaries', () => {
       throw partialFailure;
     }) as typeof writeSync;
     const partialIo: GrowingFileIo = {
-      read: readFileSync,
       open(path, flags) { partialOperations.push(`open:${path}`); return openSync(path, flags); },
       write: partialWrite,
       fsync(fd) { partialOperations.push('fsync'); fsyncSync(fd); },
@@ -56,7 +55,6 @@ describe('strict growing-file boundaries', () => {
     const fsyncFailure = new Error('fsync');
     const completeOperations: string[] = [];
     const completeIo: GrowingFileIo = {
-      read: readFileSync,
       open(path, flags) { completeOperations.push(`open:${path}`); return openSync(path, flags); },
       write: ((...args: unknown[]) => { completeOperations.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
       fsync() { completeOperations.push('fsync'); throw fsyncFailure; },

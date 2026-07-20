@@ -3,7 +3,7 @@ import * as realFs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-type TracedOperation = 'lstatSync' | 'statSync' | 'readdirSync' | 'readFileSync';
+type TracedOperation = 'existsSync' | 'lstatSync' | 'readlinkSync' | 'realpathSync' | 'statSync' | 'readdirSync' | 'readFileSync';
 type Trace = { operation: TracedOperation; path: string };
 const traces: Trace[] = [];
 
@@ -16,7 +16,10 @@ function traced<T extends (...args: never[]) => unknown>(operation: TracedOperat
 
 jest.unstable_mockModule('node:fs', () => ({
   ...realFs,
+  existsSync: traced('existsSync', realFs.existsSync),
   lstatSync: traced('lstatSync', realFs.lstatSync),
+  readlinkSync: traced('readlinkSync', realFs.readlinkSync),
+  realpathSync: traced('realpathSync', realFs.realpathSync),
   statSync: traced('statSync', realFs.statSync),
   readdirSync: traced('readdirSync', realFs.readdirSync),
   readFileSync: traced('readFileSync', realFs.readFileSync),
@@ -27,7 +30,10 @@ const { WorkspaceFileReadModelService } = await import('../../src/application/re
 const roots: string[] = [];
 const records = () => ({
   record: (_cardId: string, _filename: string, _version: number | 'latest' | 'open') => { throw new Error('No records in workspace file tests.'); },
-  isActiveCardId: (_cardId: string) => true,
+  getCanonicalCard: () => ({ kind: 'card-not-found' as const }),
+  getCanonicalCardChildren: () => ({ kind: 'card-not-found' as const }),
+  getCanonicalCardFilesMetadata: () => ({ kind: 'card-not-found' as const }),
+  getCanonicalCardFileContent: () => ({ kind: 'card-not-found' as const }),
 });
 
 function temporaryRoot(prefix: string): string {
@@ -39,6 +45,10 @@ function temporaryRoot(prefix: string): string {
 function projectionTracesFor(...paths: string[]): Trace[] {
   const resolvedPaths = new Set(paths.map((path) => resolve(path)));
   return traces.filter((trace) => resolvedPaths.has(trace.path));
+}
+
+function targetProjectionTracesFor(...paths: string[]): Trace[] {
+  return projectionTracesFor(...paths).filter((trace) => ['statSync', 'readdirSync', 'readFileSync'].includes(trace.operation));
 }
 
 function listedNames(body: unknown): string[] {
@@ -95,9 +105,10 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     const workNames = listedNames(workListing.body);
     expect(projectNames).not.toEqual(expect.arrayContaining(['.env', 'safe-project-alias']));
     expect(workNames).not.toEqual(expect.arrayContaining(['.env', 'safe-work-alias']));
-    expect(projectionTracesFor(projectBlocked, projectAlias, workBlocked, workAlias)).toEqual([]);
-    expect(projectionTracesFor(root)).toEqual([{ operation: 'statSync', path: resolve(root) }, { operation: 'readdirSync', path: resolve(root) }]);
-    expect(projectionTracesFor(workRoot)).toEqual([{ operation: 'statSync', path: resolve(workRoot) }, { operation: 'readdirSync', path: resolve(workRoot) }]);
+    expect(targetProjectionTracesFor(projectBlocked, workBlocked)).toEqual([]);
+    expect(targetProjectionTracesFor(projectAlias, workAlias)).toEqual([]);
+    expect(projectionTracesFor(root)).toEqual(expect.arrayContaining([{ operation: 'statSync', path: resolve(root) }, { operation: 'readdirSync', path: resolve(root) }]));
+    expect(projectionTracesFor(workRoot)).toEqual(expect.arrayContaining([{ operation: 'statSync', path: resolve(workRoot) }, { operation: 'readdirSync', path: resolve(workRoot) }]));
   });
 
   it('blocks safe aliases to blocked files and directories before target operations', () => {
@@ -115,7 +126,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     expect(service.readFileContent('safe-file-alias').statusCode).toBe(403);
     expect(service.listFiles('safe-directory-alias').statusCode).toBe(403);
     expect(listedNames(service.listFiles('.').body)).not.toEqual(expect.arrayContaining(['safe-file-alias', 'safe-directory-alias']));
-    expect(projectionTracesFor(blockedFile, blockedDirectory, fileAlias, directoryAlias)).toEqual([]);
+    expect(targetProjectionTracesFor(blockedFile, blockedDirectory, fileAlias, directoryAlias)).toEqual([]);
   });
 
   it('gives a blocked real target precedence over a lexical redaction identity without reading', () => {
@@ -128,7 +139,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     const service = new WorkspaceFileReadModelService(root, records);
 
     expect(service.readFileContent('.saivage/saivage.yaml').statusCode).toBe(403);
-    expect(projectionTracesFor(blockedFile, redactedAlias)).toEqual([]);
+    expect(targetProjectionTracesFor(blockedFile, redactedAlias)).toEqual([]);
   });
 
   it('fails containment for outside-root aliases before target projection or reads', () => {
@@ -147,7 +158,90 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     expect(service.readFileContent('outside-file-alias').statusCode).toBe(403);
     expect(service.listFiles('outside-directory-alias').statusCode).toBe(403);
     expect(listedNames(service.listFiles('.').body)).not.toEqual(expect.arrayContaining(['outside-file-alias', 'outside-directory-alias']));
-    expect(projectionTracesFor(outsideFile, outsideDirectory, fileAlias, directoryAlias)).toEqual([]);
+    expect(targetProjectionTracesFor(outsideFile, outsideDirectory, fileAlias, directoryAlias)).toEqual([]);
+  });
+
+  it('blocks lexical project and work sources before classifier I/O even when they link into cards', () => {
+    const root = temporaryRoot('saivage-workspace-ordering-');
+    const cardTarget = join(root, '.saivage/cards/unlinked-malformed');
+    const projectBlocked = join(root, '.env');
+    const workRoot = join(root, '.saivage/work/processes/proc-1');
+    const workBlocked = join(workRoot, '.env');
+    realFs.mkdirSync(cardTarget, { recursive: true });
+    realFs.mkdirSync(workRoot, { recursive: true });
+    realFs.writeFileSync(join(cardTarget, 'arbitrary'), 'must not be inspected');
+    realFs.symlinkSync(cardTarget, projectBlocked);
+    realFs.symlinkSync(cardTarget, workBlocked);
+    const service = new WorkspaceFileReadModelService(root, records);
+
+    expect(service.listFiles('.env').statusCode).toBe(403);
+    expect(service.readFileContent('.env').statusCode).toBe(403);
+    expect(service.listFiles('work:///processes/proc-1/.env').statusCode).toBe(403);
+    expect(service.readFileContent('work:///processes/proc-1/.env').statusCode).toBe(403);
+    expect(listedNames(service.listFiles('.').body)).not.toContain('.env');
+    expect(listedNames(service.listFiles('work:///processes/proc-1').body)).not.toContain('.env');
+    expect(projectionTracesFor(projectBlocked, workBlocked, cardTarget, join(cardTarget, 'arbitrary'))).toEqual([]);
+  });
+
+  it('reserves allowed project and work aliases before any card-target operation', () => {
+    const root = temporaryRoot('saivage-workspace-ordering-');
+    const cardRoot = join(root, '.saivage/cards');
+    const cardTarget = join(cardRoot, 'unlinked-malformed');
+    const projectAlias = join(root, 'card-alias');
+    const workRoot = join(root, '.saivage/work/processes/proc-1');
+    const workAlias = join(workRoot, 'card-alias');
+    realFs.mkdirSync(cardTarget, { recursive: true });
+    realFs.mkdirSync(workRoot, { recursive: true });
+    realFs.writeFileSync(join(cardTarget, 'arbitrary'), 'must not be inspected');
+    realFs.symlinkSync(cardTarget, projectAlias);
+    realFs.symlinkSync(cardTarget, workAlias);
+    const service = new WorkspaceFileReadModelService(root, records);
+
+    expect(service.listFiles('card-alias').statusCode).toBe(404);
+    expect(service.readFileContent('card-alias').statusCode).toBe(404);
+    expect(service.listFiles('work:///processes/proc-1/card-alias').statusCode).toBe(404);
+    expect(service.readFileContent('work:///processes/proc-1/card-alias').statusCode).toBe(404);
+    expect(listedNames(service.listFiles('.').body)).not.toContain('card-alias');
+    expect(listedNames(service.listFiles('work:///processes/proc-1').body)).not.toContain('card-alias');
+    expect(projectionTracesFor(projectAlias)).toEqual(expect.arrayContaining([{ operation: 'lstatSync', path: resolve(projectAlias) }, { operation: 'readlinkSync', path: resolve(projectAlias) }]));
+    expect(projectionTracesFor(workAlias)).toEqual(expect.arrayContaining([{ operation: 'lstatSync', path: resolve(workAlias) }, { operation: 'readlinkSync', path: resolve(workAlias) }]));
+    expect(projectionTracesFor(cardRoot, cardTarget, join(cardTarget, 'arbitrary'))).toEqual([]);
+  });
+
+  it('rejects traversal, outside paths, and malformed work URLs without classifier I/O', () => {
+    const root = temporaryRoot('saivage-workspace-ordering-');
+    const service = new WorkspaceFileReadModelService(root, records);
+
+    expect(service.listFiles('../outside').statusCode).toBe(403);
+    expect(service.listFiles(join(tmpdir(), 'outside-absolute')).statusCode).toBe(403);
+    expect(service.listFiles('work:///double//segment').statusCode).toBe(403);
+    expect(service.listFiles('work:///segment?query=1').statusCode).toBe(403);
+    expect(traces.filter((trace) => ['lstatSync', 'readlinkSync', 'realpathSync', 'existsSync', 'statSync', 'readdirSync', 'readFileSync'].includes(trace.operation))).toEqual([]);
+  });
+
+  it('follows at most forty symlink expansions before failing closed', () => {
+    const root = temporaryRoot('saivage-workspace-ordering-');
+    for (let index = 0; index <= 40; index += 1) {
+      realFs.symlinkSync(index === 40 ? 'ordinary.txt' : `link-${index + 1}`, join(root, `link-${index}`));
+    }
+    realFs.writeFileSync(join(root, 'ordinary.txt'), 'ordinary');
+    const service = new WorkspaceFileReadModelService(root, records);
+
+    expect(service.readFileContent('link-0').statusCode).toBe(403);
+    expect(traces.filter((trace) => trace.operation === 'readlinkSync')).toHaveLength(40);
+    expect(projectionTracesFor(join(root, 'ordinary.txt'))).toEqual([]);
+  });
+
+  it('never sends the direct canonical card root to generic filesystem resolution', () => {
+    const root = temporaryRoot('saivage-workspace-ordering-');
+    const cards = join(root, '.saivage/cards');
+    realFs.mkdirSync(join(cards, 'project'), { recursive: true });
+    const service = new WorkspaceFileReadModelService(root, records);
+
+    expect(service.listFiles('.saivage/cards').statusCode).toBe(404);
+    expect(service.listFiles('./.saivage/cards/').statusCode).toBe(404);
+    expect(service.readFileContent('.saivage/cards/project/card.jsonl').statusCode).toBe(404);
+    expect(projectionTracesFor(cards, join(cards, 'project'), join(cards, 'project/card.jsonl'))).toEqual([]);
   });
 
   it('reads direct and aliased redacted YAML exactly once and never returns its synthetic secret', () => {

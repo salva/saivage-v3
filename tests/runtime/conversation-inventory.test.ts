@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { closeSync, ftruncateSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, ftruncateSync, fsyncSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
@@ -61,7 +61,6 @@ describe('domain-derived conversation inventory', () => {
     const failure = new Error('conversation fsync');
     const operations: string[] = [];
     const failingIo: GrowingFileIo = {
-      read: readFileSync,
       open(path, flags) { operations.push(`open:${path}`); return openSync(path, flags); },
       write: ((...args: unknown[]) => { operations.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
       fsync(fd) { operations.push('fsync'); fsyncSync(fd); throw failure; },

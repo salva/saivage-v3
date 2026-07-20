@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
-import { readCard, readLinkedChildren } from '../../src/persistence/card-files.js';
+import { readCanonicalCardHierarchy, readCard, readLinkedChildren } from '../../src/persistence/card-files.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
@@ -51,6 +51,133 @@ describe('exact hierarchical card files', () => {
     expect(readCard(root, 'card-b')).toBeNull();
     rmSync(orphan, { recursive: true }); symlinkSync(root, orphan);
     expect(readCard(root, 'card-b')).toBeNull();
+  });
+
+  it('proves linkage before touching an unlinked outside child namespace', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    const outside = mkdtempSync(join(tmpdir(), 'saivage-direct-card-outside-')); roots.push(outside);
+    writeFileSync(join(outside, 'card.jsonl'), '{complete-malformed}\n');
+    const children = join(root, '.saivage', 'cards', 'project', 'children');
+    mkdirSync(children);
+    symlinkSync(outside, join(children, 'z'));
+    const reads: string[] = [];
+
+    expect(readCard(root, 'card-z', { onRead: (stream) => reads.push(stream) })).toBeNull();
+    expect(reads).toEqual([cardStreamFile(root, 'project')]);
+  });
+
+  it('rejects symlinked reached canonical ancestors before reading an outside stream', () => {
+    const cases: Array<{ name: string; target: 'project' | 'child' | 'grandchild'; replace(root: string, childId: string, grandchildId: string, outside: string): void }> = [
+      {
+        name: '.saivage', target: 'project', replace(root, _childId, _grandchildId, outside) {
+          renameSync(join(root, '.saivage'), join(outside, 'moved-saivage'));
+          symlinkSync(join(outside, 'moved-saivage'), join(root, '.saivage'));
+        },
+      },
+      {
+        name: 'cards', target: 'project', replace(root, _childId, _grandchildId, outside) {
+          renameSync(join(root, '.saivage', 'cards'), join(outside, 'moved-cards'));
+          symlinkSync(join(outside, 'moved-cards'), join(root, '.saivage', 'cards'));
+        },
+      },
+      {
+        name: 'project', target: 'project', replace(root, _childId, _grandchildId, outside) {
+          renameSync(join(root, '.saivage', 'cards', 'project'), join(outside, 'moved-project'));
+          symlinkSync(join(outside, 'moved-project'), join(root, '.saivage', 'cards', 'project'));
+        },
+      },
+      {
+        name: 'committed children', target: 'child', replace(root, _childId, _grandchildId, outside) {
+          const path = join(root, '.saivage', 'cards', 'project', 'children');
+          renameSync(path, join(outside, 'moved-children'));
+          symlinkSync(join(outside, 'moved-children'), path);
+        },
+      },
+      {
+        name: 'committed child segment', target: 'child', replace(root, childId, _grandchildId, outside) {
+          const path = cardNamespace(root, childId);
+          renameSync(path, join(outside, 'moved-child'));
+          symlinkSync(join(outside, 'moved-child'), path);
+        },
+      },
+      {
+        name: 'committed nested children', target: 'grandchild', replace(root, childId, _grandchildId, outside) {
+          const path = join(cardNamespace(root, childId), 'children');
+          renameSync(path, join(outside, 'moved-nested-children'));
+          symlinkSync(join(outside, 'moved-nested-children'), path);
+        },
+      },
+      {
+        name: 'committed nested segment', target: 'grandchild', replace(root, _childId, grandchildId, outside) {
+          const path = cardNamespace(root, grandchildId);
+          renameSync(path, join(outside, 'moved-grandchild'));
+          symlinkSync(join(outside, 'moved-grandchild'), path);
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const root = mkdtempSync(join(tmpdir(), `saivage-direct-card-${testCase.name.replaceAll(' ', '-')}-`)); roots.push(root); initProjectTree(root);
+      const cards = new CardService(root);
+      const child = cards.create({ type: 'goal', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const grandchild = cards.create({ type: 'code', parent: child.id, title: 'Grandchild', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const outside = mkdtempSync(join(tmpdir(), 'saivage-direct-card-outside-')); roots.push(outside);
+      testCase.replace(root, child.id, grandchild.id, outside);
+      const reads: string[] = [];
+      const target = testCase.target === 'project' ? 'project' : testCase.target === 'child' ? child.id : grandchild.id;
+      expect(() => readCard(root, target, { onRead: (stream) => reads.push(stream) })).toThrow(/real directory/);
+      expect(reads.some((stream) => stream.startsWith(outside))).toBe(false);
+    }
+  });
+
+  it('reaches root and leaf cards and lists empty children without a physical children directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    expect(existsSync(join(cardNamespace(root, 'project'), 'children'))).toBe(false);
+    expect(readCard(root, 'project')?.id).toBe('project');
+    expect(readCanonicalCardHierarchy(root, 'project')).toMatchObject({ kind: 'found', value: { activeChildren: [] } });
+
+    const cards = new CardService(root);
+    const leaf = cards.create({ type: 'code', parent: 'project', title: 'Leaf', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    expect(existsSync(join(cardNamespace(root, leaf.id), 'children'))).toBe(false);
+    expect(readCard(root, leaf.id)?.id).toBe(leaf.id);
+    expect(readCanonicalCardHierarchy(root, leaf.id)).toMatchObject({ kind: 'found', value: { activeChildren: [] } });
+  });
+
+  it('exposes reached descriptor snapshots through CardService for the canonical Files collaborator', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+
+    const detail = cards.getCanonicalCard(child.id);
+    expect(detail.kind).toBe('found');
+    if (detail.kind !== 'found') throw new Error('Expected canonical child projection.');
+    expect(detail.value.card.id).toBe(child.id);
+    expect(detail.value.snapshot.bytes).toEqual(readFileSync(cardStreamFile(root, child.id)));
+    expect(detail.value.snapshot.size).toBe(detail.value.snapshot.bytes.byteLength);
+
+    const hierarchy = cards.getCanonicalCardChildren('project');
+    expect(hierarchy.kind).toBe('found');
+    if (hierarchy.kind !== 'found') throw new Error('Expected canonical project hierarchy.');
+    expect(hierarchy.value.parent.card.id).toBe('project');
+    expect(hierarchy.value.activeChildren.map(({ card }) => card.id)).toEqual([child.id]);
+    expect(hierarchy.value.activeChildren[0]!.snapshot.bytes).toEqual(readFileSync(cardStreamFile(root, child.id)));
+  });
+
+  it('uses the proved real project root for fixed-slot metadata and content', () => {
+    const physicalRoot = mkdtempSync(join(tmpdir(), 'saivage-direct-card-real-root-')); roots.push(physicalRoot); initProjectTree(physicalRoot);
+    const linkParent = mkdtempSync(join(tmpdir(), 'saivage-direct-card-root-link-')); roots.push(linkParent);
+    const linkedRoot = join(linkParent, 'project-link');
+    symlinkSync(physicalRoot, linkedRoot, 'dir');
+    const cards = new CardService(linkedRoot);
+
+    expect(cards.getCanonicalCardFilesMetadata('project')).toMatchObject({
+      kind: 'found',
+      value: { files: [{ slot: 'card' }, { slot: 'brief' }] },
+    });
+    const content = cards.getCanonicalCardFileContent('project', 'brief', 1_048_576);
+    expect(content.kind).toBe('found');
+    if (content.kind !== 'found') throw new Error('Expected canonical brief content.');
+    expect(content.value.snapshot.bytes.byteLength).toBeGreaterThan(0);
   });
 
   it('keeps every card-domain read opaque after target tombstone and stops before descendants', () => {
