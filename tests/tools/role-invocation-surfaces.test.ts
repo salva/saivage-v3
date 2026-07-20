@@ -42,12 +42,20 @@ describe('role invocation surfaces', () => {
 
   it.each(['planner', 'analyst'] as const)('%s create_card exposes no status property', (role) => {
     const create = surfaceToolDefinitions(buildRoleSurface(fixture(role))).find((tool) => tool.function.name === 'create_card');
+    expect(create).toBeDefined();
+    expect(create?.function.parameters).toMatchObject({ type: 'object', additionalProperties: false });
     expect(create?.function.parameters).not.toHaveProperty('properties.status');
   });
 
   it.each(['planner', 'analyst'] as const)('%s create_card rejects a legacy status key at the composed boundary', async (role) => {
-    await expect(invokeToolForLlm(buildRoleSurface(fixture(role)), 'create_card', { type: 'code', title: 'strict child', brief: 'strict brief', status: 'backlog' }))
-      .resolves.toMatchObject({ success: false });
+    const context = fixture(role);
+    const surface = buildRoleSurface(context);
+    for (const status of ['backlog', 'running']) {
+      await expect(invokeToolForLlm(surface, 'create_card', { type: 'code', title: 'strict child', brief: 'strict brief', status }))
+        .resolves.toMatchObject({ success: false });
+    }
+    const store = context.role === 'analyst' ? context.toolContext.store : context.store;
+    expect(store.listChildren('project')).toEqual([]);
   });
 
   it('resolves the one-shot MCP authority at call time through an already-built Executor surface', async () => {

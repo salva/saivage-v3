@@ -79,9 +79,18 @@ describe('CLI reset generated-root boundary', () => {
     for (const marker of markers) expect(existsSync(marker)).toBe(false);
     expect(readCard(root, 'project')).toMatchObject({ id: 'project', type: 'project', lifecycle: { status: 'backlog' }, version_seq: 1 });
     const rootStream = readFileSync(join(root, '.saivage', 'cards', 'project', 'card.jsonl'), 'utf8');
-    expect(rootStream).toContain('"format_version":2');
+    expect(rootStream.endsWith('\n')).toBe(true);
+    expect(rootStream.split('\n')).toHaveLength(2);
     const rootEnvelope = JSON.parse(rootStream);
-    for (const field of ['status', 'parent', 'depth', 'allowedActions']) expect(rootEnvelope.rows[0]!.card).not.toHaveProperty(field);
+    expect(rootEnvelope).toMatchObject({ version: 1, type: 'rows', rows: [{ kind: 'card-version', format_version: 2, card_id: 'project', version: 1, history: null }] });
+    expect(rootEnvelope.rows).toHaveLength(1);
+    expect(Object.keys(rootEnvelope.rows[0].card)).toEqual([
+      'id', 'type', 'children', 'title', 'lifecycle', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at',
+      'version_seq', 'assigned_to', 'depends_on', 'related', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text',
+      'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'pending_notifications',
+    ]);
+    expect(rootEnvelope.rows[0].card.lifecycle).toEqual({ status: 'backlog', result: null, error: null, completed_at: null });
+    expect(rootStream).toBe(`${JSON.stringify(rootEnvelope)}\n`);
     for (const [path, bytes] of preserved) expect(readFileSync(join(root, path), 'utf8')).toBe(bytes);
     expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
     expect(existsSync(join(root, '.saivage', 'agents', 'conversations'))).toBe(true);

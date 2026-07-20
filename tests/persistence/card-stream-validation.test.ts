@@ -48,20 +48,22 @@ describe('two-kind card stream validation', () => {
     ]);
   });
 
-  it('rejects v1 and removed card snapshot fields', () => {
+  it('rejects v1 and removed fields from current and embedded history snapshots', () => {
     const { rows } = updatedRows('code');
     expect(cardStreamRowSchema.safeParse({ ...rows[0], format_version: 1 }).success).toBe(false);
     const initial = rows[0];
     if (initial?.kind !== 'card-version') throw new Error('expected card version');
+    const updated = rows[1];
+    if (updated?.kind !== 'card-version' || !updated.history) throw new Error('expected updated card version');
     for (const field of ['status', 'parent', 'depth', 'allowedActions']) {
       expect(cardStreamRowSchema.safeParse({ ...initial, card: { ...initial.card, [field]: null } }).success).toBe(false);
+      expect(cardStreamRowSchema.safeParse({ ...updated, history: { ...updated.history, snapshot: { ...updated.history.snapshot, [field]: null } } }).success).toBe(false);
     }
   });
 
   it.each(['intent', 'write_intent', 'reset'])('keeps the strict v2 row schema free of %s', (field) => {
     const { rows } = updatedRows('code');
-    const invalid = structuredClone(rows[1]!);
-    (invalid as unknown as Record<string, unknown>)[field] = 'forbidden';
+    const invalid = { ...structuredClone(rows[1]!), [field]: 'forbidden' };
     expect(() => cardStreamRowSchema.parse(invalid)).toThrow();
   });
 
@@ -208,6 +210,12 @@ describe('two-kind card stream validation', () => {
     const validated = validateCardStream(rows, path, card.id);
     expect(rows.map((row) => row.kind)).toEqual(['card-version', 'card-tombstone']);
     expect(validated.tombstone?.final_card.type).toBe('code');
+    const exactTombstone = rows.at(-1)!;
+    if (exactTombstone.kind !== 'card-tombstone') throw new Error('Expected a terminal tombstone.');
+    for (const field of ['status', 'parent', 'depth', 'allowedActions']) {
+      expect(cardStreamRowSchema.safeParse({ ...exactTombstone, final_card: { ...exactTombstone.final_card, [field]: null } }).success).toBe(false);
+      expect(cardStreamRowSchema.safeParse({ ...exactTombstone, deletion_history: { ...exactTombstone.deletion_history, snapshot: { ...exactTombstone.deletion_history.snapshot, [field]: null } } }).success).toBe(false);
+    }
 
     const changedHistoryCardId = structuredClone(rows);
     const cardIdTombstone = changedHistoryCardId.at(-1)!;

@@ -171,8 +171,32 @@ describe('canonical card Files browsing through real routes and CardService stat
     const current = readFileSync(path, 'utf8');
     const old = current.replace('"format_version":2', '"format_version":1');
     writeFileSync(path, old);
-    expect((await content(test.app, '.saivage/cards/project/card.jsonl')).statusCode).toBe(500);
+    const response = await content(test.app, '.saivage/cards/project/card.jsonl');
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
     expect(readFileSync(path, 'utf8')).toBe(old);
+    expect(test.provider).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { field: 'status', value: '"backlog"' },
+    { field: 'parent', value: 'null' },
+    { field: 'depth', value: '0' },
+    { field: 'allowedActions', value: '[]' },
+  ] as const)('rejects complete v2 card bytes carrying removed $field without rewriting or generic fallback', async ({ field, value }) => {
+    const test = await harness();
+    const path = cardStreamFile(test.root, 'project');
+    const current = readFileSync(path, 'utf8');
+    const oldShape = current.replace('"card":{', `"card":{${JSON.stringify(field)}:${value},`);
+    expect(oldShape).not.toBe(current);
+    writeFileSync(path, oldShape);
+
+    const response = await content(test.app, '.saivage/cards/project/card.jsonl');
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(readFileSync(path, 'utf8')).toBe(oldShape);
+    expect(test.provider).toHaveBeenCalledTimes(1);
   });
 
   it('keeps root and leaf virtual children available without physical children directories', async () => {

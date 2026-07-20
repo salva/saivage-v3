@@ -51,7 +51,6 @@ import { ReadModelChangeBroadcaster } from '../application/read-model-changes.js
 import type { LiveSyncCardRecordSlot } from '../contracts/index.js';
 import { CardIndex } from './card-index.js';
 import {
-  assertCanCreateCard,
   briefContentForNewCard,
   buildSetStatusLifecycle,
   buildActivatedStoppedLifecycle,
@@ -239,7 +238,6 @@ export class CardService {
   }
 
   create(input: NewCardInput): CardRecord {
-    assertCanCreateCard(input);
     if (input.type === 'project') throw new Error('The fixed project card is created only by bootstrap.');
     const parent = this.read(input.parent);
     if (!parent) throw new Error(`Parent card '${input.parent}' does not exist.`);

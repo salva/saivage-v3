@@ -3,7 +3,6 @@ import { closeSync, fstatSync, fsyncSync, mkdirSync, mkdtempSync, openSync, rmSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
-import type { CardPatch } from '../../src/cards/lifecycle.js';
 import { appendConversationBatch, listConversationSessionIds, readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
@@ -38,7 +37,7 @@ describe('domain-derived conversation inventory', () => {
     expect(() => readConversation(root, 'executor:card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb')).toThrow(/malformed/);
   });
 
-  it('retains planner inventory and never discovers executor history after rejecting a forged type change', () => {
+  it('retains planner inventory and never discovers malformed executor history for a goal', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-inventory-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
@@ -46,8 +45,6 @@ describe('domain-derived conversation inventory', () => {
     appendConversationBatch({ projectRoot: root }, [message(plannerSession, 'planner-goal')]);
     writeFileSync(cardConversationFile(root, goal.id, 'executor'), '{complete-malformed}\n');
 
-    expect(() => cards.update(goal.id, { type: 'code' } as unknown as CardPatch))
-      .toThrow("mutates immutable field 'type'");
     expect(listConversationSessionIds(root)).toEqual([plannerSession]);
     expect(readConversation(root, plannerSession).physicalRows.map(({ id }) => id)).toEqual(['planner-goal']);
   });

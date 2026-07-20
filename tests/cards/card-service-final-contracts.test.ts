@@ -11,6 +11,7 @@ import { cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { computeCardLogicalPath } from '../../src/application/read-models/card-view.js';
+import { CardIndex } from '../../src/cards/card-index.js';
 
 const FIRST_SEGMENT = 'a';
 const SECOND_SEGMENT = 'b';
@@ -102,6 +103,19 @@ describe('CardService final reset-only contracts', () => {
     expect(() => cards.list()).toThrow();
   });
 
+  it('does not infer index membership or traversal from a grammatically nested identity', () => {
+    const cards = new CardService(root);
+    const child = cards.create(input());
+    const project = cards.read('project');
+    if (!project) throw new Error('expected project card');
+    const index = new CardIndex();
+    index.upsert({ ...project, children: [] });
+    index.upsert(child);
+
+    expect(index.childrenOf('project')).toEqual([]);
+    expect(index.descendantsOf('project')).toEqual([]);
+  });
+
   it('admits a fresh parent and confirms the linked child before history/card/runtime effects', () => {
     const parent = new CardService(root).create({ ...input(), type: 'goal' });
     const childId = `${parent.id}-${FIRST_SEGMENT}`;
@@ -189,18 +203,30 @@ describe('CardService final reset-only contracts', () => {
   });
 
   it('uses only the narrow source-checked running and stopped lifecycle operations', () => {
-    const cards = new CardService(root);
+    const { cards, publications } = observableCardService(root);
     const parent = cards.create({ ...input(), type: 'goal' });
 
+    publications.length = 0;
+    const backlogBytes = readFileSync(cardStreamFile(root, parent.id), 'utf8');
     expect(() => cards.stopRunningForRecovery(parent.id)).toThrow(/must be running/);
+    expect(readFileSync(cardStreamFile(root, parent.id), 'utf8')).toBe(backlogBytes);
+    expect(publications).toEqual([]);
     cards.setStatus(parent.id, 'running');
     expect(cards.stopRunningForRecovery(parent.id)).toMatchObject({ lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } });
+    publications.length = 0;
+    const stoppedBytes = readFileSync(cardStreamFile(root, parent.id), 'utf8');
     expect(() => cards.stopRunningForRecovery(parent.id)).toThrow(/must be running/);
+    expect(readFileSync(cardStreamFile(root, parent.id), 'utf8')).toBe(stoppedBytes);
+    expect(publications).toEqual([]);
     cards.mutateCard(parent.id, { title: 'Edited while stopped' }, { actor: 'analyst', surface: 'web-chat', reason: 'stopped edit' });
     expect(cards.read(parent.id)).toMatchObject({ lifecycle: { status: 'stopped' }, title: 'Edited while stopped' });
     expect(cards.create(input(parent.id))).toMatchObject({ lifecycle: { status: 'backlog' } });
     expect(cards.activateStopped(parent.id)).toMatchObject({ lifecycle: { status: 'running', result: null, error: null, completed_at: null } });
+    publications.length = 0;
+    const runningBytes = readFileSync(cardStreamFile(root, parent.id), 'utf8');
     expect(() => cards.activateStopped(parent.id)).toThrow(/must be stopped/);
+    expect(readFileSync(cardStreamFile(root, parent.id), 'utf8')).toBe(runningBytes);
+    expect(publications).toEqual([]);
 
     const history = cards.listCardHistory(parent.id);
     expect(history.kind).toBe('found');
@@ -227,7 +253,13 @@ describe('CardService final reset-only contracts', () => {
     const history = cards.listCardHistory(card.id);
     expect(history.kind).toBe('found');
     if (history.kind !== 'found') throw new Error('expected history');
-    expect(history.value.find(({ change_reason }) => change_reason === 'terminal lifecycle commit')).toMatchObject({ kind: 'mutate', changed_by_actor: 'runtime', changed_by_surface: 'runtime', change_reason: 'terminal lifecycle commit' });
+    expect(history.value.find(({ change_reason }) => change_reason === 'terminal lifecycle commit')).toMatchObject({
+      kind: 'mutate',
+      changed_by_actor: 'runtime',
+      changed_by_surface: 'runtime',
+      change_reason: 'terminal lifecycle commit',
+      changed_fields: status === 'failed' ? ['lifecycle', 'status_text', 'status_text_updated_at'] : ['lifecycle'],
+    });
   });
 
   it.each(['backlog', 'changed', 'blocked', 'stopped', 'done', 'failed', 'cancelled'] as const)('rejects terminal commit from %s without append or effects', (source) => {
@@ -369,12 +401,20 @@ describe('CardService final reset-only contracts', () => {
     cards.setStatus(FIRST, 'running');
     expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card', 'runtime']);
     expect(publications.every(({ card }) => card?.lifecycle.status === 'running')).toBe(true);
+    const statusHistory = cards.listCardHistory(FIRST);
+    expect(statusHistory.kind).toBe('found');
+    if (statusHistory.kind !== 'found') throw new Error('expected history');
+    expect(statusHistory.value[0]).toMatchObject({ kind: 'status', changed_fields: ['lifecycle'], change_reason: 'status -> running' });
 
     cards.setStatus(FIRST, 'backlog');
     publications.length = 0;
     cards.update(FIRST, { title: 'Edited without changing runtime indexes' });
     expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card']);
     expect(publications[0]?.card).toMatchObject({ type: 'code', title: 'Edited without changing runtime indexes' });
+    const ordinaryHistory = cards.listCardHistory(FIRST);
+    expect(ordinaryHistory.kind).toBe('found');
+    if (ordinaryHistory.kind !== 'found') throw new Error('expected history');
+    expect(ordinaryHistory.value[0]).toMatchObject({ kind: 'update', changed_fields: ['title'], change_reason: 'update' });
 
     cards.setStatus(FIRST, 'running');
     publications.length = 0;

@@ -1,6 +1,5 @@
 import { cardNotificationSchema, isTerminalCardType, type CardNotification, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
-import { PROJECT_CARD_ID } from './project-card.js';
 import { acceptsCardNotifications } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
 
@@ -169,14 +168,27 @@ export function prunePartialPatch(
   existing: CardRecord,
   changes: CardPatch,
 ): CardPatch {
-  const pruned: CardPatch = {};
-  for (const [key, value] of Object.entries(changes)) {
-    if (value === undefined) continue;
-    const current = (existing as unknown as Record<string, unknown>)[key];
-    if (valuesEqual(current, value)) continue;
-    (pruned as Record<string, unknown>)[key] = value;
-  }
-  return pruned;
+  const changed = <T>(current: T | undefined, candidate: T | undefined): candidate is T => candidate !== undefined && !valuesEqual(current, candidate);
+  return {
+    ...(changed(existing.title, changes.title) ? { title: changes.title } : {}),
+    ...(changed(existing.subtype, changes.subtype) ? { subtype: changes.subtype } : {}),
+    ...(changed(existing.tags, changes.tags) ? { tags: changes.tags } : {}),
+    ...(changed(existing.priority, changes.priority) ? { priority: changes.priority } : {}),
+    ...(changed(existing.urgency, changes.urgency) ? { urgency: changes.urgency } : {}),
+    ...(changed(existing.assigned_to, changes.assigned_to) ? { assigned_to: changes.assigned_to } : {}),
+    ...(changed(existing.depends_on, changes.depends_on) ? { depends_on: changes.depends_on } : {}),
+    ...(changed(existing.related, changes.related) ? { related: changes.related } : {}),
+    ...(changed(existing.metrics, changes.metrics) ? { metrics: changes.metrics } : {}),
+    ...(changed(existing.estimate, changes.estimate) ? { estimate: changes.estimate } : {}),
+    ...(changed(existing.started_at, changes.started_at) ? { started_at: changes.started_at } : {}),
+    ...(changed(existing.duration_ms, changes.duration_ms) ? { duration_ms: changes.duration_ms } : {}),
+    ...(changed(existing.status_text, changes.status_text) ? { status_text: changes.status_text } : {}),
+    ...(changed(existing.status_text_updated_at, changes.status_text_updated_at) ? { status_text_updated_at: changes.status_text_updated_at } : {}),
+    ...(changed(existing.status_text_author_session_id, changes.status_text_author_session_id) ? { status_text_author_session_id: changes.status_text_author_session_id } : {}),
+    ...(changed(existing.latest_self_report, changes.latest_self_report) ? { latest_self_report: changes.latest_self_report } : {}),
+    ...(changed(existing.metadata, changes.metadata) ? { metadata: changes.metadata } : {}),
+    ...(changed(existing.pending_notifications, changes.pending_notifications) ? { pending_notifications: changes.pending_notifications } : {}),
+  };
 }
 
 export function validateMutablePatch(
@@ -244,15 +256,6 @@ export function collectChangedFields(
     if (!changedFields.includes(k)) changedFields.push(k);
   }
   return changedFields;
-}
-
-export function assertCanCreateCard(input: NewCardInput): void {
-  if ((input as { type: string }).type === 'plan') {
-    throw new Error('Plan cards are no longer created. Planning state lives on goal cards.');
-  }
-  if (input.type === 'project' && input.parent !== null) {
-    throw new Error(`Project card '${PROJECT_CARD_ID}' must be the root card and cannot have parent '${input.parent}'.`);
-  }
 }
 
 export function briefContentForNewCard(input: NewCardInput): string {

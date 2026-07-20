@@ -1,4 +1,4 @@
-import type { CardPatch, SetStatusTarget, TerminalLifecycleCommit } from '../../src/cards/card-api.js';
+import type { CardPatch, NewCardInput, SetStatusTarget, TerminalLifecycleCommit } from '../../src/cards/card-api.js';
 
 const ordinary = { title: 'updated', priority: 1, status_text: null } satisfies CardPatch;
 void ordinary;
@@ -19,8 +19,21 @@ void ordinary;
 ({ depth: 1 } satisfies CardPatch);
 // @ts-expect-error publication owns version sequence
 ({ version_seq: 2 } satisfies CardPatch);
+// @ts-expect-error publication owns creation time
+({ created_at: '2026-07-20T00:00:00.000Z' } satisfies CardPatch);
+// @ts-expect-error publication owns update time
+({ updated_at: '2026-07-20T00:00:00.000Z' } satisfies CardPatch);
+// @ts-expect-error creation authority is immutable
+({ created_by: 'analyst' } satisfies CardPatch);
 // @ts-expect-error operator actions are projection-only
 ({ allowedActions: [] } satisfies CardPatch);
+
+const creation = { type: 'code', parent: 'project', title: 'new', brief: 'new', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] } satisfies NewCardInput;
+void creation;
+// @ts-expect-error creation callers cannot choose status
+({ ...creation, status: 'backlog' } satisfies NewCardInput);
+// @ts-expect-error creation callers cannot supply lifecycle
+({ ...creation, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } } satisfies NewCardInput);
 
 const running = 'running' satisfies SetStatusTarget;
 void running;
@@ -37,3 +50,7 @@ const blocked = { lifecycle: { status: 'blocked', result: { kind: 'blocked', sum
 void [done, failed, blocked];
 // @ts-expect-error nonterminal lifecycle is not a terminal commit
 ({ lifecycle: { status: 'running', result: null, error: null, completed_at: null } } satisfies TerminalLifecycleCommit);
+// @ts-expect-error terminal commits have no parallel top-level status
+({ ...done, status: 'done' } satisfies TerminalLifecycleCommit);
+// @ts-expect-error only supported status-text companions are accepted
+({ ...done, status_text_author_session_id: 'planner:project' } satisfies TerminalLifecycleCommit);
