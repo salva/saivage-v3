@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RuntimeState } from '../api/types';
-import { selectCurrentCardId, selectLiveUpdateState, selectRuntimeStatusLabel, selectRuntimeSummary } from '../stores/runtime-read-model';
+import { selectCurrentCardId, selectLiveUpdateState, selectRuntimeStatusLabel } from '../stores/runtime-read-model';
 
 function runtime(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
@@ -15,10 +15,6 @@ function runtime(overrides: Partial<RuntimeState> = {}): RuntimeState {
 }
 
 describe('runtime-read-model', () => {
-  it('does not project deleted runtime ledgers', () => {
-    expect(selectRuntimeSummary(runtime())).toEqual({ lastActionableError: null });
-  });
-
   it('single-sources status and live update labels from current runtime state', () => {
     expect(selectRuntimeStatusLabel(runtime({ status: 'paused' }))).toBe('paused');
     expect(selectCurrentCardId(runtime())).toBe('11111111-1111-4111-8111-111111111111');

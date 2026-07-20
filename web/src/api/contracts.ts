@@ -28,7 +28,6 @@ export type {
   AgentConversationEntry,
   AgentActivityStatus,
   AgentLlmExchangeResponse,
-  AgentSessionDetail,
   AgentSessionSummary,
   CardDetailResponse,
   CardChildrenResponse,
@@ -56,7 +55,6 @@ export type {
   ProcessDetailResponse,
   ProcessListResponse,
   ProcessView,
-  RuntimeCardRunsResponse,
   RuntimeGetStateResponse,
   RuntimeStatusResponse,
   WorkspaceFileContentResponse,
@@ -116,7 +114,6 @@ export { providerExchangePayloadSchema } from '@saivage/contracts/provider-excha
 export type { ProviderExchangePayload } from '@saivage/contracts/provider-exchange';
 
 export type {
-  ActionableErrorEnvelope,
   CardAction,
   CardHistoryHeader,
   CardHistoryEntry,

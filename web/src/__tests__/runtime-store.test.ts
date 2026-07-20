@@ -42,6 +42,7 @@ describe('runtime store S06 read-only projection', () => {
     expect(store).not.toHaveProperty('pause');
     expect(store).not.toHaveProperty('resume');
     expect(store).not.toHaveProperty('pauseActionDisabledReason');
+    expect(store).not.toHaveProperty('lastActionableError');
     expect(store).toHaveProperty('stopProject');
     expect(store).toHaveProperty('restartServer');
   });

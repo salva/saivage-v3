@@ -104,26 +104,6 @@ export type ActivityStatusKind = ContractActivityStatus['status'];
 export type ActivityStatus = ContractActivityStatus;
 
 
-export interface ActionableErrorEnvelope {
-  code: string;
-  message: string;
-  acceptedValues?: string[];
-  currentState?: Record<string, unknown>;
-  nextAction: string;
-  docsRef?: string;
-  runId?: string | null;
-  sessionId?: string | null;
-  cardId?: string | null;
-  parentCardId?: string | null;
-  childCardId?: string | null;
-}
-
-
-
-
-
-
-
 export interface FileEntry {
   name: string;
   path: string;
@@ -167,7 +147,6 @@ export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
 export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[]; };
 export type RuntimeStateResponse = Omit<OperatorApiSuccess<'runtime.getState'>, 'runtime'> & { runtime: RuntimeState | null };
 export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
-export type RuntimeCardRunsResponse = OperatorApiSuccess<'runtime.cardRuns'>;
 export type AgentConversationResponse = Omit<OperatorApiSuccess<'agents.conversation'>, 'session' | 'entries' | 'activity_status'> & { session: AgentSession; entries: AgentConversationEntry[]; activity_status: ActivityStatus; };
 export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;
 export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & { sessions: AgentSession[]; };

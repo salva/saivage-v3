@@ -23,9 +23,8 @@
         <ViewState v-else-if="errorMsg" state="error" title="Failed to load runtime" :message="errorMsg" />
 
         <template v-else>
-          <section v-if="lastActionableError || currentCardId" class="status-section mission-summary">
-            <StatusBanner v-if="lastActionableError" tone="danger" :title="lastActionableError.message" :message="`Next: ${lastActionableError.nextAction}`" role="alert" />
-            <div v-if="currentCardId" class="mission-active">
+          <section v-if="currentCardId" class="status-section">
+            <div class="mission-active">
               <span class="status-key">Active card</span>
               <button class="mission-active-link" @click="goToCard(currentCardId)">
                 <span class="mission-active-title">{{ activeCardTitle }}</span>
@@ -108,7 +107,6 @@ const {
   currentCardId,
   isStale: runtimeIsStale,
   unauthorized: runtimeUnauthorized,
-  lastActionableError,
   liveUpdateLabel,
   liveUpdateDetail,
   lastFetchedAt,
@@ -181,8 +179,6 @@ async function refreshRuntime(): Promise<void> {
 .ui-refresh-button:hover:not(:disabled) { color: var(--accent-2); border-color: var(--accent-2); }
 .ui-refresh-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .status-section { padding: 12px 16px; border-bottom: 1px solid var(--surface-3); }
-.mission-summary { display: flex; flex-direction: column; gap: var(--space-5); }
-.mission-summary :deep(.status-banner) { margin: 0; }
 .mission-active { display: flex; align-items: baseline; gap: var(--space-6); }
 .mission-active-link { background: none; border: none; cursor: pointer; display: inline-flex; align-items: baseline; gap: var(--space-4); font: inherit; padding: 0; color: var(--accent-2); text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
 .mission-active-link:hover { text-decoration-color: var(--accent-2); }

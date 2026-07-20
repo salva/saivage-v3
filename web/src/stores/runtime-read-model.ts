@@ -1,29 +1,11 @@
 import type {
-  ActionableErrorEnvelope,
   RuntimeState,
   RuntimeStatus,
   ServerAvailability,
   WsConnectionState,
 } from '../api/types';
 
-export interface RuntimeSummaryProjection {
-  lastActionableError: ActionableErrorEnvelope | null;
-}
-
 export type LiveUpdateState = 'live' | 'connecting' | 'offline' | 'unauthorized' | 'no-token' | 'stale';
-
-/** Selects raw runtime summary state; presentation labels are derived by selectRuntimeStatusLabel/selectRuntimeModeLabel. */
-export function selectRuntimeSummary(runtime: RuntimeState | null): RuntimeSummaryProjection {
-  if (!runtime) {
-    return {
-      lastActionableError: null,
-    };
-  }
-
-  return {
-    lastActionableError: null,
-  };
-}
 
 export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {
   if (!runtime) return 'unknown';

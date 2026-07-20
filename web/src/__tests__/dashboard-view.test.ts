@@ -10,6 +10,7 @@ describe('DashboardView S06 read-only contract', () => {
   it('exposes a route-owned root for browser smoke assertions', () => {
     expect(source).toContain('data-testid="route-dashboard"');
     expect(source).toContain('Runtime Status');
+    expect(source).not.toContain('lastActionableError');
   });
 
   it('keeps refresh/navigation and exposes only Stop project plus capability-gated confirmed restart', () => {

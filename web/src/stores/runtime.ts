@@ -12,7 +12,6 @@ import type {
   RuntimeStatus,
   ServerAvailability,
   FreshnessState,
-  ActionableErrorEnvelope,
 } from '../api/types';
 import {
   getRuntimeState,
@@ -32,7 +31,6 @@ import {
   selectRuntimeModeLabel,
   selectRuntimeStatusLabel,
   selectCurrentCardId,
-  selectRuntimeSummary,
 } from './runtime-read-model';
 
 const log = createLogger('store:runtime');
@@ -55,7 +53,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const lastWsEventAt = ref<string | null>(null);
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
   const unauthorized = ref(false);
-  const lastActionableError = ref<ActionableErrorEnvelope | null>(null);
   const restartServerAvailable = ref(false);
   let requestEpoch = 0;
   let requestController: AbortController | null = null;
@@ -97,10 +94,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   });
   const liveUpdateLabel = computed(() => selectLiveUpdateLabel(liveUpdateState.value));
   const liveUpdateDetail = computed(() => selectLiveUpdateDetail(liveUpdateState.value));
-  function applyRuntimeSummaryFromState(nextRuntime: RuntimeState | null): void {
-    const summary = selectRuntimeSummary(nextRuntime);
-    lastActionableError.value = summary.lastActionableError;
-  }
 
   function markRestSync(): void {
     lastFetchedAt.value = nowIso();
@@ -126,7 +119,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
       runtime.value = response.runtime;
       projectRoot.value = response.projectRoot;
       projectId.value = response.projectId;
-      applyRuntimeSummaryFromState(response.runtime);
       serverAvailability.value = response.serverAvailability ?? null;
       restartServerAvailable.value = liveStatus.restart_server_available;
       markRestSync();
@@ -160,7 +152,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     projectRoot: readonly(projectRoot),
     projectId: readonly(projectId),
     serverAvailability: readonly(serverAvailability),
-    lastActionableError: readonly(lastActionableError),
     restartServerAvailable: readonly(restartServerAvailable),
     loading: readonly(loading),
     refreshing: readonly(refreshing),
