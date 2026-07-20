@@ -15,7 +15,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'sync effects' };
 
 function input(parent = 'project') {
-  return { type: 'code' as const, parent, title: 'card', brief: 'brief', status: 'backlog' as const, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
+  return { type: 'code' as const, parent, title: 'card', brief: 'brief', tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
 }
 
 function versionFrames(cardId: string, parentId: string | null): LiveSyncInvalidateFrame[] {

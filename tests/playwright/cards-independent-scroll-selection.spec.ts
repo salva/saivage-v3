@@ -15,13 +15,10 @@ function card(id: string, title: string, children: string[] = [], status: 'backl
   return {
     id,
     type: id === 'project' ? 'project' : id === goalId ? 'goal' : 'code',
-    parent: id === 'project' ? null : id.includes('-') && id.split('-').length > 2 ? goalId : 'project',
-    depth: id === 'project' ? 0 : id.split('-').length - 1,
     children,
     title,
-    status,
     lifecycle: { status, result: status === 'blocked' ? { kind: 'blocked', summary: 'blocked' } : null, error: status === 'blocked' ? 'blocked' : null, completed_at: null },
-    operator_summary: { lifecycleStatus: status, blocked: status === 'blocked', hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
+    operator_summary: { blocked: status === 'blocked', hasError: false, error: null, completedAt: null, stale: false },
     tags: [], priority: 0, urgency: 'normal', created_by: 'user', created_at: now, updated_at: now,
     depends_on: [], related: [], pending_notifications: [], allowedActions: [], version_seq: 1,
   };
@@ -71,7 +68,7 @@ async function install(page: Page): Promise<Fixture> {
       }], total: 1 }));
     }
     if (url.pathname === `/api/cards/${targetId}/history/1`) {
-      const { operator_summary: _operatorSummary, ...snapshot } = target;
+      const { operator_summary: _operatorSummary, allowedActions: _allowedActions, ...snapshot } = target;
       return json(route, parseOperatorResponse('cards.history.get', { entry: {
         entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: targetId, version_seq: 1,
         changed_at: now, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'fixture history',

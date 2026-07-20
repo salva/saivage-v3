@@ -16,6 +16,7 @@ import { readConversation } from '../../src/persistence/conversation-file.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import { stabilizeRoleSession } from '../../src/runtime/actors/conversation-recovery.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
+import { cardParentId } from '../../src/schemas/card-id.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
@@ -63,14 +64,14 @@ describe('configured card-process substantive E2E coverage', () => {
     const prepared = await runtime.beginStartProject(); if (!prepared.accepted) throw new Error('Run was rejected'); runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => runtime.getStatus().status === 'stopped');
     expect(positions).toEqual([{ stateId: 'node:first', executionOrdinal: 0 }, { stateId: 'node:second', executionOrdinal: 1 }, { stateId: 'node:second', executionOrdinal: 2 }]);
-    expect(cards.read('project')?.status).toBe('done');
+    expect(cards.read('project')?.lifecycle.status).toBe('done');
   });
 
   it('settles and re-enters blocked configured work, then creates under the blocked planning parent', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-blocked-reentry-e2e-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const goal = cards.create({ type: 'goal', parent: 'project', title: 'blocked goal', brief: 'recover blocked work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const child = cards.create({ type: 'code', parent: goal.id, title: 'blocked implementation', brief: 'block once, then finish', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'blocked goal', brief: 'recover blocked work', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: goal.id, title: 'blocked implementation', brief: 'block once, then finish', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const calls = { project: 0, goal: 0, child: 0 };
     const childStatusesAtEntry: string[] = [];
     let childStatusBeforeReentry: string | null = null;
@@ -84,13 +85,13 @@ describe('configured card-process substantive E2E coverage', () => {
       if (input.sessionId === `planner:${goal.id}`) {
         calls.goal += 1;
         if (calls.goal === 1) return complete(tool('activate-child-first', 'activate_card', { card_id: child.id }));
-        if (calls.goal === 2) { childStatusBeforeReentry = cards.read(child.id)!.status; return complete(tool('activate-child-again', 'activate_card', { card_id: child.id })); }
+        if (calls.goal === 2) { childStatusBeforeReentry = cards.read(child.id)!.lifecycle.status; return complete(tool('activate-child-again', 'activate_card', { card_id: child.id })); }
         if (calls.goal === 3) return complete(tool('write-goal-status', 'write', { path: 'record:///status.md?v=next', content: 'Goal is externally blocked.' }));
         return complete(tool('block-goal', 'emit_result', { outcome: 'blocked', summary: 'Goal is externally blocked.' }));
       }
       if (input.sessionId === `executor:${child.id}`) {
         calls.child += 1;
-        childStatusesAtEntry.push(cards.read(child.id)!.status);
+        childStatusesAtEntry.push(cards.read(child.id)!.lifecycle.status);
         if (calls.child === 1) return complete(tool('write-child-status-first', 'write', { path: 'record:///status.md?v=next', content: 'Waiting once.' }));
         if (calls.child === 2) return complete(tool('block-child', 'emit_result', { outcome: 'blocked', summary: 'Waiting once.' }));
         if (calls.child === 3) return complete(tool('write-child-status-second', 'write', { path: 'record:///status.md?v=next', content: 'Recovered and complete.' }));
@@ -106,18 +107,19 @@ describe('configured card-process substantive E2E coverage', () => {
     expect(calls).toEqual({ project: 3, goal: 4, child: 4 });
     expect(childStatusBeforeReentry).toBe('blocked');
     expect(childStatusesAtEntry).toEqual(['running', 'running', 'running', 'running']);
-    expect(cards.read(child.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'Recovered and complete.' } } });
-    expect(cards.read(goal.id)).toMatchObject({ status: 'blocked', lifecycle: { result: { kind: 'blocked', summary: 'Goal is externally blocked.' } } });
+    expect(cards.read(child.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'done', summary: 'Recovered and complete.' } } });
+    expect(cards.read(goal.id)).toMatchObject({ lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'Goal is externally blocked.' } } });
 
-    const later = cards.create({ type: 'test', parent: goal.id, title: 'new blocked-parent child', brief: 'new work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    expect(later).toMatchObject({ parent: goal.id, status: 'backlog' });
+    const later = cards.create({ type: 'test', parent: goal.id, title: 'new blocked-parent child', brief: 'new work', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    expect(cardParentId(later.id)).toBe(goal.id);
+    expect(later.lifecycle.status).toBe('backlog');
     expect(cards.listChildren(goal.id)).toEqual([child.id, later.id]);
   });
 
   it('delivers late notifications in active executor, planner, and reviewer nodes before accepting the full chain', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-process-notifications-e2e-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'implementation', brief: 'implement', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'implementation', brief: 'implement', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(child.id, 'running'); cards.stopRunningForRecovery(child.id);
     const staleStatus = cards.openRecord(child.id, 'status.md'); cards.editRecord(child.id, 'status.md', staleStatus.version, 'stale pre-activation evidence');
     const analystBrief = '# Goal\nEdited while stopped\n# Instructions\nPreserve identity\n# Acceptance Criteria\nComplete';
@@ -148,9 +150,9 @@ describe('configured card-process substantive E2E coverage', () => {
     const runtime = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, appLogs: { projectRoot: root }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, processRunner: new ProcessRunner(root, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' } });
     const prepared = await runtime.beginStartProject(); if (!prepared.accepted) throw new Error('Run was rejected'); runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => runtime.getStatus().status === 'stopped');
-    expect(cards.read('project')?.status).toBe('done'); expect(cards.read(child.id)?.status).toBe('done');
+    expect(cards.read('project')?.lifecycle.status).toBe('done'); expect(cards.read(child.id)?.lifecycle.status).toBe('done');
     expect(calls).toEqual({ planner: 5, reviewer: 3, executor: 4 });
-    expect(cards.read(child.id)).toMatchObject({ id: child.id, title: 'edited stopped implementation', status: 'done' });
+    expect(cards.read(child.id)).toMatchObject({ id: child.id, title: 'edited stopped implementation', lifecycle: { status: 'done' } });
     expect(cards.readRecord(child.id, 'brief.md', 'latest').artifact.content).toBe(analystBrief);
     expect(cards.readRecord(child.id, 'status.md', 'latest')).toMatchObject({ version: staleStatus.version, artifact: { content: 'implemented' } });
     expect(readConversation(root, `executor:${child.id}`).sourceRows.some((row) => row.role === 'user' && row.content.includes('graph position was discarded'))).toBe(true);
@@ -165,15 +167,15 @@ describe('configured card-process substantive E2E coverage', () => {
   it('projects a stopped card through the real API with strict lifecycle, history, children, and actions', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-stopped-api-e2e-')); roots.push(root); initProjectTree(root); await writeConfig(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'goal', parent: 'project', title: 'stopped child', brief: 'stopped', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'goal', parent: 'project', title: 'stopped child', brief: 'stopped', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(child.id, 'running'); cards.stopRunningForRecovery(child.id);
     const app = await startApp({ argv: ['node', 'test', 'start', '--project-root', root], env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined } }); apps.push(app);
     const detail = await app.server.fastify.inject({ method: 'GET', url: `/api/cards/${child.id}` });
-    expect(detail.statusCode).toBe(200); expect(detail.json()).toMatchObject({ card: { id: child.id, status: 'stopped', lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } } });
+    expect(detail.statusCode).toBe(200); expect(detail.json()).toMatchObject({ card: { id: child.id, lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } } });
     expect(detail.json().card.allowedActions).toEqual(['card.start', 'card.cancel', 'card.delete']);
     expect(detail.json().card.allowedActions).not.toContain('card.restart');
     const children = await app.server.fastify.inject({ method: 'GET', url: '/api/cards/project/children' });
-    expect(children.statusCode).toBe(200); expect(children.json().children).toEqual(expect.arrayContaining([expect.objectContaining({ id: child.id, status: 'stopped' })]));
+    expect(children.statusCode).toBe(200); expect(children.json().children).toEqual(expect.arrayContaining([expect.objectContaining({ id: child.id, lifecycle: expect.objectContaining({ status: 'stopped' }) })]));
     const history = await app.server.fastify.inject({ method: 'GET', url: `/api/cards/${child.id}/history` });
     expect(history.statusCode).toBe(200); expect(JSON.stringify(history.json())).toContain('stopped');
   });
@@ -191,7 +193,7 @@ describe('configured card-process substantive E2E coverage', () => {
   it('continues a partial reset in a genuinely fresh process without duplicate notice or cursor and publishes a fresh STOPPED marker', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-partial-reset-process-e2e-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running'); cards.setStatus(child.id, 'running');
     const inputId = '99999999-9999-4999-8999-999999999999';
     const rows: AgentMessage[] = [

@@ -304,7 +304,6 @@ function actorHarness(role: OperationalAgentRole, agentId: ConversationSessionId
       parent: 'project',
       title: 'Executor card',
       brief: 'Execute the test.',
-      status: 'backlog',
       tags: [],
       priority: 0,
       urgency: 'normal',

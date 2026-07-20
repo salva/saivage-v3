@@ -63,7 +63,7 @@ describe('CardDetailView S06 read-only detail contract', () => {
     const pinia = createPinia(); setActivePinia(pinia); const store = useCardStore(); vi.spyOn(store, 'fetchCardDetail').mockResolvedValue();
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-a' }, global: { plugins: [pinia], stubs: { CardRecordsSection: true, CardConversationsSection: true } } });
     store.selectedCardId = 'card-a';
-    store.selectedDetail = { cardId: 'card-a', card: cardView('card-a', { status: 'stopped', allowedActions: ['card.start', 'card.cancel', 'card.delete'] }) };
+    store.selectedDetail = { cardId: 'card-a', card: cardView('card-a', { lifecycle: { status: 'stopped', result: null, error: null, completed_at: null }, allowedActions: ['card.start', 'card.cancel', 'card.delete'] }) };
     await nextTick();
     expect(wrapper.text()).toContain('stopped');
     expect(wrapper.text()).toContain('prior live process was discarded');

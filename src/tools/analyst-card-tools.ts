@@ -1,14 +1,11 @@
 import { z } from 'zod';
 
-import type { CardStatus, CardType } from '../schemas/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import {
-  CARD_STATUS_VALUES,
   CARD_TYPE_VALUES,
   CREATE_CARD_TYPE_VALUES,
   URGENCY_VALUES,
   cardIdArraySchema,
-  cardStatusSchema,
   describe,
   emptyInput,
   enumSchema,
@@ -23,7 +20,6 @@ const createCardInput = z.object({
   parent: describe(z.string().nullable().optional(), "The ID of the parent card. Use null only when creating the root project card; use 'project' for top-level goals."),
   title: describe(z.string(), 'A short title.'),
   brief: describe(z.string(), 'Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.'),
-  status: describe(cardStatusSchema.optional(), `Optional initial status. Allowed values: ${CARD_STATUS_VALUES.join(', ')}.`),
   tags: describe(z.array(describe(z.string(), 'A tag string')).optional(), 'Optional tags.'),
   priority: describe(z.number().int().optional(), 'Optional priority value (0-100).'),
   urgency: describe(urgencySchema.optional(), 'Optional urgency level.'),
@@ -31,12 +27,11 @@ const createCardInput = z.object({
   related: describe(cardIdArraySchema.optional(), 'Optional related-card list.'),
 }).strict();
 
-export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; brief: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; depends_on?: string[]; related?: string[] }, signal?: AbortSignal): Promise<ToolResult> {
+export async function create_card(ctx: ToolContext, params: z.infer<typeof createCardInput>, signal?: AbortSignal): Promise<ToolResult> {
   const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
-  const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'create_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error };
   const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error };
-  const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(getStore(ctx), params.type);
-  const input = { ...params, parent } as import('../application/analyst-mutation-services.js').CreateAnalystCardInput;
+  const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(getStore(ctx), typeCheck.value!) ?? null;
+  const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: typeCheck.value!, parent, title: params.title, brief: params.brief, tags: params.tags, priority: params.priority, urgency: urgencyCheck.value, depends_on: params.depends_on, related: params.related };
   return runAuditedAnalystTool(ctx, input, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: 'intervention_ready', mutate: (_prepared, value, mutation) => mutation.services.cards.create(value) }, signal);
 }
 
@@ -49,7 +44,7 @@ export async function cancel_card(ctx: ToolContext, params: { cardId: string; re
 }
 
 export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  try { const store = getStore(ctx); const runtimeStatus = ctx.runtime?.getStatus() ?? null; const runtimeSummary = runtimeStatus ? { status: runtimeStatus.status, currentCardId: runtimeStatus.currentCardId } : { status: 'stopped', currentCardId: null }; const allCards = store.list(); const runningProcesses = ctx.processRunner.list({ status: 'running' }); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.status] = (counts[card.status] ?? 0) + 1; return counts; }, {});
+  try { const store = getStore(ctx); const runtimeStatus = ctx.runtime?.getStatus() ?? null; const runtimeSummary = runtimeStatus ? { status: runtimeStatus.status, currentCardId: runtimeStatus.currentCardId } : { status: 'stopped', currentCardId: null }; const allCards = store.list(); const runningProcesses = ctx.processRunner.list({ status: 'running' }); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.lifecycle.status] = (counts[card.lifecycle.status] ?? 0) + 1; return counts; }, {});
     return { success: true, data: { runtime: runtimeStatus, runtimeSummary, runningProcesses: runningProcesses.length, statusCounts, counts: { stopped: statusCounts.stopped ?? 0, done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } } };
   } catch (err) { return toolFailureFromError(err); }
 }
@@ -59,7 +54,7 @@ export async function reorder_child(ctx: ToolContext, params: { parentId: string
 }
 
 export function analystCardTools(ctx: ToolContext): readonly ToolDefinition<any>[] { return [
-  defineTool({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Analyst-created child cards must start as backlog.`, inputSchema: createCardInput, executor: (args, signal) => create_card(ctx, args as Parameters<typeof create_card>[1], signal) }),
+  defineTool({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Every created child receives backlog lifecycle.`, inputSchema: createCardInput, executor: (args, signal) => create_card(ctx, args, signal) }),
   defineTool({ name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', inputSchema: z.object({ parentId: describe(z.string(), 'Parent whose children to reorder.'), orderedChildIds: describe(z.array(z.string()), 'New child id order; must be a permutation of the current child set.') }).strict(), executor: (args, signal) => reorder_child(ctx, args, signal) }),
   defineTool({ name: 'get_status', description: 'Get the overall project status.', inputSchema: emptyInput, executor: (args) => get_status(ctx, args) }),
   defineTool({ name: 'cancel_card', description: 'Cancel non-completed work. Analyst cancellation allows every status except done and cancelled, rejects the root project card, and requires exact runtime ownership for running work.', inputSchema: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.'), reason: describe(z.string().optional(), 'Optional cancellation reason.') }).strict(), executor: (args, signal) => cancel_card(ctx, args, signal) }),

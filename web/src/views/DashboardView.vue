@@ -71,7 +71,7 @@
             <ul data-testid="child-of-goal-list" class="child-of-goal-list">
               <li v-for="child in goalChildren" :key="child.id" data-testid="child-of-goal-item" class="child-of-goal-item">
                 <span class="title">{{ child.title }}</span>
-                <span class="status">{{ child.status }}</span>
+                <span class="status">{{ child.lifecycle.status }}</span>
               </li>
             </ul>
             <div v-if="goalChildren.length === 0" class="status-value dim list-empty">none</div>

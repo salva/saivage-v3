@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, fsyncSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { cardDepth, cardIdSchema, cardIdSegments, cardParentId, childCardId, nextCardSegment } from '../schemas/card-id.js';
+import { cardIdSchema, cardIdSegments, cardParentId, childCardId, nextCardSegment } from '../schemas/card-id.js';
 import { cardHistoryEntrySchema, cardRecordSchema, type CardHistoryEntry, type CardRecord } from '../schemas/index.js';
 import { cardStreamRowSchema, parseCardVersionArtifact, validateCardStream, type CardTombstone, type CardVersionArtifact } from './canonical-card-artifacts.js';
 import { recordVersionArtifactSchema, validateRecordStream } from './canonical-record-artifacts.js';
@@ -290,7 +290,7 @@ function publishInitialStreams(projectRoot: string, card: CardRecord, briefConte
   const stamp = new Date().toISOString();
   const brief = initialBrief(card.id, briefContent, writer, stamp);
   publishFirstEnvelope(cardRecordStreamFile(projectRoot, card.id, 'brief'), serializeGrowingEnvelope([brief], recordVersionArtifactSchema), temporary);
-  const row = parseCardVersionArtifact({ kind: 'card-version', format_version: 1, card_id: card.id, version: 1, committed_at: stamp, card, history: null }, cardStreamFile(projectRoot, card.id), { cardId: card.id, version: 1 });
+  const row = parseCardVersionArtifact({ kind: 'card-version', format_version: 2, card_id: card.id, version: 1, committed_at: stamp, card, history: null }, cardStreamFile(projectRoot, card.id), { cardId: card.id, version: 1 });
   publishFirstEnvelope(cardStreamFile(projectRoot, card.id), serializeGrowingEnvelope([row], cardStreamRowSchema), temporary);
 }
 
@@ -320,10 +320,10 @@ function claimChildNamespace(projectRoot: string, parentId: string): string {
   }
 }
 
-export function publishInitialCard(projectRoot: string, cardInput: Omit<CardRecord, 'id'>, briefContent: string, writer: 'analyst' | 'planner', temporary?: PublicationTemporaryIdFactory): CardRecord {
-  if (cardInput.parent === null) throw new Error('A non-root card requires a parent.');
-  const id = claimChildNamespace(projectRoot, cardInput.parent);
-  const card = cardRecordSchema.parse({ ...cardInput, id, parent: cardParentId(id), depth: cardDepth(id), children: [] });
+export function publishInitialCard(projectRoot: string, parentId: string, cardInput: Omit<CardRecord, 'id'>, briefContent: string, writer: 'analyst' | 'planner', temporary?: PublicationTemporaryIdFactory): CardRecord {
+  const id = claimChildNamespace(projectRoot, parentId);
+  if (cardParentId(id) !== parentId) throw new Error(`Claimed card '${id}' does not belong to requested parent '${parentId}'.`);
+  const card = cardRecordSchema.parse({ ...cardInput, id, children: [] });
   mkdirSync(join(cardNamespace(projectRoot, id), 'conversations'));
   publishInitialStreams(projectRoot, card, briefContent, writer, temporary);
   proveCreatedCardPublication(projectRoot, card);
@@ -345,7 +345,7 @@ export function publishCardVersion(projectRoot: string, card: CardRecord, histor
   const stream = readCardArtifacts(projectRoot, card.id);
   const current = stream.current.card;
   if (card.version_seq !== current.version_seq + 1) throw new Error(`Card '${card.id}' expected version ${current.version_seq + 1}.`);
-  const row = parseCardVersionArtifact({ kind: 'card-version', format_version: 1, card_id: card.id, version: card.version_seq, committed_at: new Date().toISOString(), card, history }, cardStreamFile(projectRoot, card.id), { cardId: card.id, version: card.version_seq });
+  const row = parseCardVersionArtifact({ kind: 'card-version', format_version: 2, card_id: card.id, version: card.version_seq, committed_at: new Date().toISOString(), card, history }, cardStreamFile(projectRoot, card.id), { cardId: card.id, version: card.version_seq });
   validateCardStream([...stream.artifacts, row], cardStreamFile(projectRoot, card.id), card.id);
   const result = appendEnvelope(cardStreamFile(projectRoot, card.id), serializeGrowingEnvelope([row], cardStreamRowSchema), io);
   switch (result.kind) {
@@ -357,7 +357,7 @@ export function publishCardVersion(projectRoot: string, card: CardRecord, histor
 
 export function publishCardTombstone(projectRoot: string, cardId: string, finalCard: CardRecord, deletionHistory: CardHistoryEntry, io?: GrowingFileIo): CardTombstone {
   if (cardId === 'project') throw new Error('Cannot tombstone the project card.');
-  const row: CardTombstone = { kind: 'card-tombstone', format_version: 1, card_id: cardId, deleted_at: deletionHistory.changed_at, final_card: finalCard, deletion_history: deletionHistory };
+  const row: CardTombstone = { kind: 'card-tombstone', format_version: 2, card_id: cardId, deleted_at: deletionHistory.changed_at, final_card: finalCard, deletion_history: deletionHistory };
   cardStreamRowSchema.parse(row);
   const stream = readCardArtifacts(projectRoot, cardId);
   validateCardStream([...stream.artifacts, row], cardStreamFile(projectRoot, cardId), cardId);

@@ -16,7 +16,7 @@
         :title="currentCard.title"
         :subtitle="hierarchyPath"
         :type="labelForCardType(currentCard.type)"
-        :status="cardUiStatus(currentCard.status, reason)"
+        :status="cardUiStatus(currentCard.lifecycle.status, reason)"
       >
         <template #meta>
           <span class="ori-item"><span class="ori-key">v{{ currentCard.version_seq ?? '?' }}</span></span>
@@ -25,7 +25,7 @@
           <span v-if="lifecycle?.durationMs != null" class="ori-item"><span class="ori-key">duration</span> {{ lifecycle.durationMs }} ms</span>
         </template>
 
-        <div v-if="reasonLine" class="card-entity__reason" :class="`tone-text-${toneForCardStatus(currentCard.status)}`">{{ reasonLine }}</div>
+        <div v-if="reasonLine" class="card-entity__reason" :class="`tone-text-${toneForCardStatus(currentCard.lifecycle.status)}`">{{ reasonLine }}</div>
 
         <StatusBanner v-if="bannerSeverity" :tone="bannerSeverity" :message="bannerMessage">
           <template v-if="bannerSeverity === 'warning'" #action><button type="button" class="banner-action" @click="reloadDetail">Refresh card</button></template>
@@ -143,10 +143,10 @@ function cardUiStatus(status: CardStatus, description?: string): UiStatus {
 }
 
 
-const reason = computed(() => lifecycle.value?.explanation || statusExplainer(currentCard.value?.status ?? 'backlog'));
+const reason = computed(() => lifecycle.value?.explanation || statusExplainer(currentCard.value?.lifecycle.status ?? 'backlog'));
 const PROBLEMATIC: ReadonlySet<CardStatus> = new Set(['failed', 'blocked', 'cancelled']);
 const reasonLine = computed(() => {
-  const status = currentCard.value?.status;
+  const status = currentCard.value?.lifecycle.status;
   if (!status || (status !== 'stopped' && !PROBLEMATIC.has(status))) return '';
   return lifecycle.value?.explanation || statusExplainer(status);
 });

@@ -26,7 +26,7 @@ describe('operator files and debug contract handlers', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-files-routes-'));
     initProjectTree(projectRoot);
     cards = new CardService(projectRoot);
-    cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cardServiceProvider = jest.fn(() => cards);
     fastify = Fastify({ logger: false });
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventBus: new EventBus() }).mount(

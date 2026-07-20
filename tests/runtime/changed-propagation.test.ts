@@ -5,7 +5,11 @@ import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 import type { CardService } from '../../src/cards/card-api.js';
 
 function record(id: string, status: CardStatus, type: CardRecord['type']): CardRecord {
-  return { id, status, type } as CardRecord;
+  const common = { id, type, children: [], title: id, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [] };
+  if (status === 'done') return { ...common, lifecycle: { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-20T00:00:00.000Z' } };
+  if (status === 'failed') return { ...common, lifecycle: { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } };
+  if (status === 'blocked') return { ...common, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked' }, error: 'blocked', completed_at: null } };
+  return { ...common, lifecycle: { status, result: null, error: null, completed_at: null } };
 }
 
 describe('stopped changed propagation', () => {

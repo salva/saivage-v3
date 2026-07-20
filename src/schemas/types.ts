@@ -61,26 +61,24 @@ export interface CardNotification {
 }
 
 export interface CardRecord {
-  id: string; type: CardType; parent: string | null; depth: number; title: string; status: CardStatus;
+  id: string; type: CardType; title: string;
   children: string[];
   subtype?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; related: string[];
   lifecycle: CardLifecycleState; metrics?: Record<string, number | string | boolean | null> | null;
   estimate?: string | null; started_at?: string | null;
   duration_ms?: number | null; status_text?: string | null; status_text_updated_at?: string | null;
-  status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; allowedActions?: CardAction[];
+  status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null;
   pending_notifications: CardNotification[];
 }
 export interface CardOperatorSummary {
-  lifecycleStatus: CardStatus;
   blocked: boolean;
   hasError: boolean;
   error: string | null;
   completedAt: string | null;
   stale: boolean;
-  actionCount: number;
 }
-export interface CardView extends CardRecord { logical_path: string | null; operator_summary: CardOperatorSummary; }
+export interface CardView { card: CardRecord; logical_path: string | null; status: CardStatus; parent: string | null; operator_summary: CardOperatorSummary; }
 export interface CardRefView { id: string; logical_path: string | null; title: string | null; missing?: boolean; }
 export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive' | 'child_link';
 export interface CardHistoryEntry { entry_id: string; kind: CardHistoryKind; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }

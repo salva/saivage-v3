@@ -297,7 +297,7 @@ describe('WorkspaceFileReadModelService canonical card files', () => {
   it('projects the synthetic parent row and traverses active linked virtual directories', () => withRoot((root) => {
     initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const service = new WorkspaceFileReadModelService(root, () => cardFilesReader(cards));
     const project = cards.read('project')!;
 

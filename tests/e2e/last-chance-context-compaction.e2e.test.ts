@@ -87,7 +87,7 @@ describe('ordinary-runtime last-chance context compaction E2E', () => {
     await application.runtimeApi.startProject();
     await waitUntil(() => application.runtimeApi.getStatus().status === 'stopped');
 
-    expect(cards.read('project')).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'Recovered and completed.' } } });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'done', summary: 'Recovered and completed.' } } });
     expect(firstEstimate).toBeGreaterThan(0);
     expect(firstEstimate).toBeLessThan(firstTrigger);
     expect(compactionsAtFirstPass).toBe(0);

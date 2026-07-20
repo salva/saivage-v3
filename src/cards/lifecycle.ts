@@ -15,7 +15,6 @@ export interface NewCardInput {
   parent: string;
   title: string;
   brief: string;
-  status: CardStatus;
   subtype?: string | null;
   tags: string[];
   priority: number;
@@ -24,7 +23,6 @@ export interface NewCardInput {
   assigned_to?: string | null;
   depends_on: string[];
   related: string[];
-  lifecycle?: CardLifecycleState;
   metrics?: Record<string, number | string | boolean | null> | null;
   estimate?: string | null;
   started_at?: string | null;
@@ -36,34 +34,35 @@ export interface NewCardInput {
   metadata?: import('../schemas/index.js').CardMetadata | null;
 }
 
-export type CardPatch = Partial<Omit<CardRecord, 'type' | 'children'>>;
+export type CardPatch = Partial<Pick<CardRecord,
+  | 'title' | 'subtype' | 'tags' | 'priority' | 'urgency' | 'assigned_to'
+  | 'depends_on' | 'related' | 'metrics' | 'estimate' | 'started_at'
+  | 'duration_ms' | 'status_text' | 'status_text_updated_at'
+  | 'status_text_author_session_id' | 'latest_self_report' | 'metadata'
+  | 'pending_notifications'>>;
 
-export type TerminalLifecyclePatch =
+export type TerminalLifecycleCommit =
   | {
-      status: 'done';
       lifecycle: Extract<CardLifecycleState, { status: 'done' }>;
       status_text?: string | null;
       status_text_updated_at?: string | null;
     }
   | {
-      status: 'failed';
       lifecycle: Extract<CardLifecycleState, { status: 'failed' }>;
       status_text?: string | null;
       status_text_updated_at?: string | null;
     }
   | {
-      status: 'blocked';
       lifecycle: Extract<CardLifecycleState, { status: 'blocked' }>;
       status_text?: string | null;
       status_text_updated_at?: string | null;
     };
 
+export type SetStatusTarget = Exclude<CardStatus, 'stopped' | 'done' | 'failed'>;
+export type SetStatusLifecycle = Extract<CardLifecycleState, { status: SetStatusTarget }>;
+
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
-  'parent',
   'depends_on',
-  'depth',
-  'id',
-  'created_at',
 ]);
 
 const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
@@ -85,11 +84,6 @@ const LIFECYCLE_LOCKED_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'cancelled',
 ]);
 
-const TERMINAL_LIFECYCLE_FIELDS: ReadonlySet<string> = new Set([
-  'status',
-  'lifecycle',
-]);
-
 const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
   backlog: ['running', 'cancelled'],
   running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog'],
@@ -104,7 +98,6 @@ const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
 const TRACKED_FIELDS = [
   'title',
   'subtype',
-  'parent',
   'tags',
   'priority',
   'urgency',
@@ -134,8 +127,8 @@ export function validateTransition(from: CardStatus, to: CardStatus): void {
 
 export function buildSetStatusLifecycle(
   card: CardRecord,
-  newStatus: CardStatus,
-): CardRecord['lifecycle'] {
+  newStatus: SetStatusTarget,
+): SetStatusLifecycle {
   switch (newStatus) {
     case 'backlog':
     case 'running':
@@ -156,8 +149,6 @@ export function buildSetStatusLifecycle(
         completed_at: null,
       };
     }
-    default:
-      return card.lifecycle;
   }
 }
 
@@ -188,39 +179,31 @@ export function prunePartialPatch(
   return pruned;
 }
 
-export function assertGenericCardPatch(changes: CardPatch): void {
-  if (Object.hasOwn(changes, 'children')) throw new Error("Field 'children' cannot be changed via update/mutateCard; use the dedicated child link or reorder operation.");
-}
-
 export function validateMutablePatch(
   existing: CardRecord,
   changes: CardPatch,
-): number {
+): void {
   const changedKeys = Object.keys(changes);
 
-  if (LIFECYCLE_LOCKED_STATES.has(existing.status)) {
+  const status = existing.lifecycle.status;
+  if (LIFECYCLE_LOCKED_STATES.has(status)) {
     for (const key of changedKeys) {
-      if (TERMINAL_LIFECYCLE_FIELDS.has(key)) continue;
-      if (existing.status === 'blocked' && key === 'pending_notifications') continue;
-      if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
+      if (status === 'blocked' && key === 'pending_notifications') continue;
+      if (!ALWAYS_ALLOWED_FIELDS.has(key)) {
         throw new Error(
-          `Card '${existing.id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
+          `Card '${existing.id}' is in status '${status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
         );
       }
     }
-  } else if (!FULL_EDIT_STATES.has(existing.status)) {
+  } else if (!FULL_EDIT_STATES.has(status)) {
     for (const key of changedKeys) {
       if (CRITICAL_FIELDS.has(key)) {
         throw new Error(
-          `Field '${key}' cannot be changed on a card in status '${existing.status}'. Cards in this state allow editing: status, title, priority, urgency, tags, and other non-structural fields.`,
+          `Field '${key}' cannot be changed on a card in status '${status}'. Cards in this state allow editing: title, priority, urgency, tags, and other non-structural fields.`,
         );
       }
     }
   }
-  if (changes.parent !== undefined && changes.parent !== existing.parent) {
-    throw new Error("Field 'parent' cannot be changed via update/mutateCard; card reparenting is not supported.");
-  }
-  return existing.depth;
 }
 
 export function buildUpdatedCard(
@@ -228,10 +211,9 @@ export function buildUpdatedCard(
   changes: CardPatch,
   stamp: string,
 ): CardRecord {
-  const newDepth = validateMutablePatch(existing, changes);
+  validateMutablePatch(existing, changes);
   const newDependsOn =
     changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
-  const status = changes.status ?? existing.status;
   return {
     ...existing,
     ...changes,
@@ -239,9 +221,8 @@ export function buildUpdatedCard(
     created_at: existing.created_at,
     created_by: existing.created_by,
     updated_at: stamp,
-    depth: newDepth,
     depends_on: newDependsOn,
-    pending_notifications: acceptsCardNotifications(status)
+    pending_notifications: acceptsCardNotifications(existing.lifecycle.status)
       ? changes.pending_notifications ?? existing.pending_notifications
       : [],
     version_seq: existing.version_seq + 1,
@@ -279,7 +260,7 @@ export function briefContentForNewCard(input: NewCardInput): string {
 }
 
 export function enqueueCardNotification(card: CardRecord, notification: CardNotification): CardRecord {
-  if (!acceptsCardNotifications(card.status)) throw new Error(`Cannot queue notification for terminal card '${card.id}' in status '${card.status}'.`);
+  if (!acceptsCardNotifications(card.lifecycle.status)) throw new Error(`Cannot queue notification for terminal card '${card.id}' in status '${card.lifecycle.status}'.`);
   const parsed = cardNotificationSchema.parse(notification);
   if (card.pending_notifications.some((candidate) => candidate.id === parsed.id)) throw new Error(`Notification '${parsed.id}' already exists on card '${card.id}'.`);
   return { ...card, pending_notifications: [...card.pending_notifications, parsed] };

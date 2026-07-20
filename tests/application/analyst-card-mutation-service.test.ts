@@ -5,12 +5,22 @@ import { join } from 'node:path';
 
 import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { CardService } from '../../src/cards/card-service.js';
-import type { CardRecord } from '../../src/schemas/index.js';
+import type { CardRecord, CardStatus, CardType } from '../../src/schemas/index.js';
 import { initProjectTree, testAnalystMutationServices } from '../helpers/canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 
-const FIRST = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const SECOND = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const FIRST = 'card-a';
+const SECOND = 'card-a-b';
+
+function card(status: CardStatus, id = FIRST, type: CardType = 'code'): CardRecord {
+  const common = { id, type, children: [], title: id, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [] };
+  switch (status) {
+    case 'done': return { ...common, lifecycle: { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-20T00:00:00.000Z' } };
+    case 'failed': return { ...common, lifecycle: { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } };
+    case 'blocked': return { ...common, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked' }, error: 'blocked', completed_at: null } };
+    default: return { ...common, lifecycle: { status, result: null, error: null, completed_at: null } };
+  }
+}
 
 function services(store: CardService, notifyCard = jest.fn(() => ({ ok: true as const, notificationId: 'notification' })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] }))) {
   return createAnalystMutationServices({ projectRoot: '/tmp/analyst-mutation-test', store, configAuthority: { applyChange: jest.fn() } as never, surface: 'web-chat', notifyCard, cancelCard });
@@ -21,8 +31,8 @@ describe('analyst card mutation service deletion', () => {
     const deleteSubtrees = jest.fn((ids: readonly string[], context: unknown, allowed: (card: CardRecord) => boolean) => {
       expect(ids).toEqual([FIRST, SECOND, FIRST]);
       expect(context).toEqual({ actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' });
-      expect(allowed({ status: 'backlog' } as CardRecord)).toBe(true);
-      expect(allowed({ status: 'running' } as CardRecord)).toBe(false);
+      expect(allowed(card('backlog'))).toBe(true);
+      expect(allowed(card('running'))).toBe(false);
       return { requested: [FIRST, SECOND], deleted: [SECOND, FIRST] };
     });
     const service = services({ deleteSubtrees } as unknown as CardService).cards;
@@ -45,12 +55,12 @@ describe('analyst card mutation service deletion', () => {
 
 describe('analyst stopped card mutations', () => {
   it('admits a stopped parent for creation and invokes the owner once', () => {
-    const stopped = { id: FIRST, type: 'goal', parent: 'project', status: 'stopped' } as CardRecord;
-    const child = { id: SECOND, type: 'code', parent: FIRST, status: 'backlog', lifecycle: { status: 'backlog' }, title: 'child' } as CardRecord;
+    const stopped = card('stopped', FIRST, 'goal');
+    const child = card('backlog', SECOND);
     const store = {
       read: jest.fn((id: string) => id === FIRST ? stopped : null),
       getDescendantIds: jest.fn(() => []),
-      listChildren: jest.fn((id: string) => id === 'project' ? [FIRST] : [SECOND]), create: jest.fn(() => child),
+      listChildren: jest.fn((id: string) => id === 'project' ? [FIRST] : id === FIRST ? [SECOND] : []), create: jest.fn(() => child),
     } as unknown as CardService;
     const bundle = services(store);
     expect(bundle.cards.create({ type: 'code', parent: FIRST, title: 'child', brief: 'brief' })).toMatchObject({ kind: 'returned', success: true });
@@ -61,8 +71,8 @@ describe('analyst stopped card mutations', () => {
     { status: 'backlog', allowed: true }, { status: 'running', allowed: true }, { status: 'blocked', allowed: true }, { status: 'changed', allowed: true },
     { status: 'stopped', allowed: true }, { status: 'done', allowed: false }, { status: 'failed', allowed: true }, { status: 'cancelled', allowed: false },
   ] as const)('applies cancellation membership to $status', async ({ status, allowed }) => {
-    const target = { id: FIRST, type: 'code', parent: 'project', status } as CardRecord;
-    const store = { read: () => target, getDescendantIds: () => [] } as unknown as CardService;
+    const target = card(status);
+    const store = { read: () => target, getDescendantIds: () => [], getParent: () => 'project' } as unknown as CardService;
     const cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] }));
     const outcome = await services(store, undefined, cancelCard).cards.cancel(FIRST);
     expect(outcome.kind !== 'denied').toBe(allowed);
@@ -73,10 +83,10 @@ describe('analyst stopped card mutations', () => {
     { status: 'backlog', allowed: true }, { status: 'running', allowed: false }, { status: 'blocked', allowed: true }, { status: 'changed', allowed: true },
     { status: 'stopped', allowed: true }, { status: 'done', allowed: false }, { status: 'failed', allowed: false }, { status: 'cancelled', allowed: false },
   ] as const)('applies create-parent membership and Analyst running denial to $status', ({ status, allowed }) => {
-    const parent = { id: FIRST, type: 'goal', parent: 'project', status } as CardRecord;
-    const child = { id: SECOND, type: 'code', parent: FIRST, status: 'backlog', lifecycle: { status: 'backlog' }, title: 'child' } as CardRecord;
+    const parent = card(status, FIRST, 'goal');
+    const child = card('backlog', SECOND);
     const create = jest.fn(() => child);
-    const store = { read: () => parent, create, listChildren: (id: string) => id === 'project' ? [FIRST] : [SECOND] } as unknown as CardService;
+    const store = { read: () => parent, create, listChildren: (id: string) => id === 'project' ? [FIRST] : id === FIRST ? [SECOND] : [] } as unknown as CardService;
     const outcome = services(store).cards.create({ type: 'code', parent: FIRST, title: 'child', brief: 'brief' });
     expect(outcome.kind !== 'denied').toBe(allowed);
     expect(create).toHaveBeenCalledTimes(allowed ? 1 : 0);
@@ -87,13 +97,13 @@ describe('analyst stopped card mutations', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped work', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped work', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       cards.setStatus(card.id, 'running');
       cards.stopRunningForRecovery(card.id);
       const service = testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'n' })).briefRecords;
 
       expect(service.write(`record:///brief.md?card=${card.id}&v=next`, '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew')).toMatchObject({ success: true });
-      expect(cards.read(card.id)).toMatchObject({ status: 'stopped', lifecycle: { status: 'stopped' } });
+      expect(cards.read(card.id)).toMatchObject({ lifecycle: { status: 'stopped' } });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -102,7 +112,7 @@ describe('analyst stopped card mutations', () => {
 
 describe('analyst child reorder propagation', () => {
   function reorderHarness(result: ReturnType<CardService['reorderChildren']>) {
-    const parent = { id: 'project', type: 'project', parent: null, status: 'backlog' } as CardRecord;
+    const parent = card('backlog', 'project', 'project');
     const reorderChildren = jest.fn(() => result);
     const getAncestors = jest.fn(() => [] as string[]);
     const setStatus = jest.fn();
@@ -158,7 +168,7 @@ describe('other Analyst mutation facets', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const card = cards.create({ type: 'code', parent: 'project', title: 'Fresh brief', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Fresh brief', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       const open = cards.openRecord(card.id, 'brief.md');
       cards.editRecord(card.id, 'brief.md', open.version, '# Goal\nFresh current\n# Instructions\nFresh current\n# Acceptance Criteria\nFresh current');
       cards.closeRecord(card.id, 'brief.md', open.version, 'analyst', card.version_seq);
@@ -170,8 +180,8 @@ describe('other Analyst mutation facets', () => {
   });
 
   it('admits only typed open-record absence and propagates strict read failures', () => {
-    const card = { id: FIRST, type: 'code', parent: 'project', status: 'backlog' } as CardRecord;
-    const base = { read: () => card, recordReader: { record: jest.fn() } };
+    const targetCard = card('backlog');
+    const base = { read: () => targetCard, recordReader: { record: jest.fn() } };
     const content = '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew';
     const path = `record:///brief.md?card=${FIRST}&v=next`;
 

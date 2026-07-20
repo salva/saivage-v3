@@ -3,7 +3,7 @@ import { AuthoredRecordNotFoundError, PROJECT_CARD_ID } from '../cards/card-api.
 import { analystBriefEditEffect, canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
-import type { CardRecord, CardStatus, CardType, ControlActionSurface } from '../schemas/index.js';
+import type { CardRecord, CardType, ControlActionSurface } from '../schemas/index.js';
 import { propagateAnalystBriefEdit, propagateChange } from '../runtime/changed-propagation.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import { toCardView } from './read-models/card-view.js';
@@ -19,7 +19,6 @@ export interface CreateAnalystCardInput {
   parent: string | null;
   title: string;
   brief: string;
-  status?: CardStatus;
   tags?: string[];
   priority?: number;
   urgency?: 'low' | 'normal' | 'high' | 'critical';
@@ -94,15 +93,14 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     if (parent === null) return denied('non-project card requires a parent');
     const parentCard = this.store.read(parent);
     if (!parentCard) return denied(`parent '${parent}' does not exist`);
-    if (!canCreateChildInStatus(parentCard.status) || parentCard.status === 'running') return denied('wrong_state');
-    if (input.status !== undefined && input.status !== 'backlog') return denied('Analyst-created cards must start in backlog');
-    const card = this.store.create({ type: input.type, parent, title: input.title, brief: input.brief, status: input.status ?? 'backlog', tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: 'analyst', depends_on: input.depends_on ?? [], related: input.related ?? [] });
+    if (!canCreateChildInStatus(parentCard.lifecycle.status) || parentCard.lifecycle.status === 'running') return denied('wrong_state');
+    const card = this.store.create({ type: input.type, parent, title: input.title, brief: input.brief, tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: 'analyst', depends_on: input.depends_on ?? [], related: input.related ?? [] });
     try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch { /* notification is best effort */ }
     return success(toCardView(this.store, card));
   }
 
   delete(ids: readonly string[]): AnalystMutationOutcome {
-    const result = this.store.deleteSubtrees(ids, { actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' }, (card) => card.status !== 'running');
+    const result = this.store.deleteSubtrees(ids, { actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' }, (card) => card.lifecycle.status !== 'running');
     return success({ deleted: result.deleted, top_level_deleted: result.requested });
   }
 
@@ -110,11 +108,11 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     const card = this.store.read(cardId);
     if (!card) return denied(`card '${cardId}' does not exist`);
     if (card.id === PROJECT_CARD_ID) return denied('root project card cannot be cancelled');
-    const blocked = subtree(this.store, cardId).find((candidate) => !canCancelCardStatus(candidate.status));
-    if (blocked) return denied(`card '${blocked.id}' is ${blocked.status}`);
+    const blocked = subtree(this.store, cardId).find((candidate) => !canCancelCardStatus(candidate.lifecycle.status));
+    if (blocked) return denied(`card '${blocked.id}' is ${blocked.lifecycle.status}`);
     if (!this.cancelCardPort) throw new Error('Analyst cancellation requires the runtime cancellation application port.');
     const result = await this.cancelCardPort(cardId, reason ?? 'analyst_cancel_card');
-    const anchor = card.parent ?? cardId;
+    const anchor = this.store.getParent(card.id) ?? cardId;
     try { propagateChange(this.store, anchor, { kind: 'analyst_edit', summary: reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card' }, this.notifyCard); } catch { /* notification is best effort */ }
     return success(result);
   }
@@ -122,14 +120,14 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
   reorder(parentId: string, orderedChildIds: readonly string[]): AnalystMutationOutcome {
     const parent = this.store.read(parentId);
     if (!parent) return denied(`parent '${parentId}' does not exist`);
-    if (parent.status === 'running') return denied(`parent '${parentId}' is ${parent.status}`);
+    if (parent.lifecycle.status === 'running') return denied(`parent '${parentId}' is ${parent.lifecycle.status}`);
     const current = this.store.listChildren(parentId);
     if (current.length !== orderedChildIds.length || current.some((id) => !orderedChildIds.includes(id))) return denied('reorder_set_mismatch');
     for (const childId of orderedChildIds) {
       const child = this.store.read(childId);
       if (!child) continue;
-      const blocked = subtree(this.store, child.id).find((candidate) => candidate.status === 'running');
-      if (blocked) return denied(`child subtree '${child.id}' contains '${blocked.id}' in status ${blocked.status}`);
+      const blocked = subtree(this.store, child.id).find((candidate) => candidate.lifecycle.status === 'running');
+      if (blocked) return denied(`child subtree '${child.id}' contains '${blocked.id}' in status ${blocked.lifecycle.status}`);
     }
     const result = this.store.reorderChildren(parentId, [...orderedChildIds], { actor: 'analyst', surface: this.surface, reason: 'analyst reorder_child' });
     if (!result.ok) return failure('reorder_set_mismatch', { reason: 'reorder_set_mismatch', missing: result.missing, extra: result.extra, parent_id: parentId });
@@ -207,7 +205,7 @@ class AnalystBriefRecordMutationImplementation implements AnalystBriefRecordMuta
     if (target.version !== 'next') throw new AnalystMutationDeniedError('Analyst record writes must use v=next.');
     const card = this.store.read(target.cardId);
     if (!card) throw new AnalystMutationDeniedError(`Card '${target.cardId}' not found.`);
-    if (analystBriefEditEffect(card.status) === null) throw new AnalystMutationDeniedError(`Analyst brief edits do not support target card status ${card.status}.`);
+    if (analystBriefEditEffect(card.lifecycle.status) === null) throw new AnalystMutationDeniedError(`Analyst brief edits do not support target card status ${card.lifecycle.status}.`);
     try {
       this.store.readRecord(target.cardId, 'brief.md', 'open');
       throw new AnalystMutationDeniedError(`Cannot write '${target.recordUrl}': latest brief.md version is open.`);

@@ -44,13 +44,13 @@ function flipRestingCardsAlongPath(
   for (const cardId of path) {
     const card = store.read(cardId);
     if (!card) continue;
-    if (card.status === 'running') {
+    if (card.lifecycle.status === 'running') {
       firstRunningCardId = cardId;
       break;
     }
-    if (flippableStatuses.has(card.status)) {
+    if (flippableStatuses.has(card.lifecycle.status)) {
       store.setStatus(cardId, 'changed');
-      flipped.push({ card_id: cardId, previous_status: card.status });
+      flipped.push({ card_id: cardId, previous_status: card.lifecycle.status });
     }
   }
 
@@ -77,7 +77,7 @@ function analystBriefEditedCardAndAncestorRecipients(store: PropagationStore, pa
     const card = store.read(cardId);
     if (!card) continue;
     if (cardId !== editedCardId && (card.type === 'goal' || card.type === 'project')) recipients.push(cardId);
-    if (card.status === 'running') break;
+    if (card.lifecycle.status === 'running') break;
   }
   return recipients;
 }
@@ -88,7 +88,7 @@ function analystBriefAncestorRecipients(store: PropagationStore, path: readonly 
     const card = store.read(cardId);
     if (!card) continue;
     if (card.type === 'goal' || card.type === 'project') recipients.push(cardId);
-    if (card.status === 'running') break;
+    if (card.lifecycle.status === 'running') break;
   }
   return recipients;
 }
@@ -114,19 +114,19 @@ export function propagateAnalystBriefEdit(store: PropagationStore, editedCardId:
 
   let flipped: ChangedPropagation['flipped'];
   let notifyRecipients: string[];
-  const effect = analystBriefEditEffect(edited.status);
+  const effect = analystBriefEditEffect(edited.lifecycle.status);
 
   if (effect === null) {
-    throw new Error(`Analyst brief edit propagation does not support target card status '${edited.status}'.`);
+    throw new Error(`Analyst brief edit propagation does not support target card status '${edited.lifecycle.status}'.`);
   }
-  if (edited.status === 'running') {
+  if (edited.lifecycle.status === 'running') {
     flipped = [];
     notifyRecipients = [editedCardId];
-  } else if (edited.status === 'stopped') {
+  } else if (edited.lifecycle.status === 'stopped') {
     const path = ancestorPathIncludingEdited(store, editedCardId);
     flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;
     notifyRecipients = analystBriefEditedCardAndAncestorRecipients(store, path, editedCardId);
-  } else if (edited.status === 'backlog') {
+  } else if (edited.lifecycle.status === 'backlog') {
     const path = ancestorPathExcludingEdited(store, editedCardId);
     flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;
     notifyRecipients = analystBriefAncestorRecipients(store, path);
@@ -134,7 +134,7 @@ export function propagateAnalystBriefEdit(store: PropagationStore, editedCardId:
     const path = ancestorPathIncludingEdited(store, editedCardId);
     flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;
     notifyRecipients = analystBriefEditedCardAndAncestorRecipients(store, path, editedCardId);
-  } else throw new Error(`Analyst brief edit effect '${effect}' has no propagation path for status '${edited.status}'.`);
+  } else throw new Error(`Analyst brief edit effect '${effect}' has no propagation path for status '${edited.lifecycle.status}'.`);
 
   const summary = originSummary(origin);
   notifyOnce(notifyRecipients, notifyCard, origin.kind, summary);

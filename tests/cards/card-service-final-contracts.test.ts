@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardService } from '../../src/cards/card-service.js';
-import type { CardPatch, NewCardInput, TerminalLifecyclePatch } from '../../src/cards/lifecycle.js';
+import type { NewCardInput, TerminalLifecycleCommit } from '../../src/cards/lifecycle.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { EventBus } from '../../src/events/index.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
@@ -22,21 +22,21 @@ const THIRD = `card-${THIRD_SEGMENT}`;
 function input(parent = 'project'): NewCardInput {
   return {
     type: 'code', parent, title: 'Implement final contract', brief: 'Use direct card I/O.',
-    status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+    tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
   };
 }
 
-function terminalPatch(status: TerminalLifecyclePatch['status'], withStatusText = false): TerminalLifecyclePatch {
+function terminalPatch(status: TerminalLifecycleCommit['lifecycle']['status'], withStatusText = false): TerminalLifecycleCommit {
   const companions = withStatusText
     ? { status_text: `${status} summary`, status_text_updated_at: '2026-07-19T00:00:01.000Z' }
     : {};
   switch (status) {
     case 'done':
-      return { status, lifecycle: { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-19T00:00:00.000Z' }, ...companions };
+      return { lifecycle: { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-19T00:00:00.000Z' }, ...companions };
     case 'failed':
-      return { status, lifecycle: { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-19T00:00:00.000Z' }, ...companions };
+      return { lifecycle: { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-19T00:00:00.000Z' }, ...companions };
     case 'blocked':
-      return { status, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null }, ...companions };
+      return { lifecycle: { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null }, ...companions };
   }
 }
 
@@ -163,8 +163,7 @@ describe('CardService final reset-only contracts', () => {
     cards.create(input());
     cards.create(input());
     cards.setStatus(FIRST, 'running');
-    cards.commitTerminalLifecyclePatch(FIRST, {
-      status: 'done',
+    cards.commitTerminalLifecycle(FIRST, {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'complete' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' },
     });
     cards.create({ ...input(), title: 'Dependent card', depends_on: [SECOND, FIRST] });
@@ -195,18 +194,12 @@ describe('CardService final reset-only contracts', () => {
 
     expect(() => cards.stopRunningForRecovery(parent.id)).toThrow(/must be running/);
     cards.setStatus(parent.id, 'running');
-    expect(() => cards.setStatus(parent.id, 'stopped')).toThrow(/Invalid transition/);
-    expect(() => cards.mutateCard(parent.id, { status: 'stopped', lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } }, { actor: 'runtime', surface: 'runtime', reason: 'status -> stopped' })).toThrow(/Generic card mutation/);
-
-    expect(cards.stopRunningForRecovery(parent.id)).toMatchObject({ status: 'stopped', lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } });
+    expect(cards.stopRunningForRecovery(parent.id)).toMatchObject({ lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } });
     expect(() => cards.stopRunningForRecovery(parent.id)).toThrow(/must be running/);
-    expect(() => cards.setStatus(parent.id, 'running')).toThrow(/Invalid transition/);
-    expect(() => cards.mutateCard(parent.id, { status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null } }, { actor: 'runtime', surface: 'runtime', reason: 'status -> running' })).toThrow(/Generic card mutation/);
-
     cards.mutateCard(parent.id, { title: 'Edited while stopped' }, { actor: 'analyst', surface: 'web-chat', reason: 'stopped edit' });
-    expect(cards.read(parent.id)).toMatchObject({ status: 'stopped', title: 'Edited while stopped' });
-    expect(cards.create(input(parent.id))).toMatchObject({ parent: parent.id, status: 'backlog' });
-    expect(cards.activateStopped(parent.id)).toMatchObject({ status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null } });
+    expect(cards.read(parent.id)).toMatchObject({ lifecycle: { status: 'stopped' }, title: 'Edited while stopped' });
+    expect(cards.create(input(parent.id))).toMatchObject({ lifecycle: { status: 'backlog' } });
+    expect(cards.activateStopped(parent.id)).toMatchObject({ lifecycle: { status: 'running', result: null, error: null, completed_at: null } });
     expect(() => cards.activateStopped(parent.id)).toThrow(/must be stopped/);
 
     const history = cards.listCardHistory(parent.id);
@@ -216,44 +209,9 @@ describe('CardService final reset-only contracts', () => {
     expect(history.value.filter(({ change_reason }) => change_reason === 'STOPPED activation')).toHaveLength(1);
     expect(history.value.filter(({ change_reason }) => change_reason === 'recovery stopped lifecycle' || change_reason === 'STOPPED activation'))
       .toEqual(expect.arrayContaining([
-        expect.objectContaining({ kind: 'status', changed_by_actor: 'runtime', changed_by_surface: 'runtime', changed_fields: ['status', 'lifecycle'], change_reason: 'recovery stopped lifecycle' }),
-        expect.objectContaining({ kind: 'status', changed_by_actor: 'runtime', changed_by_surface: 'runtime', changed_fields: ['status', 'lifecycle'], change_reason: 'STOPPED activation' }),
+         expect.objectContaining({ kind: 'status', changed_by_actor: 'runtime', changed_by_surface: 'runtime', changed_fields: ['lifecycle'], change_reason: 'recovery stopped lifecycle' }),
+         expect.objectContaining({ kind: 'status', changed_by_actor: 'runtime', changed_by_surface: 'runtime', changed_fields: ['lifecycle'], change_reason: 'STOPPED activation' }),
       ]));
-  });
-
-  it.each(['terminal lifecycle commit', 'status -> running', 'recovery stopped lifecycle', 'STOPPED activation'])('treats generic caller reason %s as audit prose without lifecycle authority', (reason) => {
-    const { cards, publications, historyEvents } = observableCardService(root);
-    cards.create(input());
-    const streamBefore = readFileSync(cardStreamFile(root, FIRST), 'utf8');
-    const eventsBefore = historyEvents.length;
-    publications.length = 0;
-
-    expect(() => cards.mutateCard(FIRST, {
-      status: 'running',
-      lifecycle: { status: 'running', result: null, error: null, completed_at: null },
-    }, { actor: 'runtime', surface: 'runtime', reason })).toThrow(/lifecycle-owned/);
-
-    expect(readFileSync(cardStreamFile(root, FIRST), 'utf8')).toBe(streamBefore);
-    expect(cards.read(FIRST)).toMatchObject({ status: 'backlog', version_seq: 1 });
-    expect(cards.listCardHistory(FIRST)).toEqual({ kind: 'found', value: [] });
-    expect(historyEvents).toHaveLength(eventsBefore);
-    expect(publications).toEqual([]);
-  });
-
-  it('prunes equal ordinary lifecycle values without granting authority or losing a companion edit', () => {
-    const cards = new CardService(root);
-    const card = cards.create(input());
-
-    const edited = cards.mutateCard(card.id, {
-      status: card.status,
-      lifecycle: card.lifecycle,
-      title: 'Ordinary edit after lifecycle pruning',
-    }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' });
-
-    expect(edited).toMatchObject({ status: 'backlog', lifecycle: card.lifecycle, title: 'Ordinary edit after lifecycle pruning', version_seq: 2 });
-    const streamBeforeNoOp = readFileSync(cardStreamFile(root, card.id), 'utf8');
-    expect(cards.mutateCard(card.id, { status: edited.status, lifecycle: edited.lifecycle }, { actor: 'runtime', surface: 'runtime', reason: 'STOPPED activation' })).toEqual(edited);
-    expect(readFileSync(cardStreamFile(root, card.id), 'utf8')).toBe(streamBeforeNoOp);
   });
 
   it.each(['done', 'failed', 'blocked'] as const)('commits a strict running-to-%s lifecycle with the canonical context', (status) => {
@@ -261,9 +219,8 @@ describe('CardService final reset-only contracts', () => {
     const card = cards.create(input());
     cards.setStatus(card.id, 'running');
 
-    const committed = cards.commitTerminalLifecyclePatch(card.id, terminalPatch(status, status === 'failed'));
+    const committed = cards.commitTerminalLifecycle(card.id, terminalPatch(status, status === 'failed'));
 
-    expect(committed.status).toBe(status);
     expect(committed.lifecycle.status).toBe(status);
     if (status === 'failed') expect(committed).toMatchObject({ status_text: 'failed summary', status_text_updated_at: '2026-07-19T00:00:01.000Z' });
     else expect(committed).toMatchObject({ status_text: null, status_text_updated_at: null });
@@ -279,65 +236,13 @@ describe('CardService final reset-only contracts', () => {
     if (source === 'changed') { cards.setStatus(card.id, 'running'); cards.setStatus(card.id, 'changed'); }
     if (source === 'blocked') { cards.setStatus(card.id, 'running'); cards.setStatus(card.id, 'blocked'); }
     if (source === 'stopped') { cards.setStatus(card.id, 'running'); cards.stopRunningForRecovery(card.id); }
-    if (source === 'done' || source === 'failed') { cards.setStatus(card.id, 'running'); cards.commitTerminalLifecyclePatch(card.id, terminalPatch(source)); }
+    if (source === 'done' || source === 'failed') { cards.setStatus(card.id, 'running'); cards.commitTerminalLifecycle(card.id, terminalPatch(source)); }
     if (source === 'cancelled') cards.setStatus(card.id, 'cancelled');
     const streamBefore = readFileSync(cardStreamFile(root, card.id), 'utf8');
     const eventsBefore = historyEvents.length;
     publications.length = 0;
 
-    expect(() => cards.commitTerminalLifecyclePatch(card.id, terminalPatch('done'))).toThrow(/must be running/);
-
-    expect(readFileSync(cardStreamFile(root, card.id), 'utf8')).toBe(streamBefore);
-    expect(historyEvents).toHaveLength(eventsBefore);
-    expect(publications).toEqual([]);
-  });
-
-  it('rejects every nonterminal target, status/lifecycle mismatch, and malformed terminal lifecycle at runtime', () => {
-    const { cards, publications, historyEvents } = observableCardService(root);
-    const card = cards.create(input());
-    cards.setStatus(card.id, 'running');
-    const invalidPatches: unknown[] = [
-      { status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } },
-      { status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null } },
-      { status: 'changed', lifecycle: { status: 'changed', result: null, error: null, completed_at: null } },
-      { status: 'stopped', lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } },
-      { status: 'cancelled', lifecycle: { status: 'cancelled', result: null, error: null, completed_at: null } },
-      { status: 'done', lifecycle: terminalPatch('failed').lifecycle },
-      { status: 'done', lifecycle: { status: 'done', result: null, error: null, completed_at: null } },
-      { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'failed' }, error: null, completed_at: '2026-07-19T00:00:00.000Z' } },
-      { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'blocked' }, error: 'blocked', completed_at: '2026-07-19T00:00:00.000Z' } },
-    ];
-    const streamBefore = readFileSync(cardStreamFile(root, card.id), 'utf8');
-    const eventsBefore = historyEvents.length;
-    publications.length = 0;
-
-    for (const patch of invalidPatches) {
-      expect(() => cards.commitTerminalLifecyclePatch(card.id, patch as TerminalLifecyclePatch)).toThrow();
-    }
-
-    expect(readFileSync(cardStreamFile(root, card.id), 'utf8')).toBe(streamBefore);
-    expect(historyEvents).toHaveLength(eventsBefore);
-    expect(publications).toEqual([]);
-  });
-
-  it('rejects every terminal-commit field outside the two status-text companions', () => {
-    const { cards, publications, historyEvents } = observableCardService(root);
-    const card = cards.create(input());
-    cards.setStatus(card.id, 'running');
-    const forbiddenFields = [
-      'id', 'type', 'parent', 'depth', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency',
-      'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related',
-      'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text_author_session_id', 'latest_self_report',
-      'metadata', 'pending_notifications',
-    ];
-    const streamBefore = readFileSync(cardStreamFile(root, card.id), 'utf8');
-    const eventsBefore = historyEvents.length;
-    publications.length = 0;
-
-    for (const field of forbiddenFields) {
-      const patch = { ...terminalPatch('done'), [field]: 'forbidden' };
-      expect(() => cards.commitTerminalLifecyclePatch(card.id, patch as TerminalLifecyclePatch)).toThrow();
-    }
+    expect(() => cards.commitTerminalLifecycle(card.id, terminalPatch('done'))).toThrow(/must be running/);
 
     expect(readFileSync(cardStreamFile(root, card.id), 'utf8')).toBe(streamBefore);
     expect(historyEvents).toHaveLength(eventsBefore);
@@ -364,11 +269,11 @@ describe('CardService final reset-only contracts', () => {
     const cards = new CardService(root);
     const parent = cards.create({ ...input(), type: 'goal' });
     cards.setStatus(parent.id, 'running');
-    cards.commitTerminalLifecyclePatch(parent.id, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null } });
+    cards.commitTerminalLifecycle(parent.id, { lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'blocked', resume_reason: 'test' }, error: 'blocked', completed_at: null } });
 
     const child = cards.create(input(parent.id));
 
-    expect(child).toMatchObject({ id: `${parent.id}-a`, parent: parent.id, status: 'backlog' });
+    expect(child).toMatchObject({ id: `${parent.id}-a`, lifecycle: { status: 'backlog' } });
     expect(cards.listChildren(parent.id)).toEqual([child.id]);
     expect(cards.read(parent.id)?.children).toEqual([child.id]);
   });
@@ -378,8 +283,8 @@ describe('CardService final reset-only contracts', () => {
     const parent = cards.create({ ...input(), type: 'goal' });
     cards.setStatus(parent.id, 'running');
     if (status === 'cancelled') cards.setStatus(parent.id, status);
-    else if (status === 'done') cards.commitTerminalLifecyclePatch(parent.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } });
-    else cards.commitTerminalLifecyclePatch(parent.id, { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-17T00:00:00.000Z' } });
+    else if (status === 'done') cards.commitTerminalLifecycle(parent.id, { lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } });
+    else cards.commitTerminalLifecycle(parent.id, { lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-17T00:00:00.000Z' } });
     const rowsBefore = readFileSync(cardStreamFile(root, parent.id), 'utf8');
 
     expect(() => cards.create(input(parent.id))).toThrow(/Cannot create a child under/);
@@ -410,7 +315,7 @@ describe('CardService final reset-only contracts', () => {
     if (status !== 'backlog') {
       cards.setStatus(FIRST, 'running');
       if (status === 'changed') cards.setStatus(FIRST, 'changed');
-      if (status === 'blocked') cards.commitTerminalLifecyclePatch(FIRST, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'wait' }, error: 'wait', completed_at: null } });
+      if (status === 'blocked') cards.commitTerminalLifecycle(FIRST, { lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'wait' }, error: 'wait', completed_at: null } });
       if (status === 'stopped') cards.stopRunningForRecovery(FIRST);
     }
     cards.enqueueNotification(FIRST, { id: 'n1', content: 'new facts', created_at: '2026-07-15T00:00:00.000Z' });
@@ -427,8 +332,8 @@ describe('CardService final reset-only contracts', () => {
     cards.enqueueNotification(FIRST, { id: 'n1', content: 'new facts', created_at: '2026-07-15T00:00:00.000Z' });
     cards.setStatus(FIRST, 'running');
     if (status === 'cancelled') cards.setStatus(FIRST, status);
-    else if (status === 'done') cards.commitTerminalLifecyclePatch(FIRST, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'ok' }, error: null, completed_at: '2026-07-15T00:00:01.000Z' } });
-    else cards.commitTerminalLifecyclePatch(FIRST, { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'bad' }, error: 'bad', completed_at: '2026-07-15T00:00:01.000Z' } });
+    else if (status === 'done') cards.commitTerminalLifecycle(FIRST, { lifecycle: { status: 'done', result: { kind: 'done', summary: 'ok' }, error: null, completed_at: '2026-07-15T00:00:01.000Z' } });
+    else cards.commitTerminalLifecycle(FIRST, { lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'bad' }, error: 'bad', completed_at: '2026-07-15T00:00:01.000Z' } });
     expect(cards.read(FIRST)?.pending_notifications).toEqual([]);
     expect(() => cards.enqueueNotification(FIRST, { id: 'n2', content: 'late', created_at: '2026-07-15T00:00:02.000Z' })).toThrow(/terminal card/);
   });
@@ -463,7 +368,7 @@ describe('CardService final reset-only contracts', () => {
     publications.length = 0;
     cards.setStatus(FIRST, 'running');
     expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card', 'runtime']);
-    expect(publications.every(({ card }) => card?.status === 'running')).toBe(true);
+    expect(publications.every(({ card }) => card?.lifecycle.status === 'running')).toBe(true);
 
     cards.setStatus(FIRST, 'backlog');
     publications.length = 0;
@@ -473,40 +378,11 @@ describe('CardService final reset-only contracts', () => {
 
     cards.setStatus(FIRST, 'running');
     publications.length = 0;
-    cards.commitTerminalLifecyclePatch(FIRST, {
-      status: 'done',
+    cards.commitTerminalLifecycle(FIRST, {
       lifecycle: { status: 'done', result: { kind: 'done', summary: 'complete' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' },
     });
     expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card', 'runtime']);
-    expect(publications.every(({ card }) => card?.status === 'done' && card.type === 'code')).toBe(true);
-  });
-
-  it('rejects a forged type patch before append or success effects and preserves the readable stream', () => {
-    const { cards, publications, historyEvents } = observableCardService(root);
-    cards.create(input());
-    const initialHistoryEvents = historyEvents.length;
-    publications.length = 0;
-
-    expect(() => cards.update(FIRST, { type: 'test' } as unknown as CardPatch))
-      .toThrow("mutates immutable field 'type'");
-
-    expect(publications).toEqual([]);
-    expect(historyEvents).toHaveLength(initialHistoryEvents);
-    expect(cards.read(FIRST)).toMatchObject({ id: FIRST, type: 'code', version_seq: 1 });
-    expect(cards.listCardHistory(FIRST)).toEqual({ kind: 'found', value: [] });
-  });
-
-  it('rejects forged children patches before no-op pruning on every generic patch path', () => {
-    const { cards, publications, historyEvents } = observableCardService(root);
-    cards.create(input());
-    const beforeEvents = historyEvents.length;
-    publications.length = 0;
-
-    expect(() => cards.update(FIRST, { children: [] } as unknown as CardPatch)).toThrow("Field 'children' cannot be changed");
-    expect(() => cards.mutateCard(FIRST, { children: [SECOND] } as unknown as CardPatch, { actor: 'analyst', surface: 'web-chat' })).toThrow("Field 'children' cannot be changed");
-    expect(publications).toEqual([]);
-    expect(historyEvents).toHaveLength(beforeEvents);
-    expect(cards.read(FIRST)).toMatchObject({ children: [], version_seq: 1 });
+    expect(publications.every(({ card }) => card?.lifecycle.status === 'done' && card.type === 'code')).toBe(true);
   });
 
   it('reorders with one parent append, leaves child streams unchanged, and survives a fresh ordered read', () => {
@@ -581,7 +457,7 @@ describe('CardService final reset-only contracts', () => {
     cards.update(FIRST, {});
     expect(publications).toEqual([]);
 
-    cards.update(FIRST, { status: 'backlog', title: 'Updated title' });
+    cards.update(FIRST, { title: 'Updated title' });
     expect(publications.map(({ kind }) => kind)).toEqual(['card', 'card', 'card', 'card', 'card']);
     expect(publications[0]?.card?.title).toBe('Updated title');
   });

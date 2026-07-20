@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -15,7 +16,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 
 import { CardService } from '../../src/cards/card-service.js';
 import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
-import { cardNamespace } from '../../src/persistence/layout.js';
+import { cardNamespace, cardStreamFile } from '../../src/persistence/layout.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { EventBus } from '../../src/events/index.js';
@@ -31,7 +32,6 @@ function input(parent: string, title: string, type: 'code' | 'goal' = 'code') {
     parent,
     title,
     brief: `${title} brief`,
-    status: 'backlog' as const,
     tags: [],
     priority: 0,
     urgency: 'normal' as const,
@@ -158,7 +158,21 @@ describe('canonical card Files browsing through real routes and CardService stat
     expect(brief.json().content).toContain('First brief');
     expect((await content(reconstructedApp, '.saivage/cards/project/children/a/status.jsonl')).statusCode).toBe(404);
     expect((await content(reconstructedApp, '.saivage/cards/project/children/a/review.jsonl')).statusCode).toBe(404);
+    const cardPreview = await content(reconstructedApp, '.saivage/cards/project/card.jsonl');
+    expect(cardPreview.statusCode).toBe(200);
+    expect(cardPreview.json().content).toContain('"format_version":2');
+    expect(cardPreview.json().content).toContain('"lifecycle":{"status":"backlog"');
     expect(provider).toHaveBeenCalled();
+  });
+
+  it('rejects complete v1 card bytes without rewriting or generic fallback', async () => {
+    const test = await harness();
+    const path = cardStreamFile(test.root, 'project');
+    const current = readFileSync(path, 'utf8');
+    const old = current.replace('"format_version":2', '"format_version":1');
+    writeFileSync(path, old);
+    expect((await content(test.app, '.saivage/cards/project/card.jsonl')).statusCode).toBe(500);
+    expect(readFileSync(path, 'utf8')).toBe(old);
   });
 
   it('keeps root and leaf virtual children available without physical children directories', async () => {

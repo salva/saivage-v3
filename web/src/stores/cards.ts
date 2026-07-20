@@ -51,8 +51,8 @@ function completionState(status: CardStatus): CardLifecycleSummary['completionSt
   if (status === 'cancelled') return 'cancelled'; if (status === 'done') return 'marked-done'; return 'in-progress';
 }
 export function deriveCardLifecycleSummary(card: CardRecord, children?: readonly CardRecord[]): CardLifecycleSummary {
-  const projection = children === undefined ? {} : (() => { const counts = { backlog: 0, running: 0, blocked: 0, changed: 0, stopped: 0, done: 0, failed: 0, cancelled: 0 } satisfies Record<CardStatus, number>; for (const child of children) counts[child.status] += 1; return { childCounts: counts, hasActiveChildren: children.some((child) => child.status === 'running'), hasBlockingChildren: children.some((child) => child.status === 'blocked' || child.status === 'failed') }; })();
-  return { status: card.status, phase: lifecyclePhase(card.status), explanation: '', completionState: completionState(card.status), error: card.lifecycle.error ?? null, startedAt: card.started_at ?? null, completedAt: card.lifecycle.completed_at ?? null, durationMs: null, ...projection, dependencyIds: card.depends_on, blockedByDependencyIds: [] };
+  const projection = children === undefined ? {} : (() => { const counts = { backlog: 0, running: 0, blocked: 0, changed: 0, stopped: 0, done: 0, failed: 0, cancelled: 0 } satisfies Record<CardStatus, number>; for (const child of children) counts[child.lifecycle.status] += 1; return { childCounts: counts, hasActiveChildren: children.some((child) => child.lifecycle.status === 'running'), hasBlockingChildren: children.some((child) => child.lifecycle.status === 'blocked' || child.lifecycle.status === 'failed') }; })();
+  return { status: card.lifecycle.status, phase: lifecyclePhase(card.lifecycle.status), explanation: '', completionState: completionState(card.lifecycle.status), error: card.lifecycle.error ?? null, startedAt: card.started_at ?? null, completedAt: card.lifecycle.completed_at ?? null, durationMs: null, ...projection, dependencyIds: card.depends_on, blockedByDependencyIds: [] };
 }
 
 export function cardRouteChain(cardId: string): string[] {

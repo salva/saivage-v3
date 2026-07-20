@@ -29,7 +29,7 @@ describe('reviewer role surface record access', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const store = new CardService(projectRoot);
-    store.create({ type: 'code', parent: 'project', title: 'Reviewed child', brief: 'Produce review evidence.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    store.create({ type: 'code', parent: 'project', title: 'Reviewed child', brief: 'Produce review evidence.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     closeRecord(store, CHILD, 'status.md', 'First closed descendant status.', 'executor');
     closeRecord(store, CHILD, 'status.md', 'Latest closed descendant status.', 'executor');
 

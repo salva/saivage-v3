@@ -15,34 +15,34 @@ import type { LlmToolInvocationContext } from '../../src/runtime/actors/executin
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 
 const PARENT = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const CHILD = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const CHILD = `${PARENT}-b`;
 const DEPENDENCY_A = 'card-cccccccccccccccccccccccccccc';
 const DEPENDENCY_B = 'card-dddddddddddddddddddddddddddd';
 
 const doneOutcome: CardActivationOutcome = { status: 'done', summary: 'complete', result: { kind: 'done', summary: 'complete' } };
 
-function card(status: CardStatus = 'backlog', changes: Partial<CardRecord> = {}): CardRecord {
-  return {
-    id: CHILD,
-    type: 'code',
-    parent: PARENT,
-    depth: 2,
+function card(status: CardStatus = 'backlog', id = CHILD, changes: Partial<Pick<CardRecord, 'title' | 'tags' | 'priority' | 'urgency' | 'related'>> = {}): CardRecord {
+  const common = {
+    id,
+    type: 'code' as const,
     children: [],
     title: 'Child',
-    status,
     tags: [],
     priority: 0,
-    urgency: 'normal',
-    created_by: 'planner',
+    urgency: 'normal' as const,
+    created_by: 'planner' as const,
     created_at: '2026-07-17T00:00:00.000Z',
     updated_at: '2026-07-17T00:00:00.000Z',
     version_seq: 1,
     depends_on: [],
     related: [],
-    lifecycle: { status, result: null, error: null, completed_at: null },
     pending_notifications: [],
     ...changes,
-  } as CardRecord;
+  };
+  if (status === 'done') return { ...common, lifecycle: { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } };
+  if (status === 'failed') return { ...common, lifecycle: { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-17T00:00:00.000Z' } };
+  if (status === 'blocked') return { ...common, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked' }, error: 'blocked', completed_at: null } };
+  return { ...common, lifecycle: { status, result: null, error: null, completed_at: null } };
 }
 
 function projection(child: CardRecord, dependencies: CardActivationAdmissionProjection['dependencies'] = []): CardActivationAdmissionProjection {
@@ -76,7 +76,7 @@ function harness(admission: CardActivationAdmissionProjection | null, actorOverr
     return card('running');
   });
   const activateStopped = jest.fn((_cardId: string) => { events.push('status-running'); return card('running'); });
-  const mutateCard = jest.fn<NonNullable<PlannerControlProviderContext['store']['mutateCard']>>((_cardId, changes) => card(admission?.child.status ?? 'backlog', changes));
+  const mutateCard = jest.fn<NonNullable<PlannerControlProviderContext['store']['mutateCard']>>((_cardId, changes) => card(admission?.child.lifecycle.status ?? 'backlog', CHILD, changes));
   const reorderChildren = jest.fn<NonNullable<PlannerControlProviderContext['store']['reorderChildren']>>(() => options.reorderResult ?? { ok: true, changed: 2 });
   const beginStructuralWait = jest.fn<PlannerControlProviderContext['beginStructuralWait']>((relationship) => { events.push('relationship-installed'); return relationship; });
   const endStructuralWait = jest.fn<PlannerControlProviderContext['endStructuralWait']>(() => { events.push('relationship-cleared'); });
@@ -217,7 +217,7 @@ describe('planner activate_card dependency-completion admission', () => {
     await expect(missing.invoke()).resolves.toEqual({ success: false, error: `Child card '${CHILD}' not found.` });
     expect(missing.get).not.toHaveBeenCalled();
 
-    const foreign = harness(projection(card('backlog', { parent: DEPENDENCY_A })));
+    const foreign = harness(projection(card('backlog', `${DEPENDENCY_A}-a`)));
     await expect(foreign.invoke()).resolves.toEqual({ success: false, error: `Planner can activate only immediate children of '${PARENT}'.` });
     expect(foreign.get).not.toHaveBeenCalled();
   });

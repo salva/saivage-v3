@@ -9,7 +9,7 @@ import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/p
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
-function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-record-stream-')); roots.push(root); initProjectTree(root); const cards = new CardService(root); const card = cards.create({ type: 'code', parent: 'project', title: 'card', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }); return { cards, card }; }
+function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-record-stream-')); roots.push(root); initProjectTree(root); const cards = new CardService(root); const card = cards.create({ type: 'code', parent: 'project', title: 'card', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }); return { cards, card }; }
 
 describe('authored record revision streams', () => {
   it('preserves logical-version URLs across edit, close, discard, and new open versions', () => {

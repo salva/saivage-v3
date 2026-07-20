@@ -6,6 +6,7 @@ import { defineTool, type ToolProvider, type ToolResult } from './invocation.js'
 import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
 import { recordSlotDefinitions } from '../runtime/records/record-slots.js';
 import { AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
+import { cardParentId } from '../schemas/card-id.js';
 
 interface CardInspectionStore {
   read(cardId: string): CardRecord | null;
@@ -58,7 +59,7 @@ function listCards(store: CardInspectionStore, params: z.infer<typeof listCardsS
   let cards = orderedCardViews(store);
   if (params.status) {
     const statuses: CardStatus[] = Array.isArray(params.status) ? params.status : [params.status];
-    cards = cards.filter((card) => statuses.includes(card.status));
+    cards = cards.filter((card) => statuses.includes(card.lifecycle.status));
   }
   if (params.type) {
     const types: CardType[] = Array.isArray(params.type) ? params.type : [params.type];
@@ -66,7 +67,7 @@ function listCards(store: CardInspectionStore, params: z.infer<typeof listCardsS
   }
   if (params.parent !== undefined) {
     const parent = params.parent;
-    cards = cards.filter((card) => parent === null ? card.parent === null : childIds(store, parent).includes(card.id));
+    cards = cards.filter((card) => parent === null ? cardParentId(card.id) === null : childIds(store, parent).includes(card.id));
   }
   if (params.tag) {
     const tag = params.tag;
@@ -82,7 +83,7 @@ function getCard(store: CardInspectionStore, cardId: string): ToolResult {
     .map((id) => store.read(id))
     .filter((child): child is CardRecord => child !== null)
     .map((child) => cardSummary(store, child));
-  if (!isFullStore(store)) return { success: true, data: { ...card, logical_path: logicalPath(store, card), children } };
+  if (!isFullStore(store)) return { success: true, data: { card, status: card.lifecycle.status, parent: cardParentId(card.id), logical_path: logicalPath(store, card), children } };
   const records = cardRecordSummaries(store, cardId);
   return { success: true, data: { ...toCardView(store, card), effective_updated_at: effectiveUpdatedAt(store, cardId), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
 }
@@ -111,7 +112,7 @@ function childIds(store: CardInspectionStore, cardId: string): string[] {
 }
 
 function cardSummary(store: CardInspectionStore, card: CardRecord): Record<string, unknown> {
-  return { id: card.id, logical_path: logicalPath(store, card), type: card.type, title: card.title, status: card.status, priority: card.priority, parent: card.parent, tags: card.tags };
+  return { id: card.id, logical_path: logicalPath(store, card), type: card.type, title: card.title, status: card.lifecycle.status, priority: card.priority, parent: cardParentId(card.id), tags: card.tags };
 }
 
 function treeNode(store: CardInspectionStore, cardId: string): Record<string, unknown> | null {
@@ -123,12 +124,12 @@ function treeNode(store: CardInspectionStore, cardId: string): Record<string, un
 function logicalPath(store: CardInspectionStore, card: CardRecord): string | null {
   if (isFullStore(store)) return computeCardLogicalPath(store, card);
   const segments = [card.title || card.id];
-  let parentId = card.parent;
+  let parentId = cardParentId(card.id);
   while (parentId) {
     const parent = store.read(parentId);
     if (!parent) break;
     segments.unshift(parent.title || parent.id);
-    parentId = parent.parent;
+    parentId = cardParentId(parent.id);
   }
   return segments.join(' / ');
 }

@@ -47,7 +47,7 @@ describe('Analyst agent-session tools', () => {
   it('uses aggregate inventory for listing while retaining direct tombstoned history', async () => {
     const projectRoot = setup();
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const sessionId = `executor:${child.id}` as const;
     publishConversationFirstBatch({ projectRoot }, [{ ...rows()[0]!, id: 'child-text', session_id: sessionId }]);
     const context = { projectRoot, captureExecutingLlmSnapshots: () => [] } as unknown as ToolContext;

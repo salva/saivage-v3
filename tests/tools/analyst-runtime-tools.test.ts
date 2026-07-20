@@ -92,7 +92,7 @@ describe('analyst runtime tools', () => {
       initProjectTree(projectRoot);
       const processRunner = createTestProcessRunner(projectRoot);
       const cards = new CardService(projectRoot);
-      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       cards.setStatus(card.id, 'running');
       cards.stopRunningForRecovery(card.id);
       const result = await get_status({ projectRoot, store: cards, processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});

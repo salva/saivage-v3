@@ -46,9 +46,9 @@ describe('reviewer rework completion E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Completed child', brief: 'Complete the child.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Completed child', brief: 'Complete the child.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(child.id, 'running');
-    cards.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'Child complete.' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } });
+    cards.commitTerminalLifecycle(child.id, { lifecycle: { status: 'done', result: { kind: 'done', summary: 'Child complete.' }, error: null, completed_at: '2026-07-17T00:00:00.000Z' } });
 
     let plannerCalls = 0;
     let reviewerCalls = 0;
@@ -100,7 +100,7 @@ describe('reviewer rework completion E2E', () => {
 
     expect(runtime.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(runtime.getRuntimeState()).toBeNull();
-    expect(cards.read('project')).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'Approved after concrete remediation.' } } });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'done', summary: 'Approved after concrete remediation.' } } });
     expect(plannerCalls).toBe(4);
     expect(reviewerCalls).toBe(4);
     expect(provider.completeTurn).toHaveBeenCalledTimes(8);

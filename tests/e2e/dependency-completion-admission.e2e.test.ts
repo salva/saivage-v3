@@ -55,9 +55,9 @@ describe('dependency-completion activation admission E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Run dependency order', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Complete first', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Complete second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Run dependency order', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Complete first', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Complete second', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id], related: [] });
     cards.setStatus('project', 'running');
 
     const bRejected = deferred<void>();
@@ -93,7 +93,7 @@ describe('dependency-completion activation admission E2E', () => {
             return complete(tool('activate-a', 'activate_card', { card_id: dependency.id }));
           }
           if (parentCalls === 3) {
-            if (cards.read(dependency.id)?.status !== 'done') throw new Error('Dependency A was not durably done before the next planner request.');
+            if (cards.read(dependency.id)?.lifecycle.status !== 'done') throw new Error('Dependency A was not durably done before the next planner request.');
             dependencyDoneBeforeSecondRequest.resolve();
             await allowDependent.promise;
             return complete(tool('activate-b-second', 'activate_card', { card_id: dependent.id }));
@@ -135,7 +135,7 @@ describe('dependency-completion activation admission E2E', () => {
       success: false,
       error: `Child card '${dependent.id}' has incomplete dependencies: ${dependency.id} (backlog).`,
     });
-    expect(cards.read(dependent.id)).toMatchObject({ status: 'backlog', version_seq: 1 });
+    expect(cards.read(dependent.id)).toMatchObject({ lifecycle: { status: 'backlog' }, version_seq: 1 });
     expect(ownership.cardActors.has(dependent.id)).toBe(false);
     expect(ownership.liveCardActors.has(dependent.id)).toBe(false);
     expect([...ownership.cardActors.keys()]).toEqual(['project', parent.id]);
@@ -152,14 +152,14 @@ describe('dependency-completion activation admission E2E', () => {
 
     allowDependency.resolve();
     await settleWithin(dependencyDoneBeforeSecondRequest.promise, 'A completion');
-    expect(cards.read(dependency.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'A complete.' } } });
+    expect(cards.read(dependency.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'done', summary: 'A complete.' } } });
     expect(cards.readRecord(dependency.id, 'status.md').artifact.content).toBe('A completed first.');
     expect(dependencyCalls).toBe(2);
-    expect(cards.read(dependent.id)?.status).toBe('backlog');
+    expect(cards.read(dependent.id)?.lifecycle.status).toBe('backlog');
 
     allowDependent.resolve();
     await settleWithin(dependentProviderStarted.promise, 'admitted B provider start');
-    expect(cards.read(dependent.id)?.status).toBe('running');
+    expect(cards.read(dependent.id)?.lifecycle.status).toBe('running');
     expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id, dependent.id]);
     expect(supervisor.getStatus().currentCardId).toBe(dependent.id);
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(dependent.id);
@@ -175,8 +175,8 @@ describe('dependency-completion activation admission E2E', () => {
     ]));
 
     allowDependentCompletion.resolve();
-    await waitUntil(() => cards.read(dependent.id)?.status === 'done');
-    expect(cards.read(dependent.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'B complete.' } } });
+    await waitUntil(() => cards.read(dependent.id)?.lifecycle.status === 'done');
+    expect(cards.read(dependent.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'done', summary: 'B complete.' } } });
     expect(cards.readRecord(dependent.id, 'status.md').artifact.content).toBe('B admitted after A.');
     expect(dependentCalls).toBe(2);
     expect(ownership.cardActors.has(dependent.id)).toBe(false);

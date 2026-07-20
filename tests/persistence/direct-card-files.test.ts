@@ -16,7 +16,7 @@ describe('exact hierarchical card files', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const segment = 'a';
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     expect(child.id).toBe(`card-${segment}`);
     expect(cardNamespace(root, child.id)).toBe(join(root, '.saivage', 'cards', 'project', 'children', segment));
     expect(cards.read('project')!.children).toEqual([child.id]);
@@ -26,9 +26,9 @@ describe('exact hierarchical card files', () => {
   it('projects active children in exact committed parent order while retaining tombstoned links', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const first = cards.create({ type: 'code', parent: 'project', title: 'First', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    const retained = cards.create({ type: 'code', parent: 'project', title: 'Retained', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    const second = cards.create({ type: 'code', parent: 'project', title: 'Second', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const first = cards.create({ type: 'code', parent: 'project', title: 'First', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const retained = cards.create({ type: 'code', parent: 'project', title: 'Retained', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const second = cards.create({ type: 'code', parent: 'project', title: 'Second', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.deleteSubtrees([retained.id], { actor: 'analyst', surface: 'runtime' }, () => true);
     cards.reorderChildren('project', [second.id, first.id], { actor: 'analyst', surface: 'runtime' });
 
@@ -120,8 +120,8 @@ describe('exact hierarchical card files', () => {
     for (const testCase of cases) {
       const root = mkdtempSync(join(tmpdir(), `saivage-direct-card-${testCase.name.replaceAll(' ', '-')}-`)); roots.push(root); initProjectTree(root);
       const cards = new CardService(root);
-      const child = cards.create({ type: 'goal', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-      const grandchild = cards.create({ type: 'code', parent: child.id, title: 'Grandchild', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const child = cards.create({ type: 'goal', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const grandchild = cards.create({ type: 'code', parent: child.id, title: 'Grandchild', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       const outside = mkdtempSync(join(tmpdir(), 'saivage-direct-card-outside-')); roots.push(outside);
       testCase.replace(root, child.id, grandchild.id, outside);
       const reads: string[] = [];
@@ -138,7 +138,7 @@ describe('exact hierarchical card files', () => {
     expect(readCanonicalCardHierarchy(root, 'project')).toMatchObject({ kind: 'found', value: { activeChildren: [] } });
 
     const cards = new CardService(root);
-    const leaf = cards.create({ type: 'code', parent: 'project', title: 'Leaf', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const leaf = cards.create({ type: 'code', parent: 'project', title: 'Leaf', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     expect(existsSync(join(cardNamespace(root, leaf.id), 'children'))).toBe(false);
     expect(readCard(root, leaf.id)?.id).toBe(leaf.id);
     expect(readCanonicalCardHierarchy(root, leaf.id)).toMatchObject({ kind: 'found', value: { activeChildren: [] } });
@@ -147,7 +147,7 @@ describe('exact hierarchical card files', () => {
   it('exposes reached descriptor snapshots through CardService for the canonical Files collaborator', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
 
     const detail = cards.getCanonicalCard(child.id);
     expect(detail.kind).toBe('found');
@@ -184,8 +184,8 @@ describe('exact hierarchical card files', () => {
   it('keeps every card-domain read opaque after target tombstone and stops before descendants', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.deleteSubtrees([parent.id], { actor: 'analyst', surface: 'runtime', reason: 'test deletion' }, () => true);
 
     expect(readCard(root, parent.id)).toBeNull();
@@ -208,8 +208,8 @@ describe('exact hierarchical card files', () => {
   it('does not read ancestor briefs while proving an active target path', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     writeFileSync(cardRecordStreamFile(root, parent.id, 'brief'), '{complete-malformed}\n');
     expect(readCard(root, child.id)?.id).toBe(child.id);
   });
@@ -217,7 +217,7 @@ describe('exact hierarchical card files', () => {
   it('does not couple a card-only target read to its brief', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     rmSync(cardRecordStreamFile(root, child.id, 'brief'));
     expect(readCard(root, child.id)?.id).toBe(child.id);
   });

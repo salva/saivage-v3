@@ -162,10 +162,10 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     } else {
       const root = this.options.actorStore.read(PROJECT_CARD_ID);
       if (!root) throw new Error(`Root card record '${PROJECT_CARD_ID}' is missing.`);
-      const freshEntry = cardProcessEntryForStatus(root.status);
-      if (freshEntry === null) throw new Error(`Project card in status '${root.status}' cannot start.`);
+      const freshEntry = cardProcessEntryForStatus(root.lifecycle.status);
+      if (freshEntry === null) throw new Error(`Project card in status '${root.lifecycle.status}' cannot start.`);
       entry = freshEntry;
-      if (root.status === 'stopped') this.options.actorStore.activateStopped(PROJECT_CARD_ID); else this.options.actorStore.setStatus(PROJECT_CARD_ID, 'running');
+      if (root.lifecycle.status === 'stopped') this.options.actorStore.activateStopped(PROJECT_CARD_ID); else this.options.actorStore.setStatus(PROJECT_CARD_ID, 'running');
       chain = selectLinkedRunningChain(this.options.actorStore);
     }
     const root = requireProjectOnlyLaunchChain(chain, 'Runtime preparation');
@@ -217,7 +217,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult {
     const card = this.options.actorStore.read(cardId);
     if (!card) return { ok: false, reason: 'missing_card', cardId };
-    if (!acceptsCardNotifications(card.status)) return { ok: false, reason: 'terminal_card', cardId, status: card.status as 'done' | 'failed' | 'cancelled' };
+    if (!acceptsCardNotifications(card.lifecycle.status)) return { ok: false, reason: 'terminal_card', cardId, status: card.lifecycle.status as 'done' | 'failed' | 'cancelled' };
     this.options.actorStore.enqueueNotification(cardId, notification);
     return { ok: true, notificationId: notification.id };
   }
@@ -225,7 +225,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   async cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> {
     const card = this.options.actorStore.read(cardId);
     if (!card) throw new Error(`Card '${cardId}' not found.`);
-    if (!canCancelCardStatus(card.status)) throw new Error(`Card '${cardId}' in status '${card.status}' cannot be cancelled.`);
+    if (!canCancelCardStatus(card.lifecycle.status)) throw new Error(`Card '${cardId}' in status '${card.lifecycle.status}' cannot be cancelled.`);
     const capturedIdentity = this.runIdentity;
     const live = this.liveCardActors.get(cardId);
     if (live) {
@@ -252,7 +252,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       }
       return { card_id: cardId, status: 'cancelled', cancelled_card_ids: cancelledIds };
     }
-    if (card.status === 'running') throw new Error(`Running card '${cardId}' has no live activation owner.`);
+    if (card.lifecycle.status === 'running') throw new Error(`Running card '${cardId}' has no live activation owner.`);
     const cancelled: string[] = [];
     await this.cancelNonrunningSubtree(cardId, cancelled);
     return { card_id: cardId, status: 'cancelled', cancelled_card_ids: cancelled };
@@ -267,7 +267,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   getStatus() { return { status: this.status, currentCardId: this.currentness.activeCardId(), pid: this.options.processIdentity.pid, startedAt: this.options.processIdentity.startedAt }; }
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
-    const cards = [...this.cardActors.values()].flatMap((actor) => { const card = this.options.actorStore.read(actor.cardId); return card ? [{ cardId: actor.cardId, actorState: toPublicCardActorState(card.status), processState: actor.processor?.processPosition() ?? null }] : []; });
+    const cards = [...this.cardActors.values()].flatMap((actor) => { const card = this.options.actorStore.read(actor.cardId); return card ? [{ cardId: actor.cardId, actorState: toPublicCardActorState(card.lifecycle.status), processState: actor.processor?.processPosition() ?? null }] : []; });
     return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', cards };
   }
   captureAutonomousExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[] {
@@ -284,7 +284,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     return { status: this.status, project_id: 'project', pid: this.options.processIdentity.pid, started_at: this.options.processIdentity.startedAt, current_card_id: currentCardId, updated_at: this.now() };
   }
   private installProjectRoot(rootCard: CardRecord, entry: CardProcessEntry, alreadyStabilizedRoles: ReadonlySet<ProcessRole>): { readonly rootSettlement: Promise<unknown>; readonly root: CardActor } {
-    if (rootCard.id !== PROJECT_CARD_ID || rootCard.type !== 'project' || rootCard.parent !== null || rootCard.status !== 'running') throw new Error('Runtime launch requires the running project root.');
+    if (rootCard.id !== PROJECT_CARD_ID || rootCard.type !== 'project' || rootCard.lifecycle.status !== 'running') throw new Error('Runtime launch requires the running project root.');
     if (this.cardActors.size !== 0 || this.liveCardActors.size !== 0) throw new Error('Runtime project-root ownership installation requires empty owner maps.');
     const root = CardActor.fromCard({ card: rootCard, deps: this.cardActorDeps(), deferProcessorStart: true });
     const rootSettlement = root.prepareRootRunning(entry, alreadyStabilizedRoles);
@@ -315,10 +315,10 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
 
   private async cancelNonrunningSubtree(cardId: string, cancelled: string[]): Promise<void> {
     const card = this.options.actorStore.read(cardId);
-    if (!card || !canCancelCardStatus(card.status)) return;
+    if (!card || !canCancelCardStatus(card.lifecycle.status)) return;
     const live = this.liveCardActors.get(cardId);
     if (live) { const result = await live.cancel({ reason: 'ancestor cancelled', cancelled_at: this.now() }); cancelled.push(...result.cancelled_card_ids); return; }
-    if (card.status === 'running') throw new Error(`Running card '${cardId}' has no live activation owner.`);
+    if (card.lifecycle.status === 'running') throw new Error(`Running card '${cardId}' has no live activation owner.`);
     for (const childId of this.options.actorStore.listChildren(cardId)) await this.cancelNonrunningSubtree(childId, cancelled);
     this.options.actorStore.setStatus(cardId, 'cancelled');
     cancelled.push(cardId);
@@ -343,6 +343,6 @@ function sessionForRecovery(role: ProcessRole, cardId: string) {
 function requireProjectOnlyLaunchChain(chain: readonly CardRecord[], context: string): CardRecord {
   if (chain.length !== 1) throw new Error(`${context} did not produce exactly one running project card.`);
   const root = chain[0]!;
-  if (root.id !== PROJECT_CARD_ID || root.type !== 'project' || root.parent !== null || root.status !== 'running') throw new Error(`${context} did not produce exactly one running project card.`);
+  if (root.id !== PROJECT_CARD_ID || root.type !== 'project' || root.lifecycle.status !== 'running') throw new Error(`${context} did not produce exactly one running project card.`);
   return root;
 }

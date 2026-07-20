@@ -21,7 +21,7 @@ const IDS = [
 ];
 
 function child(parent: string, title: string, type: NewCardInput['type'] = 'code'): NewCardInput {
-  return { type, parent, title, brief: title, status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] };
+  return { type, parent, title, brief: title, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] };
 }
 
 function deferred<T>() {
@@ -71,7 +71,7 @@ describe('CardActor authoritative cancellation', () => {
     const changes = new ReadModelChangeBroadcaster();
     cards = new CardService(root, undefined, changes);
     cardRuntimeSnapshots = [];
-    changes.subscribe({ runtimeChanged: () => cardRuntimeSnapshots.push(Object.fromEntries(cards.list().map((card) => [card.id, card.status]))), cardProjectionChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
+    changes.subscribe({ runtimeChanged: () => cardRuntimeSnapshots.push(Object.fromEntries(cards.list().map((card) => [card.id, card.lifecycle.status]))), cardProjectionChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     lookup = new Map();
     liveLookup = new Map();
     releaseSettledActor = jest.fn((settledActor: CardActor) => {
@@ -103,7 +103,7 @@ describe('CardActor authoritative cancellation', () => {
   }
 
   function prepareBacklogRoot(owned: { actor: CardActor; processor: ControlledProcessor }): Promise<CardActivationOutcome> {
-    expect(cards.read('project')?.status).toBe('backlog');
+    expect(cards.read('project')?.lifecycle.status).toBe('backlog');
     cards.setStatus('project', 'running');
     const activation = owned.actor.prepareRootRunning('BACKLOG');
     owned.actor.startPreparedRootProcessor();
@@ -149,7 +149,7 @@ describe('CardActor authoritative cancellation', () => {
     expect(cancellation).toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['project'] });
     await expect(activation).resolves.toEqual({ status: 'cancelled', summary: 'operator cancelled' });
     expect(owned.processor.disposed).toBe(true);
-    expect(cards.read('project')?.status).toBe('cancelled');
+    expect(cards.read('project')?.lifecycle.status).toBe('cancelled');
     expect(liveLookup.size).toBe(0);
     expect(lookup.size).toBe(0);
     expect(releaseSettledActor).toHaveBeenCalledTimes(1);
@@ -159,7 +159,7 @@ describe('CardActor authoritative cancellation', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(cards.read('project')?.version_seq).toBe(version);
-    expect(cards.read('project')?.status).toBe('cancelled');
+    expect(cards.read('project')?.lifecycle.status).toBe('cancelled');
   });
 
   it('keeps cancellation publication and exact release observable before caller callbacks', async () => {
@@ -167,9 +167,9 @@ describe('CardActor authoritative cancellation', () => {
     const activation = prepareBacklogRoot(owned);
     await Promise.resolve();
     const observations: string[] = [];
-    void activation.then(() => observations.push(`activation:${cards.read('project')!.status}:${lookup.has('project')}`));
+    void activation.then(() => observations.push(`activation:${cards.read('project')!.lifecycle.status}:${lookup.has('project')}`));
     const cancellation = owned.actor.cancel({ reason: 'operator cancelled' });
-    void cancellation.then(() => observations.push(`cancellation:${cards.read('project')!.status}:${lookup.has('project')}`));
+    void cancellation.then(() => observations.push(`cancellation:${cards.read('project')!.lifecycle.status}:${lookup.has('project')}`));
 
     await cancellation;
     await activation;
@@ -188,7 +188,7 @@ describe('CardActor authoritative cancellation', () => {
     expect(lookup.size).toBe(0);
     expect(releaseSettledActor).toHaveBeenCalledTimes(1);
     expect(releaseSettledActor).toHaveBeenCalledWith(owned.actor);
-    expect(cards.read('project')).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'accepted' } } });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'done', summary: 'accepted' } } });
   });
 
   it.each([
@@ -207,7 +207,7 @@ describe('CardActor authoritative cancellation', () => {
 
     const card = cards.read('project')!;
     expect(card.version_seq).toBe(runningVersion + 1);
-    expect(card.status).toBe(outcome.status);
+    expect(card.lifecycle.status).toBe(outcome.status);
     expect(card.lifecycle.result).toEqual(outcome.result);
     expect(card.lifecycle.error).toBe(outcome.status === 'done' ? null : outcome.summary);
     expect(card.lifecycle.completed_at === null).toBe(outcome.status === 'blocked');
@@ -220,9 +220,9 @@ describe('CardActor authoritative cancellation', () => {
     const childCard = cards.create(child('project', 'ordered child'));
     const order: string[] = [];
     const owned = actor(childCard.id);
-    const commit = jest.spyOn(cards, 'commitTerminalLifecyclePatch').mockImplementation((...args) => {
+    const commit = jest.spyOn(cards, 'commitTerminalLifecycle').mockImplementation((...args) => {
       order.push('publication');
-      return Reflect.apply(Object.getPrototypeOf(cards).commitTerminalLifecyclePatch, cards, args) as never;
+      return Reflect.apply(Object.getPrototypeOf(cards).commitTerminalLifecycle, cards, args) as never;
     });
     const originalRelease = releaseSettledActor.getMockImplementation()!;
     releaseSettledActor.mockImplementation((settled) => { order.push('release'); originalRelease(settled); });
@@ -253,7 +253,7 @@ describe('CardActor authoritative cancellation', () => {
     const owned = actor(childCard.id);
     const statusAtProcessorActivation: string[] = [];
     const activate = jest.spyOn(owned.processor, 'activate').mockImplementation((input) => {
-      statusAtProcessorActivation.push(cards.read(childCard.id)!.status);
+      statusAtProcessorActivation.push(cards.read(childCard.id)!.lifecycle.status);
       owned.processor.input = input;
       return owned.processor.outcome.promise;
     });
@@ -279,7 +279,7 @@ describe('CardActor authoritative cancellation', () => {
     first.processor.input!.claimResult();
     first.processor.outcome.resolve({ status: 'blocked', summary: 'waiting', result: { kind: 'blocked', summary: 'waiting', resume_reason: 'test' } });
     await expect(firstActivation).resolves.toMatchObject({ status: 'blocked' });
-    expect(cards.read(childCard.id)?.status).toBe('blocked');
+    expect(cards.read(childCard.id)?.lifecycle.status).toBe('blocked');
 
     const second = actor(childCard.id);
     const secondActivation = second.actor.activate({ kind: 'parent', cardId: 'project' }, () => cards.setStatus(childCard.id, 'running'));
@@ -298,7 +298,7 @@ describe('CardActor authoritative cancellation', () => {
     await Promise.resolve();
     const runningVersion = cards.read('project')!.version_seq;
     const failure = new Error('publication failed');
-    const commit = jest.spyOn(cards, 'commitTerminalLifecyclePatch').mockImplementation(() => { throw failure; });
+    const commit = jest.spyOn(cards, 'commitTerminalLifecycle').mockImplementation(() => { throw failure; });
     const read = jest.spyOn(cards, 'read');
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -307,7 +307,7 @@ describe('CardActor authoritative cancellation', () => {
 
     expect(commit).toHaveBeenCalledTimes(1);
     expect(read).toHaveBeenCalledTimes(0);
-    expect(cards.read('project')).toMatchObject({ status: 'running', version_seq: runningVersion });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'running' }, version_seq: runningVersion });
     expect(settled).toBe(false);
     expect(releaseSettledActor).not.toHaveBeenCalled();
     expect(liveLookup.get('project')).toBe(owned.actor);
@@ -325,7 +325,7 @@ describe('CardActor authoritative cancellation', () => {
     await Promise.resolve();
     const runningVersion = cards.read('project')!.version_seq;
     bus.subscribe('card_history_appended', () => { throw callbackFailure; }, { propagateErrors: true });
-    const commit = jest.spyOn(cards, 'commitTerminalLifecyclePatch');
+    const commit = jest.spyOn(cards, 'commitTerminalLifecycle');
     const read = jest.spyOn(cards, 'read');
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -334,7 +334,7 @@ describe('CardActor authoritative cancellation', () => {
 
     expect(commit).toHaveBeenCalledTimes(1);
     expect(read).toHaveBeenCalledTimes(1);
-    expect(cards.read('project')).toMatchObject({ status: 'failed', version_seq: runningVersion + 1 });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed' }, version_seq: runningVersion + 1 });
     expect(settled).toBe(false);
     expect(releaseSettledActor).not.toHaveBeenCalled();
     expect(liveLookup.get('project')).toBe(owned.actor);
@@ -352,11 +352,11 @@ describe('CardActor authoritative cancellation', () => {
     cards.setStatus(inactiveChild.id, 'running');
     cards.setStatus(inactiveChild.id, 'changed');
     cards.setStatus(doneChild.id, 'running');
-    cards.commitTerminalLifecyclePatch(doneChild.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'kept' }, error: null, completed_at: '2026-07-15T00:00:00.000Z' } });
+    cards.commitTerminalLifecycle(doneChild.id, { lifecycle: { status: 'done', result: { kind: 'done', summary: 'kept' }, error: null, completed_at: '2026-07-15T00:00:00.000Z' } });
     cards.setStatus(failedChild.id, 'running');
-    cards.commitTerminalLifecyclePatch(failedChild.id, { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'retry' }, error: 'retry', completed_at: '2026-07-15T00:00:00.000Z' } });
+    cards.commitTerminalLifecycle(failedChild.id, { lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'retry' }, error: 'retry', completed_at: '2026-07-15T00:00:00.000Z' } });
     cards.setStatus(blockedChild.id, 'running');
-    cards.commitTerminalLifecyclePatch(blockedChild.id, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' }, error: 'wait', completed_at: null } });
+    cards.commitTerminalLifecycle(blockedChild.id, { lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' }, error: 'wait', completed_at: null } });
     cards.setStatus(stoppedChild.id, 'running');
     cards.stopRunningForRecovery(stoppedChild.id);
     cards.setStatus(cancelledChild.id, 'cancelled');
@@ -370,13 +370,13 @@ describe('CardActor authoritative cancellation', () => {
     expect(result.cancelled_card_ids).toEqual([activeChild.id, inactiveChild.id, failedChild.id, blockedChild.id, stoppedChild.id, 'project']);
     await expect(parentResult).resolves.toMatchObject({ status: 'cancelled' });
     await expect(childResult).resolves.toMatchObject({ status: 'cancelled' });
-    expect(cards.read(activeChild.id)?.status).toBe('cancelled');
-    expect(cards.read(inactiveChild.id)?.status).toBe('cancelled');
-    expect(cards.read(doneChild.id)?.status).toBe('done');
-    expect(cards.read(failedChild.id)?.status).toBe('cancelled');
-    expect(cards.read(blockedChild.id)?.status).toBe('cancelled');
-    expect(cards.read(stoppedChild.id)?.status).toBe('cancelled');
-    expect(cards.read(cancelledChild.id)?.status).toBe('cancelled');
+    expect(cards.read(activeChild.id)?.lifecycle.status).toBe('cancelled');
+    expect(cards.read(inactiveChild.id)?.lifecycle.status).toBe('cancelled');
+    expect(cards.read(doneChild.id)?.lifecycle.status).toBe('done');
+    expect(cards.read(failedChild.id)?.lifecycle.status).toBe('cancelled');
+    expect(cards.read(blockedChild.id)?.lifecycle.status).toBe('cancelled');
+    expect(cards.read(stoppedChild.id)?.lifecycle.status).toBe('cancelled');
+    expect(cards.read(cancelledChild.id)?.lifecycle.status).toBe('cancelled');
     expect(liveLookup.size).toBe(0);
     expect(lookup.size).toBe(0);
     expect(releaseSettledActor).toHaveBeenCalledTimes(2);
@@ -396,7 +396,7 @@ describe('CardActor authoritative cancellation', () => {
     void prepareBacklogRoot(parent);
     await Promise.resolve();
     await expect(parent.actor.cancel({ reason: 'cancel subtree' })).rejects.toThrow(`Running card '${orphan.id}' has no live activation owner.`);
-    expect(cards.read(orphan.id)?.status).toBe('running');
+    expect(cards.read(orphan.id)?.lifecycle.status).toBe('running');
   });
 
   it('enforces singular child actor construction eligibility', () => {
@@ -404,7 +404,7 @@ describe('CardActor authoritative cancellation', () => {
     const terminal = cards.create(child('project', 'terminal child'));
     cards.setStatus(running.id, 'running');
     cards.setStatus(terminal.id, 'running');
-    cards.commitTerminalLifecyclePatch(terminal.id, { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } });
+    cards.commitTerminalLifecycle(terminal.id, { lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } });
     const parent = actor('project');
 
     expect(() => parent.actor.childCardActor(running.id)).toThrow(`Running card '${running.id}' has no retained activation owner.`);
@@ -437,7 +437,7 @@ describe('CardActor authoritative cancellation', () => {
     await expect(activation).rejects.toBe(interruption);
     expect(failures).toEqual([]);
     expect(owned.actor.claim).toBe('claimed_stop');
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     expect(liveLookup.get('project')).toBe(owned.actor);
     expect(lookup.get('project')).toBe(owned.actor);
     expect(releaseSettledActor).not.toHaveBeenCalled();
@@ -489,7 +489,7 @@ describe('CardActor authoritative cancellation', () => {
     await Promise.resolve();
 
     expect(order).toEqual([]);
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     expect(liveLookup.get('project')).toBe(owned.actor);
 
     cleanupSettlement.resolve([]);
@@ -498,7 +498,7 @@ describe('CardActor authoritative cancellation', () => {
     await stopped;
 
     expect(order).toEqual(['activation', 'stop']);
-    expect(cards.read('project')?.status).toBe('cancelled');
+    expect(cards.read('project')?.lifecycle.status).toBe('cancelled');
     expect(failures).toEqual([]);
     expect(liveLookup.get('project')).toBe(owned.actor);
     expect(lookup.get('project')).toBe(owned.actor);
@@ -523,14 +523,14 @@ describe('CardActor authoritative cancellation', () => {
     await Promise.resolve();
 
     expect(stopSettled).toBe(false);
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     expect(liveLookup.get('project')).toBe(owned.actor);
 
     cleanupSettlement.resolve([]);
     await expect(normalSettlement).resolves.toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['project'] });
     await expect(activation).resolves.toEqual({ status: 'cancelled', summary: 'winning reason' });
     await stopped;
-    expect(cards.read('project')?.status).toBe('cancelled');
+    expect(cards.read('project')?.lifecycle.status).toBe('cancelled');
     expect(releaseSettledActor).not.toHaveBeenCalled();
   });
 
@@ -551,7 +551,7 @@ describe('CardActor authoritative cancellation', () => {
     await expect(cancellation).rejects.toBe(cleanupError);
     await expect(stopped).resolves.toBeUndefined();
     expect(failures).toEqual([{ component: 'card:project', error: cleanupError }]);
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     expect(liveLookup.get('project')).toBe(owned.actor);
     expect(lookup.get('project')).toBe(owned.actor);
     expect(releaseSettledActor).not.toHaveBeenCalled();
@@ -564,7 +564,7 @@ describe('CardActor authoritative cancellation', () => {
     const live = new Map<string, CardActor>();
     const snapshots: Array<{ source: 'card' | 'actor'; current: string | null; childStatus: string | null; retained: string[] }> = [];
     let currentness!: ActiveCardLeaf;
-    const snapshot = (source: 'card' | 'actor') => snapshots.push({ source, current: currentness.activeCardId(), childStatus: store.read(IDS[0]!)?.status ?? null, retained: [...retained.keys()] });
+    const snapshot = (source: 'card' | 'actor') => snapshots.push({ source, current: currentness.activeCardId(), childStatus: store.read(IDS[0]!)?.lifecycle.status ?? null, retained: [...retained.keys()] });
     currentness = new ActiveCardLeaf(() => snapshot('actor'));
     changes.subscribe({ runtimeChanged: () => snapshot('card'), cardProjectionChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     const deps = {

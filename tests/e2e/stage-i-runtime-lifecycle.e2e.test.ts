@@ -42,7 +42,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Execute', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(child.id, 'running');
     const inputs: LlmInvocationInput[] = [];
@@ -72,9 +72,9 @@ describe('Stage-I runtime lifecycle E2E', () => {
     await waitUntil(() => inputs.length === 2);
     expect(inputs[1]!.inputId).not.toBe(inputs[0]!.inputId);
 
-    const durableBeforeStop = cards.list().map((card) => ({ id: card.id, status: card.status, version: card.version_seq }));
+    const durableBeforeStop = cards.list().map((card) => ({ id: card.id, status: card.lifecycle.status, version: card.version_seq }));
     await expect(runtime.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
-    expect(cards.list().map((card) => ({ id: card.id, status: card.status, version: card.version_seq }))).toEqual(durableBeforeStop);
+    expect(cards.list().map((card) => ({ id: card.id, status: card.lifecycle.status, version: card.version_seq }))).toEqual(durableBeforeStop);
 
     const restarted = await runtime.beginStartProject();
     if (!restarted.accepted) throw new Error('Restart Run was not accepted.');
@@ -84,7 +84,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     expect(inputs[2]!.inputId).not.toBe(inputs[1]!.inputId);
     expect(inputs[2]!.providerConversation.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'system', kind: 'model_recovered' })]));
     expect(readConversation(projectRoot, 'planner:project').physicalRows.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
-    expect(cards.read(child.id)?.status).toBe('stopped');
+    expect(cards.read(child.id)?.lifecycle.status).toBe('stopped');
     await expect(runtime.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });
 
@@ -93,10 +93,10 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const active = cards.create({ type: 'code', parent: 'project', title: 'Active', brief: 'Execute', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const done = cards.create({ type: 'test', parent: 'project', title: 'Done', brief: 'Done', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const active = cards.create({ type: 'code', parent: 'project', title: 'Active', brief: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const done = cards.create({ type: 'test', parent: 'project', title: 'Done', brief: 'Done', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(done.id, 'running');
-    cards.commitTerminalLifecyclePatch(done.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'kept' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' } });
+    cards.commitTerminalLifecycle(done.id, { lifecycle: { status: 'done', result: { kind: 'done', summary: 'kept' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' } });
     cards.setStatus('project', 'running');
     cards.setStatus(active.id, 'running');
     let releaseTerminal!: () => void;
@@ -117,9 +117,9 @@ describe('Stage-I runtime lifecycle E2E', () => {
 
     const cancellation = runtime.cancelCard('project', 'operator cancelled subtree');
     await expect(cancellation).resolves.toMatchObject({ card_id: 'project', status: 'cancelled', cancelled_card_ids: expect.arrayContaining([active.id, 'project']) });
-    expect(cards.read(active.id)?.status).toBe('cancelled');
-    expect(cards.read('project')?.status).toBe('cancelled');
-    expect(cards.read(done.id)?.status).toBe('done');
+    expect(cards.read(active.id)?.lifecycle.status).toBe('cancelled');
+    expect(cards.read('project')?.lifecycle.status).toBe('cancelled');
+    expect(cards.read(done.id)?.lifecycle.status).toBe('done');
     const versions = new Map(cards.list().map((card) => [card.id, card.version_seq]));
     releaseTerminal();
     await new Promise<void>((resolve) => setImmediate(resolve));

@@ -19,7 +19,7 @@
             @click.stop="emit('toggle', node.card.id)"
           >{{ loadStateFor(node.card.id).status === 'loading' ? '…' : isEffectivelyExpanded(node.card.id) ? '▾' : '▸' }}</button>
           <span v-else class="node-toggle placeholder"></span>
-          <span class="state-ball" :class="`card-status-${node.card.status}`" aria-hidden="true"></span>
+          <span class="state-ball" :class="`card-status-${node.card.lifecycle.status}`" aria-hidden="true"></span>
           <span v-if="node.logicalPath" class="node-path">{{ node.logicalPath }}</span>
           <span class="node-title">{{ node.card.title }}</span>
           <span class="node-kind">{{ labelForCardType(node.card.type) }}</span>

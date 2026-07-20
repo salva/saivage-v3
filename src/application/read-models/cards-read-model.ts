@@ -14,7 +14,18 @@ import type {
 import { toCardOperatorSummary } from './card-view.js';
 
 export function toOperatorCard(card: CardRecord): OperatorCard {
-  return { ...card, allowedActions: allowedActions('operator', card.lifecycle.status), operator_summary: toCardOperatorSummary(card) };
+  const actions = allowedActions('operator', card.lifecycle.status);
+  return {
+    id: card.id, type: card.type, children: card.children, title: card.title, lifecycle: card.lifecycle,
+    subtype: card.subtype, tags: card.tags, priority: card.priority, urgency: card.urgency, created_by: card.created_by,
+    created_at: card.created_at, updated_at: card.updated_at, version_seq: card.version_seq, assigned_to: card.assigned_to,
+    depends_on: card.depends_on, related: card.related, metrics: card.metrics, estimate: card.estimate,
+    started_at: card.started_at, duration_ms: card.duration_ms, status_text: card.status_text,
+    status_text_updated_at: card.status_text_updated_at, status_text_author_session_id: card.status_text_author_session_id,
+    latest_self_report: card.latest_self_report, metadata: card.metadata, pending_notifications: card.pending_notifications,
+    allowedActions: actions,
+    operator_summary: toCardOperatorSummary(card),
+  };
 }
 
 function redactValue<T>(value: T, source = 'cards-read-model'): T {

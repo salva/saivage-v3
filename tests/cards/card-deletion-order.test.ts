@@ -12,7 +12,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-delete-order-')); roots.push(root); initProjectTree(root); return { root, cards: new CardService(root) }; }
-function create(cards: CardService, parent = 'project', depends_on: string[] = [], type: 'code' | 'goal' = 'code') { return cards.create({ type, parent, title: 'card', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on, related: [] }); }
+function create(cards: CardService, parent = 'project', depends_on: string[] = [], type: 'code' | 'goal' = 'code') { return cards.create({ type, parent, title: 'card', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on, related: [] }); }
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'test' };
 
 describe('complete-union deletion admission and order', () => {

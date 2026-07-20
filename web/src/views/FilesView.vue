@@ -54,7 +54,7 @@
       <ul data-testid="files-card-children-list">
         <li v-for="child in cardChildren" :key="child.id" data-testid="files-card-children-item">
           <span class="title">{{ child.title }}</span>
-          <span class="status">{{ child.status }}</span>
+          <span class="status">{{ child.lifecycle.status }}</span>
         </li>
       </ul>
     </section>

@@ -16,7 +16,7 @@ export function getStore(ctx: ToolContext): CardService {
 }
 
 export function cardSummary(card: CardRecord, store?: CardService) {
-  return { id: card.id, logical_path: store ? computeCardLogicalPath(store, card) : null, title: card.title, type: card.type, status: card.status };
+  return { id: card.id, logical_path: store ? computeCardLogicalPath(store, card) : null, title: card.title, type: card.type, status: card.lifecycle.status };
 }
 
 export function normalizeParentValue(value: unknown): string | null | undefined {
@@ -33,7 +33,7 @@ export function defaultParentForCreate(store: CardService, type: CardType): stri
   if (type === 'goal') return PROJECT_CARD_ID;
   const activeGoals = store
     .list()
-    .filter((card) => card.type === 'goal' && ['running', 'backlog', 'blocked', 'stopped'].includes(card.status))
+    .filter((card) => card.type === 'goal' && ['running', 'backlog', 'blocked', 'stopped'].includes(card.lifecycle.status))
     .sort((a, b) => a.priority - b.priority);
   if (activeGoals.length === 1) return activeGoals[0].id;
   const allGoals = store
@@ -85,17 +85,18 @@ export function preflightEnum<T extends string>(
   allowed: readonly T[],
   field: string,
   toolName: string,
-): { ok: true } | { ok: false; error: string } {
-  if (value === undefined) return { ok: true };
+): { ok: true; value: T | undefined } | { ok: false; error: string } {
+  if (value === undefined) return { ok: true, value: undefined };
   if (typeof value !== 'string') {
     const message = `${toolName} failed: field '${field}' must be a string. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.`;
     return { ok: false, error: message };
   }
-  if (!(allowed as readonly string[]).includes(value)) {
+  const matched = allowed.find((candidate) => candidate === value);
+  if (matched === undefined) {
     const message = `${toolName} failed: field '${field}' received '${value}', which is not a valid value. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.`;
     return { ok: false, error: message };
   }
-  return { ok: true };
+  return { ok: true, value: matched };
 }
 
 export function isBinarySample(buf: Buffer): boolean {

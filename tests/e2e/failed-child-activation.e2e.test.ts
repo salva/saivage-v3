@@ -61,9 +61,9 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Plan children', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const failedChild = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Fail once', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const sibling = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Run second', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Plan children', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const failedChild = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Fail once', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const sibling = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Run second', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
 
     const parentAfterRejectedRetry = deferred<void>();
@@ -134,7 +134,7 @@ describe('failed child activation lifecycle E2E', () => {
 
     const ownership = supervisor as unknown as RuntimeOwnership;
     const failed = cards.read(failedChild.id)!;
-    expect(failed).toMatchObject({ status: 'failed', version_seq: failedRunningVersion + 1, lifecycle: { result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') }, error: expect.stringContaining('authentication failed permanently') } });
+    expect(failed).toMatchObject({ version_seq: failedRunningVersion + 1, lifecycle: { status: 'failed', result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') }, error: expect.stringContaining('authentication failed permanently') } });
     expect(failureToolResult).toEqual({ success: true, data: { card_id: failedChild.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') } } });
     expect(rejectedRetryToolResult).toEqual({ success: false, error: `Card '${failedChild.id}' in status 'failed' is not activatable.` });
     expect(ownership.cardActors.has(failedChild.id)).toBe(false);
@@ -150,20 +150,21 @@ describe('failed child activation lifecycle E2E', () => {
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(sibling.id);
     const runningChain = selectLinkedRunningChain(cards).map((card) => card.id);
     expect(runningChain).toEqual(['project', parent.id, sibling.id]);
-    expect(cards.read(failedChild.id)?.status).toBe('failed');
+    expect(cards.read(failedChild.id)?.lifecycle.status).toBe('failed');
     expect(ownership.liveCardActors.has(failedChild.id)).toBe(false);
     expect(ownership.liveCardActors.get(sibling.id)?.cardId).toBe(sibling.id);
-    const cardProjection = new CardsReadModelService(projectRoot, cards, supervisor).getCard(failedChild.id).body as { card: { status: string } };
-    expect(cardProjection.card.status).toBe('failed');
+    const cardProjection = new CardsReadModelService(projectRoot, cards, supervisor).getCard(failedChild.id);
+    if ('statusCode' in cardProjection) throw new Error('expected card projection');
+    expect(cardProjection.body.card.lifecycle.status).toBe('failed');
     expect(supervisor.getActorRuntimeReadModel().cards.some((card) => card.cardId === failedChild.id && card.actorState === 'running')).toBe(false);
 
     releaseSibling.resolve();
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
-    expect(cards.read(failedChild.id)).toMatchObject({ status: 'failed', lifecycle: { result: { kind: 'failed' } } });
+    expect(cards.read(failedChild.id)).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed' } } });
     expect(failedChildCalls).toBe(1);
     expect(history(cards, failedChild.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
-    expect(cards.read(parent.id)).toMatchObject({ status: 'failed', lifecycle: { result: { kind: 'failed', summary: 'Parent failed after child failure.' } } });
-    expect(cards.read('project')).toMatchObject({ status: 'failed', lifecycle: { result: { kind: 'failed', summary: 'Project failed after child failure.' } } });
+    expect(cards.read(parent.id)).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'Parent failed after child failure.' } } });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'Project failed after child failure.' } } });
     expect(selectLinkedRunningChain(cards)).toEqual([]);
     expect(ownership.cardActors.size).toBe(0);
     expect(ownership.liveCardActors.size).toBe(0);
@@ -175,7 +176,7 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Retry child', brief: 'Fail, change, and retry', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Retry child', brief: 'Fail, change, and retry', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     const retryAdmitted = deferred<void>();
     const releaseRetry = deferred<void>();
@@ -218,14 +219,14 @@ describe('failed child activation lifecycle E2E', () => {
 
     await retryAdmitted.promise;
     expect(firstActivationResult).toEqual({ success: true, data: { card_id: child.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') } } });
-    expect(cards.read(child.id)).toMatchObject({ title: 'Retry child changed', status: 'running' });
+    expect(cards.read(child.id)).toMatchObject({ title: 'Retry child changed', lifecycle: { status: 'running' } });
     expect(ownership.cardActors.get(child.id)?.cardId).toBe(child.id);
     expect(ownership.liveCardActors.get(child.id)?.cardId).toBe(child.id);
     expect(supervisor.getStatus().currentCardId).toBe(child.id);
     releaseRetry.resolve();
 
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
-    expect(cards.read(child.id)).toMatchObject({ title: 'Retry child changed', status: 'done', lifecycle: { result: { kind: 'done', summary: 'Changed child completed.' } } });
+    expect(cards.read(child.id)).toMatchObject({ title: 'Retry child changed', lifecycle: { status: 'done', result: { kind: 'done', summary: 'Changed child completed.' } } });
     expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(2);
     expect(childCalls).toBe(3);
     expect(ownership.cardActors.size).toBe(0);
@@ -237,7 +238,7 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', brief: 'Fail cleanup', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', brief: 'Fail cleanup', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     const initialVersion = cards.read(child.id)!.version_seq;
     const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
@@ -262,10 +263,10 @@ describe('failed child activation lifecycle E2E', () => {
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
     supervisor.launchStartedProject(prepared.launch);
-    await waitUntil(() => cards.read(child.id)?.status === 'failed');
+    await waitUntil(() => cards.read(child.id)?.lifecycle.status === 'failed');
     await waitUntil(() => !(supervisor as unknown as RuntimeOwnership).cardActors.has(child.id));
 
-    expect(cards.read(child.id)).toMatchObject({ status: 'failed', version_seq: initialVersion + 2, lifecycle: { result: { kind: 'failed', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
+    expect(cards.read(child.id)).toMatchObject({ version_seq: initialVersion + 2, lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
     expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(cards.readRecord(child.id, 'status.md', 'latest').artifact.content).toBe('Accepted output.');
     expect(() => cards.readRecord(child.id, 'status.md', 'open')).toThrow();
@@ -290,7 +291,7 @@ describe('failed child activation lifecycle E2E', () => {
     supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
-    expect(cards.read('project')).toMatchObject({ status: 'failed', lifecycle: { result: { kind: 'failed', summary: expect.stringContaining('failed without ProviderTurnFailure metadata') }, error: expect.stringContaining('failed without ProviderTurnFailure metadata') } });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: expect.stringContaining('failed without ProviderTurnFailure metadata') }, error: expect.stringContaining('failed without ProviderTurnFailure metadata') } });
     expect(cards.read('project')!.version_seq).toBeGreaterThan(runningVersion);
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect((supervisor as unknown as RuntimeOwnership).cardActors.size).toBe(0);

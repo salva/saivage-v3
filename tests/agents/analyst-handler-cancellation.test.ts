@@ -25,7 +25,7 @@ describe('Analyst handler cancellation after a committed mutation', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Cancel me', brief: 'work', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Cancel me', brief: 'work', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
 
     let markCommitted!: () => void;
     const committed = new Promise<void>((resolve) => { markCommitted = resolve; });

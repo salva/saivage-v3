@@ -1,7 +1,7 @@
 import { BaseActor, compileActorDefinition } from '../micro-actor/index.js';
-import type { CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
+import type { CardNotification, CardRecord } from '../../schemas/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
-import type { CardPatch, NewCardInput, TerminalLifecyclePatch } from '../../cards/card-api.js';
+import type { CardPatch, NewCardInput, SetStatusTarget, TerminalLifecycleCommit } from '../../cards/card-api.js';
 import { canCancelCardStatus } from '../../cards/status-api.js';
 import type { CardMutationContext } from '../../cards/lifecycle.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
@@ -24,6 +24,7 @@ import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import type { ExecutingLlmSnapshot, StructuralChildRelationship } from './executing-llm-snapshot.js';
 import { cardProcessEntryForStatus, type CardProcessEntry, type CompiledCardProcesses, type ProcessPosition } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
+import { cardParentId } from '../../schemas/card-id.js';
 
 export interface CardActivationInput {
   activationId?: string;
@@ -77,8 +78,8 @@ export interface CardActorStorePort {
   read(cardId: string): CardRecord | null;
   create?(input: NewCardInput): CardRecord;
   mutateCard?(cardId: string, changes: CardPatch, ctx: CardMutationContext): CardRecord;
-  setStatus(cardId: string, status: CardStatus): CardRecord;
-  commitTerminalLifecyclePatch(cardId: string, changes: TerminalLifecyclePatch): CardRecord;
+  setStatus(cardId: string, status: SetStatusTarget): CardRecord;
+  commitTerminalLifecycle(cardId: string, terminalCommit: TerminalLifecycleCommit): CardRecord;
   listChildren?(cardId: string): string[];
   readRecord(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection;
   closeRecord(cardId: string, filename: string, version: number, writer: import('../../schemas/index.js').AgentRole, cardVersionSeq: number): RecordProjection;
@@ -172,11 +173,11 @@ export class CardActor extends BaseActor {
   childCardActor(cardId: string): CardActor | null {
     const card = this.store.read(cardId);
     if (!card) return null;
-    if (card.parent !== this.cardId) return null;
+    if (cardParentId(card.id) !== this.cardId) return null;
     const existing = this.deps.lookup.get(cardId);
     if (existing) return existing;
-    if (card.status === 'running') throw new Error(`Running card '${cardId}' has no retained activation owner.`);
-    if (cardProcessEntryForStatus(card.status) === null) return null;
+    if (card.lifecycle.status === 'running') throw new Error(`Running card '${cardId}' has no retained activation owner.`);
+    if (cardProcessEntryForStatus(card.lifecycle.status) === null) return null;
     return CardActor.fromCard({ card, deps: this.deps });
   }
 
@@ -185,9 +186,9 @@ export class CardActor extends BaseActor {
     if (!this.isValidParentCaller(card, caller)) {
       return Promise.reject(new Error(`Card '${this.cardId}' cannot be activated by caller '${caller.cardId ?? caller.kind}'.`));
     }
-    const entry = cardProcessEntryForStatus(card.status);
+    const entry = cardProcessEntryForStatus(card.lifecycle.status);
     if (entry === null) {
-      return Promise.reject(new Error(`Card '${this.cardId}' in status '${card.status}' is not activatable.`));
+      return Promise.reject(new Error(`Card '${this.cardId}' in status '${card.lifecycle.status}' is not activatable.`));
     }
     if (this.state() !== 'parked') {
       return Promise.reject(new Error(`Card '${this.cardId}' cannot activate from actor state '${this.state()}'.`));
@@ -196,7 +197,7 @@ export class CardActor extends BaseActor {
       return Promise.reject(new Error(`Card '${this.cardId}' already has a pending activation.`));
     }
     parentAdmit();
-    if (this.requireCard().status !== 'running') return Promise.reject(new Error(`Parent planner did not admit child '${this.cardId}' as running.`));
+    if (this.requireCard().lifecycle.status !== 'running') return Promise.reject(new Error(`Parent planner did not admit child '${this.cardId}' as running.`));
     this.#activationEntry = entry;
     this.#alreadyStabilizedRoles = new Set();
     this.#activationId = randomUUID();
@@ -213,8 +214,8 @@ export class CardActor extends BaseActor {
 
   prepareRootRunning(entry: CardProcessEntry, alreadyStabilizedRoles: ReadonlySet<'planner' | 'reviewer' | 'executor'> = new Set()): Promise<CardActivationOutcome> {
     const card = this.requireCard();
-    if (card.id !== 'project' || card.type !== 'project' || card.parent !== null) throw new Error(`Card '${this.cardId}' is not the project root.`);
-    if (card.status !== 'running' || this.state() !== 'parked' || this.#result) throw new Error(`Project root '${this.cardId}' is not an unowned prepared launch.`);
+    if (card.id !== 'project' || card.type !== 'project') throw new Error(`Card '${this.cardId}' is not the project root.`);
+    if (card.lifecycle.status !== 'running' || this.state() !== 'parked' || this.#result) throw new Error(`Project root '${this.cardId}' is not an unowned prepared launch.`);
     this.#activationId = randomUUID();
     this.#activationCaller = { kind: 'root' };
     this.#activationEntry = entry;
@@ -236,7 +237,7 @@ export class CardActor extends BaseActor {
     if (this.state() !== 'running' || !this.#result) throw new Error(`Card '${this.cardId}' cannot install an ordinary structural child wait outside a running activation.`);
     if (this.#structuralChildId || this.#ordinaryStructuralRelationship) throw new Error(`Card '${this.cardId}' already owns a structural child relationship.`);
     const child = this.store.read(relationship.childCardId);
-    if (!child || child.parent !== this.cardId) throw new Error(`Card '${relationship.childCardId}' is not the immediate child of '${this.cardId}'.`);
+    if (!child || cardParentId(child.id) !== this.cardId) throw new Error(`Card '${relationship.childCardId}' is not the immediate child of '${this.cardId}'.`);
     this.#structuralChildId = relationship.childCardId;
     this.#ordinaryStructuralRelationship = Object.freeze({ ...relationship });
     this.deps.runtimeProjectionChanged();
@@ -292,10 +293,10 @@ export class CardActor extends BaseActor {
       return this.#result.promise.finally(() => this.deps.currentness.resumeParent(this.cardId, caller.cardId!));
     }
     const card = this.requireCard();
-    if (card.status === 'done' || card.status === 'failed' || card.status === 'blocked') {
-      return Promise.resolve({ status: card.status, summary: cardLifecycleSummary(card), result: card.lifecycle.result as never });
+    if (card.lifecycle.status === 'done' || card.lifecycle.status === 'failed' || card.lifecycle.status === 'blocked') {
+      return Promise.resolve({ status: card.lifecycle.status, summary: cardLifecycleSummary(card), result: card.lifecycle.result as never });
     }
-    if (card.status === 'cancelled') return Promise.resolve({ status: 'cancelled', summary: cardLifecycleSummary(card) });
+    if (card.lifecycle.status === 'cancelled') return Promise.resolve({ status: 'cancelled', summary: cardLifecycleSummary(card) });
     return Promise.reject(new Error(`Card '${this.cardId}' has no in-flight activation to await.`));
   }
 
@@ -414,7 +415,7 @@ export class CardActor extends BaseActor {
     if (this.#terminalClaim !== 'claimed_result') throw new Error(`Card '${this.cardId}' cannot commit from claim '${this.#terminalClaim}'.`);
     const result = this.#result;
     if (!result) throw new Error(`Card '${this.cardId}' result claim has no activation settlement.`);
-    this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(outcome, new Date().toISOString()));
+    this.store.commitTerminalLifecycle(this.cardId, cardActivationOutcomePatch(outcome, new Date().toISOString()));
     this.lastOutcome = outcome;
     this.#activationId = null;
     this.#activationAbort = null;
@@ -426,9 +427,9 @@ export class CardActor extends BaseActor {
     result.resolve(outcome);
   }
 
-  private writeStoreStatus(status: CardStatus): void {
+  private writeStoreStatus(status: SetStatusTarget): void {
     const card = this.requireCard();
-    if (card.status === status) return;
+    if (card.lifecycle.status === status) return;
     this.store.setStatus(this.cardId, status);
   }
 
@@ -472,14 +473,14 @@ export class CardActor extends BaseActor {
   private async cancelDescendantIds(parentId: string, reason: CardCancelReason, cancelledIds: string[]): Promise<void> {
     for (const childId of this.store.listChildren(parentId)) {
       const child = this.store.read(childId);
-      if (!child || !canCancelCardStatus(child.status)) continue;
+      if (!child || !canCancelCardStatus(child.lifecycle.status)) continue;
       const live = this.deps.liveLookup.get(childId);
       if (live) {
         const result = await live.cancel({ reason: `ancestor cancelled: ${reason.reason}`, cancelled_at: reason.cancelled_at });
         cancelledIds.push(...result.cancelled_card_ids);
         continue;
       }
-      if (child.status === 'running') throw new Error(`Running card '${childId}' has no live activation owner.`);
+      if (child.lifecycle.status === 'running') throw new Error(`Running card '${childId}' has no live activation owner.`);
       await this.cancelDescendantIds(childId, reason, cancelledIds);
       this.store.setStatus(childId, 'cancelled');
       cancelledIds.push(childId);
@@ -487,7 +488,7 @@ export class CardActor extends BaseActor {
   }
 
   private isValidParentCaller(card: CardRecord, caller: CardActivationCaller): boolean {
-    return caller.kind === 'parent' && card.parent !== null && caller.cardId === card.parent;
+    return caller.kind === 'parent' && cardParentId(card.id) !== null && caller.cardId === cardParentId(card.id);
   }
 
   private requireCard(): CardRecord {
@@ -504,7 +505,7 @@ function cardLifecycleSummary(card: CardRecord): string {
   const summary = card.lifecycle?.result?.summary;
   if (typeof summary === 'string' && summary.length > 0) return summary;
   if (typeof card.status_text === 'string' && card.status_text.length > 0) return card.status_text;
-  return `Card '${card.id}' finished with status '${card.status}'.`;
+  return `Card '${card.id}' finished with status '${card.lifecycle.status}'.`;
 }
 
 export function createProcessor(card: CardRecord, owner: CardActor): CardProcessorActor {
@@ -533,14 +534,14 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
   });
 }
 
-export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>, completedAt: string): TerminalLifecyclePatch {
+export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>, completedAt: string): TerminalLifecycleCommit {
   switch (outcome.status) {
     case 'done':
-      return { status: 'done', lifecycle: { status: 'done', result: outcome.result, error: null, completed_at: completedAt }, status_text: outcome.summary, status_text_updated_at: completedAt };
+      return { lifecycle: { status: 'done', result: outcome.result, error: null, completed_at: completedAt }, status_text: outcome.summary, status_text_updated_at: completedAt };
     case 'failed':
-      return { status: 'failed', lifecycle: { status: 'failed', result: outcome.result, error: outcome.summary, completed_at: completedAt }, status_text: outcome.summary, status_text_updated_at: completedAt };
+      return { lifecycle: { status: 'failed', result: outcome.result, error: outcome.summary, completed_at: completedAt }, status_text: outcome.summary, status_text_updated_at: completedAt };
     case 'blocked':
-      return { status: 'blocked', lifecycle: { status: 'blocked', result: outcome.result, error: outcome.summary, completed_at: null }, status_text: outcome.summary, status_text_updated_at: completedAt };
+      return { lifecycle: { status: 'blocked', result: outcome.result, error: outcome.summary, completed_at: null }, status_text: outcome.summary, status_text_updated_at: completedAt };
   }
 }
 

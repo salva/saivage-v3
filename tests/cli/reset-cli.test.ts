@@ -77,7 +77,11 @@ describe('CLI reset generated-root boundary', () => {
     await run(['node', 'saivage', 'reset']);
 
     for (const marker of markers) expect(existsSync(marker)).toBe(false);
-    expect(readCard(root, 'project')).toMatchObject({ id: 'project', type: 'project', parent: null, version_seq: 1 });
+    expect(readCard(root, 'project')).toMatchObject({ id: 'project', type: 'project', lifecycle: { status: 'backlog' }, version_seq: 1 });
+    const rootStream = readFileSync(join(root, '.saivage', 'cards', 'project', 'card.jsonl'), 'utf8');
+    expect(rootStream).toContain('"format_version":2');
+    const rootEnvelope = JSON.parse(rootStream);
+    for (const field of ['status', 'parent', 'depth', 'allowedActions']) expect(rootEnvelope.rows[0]!.card).not.toHaveProperty(field);
     for (const [path, bytes] of preserved) expect(readFileSync(join(root, path), 'utf8')).toBe(bytes);
     expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
     expect(existsSync(join(root, '.saivage', 'agents', 'conversations'))).toBe(true);

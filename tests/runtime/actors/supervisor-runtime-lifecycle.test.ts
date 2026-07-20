@@ -100,7 +100,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     if (status !== 'backlog') {
       cards.setStatus('project', 'running');
       if (status === 'changed') cards.setStatus('project', 'changed');
-      if (status === 'blocked') cards.commitTerminalLifecyclePatch('project', { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' }, error: 'wait', completed_at: null } });
+      if (status === 'blocked') cards.commitTerminalLifecycle('project', { lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' }, error: 'wait', completed_at: null } });
       if (status === 'stopped') cards.stopRunningForRecovery('project');
     }
     const activateStopped = jest.spyOn(cards, 'activateStopped');
@@ -114,7 +114,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('runtime start was not accepted');
     expect(prepared.launch).toMatchObject({ entry });
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     expect(activateStopped).toHaveBeenCalledTimes(status === 'stopped' ? 1 : 0);
   });
 
@@ -320,7 +320,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     releaseTerminal();
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
-    expect(cards.read('project')).toMatchObject({ status: 'done', version_seq: runningVersion + 1, lifecycle: { result: { kind: 'done', summary: 'Complete.' } } });
+    expect(cards.read('project')).toMatchObject({ version_seq: runningVersion + 1, lifecycle: { status: 'done', result: { kind: 'done', summary: 'Complete.' } } });
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(internals.liveCardActors.has('project')).toBe(false);
     expect(internals.cardActors.has('project')).toBe(false);
@@ -357,7 +357,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const runningVersion = cards.read('project')!.version_seq;
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
-    expect(cards.read('project')).toMatchObject({ status: 'failed', version_seq: runningVersion + 1 });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed' }, version_seq: runningVersion + 1 });
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], readiness: 'stopped' });
   });
@@ -369,7 +369,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     await expect(supervisor.cancelCard('project', 'natural cancellation')).resolves.toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['project'] });
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
-    expect(cards.read('project')?.status).toBe('cancelled');
+    expect(cards.read('project')?.lifecycle.status).toBe('cancelled');
     expect(internals.cardActors.size).toBe(0);
     expect(internals.liveCardActors.size).toBe(0);
     expect(supervisor.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
@@ -394,11 +394,11 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
     const goal = cards.create({
-      type: 'goal', parent: 'project', title: 'goal', brief: 'plan', status: 'backlog', tags: [], priority: 0,
+      type: 'goal', parent: 'project', title: 'goal', brief: 'plan', tags: [], priority: 0,
       urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
     });
     const terminal = cards.create({
-      type: 'code', parent: goal.id, title: 'deepest', brief: 'execute', status: 'backlog', tags: [], priority: 0,
+      type: 'code', parent: goal.id, title: 'deepest', brief: 'execute', tags: [], priority: 0,
       urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
     });
     cards.setStatus('project', 'running');
@@ -447,9 +447,9 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
     expect(internals.cardActors.size).toBe(0);
     expect(internals.liveCardActors.size).toBe(0);
-    expect(cards.read('project')?.status).toBe('running');
-    expect(cards.read(goal.id)?.status).toBe('stopped');
-    expect(cards.read(terminal.id)?.status).toBe('stopped');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
+    expect(cards.read(goal.id)?.lifecycle.status).toBe('stopped');
+    expect(cards.read(terminal.id)?.lifecycle.status).toBe('stopped');
     expect(supervisor.getStatus().status).toBe('stopped');
     expect(supervisor.getActorRuntimeReadModel().cards).toEqual([]);
 
@@ -487,8 +487,8 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-invalid-siblings-'));
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const left = cards.create({ type: 'code', parent: 'project', title: 'left', brief: 'left', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const right = cards.create({ type: 'code', parent: 'project', title: 'right', brief: 'right', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const left = cards.create({ type: 'code', parent: 'project', title: 'left', brief: 'left', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const right = cards.create({ type: 'code', parent: 'project', title: 'right', brief: 'right', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(left.id, 'running');
     cards.setStatus(right.id, 'running');
@@ -534,7 +534,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     await expect(supervisor.stopProject()).rejects.toBeInstanceOf(RuntimeContainmentError);
     expect(supervisor.getStatus().status).toBe('closing');
     expect(supervisor.getActorRuntimeReadModel().cards.map((card) => card.cardId)).toEqual(['project']);
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     await expect(supervisor.stopProject()).rejects.toMatchObject({ code: 'runtime_control_conflict' });
   });
 
@@ -634,7 +634,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(owner.claim).toBe(winner);
     expect(owner.stop).toHaveBeenCalledTimes(1);
     expect(stopInterruption).toBeInstanceOf(RuntimeStoppedInterruption);
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     if (cleanupFails) {
       expect(internals.runIdentity).toBe(identity);
       expect(internals.liveCardActors.get('project')).toBe(owner);
@@ -655,7 +655,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     jest.spyOn(processor, 'joinActivation').mockImplementation(async () => [...await cleanup.promise, ...await joinActivation()]);
     const activation = owner.awaitSettlement();
     const order: string[] = [];
-    void activation.then(() => order.push(`activation:${cards.read('project')?.status}:${internals.liveCardActors.get('project') === owner}:${internals.cardActors.get('project') === owner}`));
+    void activation.then(() => order.push(`activation:${cards.read('project')?.lifecycle.status}:${internals.liveCardActors.get('project') === owner}:${internals.cardActors.get('project') === owner}`));
 
     const cancellation = supervisor.cancelCard('project', 'winning cancellation');
     expect(owner.claim).toBe('claimed_cancel');
@@ -664,7 +664,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     void stopped.then(() => order.push('stop'));
     await Promise.resolve();
 
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     expect(supervisor.getStatus()).toMatchObject({ status: 'closing', currentCardId: 'project' });
     expect(intervention.interventionReadiness()).toBe('not_ready');
     expect(internals.runIdentity).toBe(identity);
@@ -678,7 +678,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     await expect(stopped).resolves.toEqual({ status: 'stopped', contained: true });
 
     expect(order).toEqual(['activation:cancelled:true:true', 'cancellation', 'stop']);
-    expect(cards.read('project')?.status).toBe('cancelled');
+    expect(cards.read('project')?.lifecycle.status).toBe('cancelled');
     expect(internals.runIdentity).toBeNull();
     expect(internals.currentness.activeCardId()).toBeNull();
     expect(internals.liveCardActors.size).toBe(0);
@@ -706,7 +706,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
       code: 'runtime_containment_error',
       failures: [{ component: 'card:project' }],
     });
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     expect(supervisor.getStatus()).toMatchObject({ status: 'closing', currentCardId: 'project' });
     expect(intervention.interventionReadiness()).toBe('not_ready');
     expect(internals.runIdentity).toBe(identity);

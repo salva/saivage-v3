@@ -19,6 +19,7 @@ import { defineTool, type ToolProvider, type ToolResult } from './invocation.js'
 import type { AppLogContext } from '../persistence/app-log.js';
 import type { LlmToolInvocationContext, StructuralChildRelationship } from '../runtime/actors/executing-llm-snapshot.js';
 import { cardProcessEntryForStatus } from '../runtime/card-process/card-process-config.js';
+import { cardParentId } from '../schemas/card-id.js';
 
 interface PlannerChildActor {
   activate(input: { kind: 'parent'; cardId: string; sessionId: string }, parentAdmit: () => void): Promise<CardActivationOutcome>;
@@ -52,7 +53,6 @@ const createCardSchema = z.object({
   type: z.string(),
   title: z.string(),
   brief: z.string(),
-  status: z.string().optional(),
   tags: z.array(z.string()).optional(),
   priority: z.number().int().optional(),
   urgency: z.string().optional(),
@@ -90,7 +90,6 @@ export function createPlannerControlProvider(ctx: PlannerControlProviderContext)
 function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof createCardSchema>): ToolResult {
   const type = plannerCreatedType(record.type);
   if (!type.success) return type;
-  if (record.status !== undefined && record.status !== 'backlog') return failure('create_card.status may only be backlog for planner-created child cards.');
   const dependsOn = record.depends_on ?? [];
   const dependencyError = validateImmediateChildDependencies(ctx, dependsOn);
   if (dependencyError) return failure(dependencyError);
@@ -102,7 +101,6 @@ function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof c
     parent: ctx.parentCardId,
     title: requireNonEmptyString(record.title, 'title'),
     brief: requireNonEmptyString(record.brief, 'brief'),
-    status: 'backlog',
     tags: record.tags ?? [],
     priority: record.priority ?? 0,
     urgency: optionalUrgency(record.urgency),
@@ -117,11 +115,11 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof edi
   if (record.card_id.length === 0) return failure('edit_card requires card_id.');
   const child = requireImmediateChild(ctx, record.card_id, 'edit_card');
   if (!child.success) return child;
-  if (['running', 'done', 'cancelled'].includes(child.card.status)) return failure(`edit_card cannot edit ${child.card.status} child '${record.card_id}'.`);
+  if (['running', 'done', 'cancelled'].includes(child.card.lifecycle.status)) return failure(`edit_card cannot edit ${child.card.lifecycle.status} child '${record.card_id}'.`);
   const patch = plannerEditablePatch(record);
   if (Object.keys(patch).length === 0) return failure('edit_card requires at least one editable field.');
   if (!ctx.store.mutateCard) throw new Error('Planner edit_card requires a mutable card store.');
-  const shouldMarkChanged = child.card.status === 'failed' || child.card.status === 'blocked';
+  const shouldMarkChanged = child.card.lifecycle.status === 'failed' || child.card.lifecycle.status === 'blocked';
   if (shouldMarkChanged) ctx.store.setStatus(record.card_id, 'changed');
   const updated = ctx.store.mutateCard(record.card_id, patch, { actor: 'planner', surface: 'runtime', reason: 'planner edit_card' });
   return { success: true, data: { card: compactPlannerToolCard(updated) } };
@@ -167,7 +165,7 @@ async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<ty
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');
   const child = requireImmediateChild(ctx, record.card_id, 'cancel_card');
   if (!child.success) return child;
-  if (!canCancelCardStatus(child.card.status)) return failure(`cancel_card cannot cancel ${child.card.status === 'cancelled' ? 'already-cancelled' : child.card.status} child '${record.card_id}'.`);
+  if (!canCancelCardStatus(child.card.lifecycle.status)) return failure(`cancel_card cannot cancel ${child.card.lifecycle.status === 'cancelled' ? 'already-cancelled' : child.card.lifecycle.status} child '${record.card_id}'.`);
   try { return { success: true, data: await ctx.cancelCard(record.card_id, record.reason ?? 'planner_cancel_card') }; }
   catch (error) { if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
 }
@@ -176,24 +174,24 @@ async function activateCard(ctx: PlannerControlProviderContext, record: Activate
   const admission = ctx.store.readActivationAdmission(record.card_id);
   if (!admission) return failure(`Child card '${record.card_id}' not found.`);
   const child = admission.child;
-  if (child.parent !== ctx.parentCardId) return failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`);
+  if (cardParentId(child.id) !== ctx.parentCardId) return failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`);
   const incomplete = admission.dependencies.filter(({ status }) => status !== 'done');
   if (incomplete.length > 0) {
     return failure(`Child card '${record.card_id}' has incomplete dependencies: ${incomplete.map(({ id, status }) => `${id} (${status})`).join(', ')}.`);
   }
-  if (child.status !== 'running' && cardProcessEntryForStatus(child.status) === null) {
-    return failure(`Card '${record.card_id}' in status '${child.status}' is not activatable.`);
+  if (child.lifecycle.status !== 'running' && cardProcessEntryForStatus(child.lifecycle.status) === null) {
+    return failure(`Card '${record.card_id}' in status '${child.lifecycle.status}' is not activatable.`);
   }
   const actor = ctx.children.get(record.card_id);
   if (!actor) return failure(`No CardActor is registered for child '${record.card_id}'.`);
   try {
     let pending: Promise<CardActivationOutcome>;
-    if (child.status === 'running') {
+    if (child.lifecycle.status === 'running') {
       pending = actor.awaitSettlement({ kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId });
     } else {
       pending = actor.activate(
         { kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId },
-        () => { if (child.status === 'stopped') ctx.store.activateStopped(record.card_id); else ctx.store.setStatus(record.card_id, 'running'); },
+        () => { if (child.lifecycle.status === 'stopped') ctx.store.activateStopped(record.card_id); else ctx.store.setStatus(record.card_id, 'running'); },
       );
     }
     let activation: CardActivationOutcome;
@@ -212,7 +210,7 @@ async function activateCard(ctx: PlannerControlProviderContext, record: Activate
 function requireImmediateChild(ctx: PlannerControlProviderContext, cardId: string, toolName: string): { success: true; card: CardRecord } | { success: false; error: string } {
   const child = ctx.store.read(cardId);
   if (!child) return failure(`${toolName} target child '${cardId}' not found.`);
-  if (child.parent !== ctx.parentCardId) return failure(`${toolName} can target only immediate children of '${ctx.parentCardId}'.`);
+  if (cardParentId(child.id) !== ctx.parentCardId) return failure(`${toolName} can target only immediate children of '${ctx.parentCardId}'.`);
   if (child.type === 'project') return failure(`${toolName} cannot target project cards.`);
   return { success: true, card: child };
 }
@@ -221,7 +219,7 @@ function validateImmediateChildDependencies(ctx: PlannerControlProviderContext, 
   for (const dependencyId of dependsOn) {
     const dependency = ctx.store.read(dependencyId);
     if (!dependency) return `Dependency card '${dependencyId}' not found.`;
-    if (dependency.parent !== ctx.parentCardId) return `Dependency '${dependencyId}' must be an immediate child of '${ctx.parentCardId}'.`;
+    if (cardParentId(dependency.id) !== ctx.parentCardId) return `Dependency '${dependencyId}' must be an immediate child of '${ctx.parentCardId}'.`;
   }
   return null;
 }
@@ -256,8 +254,8 @@ function optionalUrgency(value: string | undefined): Urgency {
   return value === undefined ? 'normal' : requireUrgency(value);
 }
 
-function compactPlannerToolCard(card: CardRecord): Pick<CardRecord, 'id' | 'type' | 'parent' | 'status' | 'title' | 'depends_on' | 'related' | 'tags' | 'priority' | 'urgency'> {
-  return { id: card.id, type: card.type, parent: card.parent, status: card.status, title: card.title, depends_on: card.depends_on, related: card.related, tags: card.tags, priority: card.priority, urgency: card.urgency };
+function compactPlannerToolCard(card: CardRecord): { id: string; type: CardType; parent: string | null; status: CardRecord['lifecycle']['status']; title: string; depends_on: string[]; related: string[]; tags: string[]; priority: number; urgency: Urgency } {
+  return { id: card.id, type: card.type, parent: cardParentId(card.id), status: card.lifecycle.status, title: card.title, depends_on: card.depends_on, related: card.related, tags: card.tags, priority: card.priority, urgency: card.urgency };
 }
 
 function failure(error: string): { success: false; error: string } {

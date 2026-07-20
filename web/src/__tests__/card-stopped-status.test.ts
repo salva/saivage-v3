@@ -14,10 +14,10 @@ describe('stopped card status projection', () => {
   });
 
   it('projects stopped as inactive, nonblocking, and separately counted', () => {
-    const summary = deriveCardLifecycleSummary(cardView('card-a', { status: 'stopped' }), [
-      cardView('card-a-a', { status: 'stopped' }),
-      cardView('card-a-b', { status: 'running' }),
-      cardView('card-a-c', { status: 'done' }),
+    const summary = deriveCardLifecycleSummary(cardView('card-a', { lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } }), [
+      cardView('card-a-a', { lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } }),
+      cardView('card-a-b', { lifecycle: { status: 'running', result: null, error: null, completed_at: null } }),
+      cardView('card-a-c', { lifecycle: { status: 'done', result: { kind: 'done', summary: 'Done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } }),
     ]);
 
     expect(summary).toMatchObject({ status: 'stopped', phase: 'stopped', completionState: 'stopped', hasActiveChildren: true, hasBlockingChildren: false });

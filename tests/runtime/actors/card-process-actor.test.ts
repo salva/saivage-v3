@@ -28,7 +28,7 @@ describe('CardProcessActor configured graph execution', () => {
     initProjectTree(projectRoot);
     const store = new CardService(projectRoot);
     const cardId = options.cardType === 'code'
-      ? store.create({ type: 'code', parent: 'project', title: 'code', brief: 'code', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] }).id
+      ? store.create({ type: 'code', parent: 'project', title: 'code', brief: 'code', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] }).id
       : 'project';
     const processRunner = createTestProcessRunner(projectRoot);
     const actor = new CardProcessActor({

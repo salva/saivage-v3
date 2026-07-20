@@ -508,7 +508,7 @@ export class AnalystSessionActor extends BaseActor {
   private buildProjectContext(): string {
     try {
       const store = this.args.runtimeDeps.cardStore;
-      return JSON.stringify({ projectRoot: this.args.projectRoot, cards: store.list().map((card) => ({ id: card.id, type: card.type, parent: card.parent, status: card.status, title: card.title, priority: card.priority, tags: card.tags })) }, null, 2);
+      return JSON.stringify({ projectRoot: this.args.projectRoot, cards: store.list().map((card) => ({ id: card.id, type: card.type, parent: store.getParent(card.id), status: card.lifecycle.status, title: card.title, priority: card.priority, tags: card.tags })) }, null, 2);
     } catch (err) {
       this.logBoundaryDiagnostic('analyst_project_context_build_failed', err);
       return `Project root: ${this.args.projectRoot}`;

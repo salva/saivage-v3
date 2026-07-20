@@ -40,6 +40,16 @@ describe('role invocation surfaces', () => {
     expect(tools.filter((name) => name === 'mcp_tool_call')).toHaveLength(role === 'planner' ? 0 : 1);
   });
 
+  it.each(['planner', 'analyst'] as const)('%s create_card exposes no status property', (role) => {
+    const create = surfaceToolDefinitions(buildRoleSurface(fixture(role))).find((tool) => tool.function.name === 'create_card');
+    expect(create?.function.parameters).not.toHaveProperty('properties.status');
+  });
+
+  it.each(['planner', 'analyst'] as const)('%s create_card rejects a legacy status key at the composed boundary', async (role) => {
+    await expect(invokeToolForLlm(buildRoleSurface(fixture(role)), 'create_card', { type: 'code', title: 'strict child', brief: 'strict brief', status: 'backlog' }))
+      .resolves.toMatchObject({ success: false });
+  });
+
   it('resolves the one-shot MCP authority at call time through an already-built Executor surface', async () => {
     const installation = createMcpToolInvocationInstallation();
     const context = fixture('executor', installation.port);

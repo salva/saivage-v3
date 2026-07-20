@@ -337,7 +337,7 @@ function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path:
   }
   const card = ctx.store.read(target.cardId);
   if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
-  if (analystBriefEditEffect(card.status) === null) throw toolInputError(`Analyst brief edits do not support target card status ${card.status}.`);
+  if (analystBriefEditEffect(card.lifecycle.status) === null) throw toolInputError(`Analyst brief edits do not support target card status ${card.lifecycle.status}.`);
   try { ctx.store.readRecord(target.cardId, 'brief.md', 'open'); throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`); } catch (error) { if (error instanceof WorkspaceToolInputError) throw error; if (!(error instanceof AuthoredRecordNotFoundError)) throw error; }
   return target;
 }

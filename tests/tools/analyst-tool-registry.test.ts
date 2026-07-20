@@ -26,6 +26,7 @@ describe('registered Analyst card mutation catalog', () => {
       title: 'Create once',
       brief: 'Type is selected at creation.',
     }).success).toBe(true);
+    expect(registered.get('create_card')!.inputSchema.safeParse({ type: 'code', parent: 'project', title: 'No legacy status', brief: 'Strict input.', status: 'backlog' }).success).toBe(false);
 
     const postCreationInputs = new Map<string, Record<string, unknown>>([
       ['reorder_child', { parentId: 'project', orderedChildIds: [] }],

@@ -2,6 +2,7 @@ import type { CardRecord } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
 import { isTerminalType } from './lifecycle.js';
 import { CardServiceInvariantError } from './errors.js';
+import { cardDepth, cardParentId } from '../schemas/card-id.js';
 
 export interface ValidateParsedCardsInput {
   cards: CardRecord[];
@@ -28,42 +29,32 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
         `Project card '${projectCard.id}' is invalid: expected canonical id '${PROJECT_CARD_ID}'.`,
       );
     }
-    if (projectCard.parent !== null || projectCard.depth !== 0) {
-      throw new CardServiceInvariantError(
-        `Project card '${projectCard.id}' must be the root card with parent null and depth 0.`,
-      );
-    }
   }
   for (const card of cards) {
-    if (card.parent === card.id) throw new CardServiceInvariantError(`Card '${card.id}' cannot parent itself.`);
-    if (card.parent !== null && !byId.has(card.parent)) {
-      throw new CardServiceInvariantError(`Card '${card.id}' references missing parent '${card.parent}'.`);
+    const parentId = cardParentId(card.id);
+    if (parentId !== null && !byId.has(parentId)) {
+      throw new CardServiceInvariantError(`Card '${card.id}' references missing parent '${parentId}'.`);
     }
-    if (card.parent !== null) {
-      const parent = byId.get(card.parent)!;
+    if (parentId !== null) {
+      const parent = byId.get(parentId)!;
       if (isTerminalType(parent.type)) {
         throw new CardServiceInvariantError(
           `Terminal card '${parent.id}' (type=${parent.type}) cannot be parent of '${card.id}'.`,
         );
       }
     }
+    for (const childId of card.children) if (cardParentId(childId) !== card.id) throw new CardServiceInvariantError(`Card '${card.id}' has invalid linked child '${childId}'.`);
     for (const dep of card.depends_on) {
       if (!byId.has(dep)) throw new CardServiceInvariantError(`Card '${card.id}' depends_on missing card '${dep}'.`);
     }
   }
 
   const depthById = new Map<string, number>();
-  const visiting = new Set<string>();
   const computeDepth = (id: string): number => {
     const cached = depthById.get(id);
     if (cached !== undefined) return cached;
-    if (visiting.has(id)) throw new CardServiceInvariantError(`Card hierarchy contains a cycle at '${id}'.`);
-    visiting.add(id);
-    const card = byId.get(id)!;
-    const depth = card.parent === null ? 0 : computeDepth(card.parent) + 1;
-    visiting.delete(id);
+    const depth = cardDepth(id);
     if (depth > maxDepth) throw new CardServiceInvariantError(`Card '${id}' depth ${depth} exceeds maximum ${maxDepth}.`);
-    if (card.depth !== depth) throw new CardServiceInvariantError(`Card '${id}' stores depth ${card.depth}, expected ${depth}.`);
     depthById.set(id, depth);
     return depth;
   };

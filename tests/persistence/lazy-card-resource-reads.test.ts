@@ -17,7 +17,7 @@ function recorder(): { instrumentation: CanonicalReadInstrumentation; paths: str
 }
 
 function input(parent: string, title: string, type: 'goal' | 'code' = 'code') {
-  return { type, parent, title, brief: `${title} brief`, status: 'backlog' as const, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
+  return { type, parent, title, brief: `${title} brief`, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
 }
 
 describe('bounded card resource reads', () => {

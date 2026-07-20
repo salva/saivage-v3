@@ -84,7 +84,7 @@ describe('operator API response contracts', () => {
     expect(hierarchy.json().card).not.toHaveProperty('logical_path');
     const detail = await app.server.fastify.inject({ method: 'GET', url: '/api/cards/project' });
     expect(detail.statusCode).toBe(200);
-    expect(detail.json()).toMatchObject({ card: { id: 'project', operator_summary: { lifecycleStatus: 'backlog', blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 } } });
+    expect(detail.json()).toMatchObject({ card: { id: 'project', lifecycle: { status: 'backlog' }, operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false } } });
     expect(detail.json().card.operator_summary).not.toHaveProperty('terminal');
     expect(detail.json()).not.toHaveProperty('children');
     expect((await app.server.fastify.inject({ method: 'GET', url: '/api/cards' })).statusCode).toBe(404);

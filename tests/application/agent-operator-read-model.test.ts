@@ -45,7 +45,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
   it('omits tombstoned inventory while exact direct history remains inactive', () => {
     const root = project();
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const sessionId = `executor:${child.id}` as ConversationSessionId;
     publishConversationFirstBatch({ projectRoot: root }, [text(sessionId)]);
     const service = new AgentOperatorReadModelService(root, () => []);

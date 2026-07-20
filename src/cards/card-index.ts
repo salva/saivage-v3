@@ -2,7 +2,6 @@ import type { CardRecord } from '../schemas/index.js';
 
 export class CardIndex {
   private readonly _cards = new Map<string, CardRecord>();
-  private readonly _childrenByParent = new Map<string, string[]>();
 
   get(id: string): CardRecord | undefined {
     return this._cards.get(id);
@@ -13,7 +12,8 @@ export class CardIndex {
   }
 
   childrenOf(parentId: string): string[] {
-    return [...(this._childrenByParent.get(parentId) ?? [])];
+    const parent = this._cards.get(parentId);
+    return parent ? parent.children.filter((id) => this._cards.has(id)) : [];
   }
 
   descendantsOf(parentId: string): string[] {
@@ -31,26 +31,7 @@ export class CardIndex {
   }
 
   upsert(card: CardRecord): void {
-    const prior = this._cards.get(card.id);
-    if (prior && prior.parent !== card.parent) this.removeChildEdge(prior.parent, card.id);
     this._cards.set(card.id, { ...card });
-    this.addChildEdge(card.parent, card.id);
-  }
-
-  private addChildEdge(parent: string | null, childId: string): void {
-    if (parent === null) return;
-    const arr = this._childrenByParent.get(parent) ?? [];
-    if (!arr.includes(childId)) arr.push(childId);
-    this._childrenByParent.set(parent, arr);
-  }
-
-  private removeChildEdge(parent: string | null, childId: string): void {
-    if (parent === null) return;
-    const arr = this._childrenByParent.get(parent);
-    if (!arr) return;
-    const filtered = arr.filter((c) => c !== childId);
-    if (filtered.length === 0) this._childrenByParent.delete(parent);
-    else this._childrenByParent.set(parent, filtered);
   }
 
   detectDependsOnCycle(id: string, newDependsOn: readonly string[]): string[] {

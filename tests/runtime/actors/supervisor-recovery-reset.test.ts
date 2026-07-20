@@ -39,8 +39,8 @@ describe('Supervisor full-chain stopped recovery', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-full-reset-')); roots.push(root); initProjectTree(root);
     const changes = new ReadModelChangeBroadcaster();
     const cards = new CardService(root, undefined, changes);
-    const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'goal', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'leaf', brief: 'leaf', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'goal', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'leaf', brief: 'leaf', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running'); cards.setStatus(goal.id, 'running'); cards.setStatus(leaf.id, 'running');
     pendingSession(root, 'planner:project', 'planner', 'project', '1');
     pendingSession(root, 'reviewer:project', 'reviewer', 'project', '2');
@@ -61,7 +61,7 @@ describe('Supervisor full-chain stopped recovery', () => {
     expect(order.filter((value) => value.startsWith('conversation:'))).toEqual([`conversation:executor:${leaf.id}`, `conversation:executor:${leaf.id}`, `conversation:planner:${goal.id}`, `conversation:reviewer:${goal.id}`, 'conversation:planner:project', 'conversation:reviewer:project']);
     expect(stop.mock.calls.map(([id]) => id)).toEqual([leaf.id, goal.id, 'project']);
     expect(activate).toHaveBeenCalledTimes(1); expect(activate).toHaveBeenCalledWith('project');
-    expect(cards.read('project')?.status).toBe('running'); expect(cards.read(goal.id)?.status).toBe('stopped'); expect(cards.read(leaf.id)?.status).toBe('stopped');
+    expect(cards.read('project')?.lifecycle.status).toBe('running'); expect(cards.read(goal.id)?.lifecycle.status).toBe('stopped'); expect(cards.read(leaf.id)?.lifecycle.status).toBe('stopped');
     const firstStop = order.findIndex((value) => value.startsWith('stop:'));
     expect(order.slice(0, firstStop).filter((value) => value.startsWith('conversation:'))).toHaveLength(6);
     if (!prepared.accepted) throw new Error('Run rejected');
@@ -78,25 +78,25 @@ describe('Supervisor full-chain stopped recovery', () => {
   it('recovers a partial stopped suffix as a fresh Run without duplicate notice or descendant activation', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-partial-reset-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running'); cards.setStatus(child.id, 'running');
     pendingSession(root, 'planner:project', 'planner', 'project', '6');
     cards.stopRunningForRecovery(child.id);
     const runtime = supervisor(root, cards);
     const prepared = await runtime.beginStartProject();
     expect(prepared.accepted).toBe(true);
-    expect(cards.read('project')?.status).toBe('running'); expect(cards.read(child.id)?.status).toBe('stopped');
+    expect(cards.read('project')?.lifecycle.status).toBe('running'); expect(cards.read(child.id)?.lifecycle.status).toBe('stopped');
     expect(readConversation(root, 'planner:project').sourceRows.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
   });
 
   it('settles an unmatched activate_card ordinarily while preserving a terminal child', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-terminal-child-reset-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(child.id, 'cancelled'); cards.setStatus('project', 'running');
     pendingSession(root, 'planner:project', 'planner', 'project', '7', true);
     await supervisor(root, cards).beginStartProject();
-    expect(cards.read(child.id)?.status).toBe('cancelled');
+    expect(cards.read(child.id)?.lifecycle.status).toBe('cancelled');
     const result = readConversation(root, 'planner:project').sourceRows.find((row) => row.kind === 'tool_result')!;
     expect(JSON.parse(result.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
     expect(JSON.parse(result.content)).not.toHaveProperty('data.card_id');
@@ -105,22 +105,22 @@ describe('Supervisor full-chain stopped recovery', () => {
   it('stops at the first status publication failure and a later fresh Run uses the canonical prefix', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-reset-failure-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running'); cards.setStatus(child.id, 'running');
     const original = cards.stopRunningForRecovery.bind(cards); let calls = 0;
     jest.spyOn(cards, 'stopRunningForRecovery').mockImplementation((id) => { calls += 1; if (id === 'project') throw new Error('root stop failed'); return original(id); });
     await expect(supervisor(root, cards).beginStartProject()).rejects.toThrow('root stop failed');
-    expect(calls).toBe(2); expect(cards.read('project')?.status).toBe('running'); expect(cards.read(child.id)?.status).toBe('stopped');
+    expect(calls).toBe(2); expect(cards.read('project')?.lifecycle.status).toBe('running'); expect(cards.read(child.id)?.lifecycle.status).toBe('stopped');
     jest.restoreAllMocks();
     await expect(supervisor(root, cards).beginStartProject()).resolves.toMatchObject({ accepted: true });
-    expect(cards.read('project')?.status).toBe('running'); expect(cards.read(child.id)?.status).toBe('stopped');
+    expect(cards.read('project')?.lifecycle.status).toBe('running'); expect(cards.read(child.id)?.lifecycle.status).toBe('stopped');
   });
 
   it.each([0, 1, 2])('stops after stopped-status append failure at leaf-to-root position %i with no later effect, then a fresh process uses the committed prefix', async (failureIndex) => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-reset-status-prefix-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'goal', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'leaf', brief: 'leaf', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'goal', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'leaf', brief: 'leaf', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running'); cards.setStatus(goal.id, 'running'); cards.setStatus(leaf.id, 'running');
     const order = [leaf.id, goal.id, 'project'];
     const originalStop = cards.stopRunningForRecovery.bind(cards);
@@ -132,14 +132,14 @@ describe('Supervisor full-chain stopped recovery', () => {
     await expect(supervisor(root, cards).beginStartProject()).rejects.toThrow(`status append ${failureIndex} failed`);
     expect(stop.mock.calls.map(([id]) => id)).toEqual(order.slice(0, failureIndex + 1));
     expect(activate).not.toHaveBeenCalled();
-    order.forEach((id, index) => expect(cards.read(id)?.status).toBe(index < failureIndex ? 'stopped' : 'running'));
+    order.forEach((id, index) => expect(cards.read(id)?.lifecycle.status).toBe(index < failureIndex ? 'stopped' : 'running'));
 
     jest.restoreAllMocks();
     const freshCards = new CardService(root);
     await expect(supervisor(root, freshCards).beginStartProject()).resolves.toMatchObject({ accepted: true });
-    expect(freshCards.read('project')?.status).toBe('running');
-    expect(freshCards.read(goal.id)?.status).toBe('stopped');
-    expect(freshCards.read(leaf.id)?.status).toBe('stopped');
+    expect(freshCards.read('project')?.lifecycle.status).toBe('running');
+    expect(freshCards.read(goal.id)?.lifecycle.status).toBe('stopped');
+    expect(freshCards.read(leaf.id)?.lifecycle.status).toBe('stopped');
   });
 
   it.each([
@@ -159,7 +159,7 @@ describe('Supervisor full-chain stopped recovery', () => {
     expect(conversationWrites).toBe(1);
     expect(stop).not.toHaveBeenCalled();
     expect(activate).not.toHaveBeenCalled();
-    expect(cards.read('project')?.status).toBe('running');
+    expect(cards.read('project')?.lifecycle.status).toBe('running');
     const rows = readConversation(root, 'planner:project').sourceRows;
     expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(toolPending ? 1 : 0);
     expect(rows.filter((row) => row.kind === 'model_recovered')).toHaveLength(toolPending ? 0 : 1);

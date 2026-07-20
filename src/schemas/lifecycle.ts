@@ -124,8 +124,6 @@ export const runtimeRunOutcomeSchema: z.ZodType<RuntimeRunOutcome> = z.discrimin
   z.object({ outcome: z.literal('stopped'), stopped_at: timestampSchema, reason: z.string().nullable() }).strict(),
 ]);
 
-export function validatePersistedCardLifecycle(card: { status: string; lifecycle: unknown }): CardLifecycleState {
-  const lifecycle = cardLifecycleStateSchema.parse(card.lifecycle);
-  if (card.status !== lifecycle.status) throw new Error(`status '${card.status}' does not match lifecycle.status '${lifecycle.status}'`);
-  return lifecycle;
+export function validatePersistedCardLifecycle(card: { lifecycle: unknown }): CardLifecycleState {
+  return cardLifecycleStateSchema.parse(card.lifecycle);
 }

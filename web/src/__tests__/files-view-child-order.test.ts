@@ -15,7 +15,7 @@ describe('FilesView committed child order', () => {
     setActivePinia(createPinia());
     const cardsStore = useCardStore();
     const orderedIds = [childId('e'), childId('b'), childId('d'), childId('a'), childId('c')];
-    const parent = cardView(PARENT_ID, { type: 'goal', children: orderedIds, title: 'Parent A', status: 'running' });
+    const parent = cardView(PARENT_ID, { type: 'goal', children: orderedIds, title: 'Parent A', lifecycle: { status: 'running', result: null, error: null, completed_at: null } });
     const children = [
       cardView(orderedIds[0], { title: 'E' }),
       cardView(orderedIds[1], { title: 'B' }),

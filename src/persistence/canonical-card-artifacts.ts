@@ -4,12 +4,12 @@ import { cardIdSchema } from '../schemas/card-id.js';
 import { validateTransition } from '../cards/lifecycle.js';
 
 export const cardVersionArtifactSchema = z.object({
-  kind: z.literal('card-version'), format_version: z.literal(1), card_id: cardIdSchema,
+  kind: z.literal('card-version'), format_version: z.literal(2), card_id: cardIdSchema,
   version: z.number().int().safe().positive(), committed_at: z.string().datetime(),
   card: persistedCardRecordSchema, history: cardHistoryEntrySchema.nullable(),
 }).strict();
 export const cardTombstoneSchema = z.object({
-  kind: z.literal('card-tombstone'), format_version: z.literal(1), card_id: cardIdSchema,
+  kind: z.literal('card-tombstone'), format_version: z.literal(2), card_id: cardIdSchema,
   deleted_at: z.string().datetime(), final_card: persistedCardRecordSchema, deletion_history: cardHistoryEntrySchema,
 }).strict();
 export const cardStreamRowSchema = z.discriminatedUnion('kind', [cardVersionArtifactSchema, cardTombstoneSchema]);
@@ -72,16 +72,16 @@ export function validateCardStream(rows: readonly CardStreamRow[], path: string,
         && new Set(nextChildren).size === nextChildren.length
         && priorChildren.every((id) => nextChildren.includes(id));
       if (childLink ? !validLink : reorder ? !validReorder : !sameChildren) throw new Error(`Card stream '${path}' has an invalid children transition.`);
-      for (const field of ['id', 'type', 'parent', 'depth', 'created_at', 'created_by'] as const) if (row.card[field] !== prior[field]) throw new Error(`Card stream '${path}' mutates immutable field '${field}'.`);
-      if (row.card.status !== prior.status) {
+      for (const field of ['id', 'type', 'created_at', 'created_by'] as const) if (row.card[field] !== prior[field]) throw new Error(`Card stream '${path}' mutates immutable field '${field}'.`);
+      if (row.card.lifecycle.status !== prior.lifecycle.status) {
         const narrowRecoveryTransition = row.history!.kind === 'status'
           && row.history!.changed_by_actor === 'runtime'
           && row.history!.changed_by_surface === 'runtime'
-          && sameValues(row.history!.changed_fields, ['status', 'lifecycle'])
-          && ((prior.status === 'running' && row.card.status === 'stopped' && row.history!.change_reason === 'recovery stopped lifecycle')
-            || (prior.status === 'stopped' && row.card.status === 'running' && row.history!.change_reason === 'STOPPED activation'));
-        if (narrowRecoveryTransition) assertOnlyCardFieldsChanged(path, prior, row.card, new Set(['status', 'lifecycle', 'version_seq', 'updated_at']), 'narrow recovery lifecycle');
-        else validateTransition(prior.status, row.card.status);
+          && sameValues(row.history!.changed_fields, ['lifecycle'])
+          && ((prior.lifecycle.status === 'running' && row.card.lifecycle.status === 'stopped' && row.history!.change_reason === 'recovery stopped lifecycle')
+            || (prior.lifecycle.status === 'stopped' && row.card.lifecycle.status === 'running' && row.history!.change_reason === 'STOPPED activation'));
+        if (narrowRecoveryTransition) assertOnlyCardFieldsChanged(path, prior, row.card, new Set(['lifecycle', 'version_seq', 'updated_at']), 'narrow recovery lifecycle');
+        else validateTransition(prior.lifecycle.status, row.card.lifecycle.status);
       }
       if (childLink) {
         assertOnlyCardFieldsChanged(path, prior, row.card, new Set(['children', 'version_seq', 'updated_at']), 'child-link');

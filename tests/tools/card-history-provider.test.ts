@@ -15,7 +15,7 @@ describe('card history provider', () => {
   it('validates numeric inputs before executors and calls only named history resources', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-history-tool-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const card = cards.create({ type: 'code', parent: 'project', title: 'Card', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const card = cards.create({ type: 'code', parent: 'project', title: 'Card', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.mutateCard(card.id, { title: 'Card v2' }, { actor: 'analyst', surface: 'web-chat' });
     const list = jest.spyOn(cards, 'listCardHistory');
     const get = jest.spyOn(cards, 'getCardHistoryEntry');

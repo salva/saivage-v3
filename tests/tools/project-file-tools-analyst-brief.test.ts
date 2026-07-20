@@ -16,15 +16,15 @@ describe('project-file Analyst brief writes', () => {
     roots.push(root);
     initProjectTree(root);
     const cards = new CardService(root);
-    const card = cards.create({ type: 'code', parent: 'project', title: 'Blocked', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const card = cards.create({ type: 'code', parent: 'project', title: 'Blocked', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.setStatus(card.id, 'running');
-    cards.commitTerminalLifecyclePatch(card.id, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' }, error: 'wait', completed_at: null } });
+    cards.commitTerminalLifecycle(card.id, { lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' }, error: 'wait', completed_at: null } });
 
     await expect(writeProject({ projectRoot: root, cardId: card.id, agentRole: 'analyst', store: cards, notifyCard: () => ({ ok: true, notificationId: 'n' }) }, {
       path: `record:///brief.md?card=${card.id}&v=next`,
       content: '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew',
     })).resolves.toMatchObject({ written: true, propagation: { ok: true } });
-    expect(cards.read(card.id)?.status).toBe('changed');
+    expect(cards.read(card.id)?.lifecycle.status).toBe('changed');
   });
 
   it('rejects changed before opening a new brief version', async () => {
@@ -32,7 +32,7 @@ describe('project-file Analyst brief writes', () => {
     roots.push(root);
     initProjectTree(root);
     const cards = new CardService(root);
-    const card = cards.create({ type: 'code', parent: 'project', title: 'Changed', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const card = cards.create({ type: 'code', parent: 'project', title: 'Changed', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.setStatus(card.id, 'running');
     cards.setStatus(card.id, 'changed');
 
@@ -47,7 +47,7 @@ describe('project-file Analyst brief writes', () => {
     roots.push(root);
     initProjectTree(root);
     const cards = new CardService(root);
-    const card = cards.create({ type: 'code', parent: 'project', title: 'Strict', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const card = cards.create({ type: 'code', parent: 'project', title: 'Strict', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const hostile = new Error('HOSTILE_STRICT_READ');
     const original = cards.readRecord.bind(cards);
     cards.readRecord = ((cardId, filename, version, instrumentation) => version === 'open' ? (() => { throw hostile; })() : original(cardId, filename, version, instrumentation)) as CardService['readRecord'];

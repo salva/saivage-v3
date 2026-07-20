@@ -21,7 +21,7 @@ describe('domain-derived conversation inventory', () => {
   it('lists exact active role/global candidates', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-inventory-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     appendConversationBatch({ projectRoot: root }, [message('planner:project', 'planner')]);
     appendConversationBatch({ projectRoot: root }, [message(parseConversationSessionId(`executor:${child.id}`), 'executor')]);
     appendAnalystIngressBatch({ projectRoot: root }, '11111111-1111-4111-8111-111111111111', 'workspace', 'global');
@@ -41,7 +41,7 @@ describe('domain-derived conversation inventory', () => {
   it('retains planner inventory and never discovers executor history after rejecting a forged type change', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-inventory-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const plannerSession = parseConversationSessionId(`planner:${goal.id}`);
     appendConversationBatch({ projectRoot: root }, [message(plannerSession, 'planner-goal')]);
     writeFileSync(cardConversationFile(root, goal.id, 'executor'), '{complete-malformed}\n');
