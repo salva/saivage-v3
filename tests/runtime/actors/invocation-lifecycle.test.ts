@@ -9,19 +9,19 @@ function deferred<T>() {
 }
 
 describe('InvocationLifecycle', () => {
-  it('closes admission without aborting admitted work and joins its consumer delivery', async () => {
+  it('executes an admitted lease after close and joins its consumer delivery', async () => {
     const lifecycle = new InvocationLifecycle();
     const activation = new AbortController();
     const invocation = lifecycle.begin(activation.signal);
     const raw = deferred<string>();
     const consumer = deferred<void>();
     let admittedSignal!: AbortSignal;
-    const wrapper = lifecycle.runExternal(invocation, async (signal) => { admittedSignal = signal; return raw.promise; });
-    const delivery = wrapper.then(() => lifecycle.trackConsumer(() => consumer.promise));
     const reason = new Error('result won');
-    await Promise.resolve();
 
     lifecycle.closeAdmission(reason);
+    const wrapper = lifecycle.runExternal(invocation, async (signal) => { admittedSignal = signal; return raw.promise; });
+    const delivery = wrapper.then(() => lifecycle.trackConsumer(() => consumer.promise));
+    await Promise.resolve();
     expect(() => lifecycle.begin(activation.signal)).toThrow(reason);
     expect(admittedSignal.aborted).toBe(false);
     let joined = false;
@@ -36,6 +36,47 @@ describe('InvocationLifecycle', () => {
     consumer.resolve();
     await delivery;
     await expect(joining).resolves.toEqual({ status: 'joined' });
+  });
+
+  it('allows only one current lease and clears the exact lease on settlement', () => {
+    const lifecycle = new InvocationLifecycle();
+    const activation = new AbortController();
+    const invocation = lifecycle.begin(activation.signal);
+    expect(() => lifecycle.begin(activation.signal)).toThrow('Cannot begin a provider turn while another invocation is current.');
+    lifecycle.settle(invocation);
+    expect(() => lifecycle.assertCurrent(invocation)).toThrow();
+    expect(() => lifecycle.begin(activation.signal)).not.toThrow();
+  });
+
+  it('rejects foreign and stale leases with the helper-authoritative reason', () => {
+    const lifecycle = new InvocationLifecycle();
+    const foreign = new InvocationLifecycle();
+    const activation = new AbortController();
+    const stale = lifecycle.begin(activation.signal);
+    lifecycle.settle(stale);
+    const current = lifecycle.begin(activation.signal);
+    const foreignLease = foreign.begin(activation.signal);
+    const reason = new Error('closed');
+    lifecycle.closeAdmission(reason);
+
+    expect(() => lifecycle.signal(stale)).toThrow(reason);
+    expect(() => lifecycle.signal(foreignLease)).toThrow(reason);
+    lifecycle.settle(current);
+  });
+
+  it('cancels one current turn without closing later admission', () => {
+    const lifecycle = new InvocationLifecycle();
+    const activation = new AbortController();
+    const first = lifecycle.begin(activation.signal);
+    const firstSignal = lifecycle.signal(first);
+    const reason = new Error('turn cancelled');
+    lifecycle.cancelCurrent(first, reason);
+
+    expect(firstSignal.aborted).toBe(true);
+    expect(firstSignal.reason).toBe(reason);
+    expect(() => lifecycle.assertCurrent(first)).toThrow();
+    const second = lifecycle.begin(activation.signal);
+    expect(() => lifecycle.assertCurrent(second)).not.toThrow();
   });
 
   it('uses the first close reason when later revocation aborts admitted work', async () => {
@@ -99,6 +140,41 @@ describe('InvocationLifecycle', () => {
 });
 
 describe('ActivationOperationTracker', () => {
+  it('combines activation and tracker revoke signals', async () => {
+    const activationTracker = new ActivationOperationTracker();
+    const activation = new AbortController();
+    const activationRaw = deferred<void>();
+    let activationSignal!: AbortSignal;
+    const activationWrapper = activationTracker.run(activation.signal, async (signal) => {
+      activationSignal = signal;
+      return activationRaw.promise;
+    });
+    const activationDelivery = activationWrapper.catch(() => activationTracker.trackConsumer(() => undefined));
+    await Promise.resolve();
+    const activationReason = new Error('activation cancelled');
+    activation.abort(activationReason);
+    expect(activationSignal.reason).toBe(activationReason);
+    activationTracker.closeAdmission(activationReason);
+    await activationDelivery;
+
+    const revokeTracker = new ActivationOperationTracker();
+    const revokeRaw = deferred<void>();
+    let revokeSignal!: AbortSignal;
+    const revokeWrapper = revokeTracker.run(new AbortController().signal, async (signal) => {
+      revokeSignal = signal;
+      return revokeRaw.promise;
+    });
+    const revokeDelivery = revokeWrapper.catch(() => revokeTracker.trackConsumer(() => undefined));
+    await Promise.resolve();
+    const revokeReason = new Error('tracker revoked');
+    revokeTracker.revoke(revokeReason);
+    expect(revokeSignal.reason).toBe(revokeReason);
+    await revokeDelivery;
+
+    activationRaw.resolve();
+    revokeRaw.resolve();
+  });
+
   it('closes admission without aborting admitted work and joins its consumer delivery', async () => {
     const tracker = new ActivationOperationTracker();
     const activation = new AbortController();
