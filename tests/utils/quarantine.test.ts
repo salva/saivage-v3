@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as crypto from 'node:crypto';
 
 
 import { listRecentReviews } from '../../src/workspace/quarantine.js';
@@ -120,5 +121,19 @@ describe('content review logging', () => {
     expect(review.status).toBe('blocked');
     expect(new Date(review.created_at).toISOString()).toBe(review.created_at);
     expect(review).not.toHaveProperty('quarantine_id');
+  });
+
+  it('returns once from both content producers after duplicate physical commits without retry', async () => {
+    jest.resetModules();
+    await jest.unstable_mockModule('node:crypto', () => ({ ...crypto, randomBytes: () => Buffer.alloc(12, 7) }));
+    const production = await import('../../src/workspace/quarantine.js');
+    const appLogs = testAppLogs(root);
+    const firstPass = production.recordContentPass(appLogs, 'file', 'same', 'clean');
+    const secondPass = production.recordContentPass(appLogs, 'file', 'same', 'clean');
+    expect(secondPass.id).toBe(firstPass.id);
+    const firstBlocked = production.quarantineContent({ projectRoot: root, sourceKind: 'file', sourceRef: 'blocked', content: 'raw', reason: 'test', risk: 'high', appLogs });
+    const secondBlocked = production.quarantineContent({ projectRoot: root, sourceKind: 'file', sourceRef: 'blocked', content: 'raw', reason: 'test', risk: 'high', appLogs });
+    expect(secondBlocked.review.id).toBe(firstBlocked.review.id);
+    expect(appLogLines().map(({ id }) => id)).toEqual([firstPass.id, firstPass.id, firstBlocked.review.id, firstBlocked.review.id]);
   });
 });

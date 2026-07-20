@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, ftruncateSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
@@ -67,9 +67,9 @@ describe('conversation append observation boundary', () => {
     const changes = changesRecording(trace);
     const io: GrowingFileIo = {
       open(path, flags) { trace.push('open'); return openSync(path, flags); },
+      stat(fd) { trace.push('stat'); return fstatSync(fd); },
       write: ((...args: unknown[]) => { trace.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
       fsync(fd) { trace.push('fsync'); fsyncSync(fd); },
-      truncate: ftruncateSync,
       close(fd) { trace.push('close'); closeSync(fd); },
     };
 
@@ -80,7 +80,18 @@ describe('conversation append observation boundary', () => {
 
     expect(thrown).toBeInstanceOf(ConversationPostPublicationObservationError);
     expect(thrown).toMatchObject({ cause, entry: { id: 'third', session_id: 'planner:project' } });
-    expect(trace).toEqual(['open', 'write', 'fsync', 'close', 'conversation:planner:project', 'agents', 'observe:second', 'observe:third']);
+    expect(trace).toEqual(['open', 'stat', 'write', 'fsync', 'close', 'conversation:planner:project', 'agents', 'observe:second', 'observe:third']);
+  });
+
+  it('fails fast without observation when a previously nonempty conversation is missing at append open', () => {
+    const projectRoot = root(); appendConversationBatch({ projectRoot }, [text('first')]);
+    const effects: string[] = [];
+    const io: GrowingFileIo = {
+      open() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+      stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+    };
+    expect(() => appendConversationBatch({ projectRoot, changes: changesRecording(effects), observeEntry: () => effects.push('observe') }, [text('second')], { io })).toThrow(/disappeared before append/);
+    expect(effects).toEqual([]);
   });
 
   it('observes an ordinary visible private-projection message once without exposing its payload', () => {

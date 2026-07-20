@@ -38,7 +38,14 @@ function append(projectRoot: string, artifact: RecordVersionArtifact, temporary?
   const prior = rows(projectRoot, artifact.card_id, artifact.slot);
   validateRecordStream([...prior, artifact], path, artifact.card_id, artifact.slot);
   const bytes = serializeGrowingEnvelope([artifact], recordVersionArtifactSchema);
-  if (prior.length === 0) publishFirstEnvelope(path, bytes, temporary); else appendEnvelope(path, bytes, io);
+  if (prior.length === 0) publishFirstEnvelope(path, bytes, temporary);
+  else {
+    const result = appendEnvelope(path, bytes, io);
+    switch (result.kind) {
+      case 'appended': break;
+      case 'missing': throw new Error(`Authored-record stream '${path}' disappeared before append.`);
+    }
+  }
   return projection(artifact);
 }
 export function readAuthoredRecord(projectRoot: string, cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection {

@@ -89,7 +89,14 @@ export function appendConversationBatch(conversations: ConversationFileContext, 
   if (duplicate) throw new Error(`Conversation message '${duplicate.id}' already exists.`);
   validateConversationRows(sessionId, [...current.physicalRows, ...parsed]);
   if (current.physicalRows.length === 0) publishFirstEnvelope(conversationFile(conversations.projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), options.publicationTemporaryId);
-  else appendEnvelope(conversationFile(conversations.projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), options.io);
+  else {
+    const path = conversationFile(conversations.projectRoot, sessionId);
+    const result = appendEnvelope(path, serializeGrowingEnvelope(parsed, agentMessageSchema), options.io);
+    switch (result.kind) {
+      case 'appended': break;
+      case 'missing': throw new Error(`Conversation '${sessionId}' disappeared before append.`);
+    }
+  }
   afterPublication(conversations, parsed);
 }
 

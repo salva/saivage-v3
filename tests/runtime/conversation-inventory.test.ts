@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { closeSync, ftruncateSync, fsyncSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
@@ -62,15 +62,15 @@ describe('domain-derived conversation inventory', () => {
     const operations: string[] = [];
     const failingIo: GrowingFileIo = {
       open(path, flags) { operations.push(`open:${path}`); return openSync(path, flags); },
+      stat(fd) { operations.push('stat'); return fstatSync(fd); },
       write: ((...args: unknown[]) => { operations.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
       fsync(fd) { operations.push('fsync'); fsyncSync(fd); throw failure; },
-      truncate: ftruncateSync,
       close(fd) { operations.push('close'); closeSync(fd); },
     };
     let thrown: unknown;
     try { appendConversationBatch({ projectRoot: root, changes, observeEntry: () => { effects.push('observation'); } }, [message('planner:project', 'second')], { io: failingIo }); } catch (error) { thrown = error; }
     expect(thrown).toBe(failure);
-    expect(operations).toEqual([`open:${conversationFile(root, 'planner:project')}`, 'write', 'fsync', 'close']);
+    expect(operations).toEqual([`open:${conversationFile(root, 'planner:project')}`, 'stat', 'write', 'fsync', 'close']);
     expect(effects).toEqual([]);
   });
 });

@@ -98,9 +98,9 @@ describe('direct child namespace claims', () => {
     const appendOperations: string[] = [];
     const io = {
       open: ((...args: unknown[]) => { appendOperations.push('open'); return Reflect.apply(realFs.openSync, undefined, args); }) as typeof realFs.openSync,
+      stat: (descriptor: number) => { appendOperations.push('stat'); return realFs.fstatSync(descriptor); },
       write: ((...args: unknown[]) => { appendOperations.push('write'); return Reflect.apply(realFs.writeSync, undefined, args); }) as typeof realFs.writeSync,
       fsync: ((...args: unknown[]) => { appendOperations.push('fsync'); return Reflect.apply(realFs.fsyncSync, undefined, args); }) as typeof realFs.fsyncSync,
-      truncate: ((...args: unknown[]) => { appendOperations.push('truncate'); return Reflect.apply(realFs.ftruncateSync, undefined, args); }) as typeof realFs.ftruncateSync,
       close: ((...args: unknown[]) => { appendOperations.push('close'); return Reflect.apply(realFs.closeSync, undefined, args); }) as typeof realFs.closeSync,
     };
     const eventBus = new EventBus();

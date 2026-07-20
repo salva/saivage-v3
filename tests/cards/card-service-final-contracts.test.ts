@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { closeSync, ftruncateSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -140,9 +140,9 @@ describe('CardService final reset-only contracts', () => {
         expect(observer.read(childId)).toBeNull();
         return openSync(path, flags);
       },
+      stat: fstatSync,
       write: writeParentLink,
       fsync(fd) { order.push('parent-link-fsync'); fsyncSync(fd); },
-      truncate: ftruncateSync,
       close(fd) { order.push('parent-link-close'); closeSync(fd); },
     };
     const cards = new CardService(root, eventBus, changes, io);
@@ -612,6 +612,7 @@ describe('CardService final reset-only contracts', () => {
     }) as typeof writeSync;
     const io: GrowingFileIo = {
       open(path, flags) { record('open'); return openSync(path, flags); },
+      stat(fd) { record('stat'); return fstatSync(fd); },
       write: tracedWrite,
       fsync(fd) {
         record('fsync');
@@ -619,14 +620,13 @@ describe('CardService final reset-only contracts', () => {
         failed = true;
         throw new Error('parent link fsync');
       },
-      truncate(fd, length) { record('truncate'); ftruncateSync(fd, length); },
       close(fd) { record('close'); closeSync(fd); },
     };
     const cards = new CardService(root, eventBus, changes, io);
     expect(() => cards.create(input())).toThrow('parent link fsync');
     expect(publications).toEqual([]);
     expect(events).not.toHaveBeenCalled();
-    expect(operations).toEqual(['open', 'write', 'fsync', 'close']);
+    expect(operations).toEqual(['open', 'stat', 'write', 'fsync', 'close']);
     expect(afterFailure).toEqual(['close']);
   });
 
@@ -646,9 +646,9 @@ describe('CardService final reset-only contracts', () => {
     const record = (operation: string) => { operations.push(operation); if (failed) afterFailure.push(operation); };
     const io: GrowingFileIo = {
       open(path, flags) { record('open'); return openSync(path, flags); },
+      stat(fd) { record('stat'); return fstatSync(fd); },
       write: ((...args: unknown[]) => { record('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
       fsync(fd) { record('fsync'); fsyncSync(fd); failed = true; throw new Error('reorder fsync'); },
-      truncate: ftruncateSync,
       close(fd) { record('close'); closeSync(fd); },
     };
     const cards = new CardService(root, eventBus, changes, io);
@@ -656,7 +656,7 @@ describe('CardService final reset-only contracts', () => {
     expect(() => cards.reorderChildren('project', [second.id, first.id], { actor: 'analyst', surface: 'runtime' })).toThrow('reorder fsync');
     expect(events).not.toHaveBeenCalled();
     expect(publications).toEqual([]);
-    expect(operations).toEqual(['open', 'write', 'fsync', 'close']);
+    expect(operations).toEqual(['open', 'stat', 'write', 'fsync', 'close']);
     expect(afterFailure).toEqual(['close']);
   });
 

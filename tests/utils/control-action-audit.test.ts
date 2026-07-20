@@ -75,6 +75,24 @@ describe('control action audit persistence', () => {
     expect(controlActionAuditEntrySchema.parse(reloaded[0])).toEqual(reloaded[0]);
   });
 
+  it('commits a duplicate before one control-action effect and propagates a synchronous observer failure without retry', () => {
+    const appLogs = testAppLogs(projectRoot);
+    const input = {
+      id: 'duplicate-audit', created_at: '2026-01-01T00:00:00.000Z', actor: 'analyst' as const, surface: 'rest' as const,
+      action: 'runtime.pause', target_kind: 'runtime' as const, target_id: 'project', params_summary: 'pause', outcome: 'ok' as const, outcome_summary: 'paused',
+    };
+    recordControlAction(appLogs, input);
+    const observerFailure = new Error('observer strict read failed');
+    const effects: string[] = [];
+    const eventBus = new EventBus();
+    eventBus.subscribe('control_action_recorded', () => { effects.push('emit'); expect(() => listControlActions(projectRoot)).toThrow(/duplicate id/); throw observerFailure; }, { propagateErrors: true });
+
+    expect(() => recordControlAction(appLogs, input, eventBus)).toThrow(observerFailure);
+    const rows = readFileSync(join(projectRoot, '.saivage', 'logs', 'app.jsonl'), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ id: string }> }).rows);
+    expect(rows.map(({ id }) => id)).toEqual(['duplicate-audit', 'duplicate-audit']);
+    expect(effects).toEqual(['emit']);
+  });
+
   it('fails on a complete malformed JSONL entry without discarding it', () => {
     recordControlAction(testAppLogs(projectRoot), {
       id: 'audit-1',

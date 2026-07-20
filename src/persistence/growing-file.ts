@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { replaceFile, type PublicationTemporaryIdFactory, type ReplacementFileIo } from './replace-file.js';
 
 export interface GrowingFileIo {
-  open: typeof openSync; write: typeof writeSync; fsync: typeof fsyncSync; truncate: typeof ftruncateSync; close: typeof closeSync;
+  open: typeof openSync; stat: (descriptor: number) => Stats; write: typeof writeSync; fsync: typeof fsyncSync; close: typeof closeSync;
 }
 export interface CanonicalGrowingFileReadIo {
   read: (descriptor: number) => Buffer;
@@ -22,7 +22,7 @@ export interface CanonicalGrowingFileSnapshot<Row> {
   readonly modifiedAt: string;
 }
 export interface CanonicalReadInstrumentation { readonly onRead: (path: string) => void }
-const growingFileIo: GrowingFileIo = { open: openSync, write: writeSync, fsync: fsyncSync, truncate: ftruncateSync, close: closeSync };
+const growingFileIo: GrowingFileIo = { open: openSync, stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync };
 const canonicalGrowingFileReadIo: CanonicalGrowingFileReadIo = { read: readFileSync, open: openSync, stat: fstatSync, fsync: fsyncSync, truncate: ftruncateSync, close: closeSync };
 
 const envelopeSchema = z.object({
@@ -105,20 +105,27 @@ export function publishFirstEnvelope(
   throw new Error(`Growing file '${target}' is already published.`);
 }
 
+export type AppendEnvelopeResult =
+  | { readonly kind: 'appended' }
+  | { readonly kind: 'missing' };
+
 export function appendEnvelope(
   target: string,
   bytes: Buffer,
   io: GrowingFileIo = growingFileIo,
-): void {
+): AppendEnvelopeResult {
   let fd: number;
   try {
-    fd = io.open(target, constants.O_WRONLY | constants.O_APPEND);
+    fd = io.open(target, constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' };
     throw error;
   }
 
-  let failure: unknown;
+  let operationFailed = false;
+  let operationFailure: unknown;
   try {
+    if (!io.stat(fd).isFile()) throw new Error(`Growing-file append target '${target}' must be a regular file.`);
     let offset = 0;
     while (offset < bytes.byteLength) {
       const written = io.write(fd, bytes, offset, bytes.byteLength - offset);
@@ -127,14 +134,14 @@ export function appendEnvelope(
     }
     io.fsync(fd);
   } catch (error) {
-    failure = error;
+    operationFailed = true;
+    operationFailure = error;
   }
   try {
     io.close(fd);
   } catch (error) {
-    failure ??= error;
+    if (!operationFailed) throw error;
   }
-  if (failure !== undefined) {
-    throw failure;
-  }
+  if (operationFailed) throw operationFailure;
+  return { kind: 'appended' };
 }

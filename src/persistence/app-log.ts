@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
+import { lstatSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { appLogEntrySchema, type AppLogEntry, type AppLogEntryOfType, type AppLogEntryType } from '../contracts/app-log.js';
 import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope } from './growing-file.js';
@@ -24,26 +24,21 @@ export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): 
 
 export function appendAppLogEntry(projectRoot: string, entry: AppLogEntry, publicationTemporaryId?: PublicationTemporaryIdFactory): AppLogEntry {
   const parsed = appLogEntrySchema.parse(entry);
-  const entries = readAppLogEntries(projectRoot);
-  if (entries.some((candidate) => candidate.id === parsed.id)) throw new Error(`App log entry '${parsed.id}' already exists.`);
   const path = appLogFile(projectRoot);
   const bytes = serializeGrowingEnvelope([parsed], appLogEntrySchema);
-  if (entries.length === 0) {
-    try {
-      readFileSync(path);
-      appendEnvelope(path, bytes);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  const result = appendEnvelope(path, bytes);
+  switch (result.kind) {
+    case 'appended': return parsed;
+    case 'missing':
       for (const owner of [join(projectRoot, '.saivage'), join(projectRoot, '.saivage', 'logs')]) {
         try { mkdirSync(owner); }
-        catch (mkdirError) {
-          if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirError;
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
           const stat = lstatSync(owner);
           if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`App-log owner '${owner}' must be a real directory.`);
         }
       }
       publishFirstEnvelope(path, bytes, publicationTemporaryId);
-    }
-  } else appendEnvelope(path, bytes);
-  return parsed;
+      return parsed;
+  }
 }

@@ -347,7 +347,11 @@ export function publishCardVersion(projectRoot: string, card: CardRecord, histor
   if (card.version_seq !== current.version_seq + 1) throw new Error(`Card '${card.id}' expected version ${current.version_seq + 1}.`);
   const row = parseCardVersionArtifact({ kind: 'card-version', format_version: 1, card_id: card.id, version: card.version_seq, committed_at: new Date().toISOString(), card, history }, cardStreamFile(projectRoot, card.id), { cardId: card.id, version: card.version_seq });
   validateCardStream([...stream.artifacts, row], cardStreamFile(projectRoot, card.id), card.id);
-  appendEnvelope(cardStreamFile(projectRoot, card.id), serializeGrowingEnvelope([row], cardStreamRowSchema), io);
+  const result = appendEnvelope(cardStreamFile(projectRoot, card.id), serializeGrowingEnvelope([row], cardStreamRowSchema), io);
+  switch (result.kind) {
+    case 'appended': break;
+    case 'missing': throw new Error(`Card stream for '${card.id}' disappeared before version append.`);
+  }
   return row;
 }
 
@@ -357,6 +361,10 @@ export function publishCardTombstone(projectRoot: string, cardId: string, finalC
   cardStreamRowSchema.parse(row);
   const stream = readCardArtifacts(projectRoot, cardId);
   validateCardStream([...stream.artifacts, row], cardStreamFile(projectRoot, cardId), cardId);
-  appendEnvelope(cardStreamFile(projectRoot, cardId), serializeGrowingEnvelope([row], cardStreamRowSchema), io);
+  const result = appendEnvelope(cardStreamFile(projectRoot, cardId), serializeGrowingEnvelope([row], cardStreamRowSchema), io);
+  switch (result.kind) {
+    case 'appended': break;
+    case 'missing': throw new Error(`Card stream for '${cardId}' disappeared before tombstone append.`);
+  }
   return row;
 }

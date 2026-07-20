@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { closeSync, ftruncateSync, fsyncSync, mkdtempSync, openSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, mkdtempSync, openSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
@@ -128,9 +128,9 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const failure = new Error('injected append failure');
     const failingIo: GrowingFileIo = {
       open: openSync,
+      stat: fstatSync,
       write: writeSync,
       fsync(fd) { fsyncSync(fd); throw failure; },
-      truncate: ftruncateSync,
       close: closeSync,
     };
     const changes = new ReadModelChangeBroadcaster();
@@ -149,9 +149,9 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const failure = new Error('injected record close failure');
     const failingIo: GrowingFileIo = {
       open: openSync,
+      stat: fstatSync,
       write: writeSync,
       fsync(fd) { fsyncSync(fd); throw failure; },
-      truncate: ftruncateSync,
       close: closeSync,
     };
     const changes = new ReadModelChangeBroadcaster();
@@ -159,6 +159,22 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const failingCards = new CardService(root, undefined, changes, failingIo);
 
     expect(() => failingCards.closeRecord(child.id, 'review.md', draft.version, 'reviewer', cards.read(child.id)!.version_seq)).toThrow(failure);
+    expect(flush()).toEqual([]);
+  });
+
+  it('fails fast without effects when a required existing card or record stream is missing at append open', () => {
+    const child = cards.create(input());
+    const draft = cards.openRecord(child.id, 'review.md');
+    flush(); clear();
+    const missingIo: GrowingFileIo = {
+      open() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+      stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+    };
+    const changes = new ReadModelChangeBroadcaster(); changes.subscribe(hub);
+    const missingCards = new CardService(root, undefined, changes, missingIo);
+    expect(() => missingCards.update(child.id, { title: 'not published' })).toThrow(/disappeared before version append/);
+    expect(flush()).toEqual([]);
+    expect(() => missingCards.editRecord(child.id, 'review.md', draft.version, 'not published')).toThrow(/disappeared before append/);
     expect(flush()).toEqual([]);
   });
 });

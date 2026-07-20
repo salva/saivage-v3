@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,6 +7,7 @@ import { createEventLog } from '../../src/observability/event-logger.js';
 import { createErrorLog } from '../../src/observability/error-logger.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
+import { appLogFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -31,15 +32,21 @@ describe('direct event and error app-log producers', () => {
     expect(agentsChanged).not.toHaveBeenCalled();
   });
 
-  it('redacts secret-bearing metadata before direct append and rejects duplicate identities', () => {
+  it('redacts before append and event/error producers each return once after duplicate physical commit', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-log-'));
     roots.push(root);
     const events = createEventLog(root, { projectRoot: root });
+    const errors = createErrorLog(root, { projectRoot: root });
     events.appendEvent({ kind: 'runtime_diagnostic', id: 'same', timestamp: '2026-07-15T00:00:00.000Z', error_message: 'x', metadata: { authorization: 'Bearer synthetic-secret', safe: 'visible' } });
     const serialized = JSON.stringify(events.getEvents()[0]);
     expect(serialized).not.toContain('synthetic-secret');
     expect(serialized).toContain('[REDACTED]');
     expect(serialized).toContain('visible');
-    expect(() => events.appendEvent({ kind: 'runtime_diagnostic', id: 'same', timestamp: '2026-07-15T00:00:01.000Z', error_message: 'duplicate' })).toThrow(/already exists/);
+    expect(events.appendEvent({ kind: 'runtime_diagnostic', id: 'same', timestamp: '2026-07-15T00:00:00.000Z', error_message: 'duplicate' }).id).toBe('same');
+    errors.appendError({ id: 'error-same', timestamp: '2026-07-15T00:00:01.000Z', message: 'failed' });
+    expect(errors.appendError({ id: 'error-same', timestamp: '2026-07-15T00:00:01.000Z', message: 'failed again' }).id).toBe('error-same');
+    const rows = readFileSync(appLogFile(root), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ id: string }> }).rows);
+    expect(rows.map(({ id }) => id)).toEqual(['same', 'same', 'error-same', 'error-same']);
+    expect(() => readAppLogEntries(root)).toThrow(/duplicate id 'same'/);
   });
 });

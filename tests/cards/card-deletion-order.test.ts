@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { closeSync, ftruncateSync, fsyncSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
@@ -56,6 +56,7 @@ describe('complete-union deletion admission and order', () => {
     let writes = 0;
     const failingIo: GrowingFileIo = {
       open(path, flags) { operations.push(`open:${path}`); return openSync(path, flags); },
+      stat(fd) { operations.push('stat'); return fstatSync(fd); },
       write: ((...args: unknown[]) => {
         operations.push('write');
         writes += 1;
@@ -63,7 +64,6 @@ describe('complete-union deletion admission and order', () => {
         return Reflect.apply(writeSync, undefined, args);
       }) as typeof writeSync,
       fsync(fd) { operations.push('fsync'); fsyncSync(fd); },
-      truncate: ftruncateSync,
       close(fd) { operations.push('close'); closeSync(fd); },
     };
     const eventBus = new EventBus(); const events: Array<{ cardId: string; kind: string }> = []; eventBus.subscribe('card_history_appended', (event) => { events.push({ cardId: event.payload.card_id, kind: event.payload.entry_kind }); });
@@ -73,8 +73,8 @@ describe('complete-union deletion admission and order', () => {
     try { deleting.deleteSubtrees([left.id, right.id], context, () => true); } catch (error) { thrown = error; }
     expect(thrown).toBe(failure);
     expect(operations).toEqual([
-      `open:${cardStreamFile(root, left.id)}`, 'write', 'fsync', 'close',
-      `open:${cardStreamFile(root, right.id)}`, 'write', 'close',
+      `open:${cardStreamFile(root, left.id)}`, 'stat', 'write', 'fsync', 'close',
+      `open:${cardStreamFile(root, right.id)}`, 'stat', 'write', 'close',
     ]);
     expect(cardEffects).toHaveBeenCalledTimes(8);
     expect(cardEffects.mock.calls.map(([target]) => target)).toEqual([
@@ -97,9 +97,9 @@ describe('complete-union deletion admission and order', () => {
     const operations: string[] = [];
     const failingIo: GrowingFileIo = {
       open(path, flags) { operations.push(`open:${path}`); return openSync(path, flags); },
+      stat(fd) { operations.push('stat'); return fstatSync(fd); },
       write: ((...args: unknown[]) => { operations.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
       fsync(fd) { operations.push('fsync'); fsyncSync(fd); throw failure; },
-      truncate: ftruncateSync,
       close(fd) { operations.push('close'); closeSync(fd); },
     };
     const eventBus = new EventBus(); const events = jest.fn(); eventBus.subscribe('card_history_appended', (event) => { events(event); });
@@ -108,9 +108,22 @@ describe('complete-union deletion admission and order', () => {
     let thrown: unknown;
     try { deleting.deleteSubtrees([left.id, right.id], context, () => true); } catch (error) { thrown = error; }
     expect(thrown).toBe(failure);
-    expect(operations).toEqual([`open:${cardStreamFile(root, left.id)}`, 'write', 'fsync', 'close']);
+    expect(operations).toEqual([`open:${cardStreamFile(root, left.id)}`, 'stat', 'write', 'fsync', 'close']);
     expect(cardEffects).not.toHaveBeenCalled();
     expect(runtimeEffects).not.toHaveBeenCalled();
     expect(events).not.toHaveBeenCalled();
+  });
+
+  it('fails fast without effects when a required tombstone stream is missing at append open', () => {
+    const { root, cards } = setup(); const child = create(cards);
+    const missingIo: GrowingFileIo = {
+      open() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+      stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+    };
+    const eventBus = new EventBus(); const events = jest.fn(); eventBus.subscribe('card_history_appended', () => { events(); });
+    const changes = new ReadModelChangeBroadcaster(); const effects = jest.fn(); changes.subscribe({ cardProjectionChanged: effects, runtimeChanged: effects, agentsChanged() {}, conversationChanged() {} });
+    const deleting = new CardService(root, eventBus, changes, missingIo);
+    expect(() => deleting.deleteSubtrees([child.id], context, () => true)).toThrow(/disappeared before tombstone append/);
+    expect(events).not.toHaveBeenCalled(); expect(effects).not.toHaveBeenCalled();
   });
 });

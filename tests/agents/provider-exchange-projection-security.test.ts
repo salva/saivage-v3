@@ -54,8 +54,44 @@ describe('provider exchange publication security projection', () => {
 
     service.projectProviderExchanges('planner:project', 'empty', [], []);
     expect(readableCounts).toHaveLength(5);
-    expect(() => service.projectProviderExchanges('planner:project', sourceInputId, [providerAttempts()[0]!], [])).toThrow(/already exists/);
-    expect(readableCounts).toHaveLength(5);
+  });
+
+  it('commits a duplicate canonical exchange before one strict Agent observer failure and stops later attempts', () => {
+    const root = projectRoot();
+    const agentsChanged = jest.fn(() => { readAppLogEntries(root, 'provider_exchange'); });
+    const changes: ReadModelChanges = {
+      runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), conversationChanged: jest.fn(), agentsChanged,
+      subscribe: jest.fn(() => ({ unsubscribe: jest.fn() })),
+    };
+    const service = invocationService(root, changes);
+    service.projectProviderExchanges(sessionId, sourceInputId, [providerAttempts()[0]!], []);
+
+    expect(() => service.projectProviderExchanges(sessionId, sourceInputId, providerAttempts(), [])).toThrow(/duplicate id/);
+    const rows = rawProviderRows(root);
+    expect(rows.map(({ id }) => id)).toEqual([
+      providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
+      providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
+    ]);
+    expect(agentsChanged).toHaveBeenCalledTimes(2);
+    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate id/);
+  });
+
+  it('commits a duplicate noncanonical exchange without an Agent hint and rejects it only on strict read', () => {
+    const root = projectRoot(); const agentsChanged = jest.fn();
+    const changes: ReadModelChanges = {
+      runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), conversationChanged: jest.fn(), agentsChanged,
+      subscribe: jest.fn(() => ({ unsubscribe: jest.fn() })),
+    };
+    const service = invocationService(root, changes);
+    const attempt = attemptFor('summary-input', 0);
+    service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], []);
+    service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], []);
+    expect(rawProviderRows(root).map(({ id }) => id)).toEqual([
+      providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
+      providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
+    ]);
+    expect(agentsChanged).not.toHaveBeenCalled();
+    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate id/);
   });
 
   it('redacts classified diagnostic fields before durable append without changing identity or source attempts', () => {
@@ -219,6 +255,10 @@ function projectRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'saivage-provider-exchange-security-'));
   roots.push(root);
   return root;
+}
+
+function rawProviderRows(root: string): Array<{ id: string }> {
+  return readFileSync(appLogFile(root), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ id: string }> }).rows);
 }
 
 function invocationService(root: string, readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster()): InvocationService {
