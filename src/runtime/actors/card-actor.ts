@@ -13,7 +13,6 @@ import type { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
-import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { AppLogContext } from '../../persistence/app-log.js';
 import type { RecordProjection } from '../../persistence/authored-record-files.js';
@@ -106,7 +105,6 @@ export interface CardActorDeps {
   runtimeProjectionChanged(): void;
   releaseSettledActor(actor: CardActor): void;
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
-  conversationPublisher?: ConversationChangePublisher;
   conversations: ConversationFileContext;
   appLogs: AppLogContext;
   isRuntimeClosing(): boolean;
@@ -567,7 +565,6 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       compactionConfig: owner.deps.compactionConfig,
       summarizerProvider: owner.deps.summarizerProvider,
       promptTemplates: owner.deps.promptTemplates,
-      conversationPublisher: owner.deps.conversationPublisher,
       runtimeProjectionChanged: owner.deps.runtimeProjectionChanged,
   });
 }

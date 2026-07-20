@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../../persistence/conversation-file.js';
+import { appendConversationBatch, ConversationPostPublicationObservationError, readConversation, type ConversationFileContext } from '../../../persistence/conversation-file.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type ContextCompactionContent } from '../../../schemas/index.js';
 import { hashConversationRows, validateConversationRows, type ValidatedContextCompaction } from '../../../contracts/conversation-compaction.js';
 import { classifySourceSegments } from '../../../contracts/conversation-source-classification.js';
@@ -156,8 +156,9 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   args.signal.throwIfAborted();
   assertMonotonicCutoff(latest, candidate.compaction);
   try {
-    appendConversationBatch(projectRoot, [candidate.message], args.conversations.changes);
+    appendConversationBatch(args.conversations, [candidate.message]);
   } catch (error) {
+    if (error instanceof ConversationPostPublicationObservationError) throw error;
     throw new CompactionAppendError(error);
   }
   return { kind: 'compacted', providerConversation: candidate.providerConversation, compactionMessage: candidate.message, estimatedProviderMessageTokens: candidate.estimatedProviderMessageTokens };

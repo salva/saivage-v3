@@ -29,7 +29,7 @@ describe('stable same-session recovery', () => {
       { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
       { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb' }) } }] }), tool: 'activate_card', tool_call_id: 'call-1', message_index: 1 },
     ];
-    appendConversationBatch(projectRoot, rows);
+    appendConversationBatch({ projectRoot }, rows);
     const result = stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     expect(result.disposition).toBe('ordinary_interruption');
     const recovered = readConversation(projectRoot, sessionId).physicalRows;
@@ -50,7 +50,7 @@ describe('stable same-session recovery', () => {
     mkdirSync(dirname(conversationFile(projectRoot, sessionId)), { recursive: true });
     roots.push(projectRoot);
     const base = { session_id: sessionId, round_id: 'r-pre-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
-    appendConversationBatch(projectRoot, [
+    appendConversationBatch({ projectRoot }, [
       { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: sessionId.split(':')[0], card_id: sessionId.slice(sessionId.indexOf(':') + 1), input_id: source, timestamp: base.timestamp }) },
       { ...base, id: `${source}:tool-call:emit-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'emit-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 1 },
       { ...base, id: `${source}:tool-result:emit-1`, role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: false, error: 'deferred', data: { reason: 'pending_notifications' } }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 2 },
@@ -65,7 +65,7 @@ describe('stable same-session recovery', () => {
     roots.push(projectRoot);
     const sessionId: ConversationSessionId = 'planner:project';
     const base = { session_id: sessionId, round_id: 'r-pre-cccccccccccccccccccccccccccccccc', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
-    appendConversationBatch(projectRoot, [
+    appendConversationBatch({ projectRoot }, [
       { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
       { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), tool: 'read', tool_call_id: 'call-1', message_index: 1 },
     ] satisfies AgentMessage[]);

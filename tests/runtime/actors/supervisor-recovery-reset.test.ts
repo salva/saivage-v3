@@ -24,7 +24,7 @@ function pendingSession(root: string, sessionId: ConversationSessionId, role: 'p
   const pending: AgentMessage = tool
     ? { id: `${inputId}:tool-call:pending`, session_id: sessionId, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'pending', type: 'function', function: { name: 'activate_card', arguments: '{}' } }] }), tool: 'activate_card', tool_call_id: 'pending', round_id: `r-assistant-${digit.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-07-18T00:00:00.001Z' }
     : { id: `${inputId}:repair`, session_id: sessionId, role: 'user', kind: 'model_repair', content: 'continue', round_id: `r-user-${digit.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-07-18T00:00:00.001Z' };
-  appendConversationBatch(root, [marker, pending]);
+  appendConversationBatch({ projectRoot: root }, [marker, pending]);
 }
 
 function supervisor(root: string, cards: CardService, options: { changes?: ReadModelChangeBroadcaster; provider?: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<never> } } = {}) {

@@ -22,7 +22,6 @@ import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-prot
 import { appendAnalystIngressBatch, appendAnalystRestartBatch, providerConversationProjection } from '../runtime/actors/conversation-session.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
-import { createConversationChangePublisher } from '../runtime/actors/conversation-publisher.js';
 import { readConversation, type ConversationFileContext } from '../persistence/conversation-file.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
@@ -206,7 +205,7 @@ export class AnalystSessionActor extends BaseActor {
       },
     });
     this.processScope = args.runtimeDeps.processRunner.createDirectScope(args.runtimeDeps.analystProcessRootScope, `analyst-session:${args.sessionId}`, 'operator_session');
-    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, compactor: args.runtimeDeps.compactor, summarizerProvider: args.runtimeDeps.summarizerProvider, conversationPublisher: createConversationChangePublisher(args.runtimeDeps.eventBus), runtimeProjectionChanged: args.runtimeDeps.runtimeProjectionChanged });
+    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, compactor: args.runtimeDeps.compactor, summarizerProvider: args.runtimeDeps.summarizerProvider, runtimeProjectionChanged: args.runtimeDeps.runtimeProjectionChanged });
   }
 
   override start(): void {
@@ -418,8 +417,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private scheduleConfirmedRestart(input: AnalystTurnInput): AnalystResponse {
     if (!this.args.restartServerAvailable || !this.args.restartPort) throw new Error('Restart confirmation is unavailable without authenticated operator restart capability.');
-    const rows = appendAnalystRestartBatch(this.args.runtimeDeps.conversations, randomUUID(), input.userContent);
-    for (const row of rows) this.llm.conversationPublisher?.entryAppended(row);
+    appendAnalystRestartBatch(this.args.runtimeDeps.conversations, randomUUID(), input.userContent);
     this.args.restartPort.schedule();
     return this.response(undefined, { status: 'scheduled' });
   }
@@ -453,8 +451,7 @@ export class AnalystSessionActor extends BaseActor {
       projectContext: this.buildProjectContext(),
     });
     const preparedCompaction = prepareCompaction(this.args.runtimeDeps.compactionPolicy, systemPrompt, tools, modelParams.maxTokens);
-    const newMessages = appendAnalystIngressBatch(this.args.runtimeDeps.conversations, inputId, buildWorkspaceContextNote(turn.workspaceContext), turn.userContent);
-    for (const message of newMessages) this.llm.conversationPublisher?.entryAppended(message);
+    appendAnalystIngressBatch(this.args.runtimeDeps.conversations, inputId, buildWorkspaceContextNote(turn.workspaceContext), turn.userContent);
     return {
       inputId,
       agentId: this.llm.agentId,
@@ -497,8 +494,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations, input?: PreparedLlmInvocationInput): AnalystResponse {
     if (input) {
-      const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, this.errorMessage(err));
-      this.llm.conversationPublisher?.entryAppended(message);
+      appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, this.errorMessage(err));
     }
     return this.response(toolInvocations);
   }
@@ -510,8 +506,7 @@ export class AnalystSessionActor extends BaseActor {
   private persistAssistantNotice(content: string): void {
     const input = this.llm.input;
     if (!input) return;
-    const message = appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, content);
-    this.llm.conversationPublisher?.entryAppended(message);
+    appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, content);
   }
 
   private buildProjectContext(): string {

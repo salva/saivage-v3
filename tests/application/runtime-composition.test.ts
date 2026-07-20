@@ -13,6 +13,8 @@ import { createEventLog } from '../../src/observability/index.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import { agentMessageSchema } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -45,6 +47,24 @@ function mechanics() {
 }
 
 describe('runtime compaction composition', () => {
+  it('composes the narrow append observer into the unchanged conversation_changed event payload', () => {
+    let deps!: RuntimeApiFactoryDeps;
+    const runtimeApiFactory = jest.fn((value: RuntimeApiFactoryDeps) => { deps = value; return mechanics(); });
+    const selected = services(runtimeApiFactory);
+    const events: unknown[] = [];
+    selected.eventBus.subscribe('conversation_changed', (event) => { events.push(event.payload); });
+    createRuntimeApplication(selected);
+    const timestamp = '2026-07-19T00:00:00.000Z';
+    const sessions = ['analyst:global', 'planner:project', 'reviewer:project', 'executor:project'] as const;
+    const rows = sessions.map((sessionId, index) => agentMessageSchema.parse(index === 0
+      ? { id: `composed-entry-${index}`, session_id: sessionId, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'analyst', input_id: '00000000-0000-4000-8000-000000000001', timestamp }), round_id: `r-pre-${String(index).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }
+      : { id: `composed-entry-${index}`, session_id: sessionId, role: 'user', kind: 'text', content: 'private content is not an event field', round_id: `r-user-${String(index).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }));
+
+    for (const row of rows) appendConversationBatch(deps.conversations, [row]);
+
+    expect(events).toEqual(rows.map((row) => ({ session_id: row.session_id, mutation: 'entry_appended', message_id: row.id, message_kind: row.kind, role: row.role, message_timestamp: timestamp })));
+  });
+
   it('rejects a non-emitted candidate before an injected runtime factory is invoked', () => {
     const runtimeApiFactory = jest.fn(() => mechanics());
     const invalid = config({ provider: 'test', account: null, model: 'missing/model' });

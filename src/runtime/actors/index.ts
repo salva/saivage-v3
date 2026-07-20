@@ -1,6 +1,5 @@
 export * from './llm-delivery-log.js';
 export * from './conversation-session.js';
-export * from './conversation-publisher.js';
 export * from './conversation-recovery.js';
 export {
   parseConversationSessionId,

@@ -142,7 +142,7 @@ describe('ordinary-runtime last-chance context compaction E2E', () => {
 });
 
 function appendPlannerHistory(projectRoot: string): void {
-  appendConversationBatch(projectRoot, Array.from({ length: 5 }, (_, index) => {
+  appendConversationBatch({ projectRoot }, Array.from({ length: 5 }, (_, index) => {
     const ordinal = index + 1;
     const inputId = `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`;
     const timestamp = `2026-07-17T00:00:${String(ordinal).padStart(2, '0')}.000Z`;

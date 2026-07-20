@@ -28,7 +28,7 @@ function waiting(): ExecutingLlmSnapshot { return { sessionId: 'planner:project'
 describe('Analyst agent-session tools', () => {
   it('returns the exact direct session/activity projection and tails only messages', async () => {
     const projectRoot = setup();
-    publishConversationFirstBatch(projectRoot, rows());
+    publishConversationFirstBatch({ projectRoot }, rows());
     const snapshots = () => [waiting()];
     const expected = new AgentOperatorReadModelService(projectRoot, snapshots).getConversation('planner:project');
     if (!('session' in expected.body)) throw new Error('expected conversation');
@@ -48,7 +48,7 @@ describe('Analyst agent-session tools', () => {
     const cards = new CardService(projectRoot);
     const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const sessionId = `executor:${child.id}` as const;
-    publishConversationFirstBatch(projectRoot, [{ ...rows()[0]!, id: 'child-text', session_id: sessionId }]);
+    publishConversationFirstBatch({ projectRoot }, [{ ...rows()[0]!, id: 'child-text', session_id: sessionId }]);
     const context = { projectRoot, captureExecutingLlmSnapshots: () => [] } as unknown as ToolContext;
     await expect(list_agent_sessions(context, {})).resolves.toMatchObject({ success: true, data: [expect.objectContaining({ id: sessionId })] });
     cards.deleteSubtrees([child.id], { actor: 'analyst', surface: 'web-chat', reason: 'test' }, () => true);

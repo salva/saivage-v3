@@ -135,7 +135,7 @@ describe('exact role-session stabilization', () => {
     initProjectTree(projectRoot);
     const sessionId = `${role}:${cardId}` as ConversationSessionId;
     const sourceInputId = '11111111-1111-4111-8111-111111111111';
-    appendConversationBatch(projectRoot, [
+    appendConversationBatch({ projectRoot }, [
       message({ id: `${sessionId}:activation:one`, session_id: sessionId, kind: 'activity', content: JSON.stringify({ event: 'activation_open', role, card_id: cardId, input_id: sourceInputId, timestamp: '2026-07-08T00:00:00.000Z' }) }),
     ]);
     return { projectRoot, sessionId, sourceInputId };
@@ -148,7 +148,7 @@ describe('exact role-session stabilization', () => {
   it.each(['planner', 'reviewer', 'executor'] as const)('stabilizes an interrupted %s corrective continuation', (role) => {
     const cardId = 'project';
     const { projectRoot, sessionId, sourceInputId } = scenario(role, cardId);
-    appendConversationBatch(projectRoot, [toolCall(sourceInputId, 'emit', sessionId), toolResult(sourceInputId, 'emit', sessionId, 'emit_result', { success: false, data: { reason: 'pending_notifications' } })]);
+    appendConversationBatch({ projectRoot }, [toolCall(sourceInputId, 'emit', sessionId), toolResult(sourceInputId, 'emit', sessionId, 'emit_result', { success: false, data: { reason: 'pending_notifications' } })]);
     expect(stabilize(projectRoot, sessionId).disposition).toBe('ordinary_interruption');
     const rows = readConversation(projectRoot, sessionId).sourceRows;
     expect(rows.at(-1)).toMatchObject({ id: `${sourceInputId}:model-recovered`, session_id: sessionId, kind: 'model_recovered', round_id: `r-pre-${createHash('sha256').update(sourceInputId).digest('hex').slice(0, 32)}` });
@@ -156,7 +156,7 @@ describe('exact role-session stabilization', () => {
 
   it('settles an unmatched activate_card as ordinary outcome-unknown without child reconstruction', () => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
-    appendConversationBatch(projectRoot, [toolCall(sourceInputId, 'activate-child', sessionId, 'activate_card')]);
+    appendConversationBatch({ projectRoot }, [toolCall(sourceInputId, 'activate-child', sessionId, 'activate_card')]);
     stabilize(projectRoot, sessionId);
     const rows = readConversation(projectRoot, sessionId).sourceRows;
     expect(JSON.parse(rows.at(-2)!.content)).toEqual({ success: false, error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.', data: { outcome_unknown: true } });
@@ -165,7 +165,7 @@ describe('exact role-session stabilization', () => {
 
   it.each<[string, 'model_repair' | 'text', 'user' | 'assistant']>([['provider', 'model_repair', 'user'], ['text', 'text', 'assistant']])('appends only the marker-bound notice for %s pending work', (_name, kind, role) => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
-    appendConversationBatch(projectRoot, [message({ id: `${sourceInputId}:${kind}`, session_id: sessionId, kind, role, content: 'pending' })]);
+    appendConversationBatch({ projectRoot }, [message({ id: `${sourceInputId}:${kind}`, session_id: sessionId, kind, role, content: 'pending' })]);
     stabilize(projectRoot, sessionId);
     const rows = readConversation(projectRoot, sessionId).sourceRows;
     expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(0);
@@ -174,7 +174,7 @@ describe('exact role-session stabilization', () => {
 
   it('rejects multiple unmatched calls without appending any settlement', () => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
-    appendConversationBatch(projectRoot, [message({
+    appendConversationBatch({ projectRoot }, [message({
       id: `${sourceInputId}:tool-call:call-1`, session_id: sessionId, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1',
       content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), message_index: 1,
     }), message({
@@ -187,7 +187,7 @@ describe('exact role-session stabilization', () => {
 
   it('recognizes only the exact final marker-bound recovery notice and repeats read-only', () => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
-    appendConversationBatch(projectRoot, [message({ id: `${sourceInputId}:message`, session_id: sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
+    appendConversationBatch({ projectRoot }, [message({ id: `${sourceInputId}:message`, session_id: sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
     stabilize(projectRoot, sessionId);
     const count = readConversation(projectRoot, 'planner:project').physicalRows.length;
     expect(stabilize(projectRoot, sessionId).disposition).toBe('clean');
@@ -196,24 +196,24 @@ describe('exact role-session stabilization', () => {
 
   it('rejects a malformed recovery notice and newer work after an exact notice', () => {
     const malformed = scenario();
-    appendConversationBatch(malformed.projectRoot, [message({ id: `${malformed.sourceInputId}:wrong-recovery`, session_id: malformed.sessionId, kind: 'model_recovered', role: 'system', content: 'wrong recovery body', block_index: 1 })]);
+    appendConversationBatch({ projectRoot: malformed.projectRoot }, [message({ id: `${malformed.sourceInputId}:wrong-recovery`, session_id: malformed.sessionId, kind: 'model_recovered', role: 'system', content: 'wrong recovery body', block_index: 1 })]);
     expect(() => stabilize(malformed.projectRoot, malformed.sessionId)).toThrow(/not its final exact canonical source row/);
 
     const newer = scenario();
-    appendConversationBatch(newer.projectRoot, [message({ id: `${newer.sourceInputId}:message`, session_id: newer.sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
+    appendConversationBatch({ projectRoot: newer.projectRoot }, [message({ id: `${newer.sourceInputId}:message`, session_id: newer.sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
     stabilize(newer.projectRoot, newer.sessionId);
-    appendConversationBatch(newer.projectRoot, [message({ id: `${newer.sourceInputId}:newer-message`, session_id: newer.sessionId, kind: 'text', role: 'assistant', content: 'newer pending work' })]);
+    appendConversationBatch({ projectRoot: newer.projectRoot }, [message({ id: `${newer.sourceInputId}:newer-message`, session_id: newer.sessionId, kind: 'text', role: 'assistant', content: 'newer pending work' })]);
     expect(() => stabilize(newer.projectRoot, newer.sessionId)).toThrow(/not its final exact canonical source row/);
   });
 
   it('rejects missing and mismatched latest activation-marker association before recovery writes', () => {
     const missingRoot = mkdtempSync(join(tmpdir(), 'saivage-role-stabilization-missing-marker-')); roots.push(missingRoot); initProjectTree(missingRoot);
-    appendConversationBatch(missingRoot, [message({ session_id: 'planner:project', kind: 'text', role: 'assistant', content: 'pending without marker' })]);
+    appendConversationBatch({ projectRoot: missingRoot }, [message({ session_id: 'planner:project', kind: 'text', role: 'assistant', content: 'pending without marker' })]);
     expect(() => stabilize(missingRoot)).toThrow(/no activation marker/);
     expect(readConversation(missingRoot, 'planner:project').sourceRows).toHaveLength(1);
 
     const mismatched = scenario();
-    appendConversationBatch(mismatched.projectRoot, [message({ id: `${mismatched.sourceInputId}:pending`, session_id: mismatched.sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
+    appendConversationBatch({ projectRoot: mismatched.projectRoot }, [message({ id: `${mismatched.sourceInputId}:pending`, session_id: mismatched.sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
     const path = conversationFile(mismatched.projectRoot, mismatched.sessionId);
     const canonical = readFileSync(path, 'utf8');
     writeFileSync(path, canonical.replace('\\"role\\":\\"planner\\"', '\\"role\\":\\"reviewer\\"'));
@@ -223,7 +223,7 @@ describe('exact role-session stabilization', () => {
 
   it('stops immediately when notice publication reports an error', () => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
-    appendConversationBatch(projectRoot, [message({ id: `${sourceInputId}:message`, session_id: sessionId, kind: 'text', role: 'assistant' })]);
+    appendConversationBatch({ projectRoot }, [message({ id: `${sourceInputId}:message`, session_id: sessionId, kind: 'text', role: 'assistant' })]);
     const publicationError = new Error('publication callback failed');
     const conversationChanged = jest.fn(() => { throw publicationError; });
     expect(() => stabilizeRoleSession({
@@ -238,7 +238,7 @@ describe('exact role-session stabilization', () => {
 
   it('performs no notice append after failed-tool-result publication reports an error', () => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
-    appendConversationBatch(projectRoot, [toolCall(sourceInputId, 'pending', sessionId, 'activate_card')]);
+    appendConversationBatch({ projectRoot }, [toolCall(sourceInputId, 'pending', sessionId, 'activate_card')]);
     const publicationError = new Error('result publication callback failed');
     expect(() => stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot, changes: { conversationChanged() { throw publicationError; }, agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } }, terminalToolNames: terminalTools })).toThrow(publicationError);
     const rows = readConversation(projectRoot, sessionId).sourceRows;
@@ -250,7 +250,7 @@ describe('exact role-session stabilization', () => {
     { point: 'failed-result', toolPending: true }, { point: 'notice', toolPending: false },
   ] as const)('propagates a physical $point append failure with no later recovery row', ({ toolPending }) => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
-    appendConversationBatch(projectRoot, [toolPending ? toolCall(sourceInputId, 'pending', sessionId, 'activate_card') : message({ id: `${sourceInputId}:pending`, session_id: sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
+    appendConversationBatch({ projectRoot }, [toolPending ? toolCall(sourceInputId, 'pending', sessionId, 'activate_card') : message({ id: `${sourceInputId}:pending`, session_id: sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
     const path = conversationFile(projectRoot, sessionId);
     const before = readFileSync(path, 'utf8');
     const originalMode = statSync(path).mode;

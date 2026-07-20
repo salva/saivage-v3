@@ -46,7 +46,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     const compact = jest.fn<CompactorPort['compact']>(async () => { ordering.push('compact'); return compacted(compactedProjection, 17); });
     const { actor, root } = actorHarness(role, agentId, provider, compact);
     if (role === 'analyst') appendAnalystIngressBatch({ projectRoot: root }, INITIAL_INPUT_ID, source.content, trigger.content);
-    else appendConversationBatch(root, [source, trigger]);
+    else appendConversationBatch({ projectRoot: root }, [source, trigger]);
     const initial = input(role, agentId, firstProjection);
 
     await expect(actor.turn(initial)).resolves.toMatchObject({ type: 'result', result: { content: 'done' } });

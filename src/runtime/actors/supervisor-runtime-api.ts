@@ -11,7 +11,6 @@ import type { NotifyCardResult, StartProjectResult, StopProjectResult } from '..
 import { RuntimeGate } from '../runtime-gate.js';
 import { ActiveCardLeaf } from '../active-card-leaf.js';
 import { selectLinkedRunningChain } from '../running-card-chain.js';
-import { createConversationChangePublisher } from './conversation-publisher.js';
 import type { LLMProviderPort, CompactorPort } from './llm-actor.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
@@ -328,7 +327,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     this.cardActors.delete(actor.cardId);
     this.runtimeProjectionChanged();
   }
-  private cardActorDeps(): CardActorDeps { return { projectRoot: this.options.projectRoot, storeForCard: () => this.options.actorStore, currentness: this.currentness, provider: this.options.provider, compactor: this.options.compactor, compactionConfig: this.options.compactionConfig, summarizerProvider: this.options.summarizerProvider, gate: this.runtimeGate, processRunner: this.options.processRunner, promptTemplates: this.options.promptTemplates, cardProcesses: this.options.cardProcesses, processPrompts: this.options.processPrompts, mcpManagerProvider: this.options.mcpManagerProvider, notifyCard: (cardId, notification) => this.notifyCard(cardId, notification), cancelCard: (cardId, reason) => this.cancelCard(cardId, reason), lookup: this.cardActors, liveLookup: this.liveCardActors, runtimeProjectionChanged: () => this.runtimeProjectionChanged(), releaseSettledActor: (actor) => this.releaseSettledActor(actor), conversationPublisher: createConversationChangePublisher(this.eventBus), conversations: this.options.conversations, appLogs: this.options.appLogs, isRuntimeClosing: () => this.status === 'closing' }; }
+  private cardActorDeps(): CardActorDeps { return { projectRoot: this.options.projectRoot, storeForCard: () => this.options.actorStore, currentness: this.currentness, provider: this.options.provider, compactor: this.options.compactor, compactionConfig: this.options.compactionConfig, summarizerProvider: this.options.summarizerProvider, gate: this.runtimeGate, processRunner: this.options.processRunner, promptTemplates: this.options.promptTemplates, cardProcesses: this.options.cardProcesses, processPrompts: this.options.processPrompts, mcpManagerProvider: this.options.mcpManagerProvider, notifyCard: (cardId, notification) => this.notifyCard(cardId, notification), cancelCard: (cardId, reason) => this.cancelCard(cardId, reason), lookup: this.cardActors, liveLookup: this.liveCardActors, runtimeProjectionChanged: () => this.runtimeProjectionChanged(), releaseSettledActor: (actor) => this.releaseSettledActor(actor), conversations: this.options.conversations, appLogs: this.options.appLogs, isRuntimeClosing: () => this.status === 'closing' }; }
 
   private runtimeProjectionChanged(): void { this.options.readModelChanges.runtimeChanged(); this.options.readModelChanges.agentsChanged(); }
 

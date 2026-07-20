@@ -124,7 +124,7 @@ describe('Stage-I compaction contracts', () => {
         { id: 'hard-activation', session_id, role: 'system' as const, kind: 'activity' as const, content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source_input_id, timestamp: '2026-07-15T00:01:00.000Z' }), round_id: 'r-pre-99999999999999999999999999999999', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' },
         ...Array.from({ length: 10 }, (_, index) => ({ id: `hard-message-${index}`, session_id, role: 'user' as const, kind: 'text' as const, content: `${index}:${'x'.repeat(320)}`, round_id: 'r-user-99999999999999999999999999999999', message_index: index + 1, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' })),
       ];
-      appendConversationBatch(root, rows);
+      appendConversationBatch({ projectRoot: root }, rows);
       const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'small prefix summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
       const hardConfig: AutonomousCompactionPolicy = { ...config, input_budget_tokens: 400 };
       const invocation = invocationFor(session_id, rows, hardConfig);
@@ -140,7 +140,7 @@ describe('Stage-I compaction contracts', () => {
       const first = readConversation(root, session_id);
       const firstCutoff = first.latestCompaction!.cutoffSourceIndex;
       expect(first.latestCompaction!.cutoffMessageId).not.toBe('hard-message-9');
-      appendConversationBatch(root, [{ id: 'hard-message-10', session_id, role: 'user', kind: 'text', content: `10:${'x'.repeat(320)}`, round_id: 'r-user-99999999999999999999999999999999', message_index: 11, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' }]);
+      appendConversationBatch({ projectRoot: root }, [{ id: 'hard-message-10', session_id, role: 'user', kind: 'text', content: `10:${'x'.repeat(320)}`, round_id: 'r-user-99999999999999999999999999999999', message_index: 11, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' }]);
       const current = readConversation(root, session_id);
       await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: { ...invocation, inputId: '00000000-0000-4000-8000-000000000100', providerConversation: providerConversationProjection(current) }, summarizerProvider: provider, signal: new AbortController().signal });
       const second = readConversation(root, session_id).latestCompaction!;
@@ -211,7 +211,7 @@ describe('Stage-I compaction contracts', () => {
         { id: 'public-1', session_id: sessionId, role: 'assistant' as const, kind: 'text' as const, content: 'y'.repeat(600), round_id: 'r-assistant-99999999999999999999999999999999', message_index: 5, block_index: 0, timestamp, provider_projection: { kind: 'openai_responses' as const, source_input_id: inputId, private_message_id: 'private-1', projection_kind: 'assistant_message' as const } },
         { id: 'protected-tail', session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: 'z'.repeat(600), round_id: 'r-user-99999999999999999999999999999999', message_index: 6, block_index: 0, timestamp },
       ];
-      appendConversationBatch(root, rows);
+      appendConversationBatch({ projectRoot: root }, rows);
       const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(sessionId, rows, { ...config, input_budget_tokens: 500 }), summarizerProvider: summaryProvider(), signal: new AbortController().signal });
       if (result.kind !== 'compacted') throw new Error('Expected preventive compaction.');
       const validated = readConversation(root, sessionId).latestCompaction!;
@@ -242,7 +242,7 @@ function appendRawRound(root: string, ordinal: number, session_id: ConversationS
   const timestamp = `2026-07-15T00:00:${String(ordinal).padStart(2, '0')}.000Z`;
   const role = session_id.slice(0, session_id.indexOf(':'));
   const cardId = session_id.slice(session_id.indexOf(':') + 1);
-  appendConversationBatch(root, [{ id: `activation-${ordinal}`, session_id, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role, card_id: cardId, input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id, role: 'user', kind: 'text', content: `${ordinal}:${'x'.repeat(400)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]);
+  appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role, card_id: cardId, input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id, role: 'user', kind: 'text', content: `${ordinal}:${'x'.repeat(400)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]);
 }
 
 function invocationFor(sessionId: ConversationSessionId, contextMessages: AgentMessage[], compactionConfig: AutonomousCompactionPolicy): PreparedLlmInvocationInput {

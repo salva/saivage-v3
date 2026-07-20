@@ -163,7 +163,7 @@ describe('operator API response contracts', () => {
       tool_call_id: 'call-1',
       timestamp: '2026-07-16T00:00:00.000Z',
     };
-    appendConversationBatch(projectRoot, [result]);
+    appendConversationBatch({ projectRoot }, [result]);
 
     const response = await app.server.fastify.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}/conversation` });
 

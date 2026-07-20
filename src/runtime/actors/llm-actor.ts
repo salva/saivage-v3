@@ -8,7 +8,6 @@ import { appendUserContextMessage, providerConversationProjection, type Provider
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
-import type { ConversationChangePublisher } from './conversation-publisher.js';
 import { readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
 import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../../contracts/provider-exchange.js';
@@ -80,13 +79,12 @@ export class ConversationLLMActor extends BaseActor {
   #currentInvocation: InvocationLease | null = null;
   #executingActivity: ExecutingLlmActivity = Object.freeze({ mode: 'active', barrier: null });
 
-  readonly conversationPublisher?: ConversationChangePublisher;
   readonly conversations: ConversationFileContext;
   readonly compactor: CompactorPort;
   readonly summarizerProvider: SummarizerProviderPort;
   readonly runtimeProjectionChanged?: () => void;
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher; runtimeProjectionChanged?: () => void }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; runtimeProjectionChanged?: () => void }) {
     super(CONVERSATION_LLM_ACTOR_DEFINITION, {
       enter: ({ target }) => {
         if (target === 'calling_provider') this.enterCallingProvider();
@@ -98,7 +96,6 @@ export class ConversationLLMActor extends BaseActor {
     this.provider = args.provider;
     this.conversations = args.conversations;
     this.gate = args.gate ?? new RuntimeGate();
-    this.conversationPublisher = args.conversationPublisher;
     this.compactor = args.compactor;
     this.summarizerProvider = args.summarizerProvider;
     this.runtimeProjectionChanged = args.runtimeProjectionChanged;
@@ -169,14 +166,13 @@ export class ConversationLLMActor extends BaseActor {
     }
     this.recordToolSettled(toolCallId);
     const input = this.requireInput();
-    const delivery = appendToolResult(this.conversations, {
+    appendToolResult(this.conversations, {
       session_id: input.sessionId,
       source_input_id: waiting.sourceInputId,
       tool_call_id: toolCallId,
       tool_name: waiting.toolName,
       result,
     });
-    this.conversationPublisher?.entryAppended(delivery.message);
     const continuationInputId = randomUUID();
     this.appendContinuationContext(input, continuationInputId, continuationContextHook);
     this.input = {
@@ -194,14 +190,13 @@ export class ConversationLLMActor extends BaseActor {
     const waiting = this.requireWaitingTool(toolCallId);
     this.recordToolSettled(toolCallId);
     const input = this.requireInput();
-    const delivery = appendToolResult(this.conversations, {
+    appendToolResult(this.conversations, {
       session_id: input.sessionId,
       source_input_id: waiting.sourceInputId,
       tool_call_id: toolCallId,
       tool_name: waiting.toolName,
       result,
     });
-    this.conversationPublisher?.entryAppended(delivery.message);
     this.input = null;
     this.outcome = null;
     this.waitingToolCall = null;
@@ -220,12 +215,9 @@ export class ConversationLLMActor extends BaseActor {
     const input = this.requireInput();
     const repairInputId = randomUUID();
     const repairMessage = appendModelRepairMessage(this.conversations, { ...input, inputId: repairInputId }, repairDirective);
-    this.conversationPublisher?.entryAppended(repairMessage);
     const continuation = continuationContextHook?.(repairInputId);
-    const extraMessages = (continuation?.messages ?? []).map((message, index) => {
-      const result = appendUserContextMessage(this.conversations, input.sessionId, repairInputId, 'continuation_hook', index, message);
-      this.conversationPublisher?.entryAppended(result);
-      return result;
+    (continuation?.messages ?? []).forEach((message, index) => {
+      appendUserContextMessage(this.conversations, input.sessionId, repairInputId, 'continuation_hook', index, message);
     });
     continuation?.afterAppend?.();
     return this.startProviderTurn({
@@ -268,7 +260,7 @@ export class ConversationLLMActor extends BaseActor {
           this.assertPersistenceOwnership(effectiveInput);
           if (hookInput) this.input = effectiveInput;
           const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(effectiveInput.sessionId);
-          for (const result of appendLlmTurnStarted(this.conversations, effectiveInput, { includeSystemPrompt })) this.conversationPublisher?.entryAppended(result);
+          appendLlmTurnStarted(this.conversations, effectiveInput, { includeSystemPrompt });
           if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(effectiveInput.sessionId);
           const providerInput = effectiveInput;
           this.input = providerInput;
@@ -347,7 +339,6 @@ export class ConversationLLMActor extends BaseActor {
     const { input, completion } = persisted;
     const result = completion.result;
     if (persisted.kind === 'message' && result.kind === 'message') {
-      this.conversationPublisher?.entryAppended(persisted.appended);
       const activeConversation = readConversation(this.projectRoot, input.sessionId);
       this.input = { ...input, providerConversation: providerConversationProjection(activeConversation) };
       this.outcome = { type: 'result', agentId: this.agentId, result };
@@ -360,13 +351,11 @@ export class ConversationLLMActor extends BaseActor {
       return;
     }
     if (persisted.kind === 'invalid_tool_calls') {
-      this.conversationPublisher?.entryAppended(persisted.appended);
       this.settleWithError(persisted.error);
       return;
     }
     if (result.kind !== 'tool_calls') throw new Error('Persisted provider completion kind changed before delivery.');
     const [call] = result.tool_calls;
-    this.conversationPublisher?.entryAppended(persisted.appended);
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
     this.onTurnStateUpdated({ input, waitingToolCall: this.waitingToolCall });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
@@ -378,7 +367,7 @@ export class ConversationLLMActor extends BaseActor {
   }
 
   private completeWithError(input: CanonicalLlmInvocationInput, error: string): void {
-    this.conversationPublisher?.entryAppended(appendLlmTurnError(this.conversations, input, error));
+    appendLlmTurnError(this.conversations, input, error);
     this.settleWithError(error);
   }
 
@@ -387,7 +376,6 @@ export class ConversationLLMActor extends BaseActor {
     if (error.failure_phase === 'provider_attempt' && error.provider_exchanges.length === 0) throw new Error(`Provider attempt for '${input.inputId}' failed without provider_exchange envelope.`);
     const message = error.originalFailure instanceof Error ? error.originalFailure.message : error.message;
     const appended = appendLlmTurnError(this.conversations, input, message);
-    this.conversationPublisher?.entryAppended(appended);
     this.projectProviderExchanges(input, error.provider_exchanges, [appended.id]);
     this.settleWithError(message);
   }
@@ -491,8 +479,7 @@ export class ConversationLLMActor extends BaseActor {
   private appendContinuationContext(input: CanonicalLlmInvocationInput, continuationInputId: string, continuationContextHook?: LLMToolContinuationContextHook): void {
     const continuation = continuationContextHook?.(continuationInputId);
     (continuation?.messages ?? []).forEach((message, index) => {
-      const result = appendUserContextMessage(this.conversations, input.sessionId, continuationInputId, 'continuation_hook', index, message);
-      this.conversationPublisher?.entryAppended(result);
+      appendUserContextMessage(this.conversations, input.sessionId, continuationInputId, 'continuation_hook', index, message);
     });
     continuation?.afterAppend?.();
   }

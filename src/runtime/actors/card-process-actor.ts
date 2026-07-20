@@ -12,7 +12,6 @@ import type { ProcessRunner } from '../process-runner.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
-import type { ConversationChangePublisher } from './conversation-publisher.js';
 import type { CompiledCardProcess, ProcessPosition } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import { AgentNodeExecution, type AcceptedNodeResult, type NodeTransition } from './agent-node-execution.js';
@@ -34,7 +33,6 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   readonly #gate: RuntimeGate;
   readonly #compactor: CompactorPort;
   readonly #summarizerProvider: SummarizerProviderPort;
-  readonly #conversationPublisher?: ConversationChangePublisher;
   readonly #runtimeProjectionChanged: () => void;
   readonly #activeLlmActors = new Map<string, ConversationLLMActor>();
   readonly #runner: AgentNodeExecution;
@@ -51,7 +49,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #stagedFailure: Error | null = null;
   #activationSettled = false;
 
-  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; children: { get(cardId: string): CardActor | null }; ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void }; cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>; notifyCard?: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort; conversationPublisher?: ConversationChangePublisher }) {
+  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; children: { get(cardId: string): CardActor | null }; ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void }; cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>; notifyCard?: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpManagerProvider?: () => McpToolInvocationPort | undefined; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.definition, {
       enter: (context) => this.#enterProcessState(context),
       transition: (context) => this.#processTransitioned(context),
@@ -64,10 +62,9 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#gate = args.gate ?? new RuntimeGate();
     this.#compactor = args.compactor;
     this.#summarizerProvider = args.summarizerProvider;
-    this.#conversationPublisher = args.conversationPublisher;
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;
     this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, children: args.children, ownerStructuralWait: args.ownerStructuralWait, cancelCard: args.cancelCard, notifyCard: args.notifyCard, appLogs: args.appLogs, processRunner: args.processRunner, mcpManagerProvider: args.mcpManagerProvider ?? (() => undefined), promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
-      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), toolContext: (llm, outcome) => this.#toolInvocationContext(llm, outcome), publishConversationEntry: (entry) => this.#conversationPublisher?.entryAppended(entry),
+      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), toolContext: (llm, outcome) => this.#toolInvocationContext(llm, outcome),
     });
   }
 
@@ -220,7 +217,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
 
   #createMainLlm(agentId: string): ConversationLLMActor {
     const existing = this.#activeLlmActors.get(agentId); if (existing) return existing;
-    const llm = new ConversationLLMActor({ projectRoot: this.projectRoot, agentId, provider: this.#provider, conversations: this.#conversations, gate: this.#gate, compactor: this.#compactor, summarizerProvider: this.#summarizerProvider, conversationPublisher: this.#conversationPublisher, runtimeProjectionChanged: this.#runtimeProjectionChanged });
+    const llm = new ConversationLLMActor({ projectRoot: this.projectRoot, agentId, provider: this.#provider, conversations: this.#conversations, gate: this.#gate, compactor: this.#compactor, summarizerProvider: this.#summarizerProvider, runtimeProjectionChanged: this.#runtimeProjectionChanged });
     llm.start(); this.#activeLlmActors.set(agentId, llm); this.#runtimeProjectionChanged(); return llm;
   }
   #selectExecutingLlm(llm: ConversationLLMActor): void { const current = this.#currentExecutingLlm; if (!current) { this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); return; } if (current === llm) return; if (current.executingActivity().mode !== 'active') throw new Error(`Processor '${this.cardId}' cannot hand off an LLM actor while waiting.`); this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); }

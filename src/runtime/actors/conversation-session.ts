@@ -33,7 +33,7 @@ export function appendUserContextMessage(
     block_index: 0,
     timestamp,
   });
-  appendConversationBatch(conversations.projectRoot, [message], conversations.changes);
+  appendConversationBatch(conversations, [message]);
   return message;
 }
 
@@ -51,7 +51,7 @@ export function appendActivationMarker(conversations: ConversationFileContext, s
     block_index: 0,
     timestamp,
   });
-  appendConversationBatch(conversations.projectRoot, [message], conversations.changes);
+  appendConversationBatch(conversations, [message]);
   return message;
 }
 
@@ -65,7 +65,7 @@ export function appendAnalystIngressBatch(
   const workspace = buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'system', workspaceContent);
   const user = buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent);
   const rows = [marker, workspace, user] as const;
-  appendConversationBatch(conversations.projectRoot, rows, conversations.changes);
+  appendConversationBatch(conversations, rows);
   return rows;
 }
 
@@ -75,7 +75,7 @@ export function appendAnalystRestartBatch(
   userContent: string,
 ): readonly [AgentMessage, AgentMessage] {
   const rows = [buildAnalystActivationMarker(inputId), buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent)] as const;
-  appendConversationBatch(conversations.projectRoot, rows, conversations.changes);
+  appendConversationBatch(conversations, rows);
   return rows;
 }
 
@@ -107,7 +107,7 @@ export function appendRecoveryNotice(conversations: ConversationFileContext, ses
     block_index: 1,
     timestamp: new Date().toISOString(),
   });
-  appendConversationBatch(conversations.projectRoot, [message], conversations.changes);
+  appendConversationBatch(conversations, [message]);
   return message;
 }
 
@@ -140,7 +140,7 @@ export function buildContextTextMessage(sessionId: ConversationSessionId, role: 
 
 export function appendCanonicalUserText(conversations: ConversationFileContext, sessionId: ConversationSessionId, content: string): AgentMessage {
   const message = buildContextTextMessage(sessionId, 'user', content);
-  appendConversationBatch(conversations.projectRoot, [message], conversations.changes);
+  appendConversationBatch(conversations, [message]);
   return message;
 }
 

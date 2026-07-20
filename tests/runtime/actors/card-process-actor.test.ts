@@ -10,7 +10,7 @@ import type { ProviderTurnCompletion } from '../../../src/agents/llm-contracts.j
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
-import { readConversation } from '../../../src/persistence/conversation-file.js';
+import { readConversation, type ConversationEntryObserver } from '../../../src/persistence/conversation-file.js';
 import { cardProcessesSchema } from '../../../src/agents/config-schema.js';
 import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
 import { compileCardProcesses, type CompiledCardProcess } from '../../../src/runtime/card-process/card-process-config.js';
@@ -21,7 +21,7 @@ describe('CardProcessActor configured graph execution', () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess; entry?: 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED'; runtimeProjectionChanged?: () => void; conversationPublisher?: { entryAppended(entry: import('../../../src/schemas/index.js').AgentMessage): void }; removeNotifications?: (store: CardService, cardId: string, ids: readonly string[]) => void; onClaim?: () => void } = {}) {
+  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess; entry?: 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED'; runtimeProjectionChanged?: () => void; observeEntry?: ConversationEntryObserver; removeNotifications?: (store: CardService, cardId: string, ids: readonly string[]) => void; onClaim?: () => void } = {}) {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-card-process-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
@@ -33,9 +33,9 @@ describe('CardProcessActor configured graph execution', () => {
     const actor = new CardProcessActor({
       projectRoot, cardId, process: options.process ?? (options.cardType === 'code' ? testAutonomousCompaction.cardProcesses.terminal : testAutonomousCompaction.cardProcesses.planning),
       store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined },
-      cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn }, conversations: { projectRoot }, appLogs: { projectRoot },
+      cancelCard: async () => { throw new Error('unused'); }, provider: { completeTurn }, conversations: { projectRoot, observeEntry: options.observeEntry }, appLogs: { projectRoot },
       processRunner, promptTemplates: { render: (_type, _role, values) => String(values.contractDescription) },
-      runtimeProjectionChanged: options.runtimeProjectionChanged ?? (() => undefined), conversationPublisher: options.conversationPublisher, ...testAutonomousCompaction,
+      runtimeProjectionChanged: options.runtimeProjectionChanged ?? (() => undefined), ...testAutonomousCompaction,
     });
     actor.start();
     const claimResult = jest.fn(() => options.onClaim?.());
@@ -348,15 +348,17 @@ describe('CardProcessActor configured graph execution', () => {
     for (const failurePoint of ['failed-result', 'notification', 'correction'] as const) {
       let roleCalls = 0;
       const injected = new Error(`${role} ${failurePoint} append failed`);
-      const publisher = { entryAppended: jest.fn((entry: import('../../../src/schemas/index.js').AgentMessage) => {
+      let h: ReturnType<typeof harness>;
+      const observeEntry = jest.fn((entry: Parameters<ConversationEntryObserver>[0]) => {
+        const persisted = readConversation(h.projectRoot, entry.session_id).physicalRows.find((row) => row.id === entry.id)!;
         const isFailure = failurePoint === 'failed-result'
-          ? entry.kind === 'tool_result' && entry.content.includes('pending_notifications')
+          ? persisted.kind === 'tool_result' && persisted.content.includes('pending_notifications')
           : failurePoint === 'notification'
-            ? entry.role === 'user' && entry.content === `${role} selected notification`
-            : entry.role === 'user' && entry.content.includes('reconsider the appended context');
+            ? persisted.role === 'user' && persisted.content === `${role} selected notification`
+            : persisted.role === 'user' && persisted.content.includes('reconsider the appended context');
         if (isFailure) throw injected;
-      }) };
-      const h = harness(async (input) => {
+      });
+      h = harness(async (input) => {
         if (input.role === 'planner' && role !== 'planner') {
           const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
           return tool('to-review', 'admit_review');
@@ -366,8 +368,8 @@ describe('CardProcessActor configured graph execution', () => {
         const open = h.store.openRecord(h.cardId, filename); h.store.editRecord(h.cardId, filename, open.version, 'ready');
         h.store.enqueueNotification(h.cardId, { id: `${role}-${failurePoint}`, content: `${role} selected notification`, created_at: '2026-07-18T00:00:00.000Z' });
         return tool(`${role}-${failurePoint}`, role === 'reviewer' ? 'approved' : role === 'executor' ? 'done' : 'complete_direct');
-      }, { cardType: role === 'executor' ? 'code' : undefined, conversationPublisher: publisher });
-      await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'failed', summary: injected.message });
+      }, { cardType: role === 'executor' ? 'code' : undefined, observeEntry });
+      await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'failed', summary: expect.stringContaining('post-publication observation failed') });
       expect(roleCalls).toBe(1);
       expect(h.store.read(h.cardId)!.pending_notifications.map(({ id }) => id)).toEqual([`${role}-${failurePoint}`]);
       expect(h.claimResult).not.toHaveBeenCalled();
@@ -451,14 +453,15 @@ describe('CardProcessActor configured graph execution', () => {
 
   it.each(['accepted settlement', 'cleanup'] as const)('keeps the terminal claim authoritative when %s fails', async (point) => {
     const injected = new Error(`${point} failed after claim`);
-    const publisher = point === 'accepted settlement' ? { entryAppended(entry: import('../../../src/schemas/index.js').AgentMessage) { if (entry.kind === 'tool_result' && entry.content.includes('"accepted":true')) throw injected; } } : undefined;
-    const h = harness(async () => {
+    let h: ReturnType<typeof harness>;
+    const observeEntry: ConversationEntryObserver | undefined = point === 'accepted settlement' ? (entry) => { const row = readConversation(h.projectRoot, entry.session_id).physicalRows.find((candidate) => candidate.id === entry.id)!; if (row.kind === 'tool_result' && row.content.includes('"accepted":true')) throw injected; } : undefined;
+    h = harness(async () => {
       const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
       return tool('accepted', 'done');
-    }, { cardType: 'code', conversationPublisher: publisher });
+    }, { cardType: 'code', observeEntry });
     if (point === 'cleanup') jest.spyOn(h.processRunner, 'terminateScopeTree').mockRejectedValue(injected);
     const outcome = await h.actor.activate(h.input(), new AbortController().signal);
-    expect(outcome).toMatchObject({ status: 'failed', summary: expect.stringContaining(injected.message) });
+    expect(outcome).toMatchObject({ status: 'failed', summary: expect.stringContaining(point === 'accepted settlement' ? 'post-publication observation failed' : injected.message) });
     expect(h.claimResult).toHaveBeenCalledTimes(1);
     expect(h.store.readRecord(h.cardId, 'status.md', 'latest').artifact.content).toBe('ready');
     const accepted = readConversation(h.projectRoot, `executor:${h.cardId}`).sourceRows.filter((row) => row.kind === 'tool_result' && row.content.includes('"accepted":true'));
@@ -502,12 +505,13 @@ describe('CardProcessActor configured graph execution', () => {
     });
     const events: string[] = [];
     let calls = 0;
-    const publisher = { entryAppended(entry: import('../../../src/schemas/index.js').AgentMessage) { if (entry.kind === 'tool_result' && entry.content.includes('"accepted":true')) events.push(`settle:${calls}`); } };
-    const h = harness(async () => {
+    let h: ReturnType<typeof harness>;
+    const observeEntry: ConversationEntryObserver = (entry) => { const row = readConversation(h.projectRoot, entry.session_id).physicalRows.find((candidate) => candidate.id === entry.id)!; if (row.kind === 'tool_result' && row.content.includes('"accepted":true')) events.push(`settle:${calls}`); };
+    h = harness(async () => {
       calls += 1;
       const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, `node ${calls}`);
       return tool(`result-${calls}`, calls === 1 ? 'next' : 'finish');
-    }, { cardType: 'code', process: compileCardProcesses(source).terminal, conversationPublisher: publisher, onClaim: () => events.push('claim') });
+    }, { cardType: 'code', process: compileCardProcesses(source).terminal, observeEntry, onClaim: () => events.push('claim') });
     const close = h.store.closeRecord.bind(h.store);
     jest.spyOn(h.store, 'closeRecord').mockImplementation((...args) => { events.push(`close:${calls}`); return close(...args); });
     const terminate = h.processRunner.terminateScopeTree.bind(h.processRunner);

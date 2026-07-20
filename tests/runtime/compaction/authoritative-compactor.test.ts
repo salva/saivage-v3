@@ -3,7 +3,7 @@ import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, ConversationPostPublicationObservationError, readConversation } from '../../../src/persistence/conversation-file.js';
 import { conversationFile } from '../../../src/runtime/actors/conversation-inventory.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
 import {
@@ -29,7 +29,9 @@ describe('authoritative context-recovery compaction', () => {
     const root = projectWithRounds(5);
     const before = readConversation(root, 'planner:project');
     const rejected = providerConversationProjection(before);
-    const result = await compact(compactArgs(root, rejected, summaryProvider()));
+    const observed = jest.fn();
+    const args = compactArgs(root, rejected, summaryProvider());
+    const result = await compact({ ...args, conversations: { projectRoot: root, observeEntry: observed } });
 
     expect(result.kind).toBe('compacted');
     if (result.kind !== 'compacted') return;
@@ -39,6 +41,8 @@ describe('authoritative context-recovery compaction', () => {
     expect(after.sourceRows).toEqual(before.sourceRows);
     expect(after.compactions).toHaveLength(1);
     expect(result.providerConversation).toEqual(providerConversationProjection(after));
+    expect(observed).toHaveBeenCalledTimes(1);
+    expect(observed).toHaveBeenCalledWith(expect.objectContaining({ id: result.compactionMessage.id, kind: 'context_compaction' }));
   });
 
   it('advances from non-reducing escalated output through safe hard fallback', async () => {
@@ -115,17 +119,16 @@ describe('authoritative context-recovery compaction', () => {
     expect(readConversation(root, 'planner:project').compactions).toHaveLength(0);
   });
 
-  it('wraps only the final append boundary and never retries after outcome uncertainty', async () => {
+  it('preserves confirmed post-publication observation failure without append wrapping or retry', async () => {
     const root = projectWithRounds(5);
-    const appendCause = new Error('conversation publication callback failed');
+    const observationCause = new Error('conversation observation failed');
     const provider = summaryProvider();
     const args = compactArgs(root, providerConversationProjection(readConversation(root, 'planner:project')), provider);
 
-    await expect(compact({ ...args, conversations: { projectRoot: root, changes: { conversationChanged: () => { throw appendCause; }, agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } } })).rejects.toMatchObject({
-      name: 'CompactionAppendError',
-      cause: appendCause,
-    } satisfies Partial<CompactionAppendError>);
-    expect(readConversation(root, 'planner:project').compactions).toHaveLength(1);
+    const failure = await compact({ ...args, conversations: { projectRoot: root, observeEntry: () => { throw observationCause; } } }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ConversationPostPublicationObservationError);
+    expect(failure).not.toBeInstanceOf(CompactionAppendError);
+    expect(failure).toMatchObject({ cause: observationCause, entry: { kind: 'context_compaction' } });
     expect(provider.completeTurn).toHaveBeenCalled();
   });
 
@@ -168,20 +171,20 @@ function summaryProvider(content = 'summary') {
 
 function projectWithRounds(count: number): string {
   const root = tempRoot();
-  for (let ordinal = 0; ordinal < count; ordinal += 1) appendConversationBatch(root, roundRows(ordinal));
+  for (let ordinal = 0; ordinal < count; ordinal += 1) appendConversationBatch({ projectRoot: root }, roundRows(ordinal));
   return root;
 }
 
 function projectWithSingleSourceRow(): string {
   const root = tempRoot();
-  appendConversationBatch(root, roundRows(0, 1));
+  appendConversationBatch({ projectRoot: root }, roundRows(0, 1));
   return root;
 }
 
 function projectWithOversizedOpenRound(): string {
   const root = tempRoot();
   const timestamp = '2026-07-17T00:00:00.000Z';
-  appendConversationBatch(root, [
+  appendConversationBatch({ projectRoot: root }, [
     message('open-activation', 'system', 'activity', activationContent(99, timestamp), 0, timestamp),
     ...Array.from({ length: 10 }, (_, index) => message(`open-message-${index}`, 'user', 'text', `${index}:${'x'.repeat(320)}`, index + 1, timestamp)),
   ]);

@@ -199,7 +199,7 @@ describe('configured card-process substantive E2E coverage', () => {
       { id: 'planner:project:activation:old', session_id: 'planner:project', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: inputId, timestamp: '2026-07-18T00:00:00.000Z' }), round_id: 'r-pre-99999999999999999999999999999999', message_index: 0, block_index: 0, timestamp: '2026-07-18T00:00:00.000Z' },
       { id: `${inputId}:pending`, session_id: 'planner:project', role: 'assistant', kind: 'text', content: 'pending', round_id: 'r-assistant-99999999999999999999999999999999', message_index: 1, block_index: 0, timestamp: '2026-07-18T00:00:00.001Z' },
     ];
-    appendConversationBatch(root, rows);
+    appendConversationBatch({ projectRoot: root }, rows);
     stabilizeRoleSession({ projectRoot: root, sessionId: 'planner:project', conversations: { projectRoot: root }, terminalToolNames: new Set(['emit_result']) });
     cards.stopRunningForRecovery(child.id);
     const worker = join(process.cwd(), 'tests', 'fixtures', 'recovery-fresh-process.ts');

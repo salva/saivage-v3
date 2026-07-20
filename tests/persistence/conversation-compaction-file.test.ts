@@ -12,12 +12,12 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 describe('conversation compaction file persistence', () => {
   it('round-trips one strict current-format envelope and validates prospective appends', () => withRoot((root) => {
     const source = activation();
-    appendConversationBatch(root, [source]);
+    appendConversationBatch({ projectRoot: root }, [source]);
     const valid = metadata('c1', hashConversationRows([source]));
-    appendConversationBatch(root, [valid]);
+    appendConversationBatch({ projectRoot: root }, [valid]);
     expect(readConversation(root, 'planner:project').latestCompaction!.cutoffMessageId).toBe(source.id);
 
-    expect(() => appendConversationBatch(root, [metadata('c2', '0'.repeat(64))])).toThrow(/hash mismatch/);
+    expect(() => appendConversationBatch({ projectRoot: root }, [metadata('c2', '0'.repeat(64))])).toThrow(/hash mismatch/);
     expect(readConversation(root, 'planner:project').compactions).toHaveLength(1);
   }));
 
@@ -51,7 +51,7 @@ describe('conversation compaction file persistence', () => {
   }));
 
   it('keeps the existing identifiable unterminated-final-suffix handling', () => withRoot((root) => {
-    appendConversationBatch(root, [activation()]);
+    appendConversationBatch({ projectRoot: root }, [activation()]);
     const path = conversationFile(root, 'planner:project');
     appendFileSync(path, '{"incomplete":');
     expect(readConversation(root, 'planner:project').sourceRows).toHaveLength(1);

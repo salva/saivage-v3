@@ -8,7 +8,33 @@ import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { conversationFile } from '../runtime/actors/conversation-inventory.js';
 import { listCards } from './card-files.js';
 
-export interface ConversationFileContext { readonly projectRoot: string; readonly changes?: ReadModelChanges }
+export interface ConversationEntryObservation {
+  readonly id: AgentMessage['id'];
+  readonly session_id: AgentMessage['session_id'];
+  readonly kind: AgentMessage['kind'];
+  readonly role: AgentMessage['role'];
+  readonly timestamp: AgentMessage['timestamp'];
+}
+
+export type ConversationEntryObserver = (entry: ConversationEntryObservation) => void;
+
+export interface ConversationFileContext {
+  readonly projectRoot: string;
+  readonly changes?: ReadModelChanges;
+  readonly observeEntry?: ConversationEntryObserver;
+}
+
+export interface ConversationAppendOptions {
+  readonly publicationTemporaryId?: PublicationTemporaryIdFactory;
+  readonly io?: GrowingFileIo;
+}
+
+export class ConversationPostPublicationObservationError extends Error {
+  constructor(readonly entry: ConversationEntryObservation, options: ErrorOptions) {
+    super(`Conversation entry '${entry.id}' was published but post-publication observation failed.`, options);
+    this.name = 'ConversationPostPublicationObservationError';
+  }
+}
 
 function readExact(path: string): string | null {
   try { return readFileSync(path, 'utf8'); }
@@ -46,27 +72,40 @@ function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] {
   return parsed;
 }
 
-export function publishConversationFirstBatch(projectRoot: string, messages: readonly AgentMessage[], changes?: ReadModelChanges, publicationTemporaryId?: PublicationTemporaryIdFactory): void {
+export function publishConversationFirstBatch(conversations: ConversationFileContext, messages: readonly AgentMessage[], options: Pick<ConversationAppendOptions, 'publicationTemporaryId'> = {}): void {
   const parsed = validateBatch(messages);
   const sessionId = parsed[0]!.session_id;
   validateConversationRows(sessionId, parsed);
-  publishFirstEnvelope(conversationFile(projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), publicationTemporaryId);
-  changes?.conversationChanged(sessionId);
-  changes?.agentsChanged();
+  publishFirstEnvelope(conversationFile(conversations.projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), options.publicationTemporaryId);
+  afterPublication(conversations, parsed);
 }
 
-export function appendConversationBatch(projectRoot: string, messages: readonly AgentMessage[], changes?: ReadModelChanges, publicationTemporaryId?: PublicationTemporaryIdFactory, io?: GrowingFileIo): void {
+export function appendConversationBatch(conversations: ConversationFileContext, messages: readonly AgentMessage[], options: ConversationAppendOptions = {}): void {
   const parsed = validateBatch(messages);
   const sessionId = parsed[0]!.session_id;
-  const current = readConversation(projectRoot, sessionId);
+  const current = readConversation(conversations.projectRoot, sessionId);
   const existingIds = new Set(current.physicalRows.map((message) => message.id));
   const duplicate = parsed.find((message) => existingIds.has(message.id));
   if (duplicate) throw new Error(`Conversation message '${duplicate.id}' already exists.`);
   validateConversationRows(sessionId, [...current.physicalRows, ...parsed]);
-  if (current.physicalRows.length === 0) publishConversationFirstBatch(projectRoot, parsed, changes, publicationTemporaryId);
-  else {
-    appendEnvelope(conversationFile(projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), io);
-    changes?.conversationChanged(sessionId);
-    changes?.agentsChanged();
+  if (current.physicalRows.length === 0) publishFirstEnvelope(conversationFile(conversations.projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), options.publicationTemporaryId);
+  else appendEnvelope(conversationFile(conversations.projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), options.io);
+  afterPublication(conversations, parsed);
+}
+
+function afterPublication(conversations: ConversationFileContext, messages: readonly AgentMessage[]): void {
+  conversations.changes?.conversationChanged(messages[0]!.session_id);
+  conversations.changes?.agentsChanged();
+  for (const message of messages) {
+    if (message.kind === 'provider_private') continue;
+    const entry: ConversationEntryObservation = {
+      id: message.id,
+      session_id: message.session_id,
+      kind: message.kind,
+      role: message.role,
+      timestamp: message.timestamp,
+    };
+    try { conversations.observeEntry?.(entry); }
+    catch (cause) { throw new ConversationPostPublicationObservationError(entry, { cause }); }
   }
 }

@@ -23,7 +23,7 @@ import { createPromptTemplateRegistry, type PromptTemplateRegistry } from '../ut
 import type { RestartPort } from '../boot/restart-port.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { ReadModelChanges } from './read-model-changes.js';
-import type { ConversationFileContext } from '../persistence/conversation-file.js';
+import type { ConversationEntryObserver, ConversationFileContext } from '../persistence/conversation-file.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 import { RuntimeInterventionBinding } from './intervention-readiness.js';
 import { RuntimeControlService, type RuntimeControlApplicationPort, type RuntimeControlMechanics } from './runtime-control-service.js';
@@ -140,7 +140,15 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const { projectRoot, config, eventBus, eventLogger, cardStore, restartServerAvailable = false, restartPort } = services;
   const interventionBinding = new RuntimeInterventionBinding();
   const candidateAvailability = new MemoryCandidateAvailability();
-  const conversations: ConversationFileContext = { projectRoot, changes: services.readModelChanges };
+  const observeEntry: ConversationEntryObserver = (entry) => eventBus.emit('conversation_changed', {
+    session_id: entry.session_id,
+    mutation: 'entry_appended',
+    message_id: entry.id,
+    message_kind: entry.kind,
+    role: entry.role,
+    message_timestamp: entry.timestamp,
+  });
+  const conversations: ConversationFileContext = { projectRoot, changes: services.readModelChanges, observeEntry };
   interventionBinding.markStoppedReady();
   let mcpManager: McpManager | undefined;
 

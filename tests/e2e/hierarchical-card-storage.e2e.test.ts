@@ -26,7 +26,7 @@ describe('reset-only hierarchical card storage', () => {
     expect(readFileSync(cardRecordStreamFile(root, dependency.id, 'brief'), 'utf8')).toContain('record-revision');
     const status = cards.openRecord(dependency.id, 'status.md'); cards.editRecord(dependency.id, 'status.md', status.version, 'status'); cards.closeRecord(dependency.id, 'status.md', status.version, 'executor', dependency.version_seq);
     const dependencySession = parseConversationSessionId(`executor:${dependency.id}`);
-    appendConversationBatch(root, [row(dependencySession, 'message')]);
+    appendConversationBatch({ projectRoot: root }, [row(dependencySession, 'message')]);
     const dependencyStreamBefore = readFileSync(cardStreamFile(root, dependency.id), 'utf8');
     const dependentStreamBefore = readFileSync(cardStreamFile(root, dependent.id), 'utf8');
     const goalVersionBefore = cards.read(goal.id)!.version_seq;
@@ -51,7 +51,7 @@ describe('reset-only hierarchical card storage', () => {
     expect(restarted.read('card-z')).toBeNull();
     expect(restarted.list().map(({ id }) => id)).not.toContain('card-z');
     expect(readConversation(root, dependencySession).physicalRows.map(({ id }) => id)).toEqual(['message']);
-    appendConversationBatch(root, [row(dependencySession, 'after-tombstone')]);
+    appendConversationBatch({ projectRoot: root }, [row(dependencySession, 'after-tombstone')]);
     expect(readConversation(root, dependencySession).physicalRows.map(({ id }) => id)).toEqual(['message', 'after-tombstone']);
     expect(restarted.create(input(goal.id)).parent).toBe(goal.id);
   });

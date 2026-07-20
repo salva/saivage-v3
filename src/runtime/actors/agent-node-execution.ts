@@ -49,7 +49,6 @@ export interface AgentNodeExecutionHost {
   selectLlm(llm: ConversationLLMActor): void;
   freshInputId(): string;
   toolContext(llm: ConversationLLMActor, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): import('./executing-llm-snapshot.js').LlmToolInvocationContext;
-  publishConversationEntry(entry: import('../../schemas/index.js').AgentMessage): void;
 }
 
 export interface AgentNodeExecutionDeps {
@@ -149,19 +148,19 @@ export class AgentNodeExecution {
     if (!this.#stabilizedRoles.has(node.role)) {
       if (!input.alreadyStabilizedRoles.has(node.role)) stabilizeRoleSession({ projectRoot: this.deps.projectRoot, sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
       this.#stabilizedRoles.add(node.role);
-      this.host.publishConversationEntry(appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', role: node.role, card_id: this.deps.cardId, input_id: inputId }));
+      appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', role: node.role, card_id: this.deps.cardId, input_id: inputId });
     } else {
-      this.host.publishConversationEntry(appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', role: node.role, card_id: this.deps.cardId, input_id: inputId }));
+      appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', role: node.role, card_id: this.deps.cardId, input_id: inputId });
     }
     const roleContext: ProviderVisibleUserContextMessage[] = [];
     const selected = input.notificationDelivery.selectNotifications();
     roleContext.push(...selected.map((notification) => ({ role: 'user' as const, content: notification.content })));
     if (reviewerPair) roleContext.push(reviewerPair.exactContext);
-    roleContext.forEach((message, index) => this.host.publishConversationEntry(appendUserContextMessage(this.deps.conversations, sessionId, inputId, message === reviewerPair?.exactContext ? 'reviewer_descendant' : 'notification', index, message)));
+    roleContext.forEach((message, index) => appendUserContextMessage(this.deps.conversations, sessionId, inputId, message === reviewerPair?.exactContext ? 'reviewer_descendant' : 'notification', index, message));
     if (selected.length > 0) input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id));
     const transitionMessage = this.transitionContext(process, input.card, transition);
-    if (transitionMessage) this.host.publishConversationEntry(appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_transition', 0, transitionMessage));
-    this.host.publishConversationEntry(appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_node', 0, { role: 'user', content: this.deps.processPrompts.get(input.card.type, node.promptId) }));
+    if (transitionMessage) appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_transition', 0, transitionMessage);
+    appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_node', 0, { role: 'user', content: this.deps.processPrompts.get(input.card.type, node.promptId) });
     void contract; void surface;
   }
 

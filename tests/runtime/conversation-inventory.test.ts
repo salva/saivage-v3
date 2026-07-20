@@ -22,8 +22,8 @@ describe('domain-derived conversation inventory', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-inventory-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    appendConversationBatch(root, [message('planner:project', 'planner')]);
-    appendConversationBatch(root, [message(parseConversationSessionId(`executor:${child.id}`), 'executor')]);
+    appendConversationBatch({ projectRoot: root }, [message('planner:project', 'planner')]);
+    appendConversationBatch({ projectRoot: root }, [message(parseConversationSessionId(`executor:${child.id}`), 'executor')]);
     appendAnalystIngressBatch({ projectRoot: root }, '11111111-1111-4111-8111-111111111111', 'workspace', 'global');
     expect(listConversationSessionIds(root)).toEqual(['analyst:global', `executor:${child.id}`, 'planner:project']);
     for (const invalid of ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other']) expect(() => parseConversationSessionId(invalid)).toThrow();
@@ -43,7 +43,7 @@ describe('domain-derived conversation inventory', () => {
     const cards = new CardService(root);
     const goal = cards.create({ type: 'goal', parent: 'project', title: 'goal', brief: 'brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const plannerSession = parseConversationSessionId(`planner:${goal.id}`);
-    appendConversationBatch(root, [message(plannerSession, 'planner-goal')]);
+    appendConversationBatch({ projectRoot: root }, [message(plannerSession, 'planner-goal')]);
     writeFileSync(cardConversationFile(root, goal.id, 'executor'), '{complete-malformed}\n');
 
     expect(() => cards.update(goal.id, { type: 'code' } as unknown as CardPatch))
@@ -54,7 +54,7 @@ describe('domain-derived conversation inventory', () => {
 
   it('emits no effects for a complete outcome-unknown conversation append', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-inventory-')); roots.push(root); initProjectTree(root);
-    appendConversationBatch(root, [message('planner:project', 'first')]);
+    appendConversationBatch({ projectRoot: root }, [message('planner:project', 'first')]);
     const effects: string[] = [];
     const changes = new ReadModelChangeBroadcaster();
     changes.subscribe({ conversationChanged: () => { effects.push('conversation'); }, agentsChanged: () => { effects.push('agents'); }, cardProjectionChanged() {}, runtimeChanged() {} });
@@ -69,7 +69,7 @@ describe('domain-derived conversation inventory', () => {
       close(fd) { operations.push('close'); closeSync(fd); },
     };
     let thrown: unknown;
-    try { appendConversationBatch(root, [message('planner:project', 'second')], changes, undefined, failingIo); } catch (error) { thrown = error; }
+    try { appendConversationBatch({ projectRoot: root, changes, observeEntry: () => { effects.push('observation'); } }, [message('planner:project', 'second')], { io: failingIo }); } catch (error) { thrown = error; }
     expect(thrown).toBe(failure);
     expect(operations).toEqual([`open:${conversationFile(root, 'planner:project')}`, 'write', 'fsync', 'close']);
     expect(effects).toEqual([]);

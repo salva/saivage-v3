@@ -59,7 +59,7 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
     block_index: 0,
     timestamp: new Date().toISOString(),
   }));
-  appendConversationBatch(conversations.projectRoot, messages, conversations.changes);
+  appendConversationBatch(conversations, messages);
   return messages;
 }
 
@@ -265,9 +265,9 @@ function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {
 }
 
 function appendOne(conversations: ConversationFileContext, message: AgentMessage): void {
-  appendConversationBatch(conversations.projectRoot, [message], conversations.changes);
+  appendConversationBatch(conversations, [message]);
 }
 
 function appendVisibleBatch(conversations: ConversationFileContext, messages: AgentMessage[]): void {
-  appendConversationBatch(conversations.projectRoot, messages, conversations.changes);
+  appendConversationBatch(conversations, messages);
 }

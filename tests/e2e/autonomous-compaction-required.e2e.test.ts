@@ -73,7 +73,7 @@ function appendLongPlannerHistory(projectRoot: string): void {
       { id: `history-${ordinal}`, session_id: 'planner:project' as const, role: 'user' as const, kind: 'text' as const, content: `${ordinal}:${'x'.repeat(4000)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp },
     ];
   }).flat();
-  appendConversationBatch(projectRoot, rows);
+  appendConversationBatch({ projectRoot }, rows);
 }
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
