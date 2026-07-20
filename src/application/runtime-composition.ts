@@ -160,10 +160,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   );
   const invocationService = new InvocationService({
     projectRoot,
-    saivageDir: `${projectRoot}/.saivage`,
     registry,
     router,
-    eventLogger,
     candidateAvailability,
     appLogs: services.appLogs,
     readModelChanges: services.readModelChanges,

@@ -2,11 +2,9 @@ import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
 import { localSetupFailure } from '../contracts/llm-failure.js';
-import {
-  type AuthProfile,
-  isProfileExpired,
-} from '../auth/index.js';
+import { type AuthProfile, isProfileExpired } from '../auth/index.js';
 import { readAuthProfiles, replaceAuthProfiles } from '../auth/auth-profile-file.js';
+import type { LlmCredentialRequirement } from './llm-protocol-adapter.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -21,24 +19,50 @@ export async function resolveLlmTransportConfig(
   projectRoot: string,
   registry: ProviderRegistry,
   candidate: Candidate,
+  credentialRequirement: LlmCredentialRequirement,
   abortSignal?: AbortSignal,
 ): Promise<LlmTransportConfig> {
   const provider = registry.get(candidate.provider);
   if (!provider) {
-    throw localSetupFailure({ provider: candidate.provider, model: candidate.model, account: candidate.account, reason: 'missing_provider', message: `Provider '${candidate.provider}' not found in registry.` });
+    throw localSetupFailure({
+      provider: candidate.provider,
+      model: candidate.model,
+      account: candidate.account,
+      reason: 'missing_provider',
+      message: `Provider '${candidate.provider}' not found in registry.`,
+    });
   }
-  const account = candidate.account != null
-    ? provider.getAllAccounts().find((a) => a.name === candidate.account)
-    : provider.implicitAccount;
-  if (!account) throw localSetupFailure({ provider: candidate.provider, model: candidate.model, account: candidate.account, reason: 'missing_account', message: `Account '${candidate.account}' not found for provider '${candidate.provider}'.` });
-  const capabilities = registry.getEffectiveCapabilities(candidate);
-  if (capabilities.transportProtocol === 'openai-responses') {
+  const account =
+    candidate.account != null
+      ? provider.getAllAccounts().find((a) => a.name === candidate.account)
+      : provider.implicitAccount;
+  if (!account)
+    throw localSetupFailure({
+      provider: candidate.provider,
+      model: candidate.model,
+      account: candidate.account,
+      reason: 'missing_account',
+      message: `Account '${candidate.account}' not found for provider '${candidate.provider}'.`,
+    });
+  if (credentialRequirement === 'openai_responses_api_key') {
     if (account.authProfile || provider.authProfile) {
-      throw localSetupFailure({ provider: candidate.provider, model: candidate.model, account: candidate.account, reason: 'invalid_account', message: `Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and must use an OpenAI API key, not an authProfile.` });
+      throw localSetupFailure({
+        provider: candidate.provider,
+        model: candidate.model,
+        account: candidate.account,
+        reason: 'invalid_account',
+        message: `Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and must use an OpenAI API key, not an authProfile.`,
+      });
     }
     const apiKey = account.apiKey ?? provider.apiKey;
     if (!apiKey) {
-      throw localSetupFailure({ provider: candidate.provider, model: candidate.model, account: candidate.account, reason: 'missing_required_credential', message: `Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and requires an OpenAI API key.` });
+      throw localSetupFailure({
+        provider: candidate.provider,
+        model: candidate.model,
+        account: candidate.account,
+        reason: 'missing_required_credential',
+        message: `Provider '${candidate.provider}' account '${candidate.account ?? '_implicit'}' uses openai-responses and requires an OpenAI API key.`,
+      });
     }
     const baseUrl = account.baseUrl ?? provider.baseUrl ?? 'https://api.openai.com';
     return { baseUrl, apiKey };
@@ -58,14 +82,21 @@ export async function resolveLlmTransportConfig(
   };
 }
 
-export function transportAuthProfileDependency(registry: ProviderRegistry, candidate: Candidate): 'none' | 'requires_explicit_auth_profile' | 'requires_implicit_auth_profile' {
+export function transportAuthProfileDependency(
+  registry: ProviderRegistry,
+  candidate: Candidate,
+): 'none' | 'requires_explicit_auth_profile' | 'requires_implicit_auth_profile' {
   const provider = registry.get(candidate.provider);
   if (!provider) return 'none';
-  const account = candidate.account != null
-    ? provider.getAllAccounts().find((a) => a.name === candidate.account)
-    : provider.implicitAccount;
+  const account =
+    candidate.account != null
+      ? provider.getAllAccounts().find((a) => a.name === candidate.account)
+      : provider.implicitAccount;
   if (!account) return 'none';
-  const resolver = new CredentialSourceResolver({ loadAuthProfiles: async () => null, usableProfileAccessToken: async () => undefined });
+  const resolver = new CredentialSourceResolver({
+    loadAuthProfiles: async () => null,
+    usableProfileAccessToken: async () => undefined,
+  });
   return resolver.authProfileDependency(provider, account);
 }
 
@@ -76,11 +107,21 @@ async function usableProfileAccessToken(
   abortSignal?: AbortSignal,
 ): Promise<string | undefined> {
   if (profile.provider === 'openai-codex' && isProfileExpired(profile) && profile.refreshToken) {
-    const refreshed = await refreshOpenAICodexProfile(projectRoot, profileName, profile, abortSignal);
+    const refreshed = await refreshOpenAICodexProfile(
+      projectRoot,
+      profileName,
+      profile,
+      abortSignal,
+    );
     return refreshed?.accessToken ?? profile.accessToken;
   }
   if (profile.provider === 'github-copilot' && isProfileExpired(profile) && profile.refreshToken) {
-    const refreshed = await refreshGitHubCopilotProfile(projectRoot, profileName, profile, abortSignal);
+    const refreshed = await refreshGitHubCopilotProfile(
+      projectRoot,
+      profileName,
+      profile,
+      abortSignal,
+    );
     return refreshed?.accessToken ?? profile.accessToken;
   }
   return profile.accessToken;
@@ -117,12 +158,12 @@ async function refreshOpenAICodexProfile(
     refreshed = {
       ...profile,
       accessToken: data.access_token,
-      refreshToken: typeof data.refresh_token === 'string'
-        ? data.refresh_token
-        : profile.refreshToken,
-      expiresAt: typeof data.expires_in === 'number'
-        ? Date.now() + data.expires_in * 1000
-        : profile.expiresAt,
+      refreshToken:
+        typeof data.refresh_token === 'string' ? data.refresh_token : profile.refreshToken,
+      expiresAt:
+        typeof data.expires_in === 'number'
+          ? Date.now() + data.expires_in * 1000
+          : profile.expiresAt,
     };
   } catch {
     abortSignal?.throwIfAborted();
@@ -161,9 +202,10 @@ async function refreshGitHubCopilotProfile(
     refreshed = {
       ...profile,
       accessToken: data.token,
-      expiresAt: typeof data.expires_at === 'number'
-        ? data.expires_at * 1000 - 5 * 60 * 1000
-        : profile.expiresAt,
+      expiresAt:
+        typeof data.expires_at === 'number'
+          ? data.expires_at * 1000 - 5 * 60 * 1000
+          : profile.expiresAt,
     };
   } catch {
     abortSignal?.throwIfAborted();
@@ -173,10 +215,16 @@ async function refreshGitHubCopilotProfile(
   return refreshed;
 }
 
-function commitRefreshedAuthProfile(projectRoot: string, profileName: string, refreshed: AuthProfile, abortSignal?: AbortSignal): void {
+function commitRefreshedAuthProfile(
+  projectRoot: string,
+  profileName: string,
+  refreshed: AuthProfile,
+  abortSignal?: AbortSignal,
+): void {
   abortSignal?.throwIfAborted();
   const file = readAuthProfiles(projectRoot);
-  if (!file?.profiles[profileName]) throw new Error(`Auth profile '${profileName}' no longer exists.`);
+  if (!file?.profiles[profileName])
+    throw new Error(`Auth profile '${profileName}' no longer exists.`);
   file.profiles[profileName] = refreshed;
   replaceAuthProfiles(projectRoot, file);
 }

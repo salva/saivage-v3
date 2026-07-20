@@ -224,7 +224,6 @@ function projectRoot(): string {
 function invocationService(root: string, readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster()): InvocationService {
   return new InvocationService({
     projectRoot: root,
-    saivageDir: root,
     appLogs: testAppLogs(root),
     readModelChanges,
     registry: {} as never,

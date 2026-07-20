@@ -108,7 +108,7 @@ describe('summarizer provider-exchange evidence ownership', () => {
 function evidenceProvider(complete: (input: LlmInvocationInput) => ReturnType<SummarizerProviderPort['completeTurn']> extends Promise<infer T> ? T : never) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-summary-evidence-'));
   roots.push(root);
-  const service = new InvocationService({ projectRoot: root, saivageDir: root, appLogs: testAppLogs(root), readModelChanges: new ReadModelChangeBroadcaster(), registry: {} as never, router: {} as never, candidateAvailability: {} as never });
+  const service = new InvocationService({ projectRoot: root, appLogs: testAppLogs(root), readModelChanges: new ReadModelChangeBroadcaster(), registry: {} as never, router: {} as never, candidateAvailability: {} as never });
   const project = jest.fn((sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]) => service.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds));
   const provider: SummarizerProviderPort = { completeTurn: async (input) => complete(input), projectProviderExchanges: project };
   return { root, provider, project };

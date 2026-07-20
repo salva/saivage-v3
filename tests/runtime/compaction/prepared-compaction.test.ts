@@ -6,7 +6,7 @@ import { computeSlidingCompactionBands } from '../../../src/runtime/actors/compa
 import { agentMessageSchema, type AgentMessage } from '../../../src/schemas/index.js';
 import type { LlmInvocationInput, PreparedCompaction } from '../../../src/runtime/actors/llm-invocation.js';
 import { summarizeMerge, summarizeRound } from '../../../src/runtime/actors/compaction/summarizer.js';
-import { buildOpenAIResponsesRequest } from '../../../src/agents/llm-openai-responses-gateway.js';
+import { buildOpenAIResponsesRequest } from '../../../src/agents/llm-openai-responses-adapter.js';
 
 const config: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
 

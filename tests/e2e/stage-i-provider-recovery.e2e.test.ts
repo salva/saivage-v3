@@ -7,8 +7,8 @@ import { stabilizeRoleSession } from '../../src/runtime/actors/conversation-reco
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
-import { codexMessages } from '../../src/agents/llm-openai-codex-gateway.js';
-import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-gateway.js';
+import { codexMessages } from '../../src/agents/llm-openai-codex-adapter.js';
+import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-adapter.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 

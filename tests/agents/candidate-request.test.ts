@@ -5,6 +5,7 @@ import { canonicalJson } from '../../src/schemas/index.js';
 import type { EffectiveProviderCapabilities } from '../../src/agents/provider-capabilities.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import type { LlmCompleteOptions, ProviderConversationProjection, ToolDefinition } from '../../src/agents/llm-contracts.js';
+import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 
 const tools: ToolDefinition[] = [
   { type: 'function', function: { name: 'read_file', description: 'Read a file.', parameters: { type: 'object' } } },
@@ -20,7 +21,8 @@ describe('candidate request admission artifact', () => {
     { transportProtocol: 'openai-responses' as const, hasChatLimit: false, hasResponsesLimit: true },
     { transportProtocol: 'openai-codex-backend' as const, hasChatLimit: false, hasResponsesLimit: false },
   ])('builds and canonicalizes the actual $transportProtocol body exactly once', ({ transportProtocol, hasChatLimit, hasResponsesLimit }) => {
-    const built = buildCandidateRequest({ ...base, capabilities: capabilities(transportProtocol) });
+    const plan = buildCandidateRequest({ ...base, capabilities: capabilities(transportProtocol), adapter: selectLlmProtocolAdapter(transportProtocol) });
+    const built = plan.request;
     expect(built.serializedBody).toBe(canonicalJson(built.body));
     expect(built.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(built.serializedBody, 'utf8') / 4));
     expect(built.requestHash).toBe(createHash('sha256').update(built.serializedBody).digest('hex'));
@@ -42,11 +44,11 @@ describe('candidate request admission artifact', () => {
     const visible: AgentMessage = { ...common, id: 'visible', role: 'assistant', kind: 'text', content: 'visible summary', provider_projection: { kind: 'openai_responses', source_input_id: sourceInputId, private_message_id: 'private', projection_kind: 'assistant_message' } };
     const providerConversation = { sourceSessionId: 'planner:project', messages: [privateRow, visible] } satisfies ProviderConversationProjection;
 
-    const responses = buildCandidateRequest({ ...base, providerConversation, capabilities: capabilities('openai-responses') });
+    const responses = buildCandidateRequest({ ...base, providerConversation, capabilities: capabilities('openai-responses'), adapter: selectLlmProtocolAdapter('openai-responses') }).request;
     expect(responses.serializedBody).toContain(privateContent);
     expect(responses.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(responses.serializedBody, 'utf8') / 4));
     for (const transportProtocol of ['openai-chat-completions', 'openai-codex-backend'] as const) {
-      const built = buildCandidateRequest({ ...base, providerConversation, capabilities: capabilities(transportProtocol) });
+      const built = buildCandidateRequest({ ...base, providerConversation, capabilities: capabilities(transportProtocol), adapter: selectLlmProtocolAdapter(transportProtocol) }).request;
       expect(built.serializedBody).not.toContain(privateContent);
     }
   });

@@ -1,18 +1,17 @@
-import type { ProviderExchangeAttempt, ProviderExchangeOkPayload } from '../contracts/provider-exchange.js';
-
-export interface ProviderExchangeRecorderLogger {
-  recordProviderExchangeRecorderError(event: {
-    source: 'provider-exchange-recorder';
-    level: 'warn' | 'error';
-    sessionId: string;
-    attempt?: number;
-    message: string;
-    cause?: unknown;
-  }): void;
-}
+import type {
+  ProviderExchangeAttempt,
+  ProviderExchangeOkPayload,
+} from '../contracts/provider-exchange.js';
 
 export interface ProviderExchangeHandle {
-  recordResponse(meta: { status: number; token_usage?: ProviderExchangeOkPayload['token_usage']; finish_reason?: string | null }, terminalToolFired: string | null): Promise<void>;
+  recordResponse(
+    meta: {
+      status: number;
+      token_usage?: ProviderExchangeOkPayload['token_usage'];
+      finish_reason?: string | null;
+    },
+    terminalToolFired: string | null,
+  ): Promise<void>;
   recordError(meta: { errorName: string; message: string; status?: number }): Promise<void>;
 }
 
@@ -33,10 +32,11 @@ export interface ProviderExchangeRecorder {
 
 export interface CreateProviderExchangeRecorderOptions {
   sessionId: string;
-  eventLogger?: ProviderExchangeRecorderLogger;
 }
 
-export function createProviderExchangeRecorder(_opts: CreateProviderExchangeRecorderOptions): ProviderExchangeRecorder {
+export function createProviderExchangeRecorder(
+  _opts: CreateProviderExchangeRecorderOptions,
+): ProviderExchangeRecorder {
   const attempts: ProviderExchangeAttempt[] = [];
 
   async function beginExchange(meta: BeginProviderExchangeInput): Promise<ProviderExchangeHandle> {
@@ -79,7 +79,11 @@ export function createProviderExchangeRecorder(_opts: CreateProviderExchangeReco
           response_status: errorMeta.status,
           latency_ms: latencyMs(startedAt, completedAt),
           terminal_tool_fired: null,
-          error: { name: errorMeta.errorName, message: errorMeta.message, ...(errorMeta.status !== undefined ? { status: errorMeta.status } : {}) },
+          error: {
+            name: errorMeta.errorName,
+            message: errorMeta.message,
+            ...(errorMeta.status !== undefined ? { status: errorMeta.status } : {}),
+          },
         });
       },
     };
@@ -88,16 +92,6 @@ export function createProviderExchangeRecorder(_opts: CreateProviderExchangeReco
   return {
     beginExchange,
     settledAttempts: () => attempts.map((attempt) => ({ ...attempt })),
-  };
-}
-
-export function toProviderExchangeRecorderLogger(_eventLogger?: unknown): ProviderExchangeRecorderLogger {
-  return {
-    recordProviderExchangeRecorderError(event): void {
-      try {
-        console.warn(`[provider-exchange-recorder] session=${event.sessionId} attempt=${event.attempt ?? '-'} ${event.message}`);
-      } catch {}
-    },
   };
 }
 

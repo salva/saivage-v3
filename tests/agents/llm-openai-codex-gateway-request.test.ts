@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
-import { buildOpenAICodexRequest, OpenAICodexGateway } from '../../src/agents/llm-openai-codex-gateway.js';
+import { buildOpenAICodexRequest } from '../../src/agents/llm-openai-codex-adapter.js';
 import type {
   LlmCompleteOptions,
   ToolDefinition,
 } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
-import { createProviderExchangeRecorder } from '../../src/agents/provider-exchange-recorder.js';
+import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
+import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 
 afterEach(() => { jest.restoreAllMocks(); });
 
@@ -105,7 +106,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
   });
 });
 
-describe('OpenAICodexGateway context failure evidence', () => {
+describe('OpenAI Codex adapter and runner context failure evidence', () => {
   const opts = (): LlmCompleteOptions => ({
     inputId: 'test:input:context',
     contract_id: 'test.v1',
@@ -113,7 +114,6 @@ describe('OpenAICodexGateway context failure evidence', () => {
     terminalToolOffered: [],
     tools: [],
     tool_choice: 'auto',
-    recorder: createProviderExchangeRecorder({ sessionId: 'analyst:global' }),
   });
 
   it('records the actual opened HTTP 200 status for a typed Codex SSE context failure', async () => {
@@ -123,14 +123,13 @@ describe('OpenAICodexGateway context failure evidence', () => {
       headers: { 'content-type': 'text/event-stream' },
     }));
     const options = opts();
-    const gateway = new OpenAICodexGateway({ baseUrl: 'https://example.test', apiKey: 'test-key', openAICodexAccountId: 'account' });
+    const gateway = new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: makeCodexJwt('account') });
 
     await expect(gateway.complete(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, 'analyst:global', options))
       .rejects.toMatchObject({
         failure: { kind: 'input_context_exhausted', status: 200 },
         provider_exchanges: [{ status: 'error', response_status: 200, error: { status: 200 } }],
       });
-    expect(options.recorder!.settledAttempts()[0]!.request_params).not.toHaveProperty('phase');
   });
 
   it('records HTTP 400 for the same typed evidence returned before an SSE stream opens', async () => {
@@ -139,7 +138,7 @@ describe('OpenAICodexGateway context failure evidence', () => {
       headers: { 'content-type': 'application/json' },
     }));
     const options = opts();
-    const gateway = new OpenAICodexGateway({ baseUrl: 'https://example.test', apiKey: 'test-key', openAICodexAccountId: 'account' });
+    const gateway = new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: makeCodexJwt('account') });
 
     await expect(gateway.complete(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, 'analyst:global', options))
       .rejects.toMatchObject({

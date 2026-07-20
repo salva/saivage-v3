@@ -1,7 +1,3 @@
-import type { Candidate } from '../contracts/provider-candidate.js';
-import type { ProviderExchangeRecorder } from './provider-exchange-recorder.js';
-import { LlmRequestError } from './llm-errors.js';
-
 const STREAM_TEE_MAX_BYTES = 16 * 1024 * 1024;
 
 export function teeStreamForRecorder(body: ReadableStream<Uint8Array>): {
@@ -36,57 +32,14 @@ export function teeStreamForRecorder(body: ReadableStream<Uint8Array>): {
       } catch (err) {
         controller.error(err);
       } finally {
-        try { reader.releaseLock(); } catch { /* noop */ }
+        try {
+          reader.releaseLock();
+        } catch {
+          /* noop */
+        }
       }
     },
   });
 
   return { stream, getBuffer: () => buf };
-}
-
-export interface LlmRecorderRequest {
-  transport: 'generic' | 'codex' | 'openai-responses';
-  contract_id: string;
-  contractName: string;
-  candidate: Candidate;
-  endpoint: string;
-  requestParams: Record<string, unknown>;
-  terminalToolOffered: readonly string[];
-  sourceInputId: string;
-}
-
-export async function beginRecordedExchange(
-  recorder: ProviderExchangeRecorder | undefined,
-  request: LlmRecorderRequest,
-) {
-  if (!recorder) return undefined;
-  return recorder.beginExchange({
-    transport: request.transport,
-    contract_id: request.contract_id,
-    contractName: request.contractName,
-    candidate: {
-      provider: request.candidate.provider,
-      model: request.candidate.model,
-      account: request.candidate.account ?? undefined,
-    },
-    requestParams: { endpoint: request.endpoint, method: 'POST', ...request.requestParams },
-    terminalToolOffered: request.terminalToolOffered,
-    sourceInputId: request.sourceInputId,
-  });
-}
-
-export async function recordResponseError(
-  handle: Awaited<ReturnType<ProviderExchangeRecorder['beginExchange']>> | undefined,
-  err: unknown,
-): Promise<void> {
-  if (!handle) return;
-  const e = err as Error;
-  const status = err instanceof LlmRequestError && 'status' in err.failure
-    ? (err.failure as { status?: number }).status
-    : undefined;
-  await handle.recordError({
-    errorName: e.name ?? 'Error',
-    message: e.message ?? String(err),
-    status,
-  });
 }

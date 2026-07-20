@@ -1,5 +1,5 @@
 /**
- * Integration tests for LlmProviderGateway → mock HTTP server round-trip.
+ * Integration tests for the canonical plan/adapters/shared runner pipeline.
  *
  * Uses node:http mock servers to verify:
  * - Successful non-streaming round-trip
@@ -18,17 +18,18 @@ import { createHash } from 'node:crypto';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import type { EffectiveProviderCapabilities } from '../../src/agents/provider-capabilities.js';
 import { asMessage, makeCodexJwt, toolsOpts } from '../helpers/llm-test-helpers.js';
+import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
+import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
+
+const PipelineClient = LlmPipelineTestClient;
 
 // ── Dynamic imports ────────────────────────────────────────────
 
-let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
 let LlmRequestError: typeof import('../../src/contracts/llm-failure.js').LlmRequestError;
 let ProviderRegistry: typeof import('../../src/agents/provider.js').ProviderRegistry;
 
 beforeAll(async () => {
-  const gatewayMod = await import('../../src/agents/llm-provider-gateway.js');
   const failureMod = await import('../../src/contracts/llm-failure.js');
-  LlmProviderGateway = gatewayMod.LlmProviderGateway;
   LlmRequestError = failureMod.LlmRequestError;
   ProviderRegistry = (await import('../../src/agents/provider.js')).ProviderRegistry;
 });
@@ -208,7 +209,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       const result = await client.complete(
         cand(), sp(), msgs(), 'sess-1',
         toolsOpts({ temperature: 0.5, max_tokens: 500 }));
@@ -242,7 +243,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/v1`, apiKey: 'sk-test-key' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}/v1`, apiKey: 'sk-test-key' });
       await client.complete(
         cand(), sp(), msgs(), 'sess-v1-root',
         toolsOpts({ temperature: 0.5, max_tokens: 500 }));
@@ -260,7 +261,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/githubcopilot.com`, apiKey: 'copilot-token' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}/githubcopilot.com`, apiKey: 'copilot-token' });
       await client.complete(
         cand(), sp(), msgs(), 'sess-copilot-root',
         toolsOpts({ temperature: 0.5, max_tokens: 500 }));
@@ -285,7 +286,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex',
         toolsOpts({ temperature: 0.5, max_tokens: 500 }));
@@ -333,15 +334,16 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const builtCandidateRequest = buildCandidateRequest({
         candidate,
         capabilities,
+        adapter: selectLlmProtocolAdapter(capabilities.transportProtocol),
         systemPrompt: sp(),
         providerConversation: msgs(),
         options,
-      });
+      }).request;
       expect(Object.prototype.hasOwnProperty.call(JSON.parse(builtCandidateRequest.serializedBody), 'max_output_tokens')).toBe(false);
       expect(builtCandidateRequest.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(builtCandidateRequest.serializedBody, 'utf8') / 4));
       expect(builtCandidateRequest.requestHash).toBe(createHash('sha256').update(builtCandidateRequest.serializedBody, 'utf8').digest('hex'));
 
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
       const result = await client.complete(
         candidate, sp(), msgs(), 'sess-codex-built',
         { ...options, builtCandidateRequest });
@@ -372,7 +374,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-output-item',
       toolsOpts(),
@@ -406,7 +408,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-function-call',
         toolsOpts({
@@ -442,7 +444,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
       await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), { sourceSessionId: 'analyst:global', messages: [] }, 'analyst:global',
       toolsOpts(),
@@ -466,7 +468,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-auth', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'auth_permanent' } });
@@ -503,7 +505,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       let clientError: unknown;
       try {
         await client.complete(cand(), sp(), msgs(), 'sess-redact-client', toolsOpts());
@@ -531,7 +533,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-403', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'auth_permanent' } });
@@ -549,7 +551,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-rate', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'rate_limit' } });
@@ -567,7 +569,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-500', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'server_transient' } });
@@ -583,7 +585,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-502', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'server_transient' } });
@@ -600,7 +602,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       const controller = new AbortController();
       setTimeout(() => controller.abort(), 50);
 
@@ -623,7 +625,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-parse', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
@@ -647,7 +649,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-empty', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
@@ -671,7 +673,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       const result = await client.complete(cand(), sp(), msgs(), 'sess-null', toolsOpts());
       expect(asMessage(result).content).toBe('');
       expect(asMessage(result).tool_calls).toEqual([]);
@@ -698,7 +700,7 @@ describe('LlmClient Streaming Mode', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       const result = await client.complete(
         cand(), sp(), msgs(), 'sess-stream-1', toolsOpts({ stream: true }));
       expect(asMessage(result).content).toBe('Hello world from streaming model!');
@@ -719,7 +721,7 @@ describe('LlmClient Streaming Mode', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       const result = await client.complete(
         cand(), sp(), msgs(), 'sess-stream-2', toolsOpts({ stream: true }));
       expect(asMessage(result).content).toBe('partial done');
@@ -737,7 +739,7 @@ describe('LlmClient Streaming Mode', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       await client.complete(
         cand(), sp(), msgs(), 'sess-stream-3', toolsOpts({ stream: true }));
       const body = JSON.parse(cap.body);
@@ -755,7 +757,7 @@ describe('LlmClient Streaming Mode', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       const controller = new AbortController();
       setTimeout(() => controller.abort(), 75);
 
@@ -780,7 +782,7 @@ describe('LlmClient Edge Cases', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` }); // no apiKey
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` }); // no apiKey
       await client.complete(cand(), sp(), msgs(), 'sess-noauth', toolsOpts());
       expect(cap.headers['authorization']).toBeUndefined();
     } finally {
@@ -795,7 +797,7 @@ describe('LlmClient Edge Cases', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       await client.complete(cand(), sp(), msgs(), 'sess-defaults', toolsOpts());
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.7);
@@ -812,7 +814,7 @@ describe('LlmClient Edge Cases', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
+      const client = new PipelineClient({ baseUrl: `http://localhost:${port}` });
       const multiMsgs = [
         { id: '1', session_id: 'analyst:global' as const, role: 'system' as const, kind: 'text' as const, content: 'sys msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() },
         { id: '2', session_id: 'analyst:global' as const, role: 'assistant' as const, kind: 'text' as const, content: 'asst msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: new Date().toISOString() },
@@ -852,7 +854,7 @@ describe('LlmClient provider capability guardrails', () => {
       card_processes: DEFAULT_CARD_PROCESSES,
     };
     const registry = new ProviderRegistry(cfg);
-    const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, registry });
+    const client = new PipelineClient({ baseUrl: `http://localhost:${port}`, registry });
 
     try {
       await expect(client.complete(
@@ -895,7 +897,7 @@ describe('LlmClient provider capability guardrails', () => {
       card_processes: DEFAULT_CARD_PROCESSES,
     };
     const registry = new ProviderRegistry(cfg);
-    const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'synthetic-token', registry });
+    const client = new PipelineClient({ baseUrl: `http://localhost:${port}`, apiKey: 'synthetic-token', registry });
 
     try {
       await expect(client.complete(
@@ -932,7 +934,7 @@ describe('LlmClient provider capability guardrails', () => {
       card_processes: DEFAULT_CARD_PROCESSES,
     };
     const registry = new ProviderRegistry(cfg);
-    const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'synthetic-token', registry });
+    const client = new PipelineClient({ baseUrl: `http://localhost:${port}`, apiKey: 'synthetic-token', registry });
 
     try {
       await expect(client.complete(

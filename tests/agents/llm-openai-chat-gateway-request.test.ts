@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
-import { buildOpenAIChatRequest, OpenAIChatGateway } from '../../src/agents/llm-openai-chat-gateway.js';
-import { createProviderExchangeRecorder } from '../../src/agents/provider-exchange-recorder.js';
+import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-adapter.js';
+import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 import type {
   LlmCompleteOptions,
   ToolDefinition,
@@ -100,12 +100,11 @@ describe('buildOpenAIChatRequest wire shape', () => {
 
   it('records current request parameters without an LLM phase while retaining terminal evidence', async () => {
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }), { status: 200 }));
-    const recorder = createProviderExchangeRecorder({ sessionId: 'analyst:global' });
-    await new OpenAIChatGateway({ baseUrl: 'https://example.test', apiKey: 'key' }).complete(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, 'analyst:global', {
-      inputId: 'test:input:record', contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL], tool_choice: 'auto', recorder,
+    const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: 'key' }).complete(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, 'analyst:global', {
+      inputId: 'test:input:record', contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL], tool_choice: 'auto',
     });
 
-    expect(recorder.settledAttempts()[0]).toMatchObject({ request_params: { offered_tools_count: 1, method: 'POST' }, terminal_tool_fired: 'emit_result' });
-    expect(recorder.settledAttempts()[0]!.request_params).not.toHaveProperty('phase');
+    expect(completion.provider_exchanges[0]).toMatchObject({ request_params: { offered_tools_count: 1, method: 'POST' }, terminal_tool_fired: 'emit_result' });
+    expect(completion.provider_exchanges[0]!.request_params).not.toHaveProperty('phase');
   });
 });

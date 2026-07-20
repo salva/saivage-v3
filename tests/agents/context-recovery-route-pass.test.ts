@@ -11,6 +11,8 @@ import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { testAppLogs } from '../helpers/app-logs.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
+import { CandidateRequestPlanIntegrityError } from '../../src/agents/candidate-request.js';
+import { defaultInvocationRecoveryPolicy } from '../../src/agents/invocation-recovery-policy.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -34,13 +36,32 @@ describe('authoritative context route-pass ordering', () => {
     await expect(service.invokeWithRecovery({ ...request, providerConversation: { sourceSessionId: 'planner:project', messages: [] } })).rejects.toMatchObject({ failure: { kind: 'input_context_exhausted' }, provider_exchanges: [{ attempt_index: 0 }] });
     expect(calls).toEqual(['test-a', 'test-a']);
   });
+
+  it('rethrows canonical plan integrity failure unchanged without retry or failover', async () => {
+    const first: Candidate = { provider: 'test-a', account: null, model: 'model-a' };
+    const second: Candidate = { provider: 'test-b', account: null, model: 'model-b' };
+    const integrity = new CandidateRequestPlanIntegrityError(first, 'expected', 'actual');
+    const calls: string[] = [];
+    const recovery = jest.spyOn(defaultInvocationRecoveryPolicy, 'decideFailure');
+    const delay = jest.spyOn(globalThis, 'setTimeout');
+    const service = invocationService(async (candidate) => { calls.push(candidate.provider); throw integrity; });
+    const publication = jest.spyOn(service, 'projectProviderExchanges');
+    const request: InvocationRequest = { inputId: '00000000-0000-4000-8000-000000000001', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 100 }, capabilityRequest: {}, candidateChain: [first, second] };
+    await expect(service.invokeWithRecovery(request)).rejects.toBe(integrity);
+    expect(calls).toEqual(['test-a']);
+    expect(recovery).not.toHaveBeenCalled();
+    expect(publication).not.toHaveBeenCalled();
+    expect(delay).not.toHaveBeenCalled();
+  });
 });
 
 function invocationService(llmCallFn: LlmCallFn): InvocationService {
   const root = mkdtempSync(join(tmpdir(), 'saivage-context-route-pass-'));
   roots.push(root);
-  return new InvocationService({ projectRoot: root, saivageDir: root, appLogs: testAppLogs(root), readModelChanges: new ReadModelChangeBroadcaster(), registry: {} as never, router: { getLastCapabilitySkips: () => [] } as never, candidateAvailability: new MemoryCandidateAvailability(), llmCallFn });
+  return new InvocationService({ projectRoot: root, appLogs: testAppLogs(root), readModelChanges: new ReadModelChangeBroadcaster(), registry: testRegistry(), router: { getLastCapabilitySkips: () => [] } as never, candidateAvailability: new MemoryCandidateAvailability(), llmCallFn });
 }
+
+function testRegistry(): never { return { getEffectiveCapabilities: () => ({ transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', streaming: false, quirks: [] }) } as never; }
 
 function errorAttempt(inputId: string, candidate: Candidate): ProviderExchangeAttempt {
   return { contract_id: 'test.v1', contract_name: 'test', transport: 'generic', provider: candidate.provider, model: candidate.model, source_input_id: inputId, request_params: {}, started_at: '2026-07-17T00:00:00.000Z', completed_at: '2026-07-17T00:00:00.001Z', status: 'error', response_status: 400, terminal_tool_fired: null, error: { name: 'LlmRequestError', message: 'structured context rejection', status: 400 } };

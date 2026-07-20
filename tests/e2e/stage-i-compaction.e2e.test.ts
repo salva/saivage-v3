@@ -9,7 +9,7 @@ import { compact } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { hashConversationRows } from '../../src/contracts/conversation-compaction.js';
-import { buildOpenAIResponsesRequest } from '../../src/agents/llm-openai-responses-gateway.js';
+import { buildOpenAIResponsesRequest } from '../../src/agents/llm-openai-responses-adapter.js';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';

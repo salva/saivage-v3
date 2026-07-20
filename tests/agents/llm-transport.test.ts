@@ -45,11 +45,24 @@ afterEach(() => {
 });
 
 describe('resolveLlmTransportConfig direct auth refresh', () => {
+  it('uses the explicit Responses credential requirement without capability rediscovery', async () => {
+    const projectRoot = root();
+    const registry = new ProviderRegistry(config({ custom: { models: ['m1'], apiKey: 'provider-key', baseUrl: 'https://responses.example/v1' } }));
+    jest.spyOn(registry, 'getEffectiveCapabilities').mockImplementation(() => { throw new Error('must not rediscover protocol'); });
+    await expect(resolveLlmTransportConfig(projectRoot, registry, { provider: 'custom', account: null, model: 'm1' }, 'openai_responses_api_key')).resolves.toEqual({ baseUrl: 'https://responses.example/v1', apiKey: 'provider-key' });
+  });
+
+  it('rejects an auth profile for the Responses key-only requirement without loading it', async () => {
+    const projectRoot = root();
+    const registry = new ProviderRegistry(config({ custom: { models: ['m1'], authProfile: 'profile' } }));
+    await expect(resolveLlmTransportConfig(projectRoot, registry, { provider: 'custom', account: null, model: 'm1' }, 'openai_responses_api_key')).rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'invalid_account' } });
+  });
+
   it('resolves an explicit Codex profile by direct strict read', async () => {
     const projectRoot = root();
     writeProfiles(projectRoot, { codex: { type: 'oauth', provider: 'openai-codex', accessToken: codexToken('acct'), refreshToken: 'refresh' } });
     const registry = new ProviderRegistry(config({ 'openai-codex': { models: ['m1'], authProfile: 'codex' } }));
-    await expect(resolveLlmTransportConfig(projectRoot, registry, { provider: 'openai-codex', account: null, model: 'm1' }))
+    await expect(resolveLlmTransportConfig(projectRoot, registry, { provider: 'openai-codex', account: null, model: 'm1' }, 'standard'))
       .resolves.toMatchObject({ openAICodexAccountId: 'acct' });
   });
 
@@ -64,7 +77,7 @@ describe('resolveLlmTransportConfig direct auth refresh', () => {
       } });
       return new Response(JSON.stringify({ token: 'last-completed', expires_at: Math.floor(Date.now() / 1000) + 3600 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     });
-    await resolveLlmTransportConfig(projectRoot, registry, { provider: 'github', account: null, model: 'm1' });
+    await resolveLlmTransportConfig(projectRoot, registry, { provider: 'github', account: null, model: 'm1' }, 'standard');
     expect(readAuthProfile(projectRoot, 'copilot')?.accessToken).toBe('last-completed');
     expect(readAuthProfile(projectRoot, 'other')?.accessToken).toBe('preserved');
   });
@@ -82,7 +95,7 @@ describe('resolveLlmTransportConfig direct auth refresh', () => {
     const fetchAwaited = new Promise<void>((resolve) => { fetchStarted = resolve; });
     jest.spyOn(globalThis, 'fetch').mockImplementation(() => { fetchStarted(); return new Promise<Response>((resolve) => { release = resolve; }); });
     const controller = new AbortController();
-    const pending = resolveLlmTransportConfig(projectRoot, registry, { provider: providerName, account: null, model: 'm1' }, controller.signal);
+    const pending = resolveLlmTransportConfig(projectRoot, registry, { provider: providerName, account: null, model: 'm1' }, 'standard', controller.signal);
     await fetchAwaited;
     controller.abort(new Error('owner stopped'));
     release(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
@@ -103,7 +116,7 @@ describe('resolveLlmTransportConfig direct auth refresh', () => {
     const bodyAwaited = new Promise<void>((resolve) => { bodyStarted = resolve; });
     jest.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: () => { bodyStarted(); return new Promise((resolve) => { releaseBody = resolve; }); } } as Response);
     const controller = new AbortController();
-    const pending = resolveLlmTransportConfig(projectRoot, registry, { provider: providerName, account: null, model: 'm1' }, controller.signal);
+    const pending = resolveLlmTransportConfig(projectRoot, registry, { provider: providerName, account: null, model: 'm1' }, 'standard', controller.signal);
     await bodyAwaited;
     controller.abort(new Error('owner stopped'));
     releaseBody(body);

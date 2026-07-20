@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { createHash } from 'node:crypto';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
-import { buildOpenAIResponsesRequest, OpenAIResponsesGateway } from '../../src/agents/llm-openai-responses-gateway.js';
+import { buildOpenAIResponsesRequest } from '../../src/agents/llm-openai-responses-adapter.js';
 import type { LlmCompleteOptions, ToolDefinition } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { validateConversationRows } from '../../src/contracts/conversation-compaction.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { compactedConversationFixture } from '../helpers/compacted-conversation-fixture.js';
-import { createProviderExchangeRecorder } from '../../src/agents/provider-exchange-recorder.js';
+import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
+import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
 const MSG: AgentMessage = { id: 'm1', session_id: 'analyst:global', role: 'user', kind: 'text', content: 'hi', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
@@ -57,17 +58,16 @@ describe('OpenAI Responses request shape', () => {
   it('builds and sends one byte-identical latest-only candidate from validated C1/C2 state', async () => {
     const fixture = compactedConversationFixture('planner:project', true);
     const providerConversation = providerConversationProjection(validateConversationRows('planner:project', fixture.rows));
-    const recorder = createProviderExchangeRecorder({ sessionId: 'planner:project' });
-    const opts: LlmCompleteOptions = { inputId: 'input-3', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 123, recorder };
+    const opts: LlmCompleteOptions = { inputId: 'input-3', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 123 };
     const capabilities = { transportProtocol: 'openai-responses' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, streaming: false, contextWindowTokens: 10000, maxOutputTokens: 1000, quirks: [] };
-    const built = buildCandidateRequest({ candidate: CANDIDATE, capabilities, systemPrompt: 'role prompt', providerConversation, options: opts });
+    const built = buildCandidateRequest({ candidate: CANDIDATE, capabilities, adapter: selectLlmProtocolAdapter(capabilities.transportProtocol), systemPrompt: 'role prompt', providerConversation, options: opts }).request;
     let sentBody: string | undefined;
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
       sentBody = init?.body as string;
       return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }), { status: 200 });
     });
 
-    await new OpenAIResponsesGateway({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', capabilities }).complete(CANDIDATE, 'role prompt', providerConversation, 'planner:project', { ...opts, builtCandidateRequest: built });
+    const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', capabilities }).complete(CANDIDATE, 'role prompt', providerConversation, 'planner:project', { ...opts, builtCandidateRequest: built });
 
     const body = JSON.parse(built.serializedBody) as { instructions: string; input: unknown[] };
     expect(body.instructions).toBe(`role prompt\n\n--- system context ---\nRound one-activation:\n${fixture.c2Summary}\n\nRound two-activation:\n${fixture.c2Summary}`);
@@ -78,6 +78,6 @@ describe('OpenAI Responses request shape', () => {
     expect(built.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(built.serializedBody, 'utf8') / 4));
     expect(built.requestHash).toBe(createHash('sha256').update(built.serializedBody, 'utf8').digest('hex'));
     expect(sentBody).toBe(built.serializedBody);
-    expect(recorder.settledAttempts()[0]!.request_params).not.toHaveProperty('phase');
+    expect(completion.provider_exchanges[0]!.request_params).not.toHaveProperty('phase');
   });
 });
