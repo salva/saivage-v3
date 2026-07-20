@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { chatOperatorApiContracts } from '../../src/contracts/operator-api-chats.js';
+import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { buildChatOperatorContractHandlers } from '../../src/server/routes/operator-chat-handlers.js';
@@ -13,28 +14,29 @@ import type { ExecutingLlmSnapshot } from '../../src/runtime/actors/executing-ll
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { appendAnalystIngressBatch } from '../../src/runtime/actors/conversation-session.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
   let projectRoot: string;
-  const cardRead = jest.fn();
-  const submit = jest.fn(async () => ({ sessionId: 'analyst:global' as const, toolInvocations: [], restart: null }));
+  const submit = jest.fn<RuntimeApplication['analystRuntime']['submit']>(async () => ({ sessionId: 'analyst:global', toolInvocations: [], restart: null }));
+  const acknowledge = jest.fn(async () => undefined);
   let snapshots: ExecutingLlmSnapshot[];
   const authHeaders = { authorization: 'Bearer route-token' };
 
   beforeEach(async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-chat-routes-'));
     initProjectTree(projectRoot);
-    cardRead.mockClear();
     submit.mockClear();
+    acknowledge.mockClear();
     snapshots = [];
     fastify = Fastify({ logger: false });
     const handlers = buildChatOperatorContractHandlers({
       projectRoot,
-      cardStore: { read: cardRead },
-      runtimeApplication: { analystRuntime: { submit }, captureExecutingLlmSnapshots: () => snapshots },
-      saivageConfig: {},
-    } as never);
+      runtimeApplication: { analystRuntime: { submit }, captureExecutingLlmSnapshots: () => snapshots } as unknown as RuntimeApplication,
+      saivageConfig: TEST_SAIVAGE_CONFIG,
+      restartPort: { schedule: jest.fn(), acknowledge },
+    });
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }) }).mount(fastify, chatOperatorApiContracts, handlers);
     await fastify.ready();
   });
@@ -74,6 +76,37 @@ describe('operator chat route request contracts', () => {
     });
   });
 
+  it('preserves optional content semantics after request parsing', async () => {
+    const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst%3Aglobal', headers: authHeaders, payload: {} });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: 'Message content is required' });
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed workspace context before Analyst submission', async () => {
+    const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst%3Aglobal', headers: authHeaders, payload: { content: 'hello', workspaceContext: { view: 1, entityId: null, refinement: null } } });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: 'ValidationError' });
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges a scheduled restart after the reply finishes', async () => {
+    submit.mockResolvedValueOnce({ sessionId: 'analyst:global', toolInvocations: [], restart: { status: 'scheduled' } });
+
+    const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst%3Aglobal', headers: authHeaders, payload: { content: 'restart' } });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ sessionId: 'analyst:global', toolInvocations: [], restart: { status: 'scheduled' } });
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not advertise a production-impossible 503 response', () => {
+    expect(chatOperatorApiContracts['chats.send'].response).not.toHaveProperty('503');
+  });
+
   it.each(['inactive', 'active', 'waiting'] as const)('returns the present %s Analyst projection unchanged from agents.conversation', async (status) => {
     const inputId = '11111111-1111-4111-8111-111111111111';
     const ingress = appendAnalystIngressBatch({ projectRoot }, inputId, 'workspace', 'question');
@@ -97,7 +130,7 @@ describe('operator chat route request contracts', () => {
       error: 'ValidationError',
       issues: expect.arrayContaining([expect.objectContaining({ path: 'sessionId' })]),
     });
-    expect(cardRead).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('rejects a non-Analyst POST identity before Analyst submission', async () => {

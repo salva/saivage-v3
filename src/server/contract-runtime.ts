@@ -4,12 +4,22 @@ import type { AuthPolicy } from './auth-policy.js';
 import type { EventBus, EventKind } from '../events/index.js';
 import type { OperatorRouteContract } from '../contracts/index.js';
 
+type ContractSchemaOutput<
+  TContract extends OperatorRouteContract,
+  TKey extends 'params' | 'query' | 'body',
+> = TContract extends Record<TKey, infer TSchema extends z.ZodTypeAny> ? z.output<TSchema> : undefined;
+
+type ParsedContractRequest<TContract extends OperatorRouteContract> = {
+  params: ContractSchemaOutput<TContract, 'params'>;
+  query: ContractSchemaOutput<TContract, 'query'>;
+  body: ContractSchemaOutput<TContract, 'body'>;
+};
 
 export interface ContractPermissionContext<TContract extends OperatorRouteContract = OperatorRouteContract> {
   contract: TContract;
-  params: unknown;
-  query: unknown;
-  body: unknown;
+  params: ContractSchemaOutput<TContract, 'params'>;
+  query: ContractSchemaOutput<TContract, 'query'>;
+  body: ContractSchemaOutput<TContract, 'body'>;
   request: FastifyRequest;
 }
 
@@ -90,14 +100,15 @@ export class ContractRuntime {
     contracts: TContracts,
     handlers: { [K in keyof TContracts]?: ContractHandler<TContracts[K]> },
   ): void {
-    for (const [operationId, contract] of Object.entries(contracts) as Array<[keyof TContracts, TContracts[keyof TContracts]]>) {
+    for (const operationId in contracts) {
+      const contract = contracts[operationId];
       const handler = handlers[operationId];
       if (!handler) continue;
-      this.mountOne(fastify, contract, handler as ContractHandler);
+      this.mountOne(fastify, contract, handler);
     }
   }
 
-  private mountOne(fastify: FastifyInstance, contract: OperatorRouteContract, handler: ContractHandler): void {
+  private mountOne<TContract extends OperatorRouteContract>(fastify: FastifyInstance, contract: TContract, handler: ContractHandler<TContract>): void {
     const route: RouteOptions = {
       method: contract.method,
       url: contract.path,
@@ -137,8 +148,8 @@ export class ContractRuntime {
     return result.ok ? null : unauthorizedBody();
   }
 
-  private parseRequest(contract: OperatorRouteContract, request: FastifyRequest):
-    | { ok: true; params: unknown; query: unknown; body: unknown }
+  private parseRequest<TContract extends OperatorRouteContract>(contract: TContract, request: FastifyRequest):
+    | ({ ok: true } & ParsedContractRequest<TContract>)
     | { ok: false; body: Record<string, unknown> } {
     const paramsResult = contract.params?.safeParse(request.params ?? {});
     if (paramsResult && !paramsResult.success) return { ok: false, body: validationErrorBody(contract.operationId, 'params', paramsResult.error) };
@@ -152,10 +163,10 @@ export class ContractRuntime {
     return { ok: true, params: paramsResult?.data, query: queryResult?.data, body: bodyResult?.data };
   }
 
-  private async validatePermission(
-    contract: OperatorRouteContract,
+  private async validatePermission<TContract extends OperatorRouteContract>(
+    contract: TContract,
     request: FastifyRequest,
-    parsed: { params: unknown; query: unknown; body: unknown },
+    parsed: ParsedContractRequest<TContract>,
   ): Promise<Record<string, unknown> | null> {
     if (!contract.permissions) return null;
     const decision = isPermissionAllowed(await contract.permissions({ contract, request, params: parsed.params, query: parsed.query, body: parsed.body }));

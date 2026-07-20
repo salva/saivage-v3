@@ -229,6 +229,8 @@ Exact invalidation checks the target against accepted loaded/visible state: chil
 
 The backend operator boundary mirrors those disjoint resources. Operator-card `allowedActions` derive from the reduced canonical action schema and the role/action/state permission matrix, whose action vocabulary is exactly `card.start`, `card.create`, `card.cancel`, `card.delete`, and `card.reorder_child`; there is no `card.restart`, and blocked has no projected start action. Projections do not add capabilities outside that authority. `proveActiveCardPath()` derives and validates the exact committed root-to-target path once and returns the target's one call-local `CardArtifactIndex`. Hierarchy then reads each exact committed immediate child stream once; detail performs no post-proof read; history list, entry, and diff derive from that same target index without target rereads; and current authored-record access alone reads one exact selected slot stream after path proof. At depth `d`, detail/history operations read `d + 1` card streams; hierarchy adds one card-stream read for each committed immediate child ID; authored record adds one selected slot read. No operation enumerates siblings, reads unrelated streams, retains an index, or introduces a repository/cache lifecycle.
 
+The hand-authored shared Zod `operatorApiContracts` registry is the sole operator REST contract authority for the backend and web. `ContractRuntime` validates untrusted requests into parsed handler values and validates each returned body against the schema selected by its runtime status code. Operation-indexed handler and read-model types are compile-time projections of that same registry, including transformed request values, exact success bodies, declared non-200 bodies, and complete operation ownership; they are not a second contract. Operator route composition supplies required production dependencies directly, including the runtime application and startup-selected configuration required by chat handlers and the card service required by file-record reads. There is no OpenAPI document, code generator, generated client/server source, declaration snapshot, or generation/staleness workflow.
+
 `CardService.listCardHistory()`, `getCardHistoryEntry()`, and `diffCardHistory()` are the singular domain history resources, and `card-history-provider.ts` is the sole tool implementation. “Card history” means embedded `CardHistoryEntry` snapshots in `card.jsonl`, ordered newest first for list projection; it never means `brief.jsonl`, `status.jsonl`, or `review.jsonl` revisions. One shared positive-safe-integer schema validates every numeric tool, application/read-model, and domain sequence before exact reads. HTTP route/query parsing accepts only transformed canonical positive ASCII decimal strings with no sign, leading zero, fraction, suffix, whitespace, exponent, non-ASCII digit, or unsafe value; diff additionally accepts `last` and `current`. Syntax failures are 400 before handlers or reads, and resolved `from > to` is a separate semantic 400.
 
 All card-target absences use strict `{ error: 'Card not found', cardId }`. History-entry 404 is exactly that target variant or `{ error: 'Card history entry not found', cardId, version_seq }`; diff 404 is exactly the target variant or `{ error: 'Card diff source not found', cardId, from, to, missing_version_seq }`. These unions have no generic member. Malformed reached exact data remains a server failure. The obsolete complete card-list route, `cardIndex` projection, Dashboard/Debug card aggregates, and card-inventory Timeline route/components are absent; Debug's event timeline and agent timelines are distinct retained products.
@@ -256,38 +258,38 @@ This appendix is maintained as source-derived reference data for documentation d
 <!-- saivage:operator-routes:start -->
 | Route | Purpose | Source |
 |---|---|---|
-| `GET /api/agents` | Agent session list projection. | `src/contracts/operator-api-agents.ts:56` |
-| `GET /api/agents/:id` | Agent session detail projection. | `src/contracts/operator-api-agents.ts:66` |
-| `GET /api/agents/:id/conversation` | Agent conversation projection. | `src/contracts/operator-api-agents.ts:77` |
-| `GET /api/agents/:id/llm-exchange` | Agent provider-exchange projection. | `src/contracts/operator-api-agents.ts:88` |
-| `POST /api/auth/ws-ticket` | WebSocket ticket issuance. | `src/contracts/operator-api-auth.ts:22` |
-| `GET /api/chats` | Analyst session list. | `src/contracts/operator-api-chats.ts:56` |
-| `GET /api/chats/:sessionId` | Analyst transcript. | `src/contracts/operator-api-chats.ts:66` |
-| `POST /api/chats/:sessionId` | Analyst turn submission. | `src/contracts/operator-api-chats.ts:77` |
-| `GET /api/config` | Redacted configuration. | `src/contracts/operator-api-config.ts:73` |
-| `GET /api/providers` | Provider routing projection. | `src/contracts/operator-api-config.ts:83` |
-| `GET /api/control-actions` | Control-action projection. | `src/contracts/operator-api-config.ts:93` |
-| `GET /api/events` | Event timeline. | `src/contracts/operator-api-events.ts:35` |
-| `GET /api/files` | Workspace listing. | `src/contracts/operator-api-files-debug.ts:46` |
-| `GET /api/files/content` | Workspace content. | `src/contracts/operator-api-files-debug.ts:57` |
-| `GET /api/mcp/status` | MCP status. | `src/contracts/operator-api-mcp.ts:72` |
-| `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:82` |
-| `GET /api/processes` | Process list. | `src/contracts/operator-api-processes.ts:71` |
-| `GET /api/processes/:id` | Process detail. | `src/contracts/operator-api-processes.ts:81` |
-| `GET /health` | Liveness. | `src/contracts/operator-api-runtime-cards.ts:124` |
-| `GET /health/ready` | Readiness. | `src/contracts/operator-api-runtime-cards.ts:135` |
-| `GET /api/state` | Operator runtime state without card inventory. | `src/contracts/operator-api-runtime-cards.ts:146` |
-| `GET /api/cards/:id/children` | Immediate committed active-child hierarchy slice. | `src/contracts/operator-api-runtime-cards.ts:156` |
-| `GET /api/cards/:id` | Current card detail only. | `src/contracts/operator-api-runtime-cards.ts:167` |
-| `GET /api/cards/:id/history` | Embedded card-version history headers. | `src/contracts/operator-api-runtime-cards.ts:179` |
-| `GET /api/cards/:id/history/:seq` | Embedded card-version history entry. | `src/contracts/operator-api-runtime-cards.ts:190` |
-| `GET /api/cards/:id/diff` | Embedded card-version diff. | `src/contracts/operator-api-runtime-cards.ts:201` |
-| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:213` |
-| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:223` |
-| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:233` |
-| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:243` |
-| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:253` |
-| `GET /api/runtime/card-runs` | Exact `current_card_id`, `active_breadcrumb`, and `dormant_planners` projection. | `src/contracts/operator-api-runtime-cards.ts:253` |
+| `GET /api/agents` | Agent session list projection. | `src/contracts/operator-api-agents.ts:66` |
+| `GET /api/agents/:id` | Agent session detail projection. | `src/contracts/operator-api-agents.ts:76` |
+| `GET /api/agents/:id/conversation` | Agent conversation projection. | `src/contracts/operator-api-agents.ts:87` |
+| `GET /api/agents/:id/llm-exchange` | Agent provider-exchange projection. | `src/contracts/operator-api-agents.ts:98` |
+| `POST /api/auth/ws-ticket` | WebSocket ticket issuance. | `src/contracts/operator-api-auth.ts:20` |
+| `GET /api/chats` | Analyst session list. | `src/contracts/operator-api-chats.ts:59` |
+| `GET /api/chats/:sessionId` | Analyst transcript. | `src/contracts/operator-api-chats.ts:69` |
+| `POST /api/chats/:sessionId` | Analyst turn submission. | `src/contracts/operator-api-chats.ts:80` |
+| `GET /api/config` | Redacted configuration. | `src/contracts/operator-api-config.ts:71` |
+| `GET /api/providers` | Provider routing projection. | `src/contracts/operator-api-config.ts:81` |
+| `GET /api/control-actions` | Control-action projection. | `src/contracts/operator-api-config.ts:91` |
+| `GET /api/events` | Event timeline. | `src/contracts/operator-api-events.ts:33` |
+| `GET /api/files` | Workspace listing. | `src/contracts/operator-api-files-debug.ts:44` |
+| `GET /api/files/content` | Workspace content. | `src/contracts/operator-api-files-debug.ts:55` |
+| `GET /api/mcp/status` | MCP status. | `src/contracts/operator-api-mcp.ts:70` |
+| `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:80` |
+| `GET /api/processes` | Process list. | `src/contracts/operator-api-processes.ts:69` |
+| `GET /api/processes/:id` | Process detail. | `src/contracts/operator-api-processes.ts:79` |
+| `GET /health` | Liveness. | `src/contracts/operator-api-runtime-cards.ts:123` |
+| `GET /health/ready` | Readiness. | `src/contracts/operator-api-runtime-cards.ts:134` |
+| `GET /api/state` | Operator runtime state without card inventory. | `src/contracts/operator-api-runtime-cards.ts:145` |
+| `GET /api/cards/:id/children` | Immediate committed active-child hierarchy slice. | `src/contracts/operator-api-runtime-cards.ts:155` |
+| `GET /api/cards/:id` | Current card detail only. | `src/contracts/operator-api-runtime-cards.ts:166` |
+| `GET /api/cards/:id/history` | Embedded card-version history headers. | `src/contracts/operator-api-runtime-cards.ts:178` |
+| `GET /api/cards/:id/history/:seq` | Embedded card-version history entry. | `src/contracts/operator-api-runtime-cards.ts:189` |
+| `GET /api/cards/:id/diff` | Embedded card-version diff. | `src/contracts/operator-api-runtime-cards.ts:200` |
+| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:212` |
+| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:222` |
+| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:232` |
+| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:242` |
+| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:252` |
+| `GET /api/runtime/card-runs` | Exact `current_card_id`, `active_breadcrumb`, and `dormant_planners` projection. | `src/contracts/operator-api-runtime-cards.ts:263` |
 <!-- saivage:operator-routes:end -->
 
 ### Internal debug routes
@@ -296,9 +298,9 @@ This appendix is maintained as source-derived reference data for documentation d
 | Route | Purpose | Source |
 |---|---|---|
 | `GET /api/debug/doctor` | Internal card diagnostic. | `src/server/routes/chats-files-debug.ts:16` |
-| `GET /api/debug/errors` | Internal error projection. | `src/contracts/operator-api-files-debug.ts:68` |
+| `GET /api/debug/errors` | Internal error projection. | `src/contracts/operator-api-files-debug.ts:66` |
 | `GET /api/debug/supervision` | Internal supervision projection. | `src/server/routes/chats-files-debug.ts:37` |
-| `GET /api/debug/timeline` | Internal timeline projection. | `src/contracts/operator-api-files-debug.ts:78` |
+| `GET /api/debug/timeline` | Internal timeline projection. | `src/contracts/operator-api-files-debug.ts:76` |
 <!-- saivage:internal-debug-routes:end -->
 
 ### Agent tools

@@ -31,6 +31,7 @@ describe('Analyst agent-session tools', () => {
     publishConversationFirstBatch({ projectRoot }, rows());
     const snapshots = () => [waiting()];
     const expected = new AgentOperatorReadModelService(projectRoot, snapshots).getConversation('planner:project');
+    if (expected.statusCode === 400 || expected.statusCode === 404) throw new Error(expected.body.error);
     if (!('session' in expected.body)) throw new Error('expected conversation');
     const result = await read_agent_session({ projectRoot, captureExecutingLlmSnapshots: snapshots } as unknown as ToolContext, { sessionId: 'planner:project', lastN: 1 });
     expect(result).toEqual({ success: true, data: { session: expected.body.session, activity_status: expected.body.activity_status, total_messages: 2, returned: 1, parse_errors: 0, messages: [expected.body.entries[1]] } });

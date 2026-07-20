@@ -7,11 +7,14 @@ import { buildChatOperatorContractHandlers } from './operator-chat-handlers.js';
 import { buildConfigOperatorContractHandlers } from './operator-config-handlers.js';
 import { buildEventsOperatorContractHandlers } from './operator-events-handlers.js';
 import { buildFilesDebugOperatorContractHandlers } from './operator-files-debug-handlers.js';
+import {
+  defineOperatorContractHandlers,
+  type OperatorContractHandlerMap,
+} from './operator-handler-context.js';
 import type {
   OperatorCardServiceContext,
   OperatorAvailabilityContext,
   OperatorConfigContext,
-  OperatorContractHandlerMap,
   OperatorProjectContext,
   OperatorRuntimeProviderContext,
 } from './operator-handler-context.js';
@@ -20,36 +23,39 @@ import { buildProcessOperatorContractHandlers } from './operator-process-handler
 import { buildRuntimeCardOperatorContractHandlers } from './operator-runtime-card-handlers.js';
 import { ContractRuntime } from '../contract-runtime.js';
 
-interface OperatorContractRouteRegistrationOptions extends
+export interface OperatorContractRouteRegistrationOptions extends
   OperatorProjectContext,
   OperatorAvailabilityContext,
   OperatorConfigContext,
   OperatorCardServiceContext,
-  OperatorRuntimeProviderContext {
+  Omit<OperatorRuntimeProviderContext, 'runtimeApplication'> {
   fastify: FastifyInstance;
   authPolicy: AuthPolicy;
   mcpManager?: McpManager;
+  runtimeApplication: import('../../application/runtime-composition.js').RuntimeApplication;
+  saivageConfig: import('../../agents/config-api.js').SaivageConfig;
 }
 
 export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {
   const { fastify, projectRoot } = options;
   const runtime = new ContractRuntime({ authPolicy: options.authPolicy });
-  const handlers: OperatorContractHandlerMap = {
-    'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),
+  const handlers = {
+    ...defineOperatorContractHandlers({
+      'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),
+    }),
     ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider, restartPort: options.restartPort, restartServerAvailable: options.authPolicy.authEnabled }),
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
-    ...buildAgentOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication }),
-    ...buildChatOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, restartPort: options.restartPort, saivageConfig: options.saivageConfig }),
-    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider: () => options.cardStore }),
-    ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication?.processRunner }),
+    ...buildAgentOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication }),
+    ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication, restartPort: options.restartPort, saivageConfig: options.saivageConfig }),
+    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider: () => options.runtimeApplication.cardStore }),
+    ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication.processRunner }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
     ...buildConfigOperatorContractHandlers({
       projectRoot,
       configAuthority: options.configAuthority,
-      saivageConfig: options.saivageConfig,
       providerRoutingReadModelProvider: options.providerRoutingReadModelProvider,
     }),
-  };
+  } satisfies OperatorContractHandlerMap;
 
   runtime.mount(fastify, operatorApiContracts, handlers);
 }

@@ -4,17 +4,31 @@ import { positiveSafeIntegerSchema, type CardHistoryEntry, type CardRecord } fro
 import { allowedActions } from '../../permissions/index.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
-import type { OperatorCard, ServerAvailability } from '../../contracts/index.js';
+import type {
+  OperatorApiHandlerResult,
+  OperatorApiQuery,
+  OperatorApiResponse,
+  OperatorCard,
+  ServerAvailability,
+} from '../../contracts/index.js';
 import { toCardOperatorSummary } from './card-view.js';
-
-export type ReadModelResult<T> = { statusCode?: number; body: T };
 
 export function toOperatorCard(card: CardRecord): OperatorCard {
   return { ...card, allowedActions: allowedActions('operator', card.lifecycle.status), operator_summary: toCardOperatorSummary(card) };
 }
 
 function redactValue<T>(value: T, source = 'cards-read-model'): T {
-  return redactForOutbound(value, 'operator.api', { source }) as T;
+  return redactForOutbound(value, 'operator.api', { source });
+}
+
+function invalidNumberBody(path: 'seq' | 'from' | 'to'): OperatorApiResponse<'cards.history.get', 400> {
+  const subject = path === 'seq' ? 'History sequence' : `Diff ${path} pivot`;
+  const message = `${subject} must be a positive safe integer`;
+  return {
+    error: 'ValidationError',
+    message,
+    issues: [{ path, message }],
+  };
 }
 
 function historyHeader(entry: CardHistoryEntry) {
@@ -35,43 +49,45 @@ function historyHeader(entry: CardHistoryEntry) {
 export class CardsReadModelService {
   constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly runtime: Pick<RuntimeApi, 'getRuntimeState'>) {}
 
-  getRuntimeState(serverAvailability?: ServerAvailability) {
+  getRuntimeState(serverAvailability?: ServerAvailability): OperatorApiHandlerResult<'runtime.getState'> {
     const projectId = basename(this.projectRoot);
     const identity = { projectRoot: this.projectRoot, projectId };
     const state = this.runtime.getRuntimeState();
     return { body: { ...identity, runtime: state, ...(serverAvailability ? { serverAvailability } : {}) } };
   }
 
-  getChildren(id: string): ReadModelResult<unknown> {
+  getChildren(id: string): OperatorApiHandlerResult<'cards.children'> {
     const result = this.store.getCardChildren(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     return { body: { card: toOperatorCard(result.value.parent), children: result.value.activeChildren.map(toOperatorCard) } };
   }
 
-  getCard(id: string): ReadModelResult<unknown> {
+  getCard(id: string): OperatorApiHandlerResult<'cards.get'> {
     const result = this.store.getCardDetail(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     return { body: { card: toOperatorCard(result.value) } };
   }
 
-  listHistory(id: string): ReadModelResult<unknown> {
+  listHistory(id: string): OperatorApiHandlerResult<'cards.history.list'> {
     const result = this.store.listCardHistory(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     const history = result.value.map((entry) => redactValue(historyHeader(entry)));
     return { body: { history, total: history.length } };
   }
 
-  getHistoryEntry(id: string, versionSeq: number): ReadModelResult<unknown> {
-    if (!positiveSafeIntegerSchema.safeParse(versionSeq).success) return { statusCode: 400, body: { error: 'Invalid version sequence', version_seq: versionSeq } };
+  getHistoryEntry(id: string, versionSeq: number): OperatorApiHandlerResult<'cards.history.get'> {
+    if (!positiveSafeIntegerSchema.safeParse(versionSeq).success) return { statusCode: 400, body: invalidNumberBody('seq') };
     const result = this.store.getCardHistoryEntry(id, versionSeq);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     if (result.kind === 'history-entry-not-found') return { statusCode: 404, body: { error: 'Card history entry not found', cardId: id, version_seq: versionSeq } };
     return { body: { entry: redactValue(result.value) } };
   }
 
-  diffCard(id: string, query: { from?: number | 'last' | 'current'; to?: number | 'last' | 'current' }): ReadModelResult<unknown> {
-    for (const pivot of [query.from, query.to]) {
-      if (pivot !== undefined && pivot !== 'last' && pivot !== 'current' && !positiveSafeIntegerSchema.safeParse(pivot).success) return { statusCode: 400, body: { error: 'Invalid diff pivot' } };
+  diffCard(id: string, query: OperatorApiQuery<'cards.diff'>): OperatorApiHandlerResult<'cards.diff'> {
+    for (const [path, pivot] of [['from', query.from], ['to', query.to]] as const) {
+      if (pivot !== undefined && pivot !== 'last' && pivot !== 'current' && !positiveSafeIntegerSchema.safeParse(pivot).success) {
+        return { statusCode: 400, body: invalidNumberBody(path) };
+      }
     }
     const result = this.store.diffCardHistory(id, { fromSeq: query.from, toSeq: query.to });
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };

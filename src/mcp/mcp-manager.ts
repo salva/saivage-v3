@@ -16,7 +16,7 @@ export { McpInvokeError, ServerNotRunningError, ToolNotFoundError, InvalidArgume
 
 export interface McpStatusProvider { getStatus(): McpServerStatus[] }
 export interface McpToolsReadModelProvider { getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel> }
-export type McpToolCapability = ReturnType<typeof buildMcpToolsReadModel>['serverDetails'][number]['tools'][number] & { serverName: string };
+export type McpToolCapability = McpToolDefinition & { serverName: string };
 export interface McpToolInvocationPort { getServerTools(name: string): McpToolDefinition[] | undefined; findToolCapability(serverName: string, toolName: string): McpToolCapability | null; invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> }
 
 export interface McpReconciliationReport {
@@ -98,8 +98,7 @@ export class McpManager implements McpReconciliationPort {
   }
 
   findToolCapability(serverName: string, toolName: string): McpToolCapability | null {
-    const server = this.getToolsReadModel().serverDetails.find((candidate) => candidate.name === serverName);
-    const tool = server?.tools.find((candidate) => candidate.name === toolName);
+    const tool = this.getServerTools(serverName)?.find((candidate) => candidate.name === toolName);
     return tool ? { ...tool, serverName } : null;
   }
 

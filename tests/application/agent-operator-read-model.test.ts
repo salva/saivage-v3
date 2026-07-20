@@ -19,6 +19,8 @@ function project() { const root = mkdtempSync(join(tmpdir(), 'saivage-agent-read
 function text(session_id: ConversationSessionId): AgentMessage { return { id: `${session_id}:text`, session_id, role: 'user', kind: 'text', content: 'hello', round_id: `r-user-${inputId.replaceAll('-', '')}`, message_index: 0, block_index: 0, timestamp }; }
 function call(session_id: ConversationSessionId, tool = 'webfetch', toolCallId = 'call-1', args: Record<string, unknown> = { url: 'https://example.com' }): AgentMessage { return { id: `${inputId}:tool-call:${toolCallId}`, session_id, role: 'assistant', kind: 'tool_call', tool, tool_call_id: toolCallId, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: toolCallId, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] }), round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 0, block_index: 0, timestamp }; }
 function snapshot(sessionId: ConversationSessionId, activity: ExecutingLlmSnapshot['activity']): ExecutingLlmSnapshot { const [role, card] = sessionId.split(':'); return { sessionId, agentId: sessionId, role: role as 'planner' | 'executor' | 'reviewer' | 'analyst', cardId: role === 'analyst' ? null : card!, activity }; }
+function conversationBody(result: ReturnType<AgentOperatorReadModelService['getConversation']>) { if (result.statusCode === 400 || result.statusCode === 404) throw new Error(result.body.error); return result.body; }
+function detailBody(result: ReturnType<AgentOperatorReadModelService['getSession']>) { if (result.statusCode === 400 || result.statusCode === 404) throw new Error(result.body.error); return result.body; }
 
 describe('AgentOperatorReadModelService snapshot-first exact projection', () => {
   it('projects inactive, active, and exact waiting identically across list/detail/conversation', () => {
@@ -28,17 +30,16 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     const owner = { value: snapshot('planner:project', { mode: 'waiting', barrier }) };
     const service = new AgentOperatorReadModelService(root, () => [owner.value]);
     const listed = service.listSessions().sessions.find((row) => row.id === 'planner:project')!;
-    const detail = service.getSession('planner:project').body.session!;
-    const conversation = service.getConversation('planner:project').body;
-    if (!('session' in conversation)) throw new Error('conversation projection missing');
+    const detail = detailBody(service.getSession('planner:project')).session;
+    const conversation = conversationBody(service.getConversation('planner:project'));
     expect(listed.status).toBe('waiting');
     expect(detail.status).toBe('waiting');
     expect(conversation.session).toEqual(listed);
     expect(conversation.activity_status).toEqual({ status: 'waiting', pending_calls: [{ id: 'call-1', tool: 'webfetch', started_at: timestamp }] });
     owner.value = snapshot('planner:project', { mode: 'active', barrier: null });
-    expect(service.getConversation('planner:project').body).toMatchObject({ session: { status: 'active' }, activity_status: { status: 'active', pending_calls: [] } });
+    expect(conversationBody(service.getConversation('planner:project'))).toMatchObject({ session: { status: 'active' }, activity_status: { status: 'active', pending_calls: [] } });
     owner.value = undefined as never;
-    expect(new AgentOperatorReadModelService(root, () => []).getConversation('planner:project').body).toMatchObject({ session: { status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } });
+    expect(conversationBody(new AgentOperatorReadModelService(root, () => []).getConversation('planner:project'))).toMatchObject({ session: { status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } });
   });
 
   it('omits tombstoned inventory while exact direct history remains inactive', () => {
@@ -51,7 +52,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     expect(service.listSessions().sessions.map(({ id }) => id)).toContain(sessionId);
     cards.deleteSubtrees([child.id], { actor: 'analyst', surface: 'web-chat', reason: 'test' }, () => true);
     expect(service.listSessions().sessions.map(({ id }) => id)).not.toContain(sessionId);
-    expect(service.getConversation(sessionId).body).toMatchObject({ session: { id: sessionId, status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } });
+    expect(conversationBody(service.getConversation(sessionId))).toMatchObject({ session: { id: sessionId, status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } });
   });
 
   it('enforces aggregate completeness without applying it to unrelated direct reads', () => {
@@ -60,7 +61,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     const missing = snapshot('executor:card-a', { mode: 'active', barrier: null });
     const service = new AgentOperatorReadModelService(root, () => [missing]);
     expect(() => service.listSessions()).toThrow("Executing agent snapshot 'executor:card-a' has no aggregate conversation row");
-    expect(service.getConversation('planner:project').body).toMatchObject({ session: { status: 'inactive' } });
+    expect(conversationBody(service.getConversation('planner:project'))).toMatchObject({ session: { status: 'inactive' } });
   });
 
   it('freezes one captured activity and rejects exact call identity mismatches', () => {
@@ -90,7 +91,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     const response = kind === 'direct' ? service.getConversation('planner:project') : null;
     const projected = kind === 'aggregate'
       ? service.listSessions().sessions.find(({ id }) => id === 'planner:project')
-      : response && 'session' in response.body ? response.body.session : null;
+      : response ? conversationBody(response).session : null;
     expect(captures).toBe(1);
     expect(projected).toMatchObject({ status: 'waiting' });
   });
@@ -105,7 +106,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
       return [captured];
     });
     const response = kind === 'direct' ? service.getConversation('planner:project') : null;
-    const status = kind === 'aggregate' ? service.listSessions().sessions[0]!.status : (response && 'session' in response.body ? response.body.session.status : null);
+    const status = kind === 'aggregate' ? service.listSessions().sessions[0]!.status : (response ? conversationBody(response).session.status : null);
     expect(status).toBe('active');
   });
 

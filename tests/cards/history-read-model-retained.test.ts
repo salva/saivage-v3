@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardRefView, toCardView } from '../../src/application/read-models/card-view.js';
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
+import { ValidationErrorSchema } from '../../src/contracts/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -47,6 +48,11 @@ describe('direct card history and operator read models', () => {
     expect(diff.kind).toBe('found');
     if (diff.kind !== 'found') throw new Error('expected card diff');
     expect(diff.diff).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'title', before: 'First by position', after: 'Updated title' })]));
+    const readModel = new CardsReadModelService(root, cards, { getRuntimeState: () => null });
+    expect(readModel.diffCard(first.id, { from: 2, to: 1 })).toEqual({
+      statusCode: 400,
+      body: { error: 'Invalid diff pivots', from: 2, to: 1 },
+    });
     expect(orderedCardsForTree(cards).map((card) => card.id)).toEqual(['project', first.id, second.id]);
     expect(computeCardLogicalPath(cards, first)).toBe('1');
     expect(computeCardLogicalPath(cards, second)).toBe('2');
@@ -77,14 +83,34 @@ describe('direct card history and operator read models', () => {
     const entry = jest.spyOn(cards, 'getCardHistoryEntry');
     const diff = jest.spyOn(cards, 'diffCardHistory');
     const readModel = new CardsReadModelService(root, cards, { getRuntimeState: () => { throw new Error('unused'); } });
-    for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
-      expect(readModel.getHistoryEntry('project', invalid)).toMatchObject({ statusCode: 400 });
-      expect(readModel.diffCard('project', { from: invalid })).toMatchObject({ statusCode: 400 });
-      expect(readModel.diffCard('project', { to: invalid })).toMatchObject({ statusCode: 400 });
+    const invalidValues = [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1];
+    for (const invalid of invalidValues) {
+      const sequenceResult = readModel.getHistoryEntry('project', invalid);
+      const expectedSequenceBody = {
+        error: 'ValidationError',
+        message: 'History sequence must be a positive safe integer',
+        issues: [{ path: 'seq', message: 'History sequence must be a positive safe integer' }],
+      };
+      expect(sequenceResult).toEqual({ statusCode: 400, body: expectedSequenceBody });
+      expect(ValidationErrorSchema.parse(sequenceResult.body)).toEqual(expectedSequenceBody);
+
+      for (const path of ['from', 'to'] as const) {
+        const pivotResult = readModel.diffCard('project', { [path]: invalid });
+        const message = `Diff ${path} pivot must be a positive safe integer`;
+        const expectedPivotBody = { error: 'ValidationError', message, issues: [{ path, message }] };
+        expect(pivotResult).toEqual({ statusCode: 400, body: expectedPivotBody });
+        expect(ValidationErrorSchema.parse(pivotResult.body)).toEqual(expectedPivotBody);
+      }
     }
+    const bothInvalid = readModel.diffCard('project', { from: 0, to: -1 });
+    expect(bothInvalid.body).toMatchObject({ issues: [{ path: 'from' }] });
     expect(entry).not.toHaveBeenCalled();
     expect(diff).not.toHaveBeenCalled();
     expect(readModel.getHistoryEntry('project', 1)).toMatchObject({ statusCode: 404 });
     expect(entry).toHaveBeenCalledWith('project', 1);
+    readModel.diffCard('project', { from: 1, to: 'current' });
+    readModel.diffCard('project', { from: 'last', to: 1 });
+    expect(diff).toHaveBeenNthCalledWith(1, 'project', { fromSeq: 1, toSeq: 'current' });
+    expect(diff).toHaveBeenNthCalledWith(2, 'project', { fromSeq: 'last', toSeq: 1 });
   });
 });

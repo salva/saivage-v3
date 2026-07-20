@@ -196,9 +196,28 @@ export const operatorApiContracts = {
 
 export type OperatorApiOperationId = keyof typeof operatorApiContracts;
 export type OperatorApiContract<K extends OperatorApiOperationId> = (typeof operatorApiContracts)[K];
-export type OperatorApiSuccess<K extends OperatorApiOperationId> = z.infer<OperatorApiContract<K>['success']>;
-export type OperatorApiBody<K extends OperatorApiOperationId> = OperatorApiContract<K> extends { body: infer TBody extends z.ZodTypeAny } ? z.infer<TBody> : undefined;
-export type OperatorApiParams<K extends OperatorApiOperationId> = OperatorApiContract<K> extends { params: infer TParams extends z.ZodTypeAny } ? z.infer<TParams> : undefined;
+export type OperatorApiSuccess<K extends OperatorApiOperationId> = z.output<OperatorApiContract<K>['success']>;
+export type OperatorApiBody<K extends OperatorApiOperationId> = OperatorApiContract<K> extends { body: infer TBody extends z.ZodTypeAny } ? z.output<TBody> : undefined;
+export type OperatorApiParams<K extends OperatorApiOperationId> = OperatorApiContract<K> extends { params: infer TParams extends z.ZodTypeAny } ? z.output<TParams> : undefined;
+export type OperatorApiQuery<K extends OperatorApiOperationId> = OperatorApiContract<K> extends { query: infer TQuery extends z.ZodTypeAny } ? z.output<TQuery> : undefined;
+
+type OperatorApiResponseMap<K extends OperatorApiOperationId> = OperatorApiContract<K> extends {
+  response: infer TResponse extends Record<number, z.ZodTypeAny>;
+} ? TResponse : never;
+
+export type OperatorApiResponseStatus<K extends OperatorApiOperationId> = Extract<keyof OperatorApiResponseMap<K>, number>;
+export type OperatorApiResponse<
+  K extends OperatorApiOperationId,
+  S extends OperatorApiResponseStatus<K>,
+> = z.output<OperatorApiResponseMap<K>[S]>;
+export type OperatorApiHandlerResult<K extends OperatorApiOperationId> =
+  | { statusCode?: 200; body: OperatorApiSuccess<K> }
+  | {
+      [S in Exclude<OperatorApiResponseStatus<K>, 200>]: {
+        statusCode: S;
+        body: OperatorApiResponse<K, S>;
+      };
+    }[Exclude<OperatorApiResponseStatus<K>, 200>];
 
 export function parseOperatorResponse<K extends OperatorApiOperationId>(operationId: K, payload: unknown): OperatorApiSuccess<K> {
   return operatorApiContracts[operationId].success.parse(payload) as OperatorApiSuccess<K>;
@@ -212,7 +231,7 @@ export function operatorRouteInventory(): Array<{
   successSchemaName: string;
 }> {
   return Object.values(operatorApiContracts).map((contract) => ({
-    operationId: contract.operationId as OperatorApiOperationId,
+    operationId: contract.operationId,
     method: contract.method,
     path: contract.path,
     requiresAuth: contract.auth !== 'public',

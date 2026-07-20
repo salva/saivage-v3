@@ -14,6 +14,13 @@ const runtimeState = {
 };
 
 describe('operator API runtime contract without runtime ledgers', () => {
+  it('uses each operation response 200 schema as its exact success authority', () => {
+    for (const contract of Object.values(operatorApiContracts)) {
+      expect(contract.response).toHaveProperty('200');
+      expect(contract.response[200]).toBe(contract.success);
+    }
+  });
+
   it('declares Pause, Resume, and Stop as bodyless while Restart retains exact confirmation', () => {
     expect(operatorApiContracts['runtime.pause']).not.toHaveProperty('body');
     expect(operatorApiContracts['runtime.resume']).not.toHaveProperty('body');

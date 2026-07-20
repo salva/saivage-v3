@@ -1,5 +1,4 @@
 import { readAppLogEntries } from '../../persistence/app-log.js';
-import { loggedEventSchema, type LoggedEvent } from '../../schemas/index.js';
 import type { EventsListResponse, EventsQuery } from '../../contracts/index.js';
 
 function parseLimit(raw: string | undefined): number {
@@ -25,7 +24,7 @@ export class EventsReadModelService {
     if (query.session_id) allMatching = allMatching.filter((event) => 'session_id' in event && event.session_id === query.session_id);
     const total = allMatching.length;
     const events = allMatching.slice(offset, offset + limit);
-    return { events: events as LoggedEvent[], total };
+    return { events, total };
   }
 
   errorMessage(err: unknown): string {

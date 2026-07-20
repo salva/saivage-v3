@@ -1,20 +1,20 @@
-import type { ControlActionsQuery } from '../../contracts/index.js';
+import type { OperatorApiSuccess } from '../../contracts/index.js';
 import { listControlActions } from '../../persistence/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
-import type { OperatorConfigContext, OperatorContractHandlerMap, OperatorProjectContext } from './operator-handler-context.js';
+import { defineOperatorContractHandlers, type OperatorConfigContext, type OperatorProjectContext } from './operator-handler-context.js';
 
 const CONFIG_UNAVAILABLE_MESSAGE = 'Server was not started with a validated Environment config.';
 
-function redactControlAction<T>(value: T): T {
-  return redactForOutbound(value, 'operator.api', { source: 'runtime-config-notes.route' }) as T;
-}
-
-export function buildConfigOperatorContractHandlers(options: OperatorProjectContext & OperatorConfigContext): OperatorContractHandlerMap {
-  return {
+export function buildConfigOperatorContractHandlers(options: OperatorProjectContext & OperatorConfigContext) {
+  return defineOperatorContractHandlers({
     'config.get': () => {
       try {
         const effective = options.configAuthority.loadEffective();
-        const config = redactForOutbound(effective.config, 'operator.api', { source: 'runtime-config-notes.config' });
+        const config: OperatorApiSuccess<'config.get'>['config'] = redactForOutbound(
+          { ...effective.config },
+          'operator.api',
+          { source: 'runtime-config-notes.config' },
+        );
         return { body: { config, warnings: [...effective.warnings] } };
       } catch (error) {
         return {
@@ -28,8 +28,10 @@ export function buildConfigOperatorContractHandlers(options: OperatorProjectCont
     },
     'controlActions.list': ({ query }) => {
       try {
-        const filters = (query ?? {}) as ControlActionsQuery;
-        const actions = listControlActions(options.projectRoot, { card_id: filters.card_id, since: filters.since }).map((entry) => redactControlAction(entry));
+        const actions: OperatorApiSuccess<'controlActions.list'>['control_actions'] = listControlActions(
+          options.projectRoot,
+          { card_id: query.card_id, since: query.since },
+        ).map((entry) => redactForOutbound(entry, 'operator.api', { source: 'runtime-config-notes.route' }));
         return { body: { control_actions: actions, total: actions.length } };
       } catch (err) {
         return {
@@ -41,5 +43,5 @@ export function buildConfigOperatorContractHandlers(options: OperatorProjectCont
         };
       }
     },
-  };
+  });
 }

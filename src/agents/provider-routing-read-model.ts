@@ -1,21 +1,9 @@
 import type { CandidateAvailability } from './candidate-availability.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
+import type { OperatorApiSuccess } from '../contracts/index.js';
 import type { ProviderRegistry } from './provider.js';
 
-export interface ProviderRoutingSummary {
-  priority: number;
-  models: string[];
-  baseUrl?: string;
-  candidateCount: number;
-  availableCandidateCount: number;
-  capabilitiesByModel: Record<string, unknown>;
-  availability: Array<{ candidate: Candidate; state: string; reason?: string; untilMs?: number }>;
-}
-
-export interface ProviderRoutingReadModel {
-  availabilityScope: 'process_local_reset_on_restart';
-  providers: Record<string, ProviderRoutingSummary>;
-}
+export type ProviderRoutingReadModel = OperatorApiSuccess<'providers.list'>;
+export type ProviderRoutingSummary = ProviderRoutingReadModel['providers'][string];
 
 export function buildProviderRoutingReadModel(input: {
   registry: ProviderRegistry;

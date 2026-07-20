@@ -1,15 +1,26 @@
 import type {
+  OperatorApiSuccess,
+} from '../../contracts/index.js';
+import type {
   OperatorAvailabilityContext,
-  OperatorContractHandlerMap,
   OperatorMcpProviderContext,
 } from './operator-handler-context.js';
+import { defineOperatorContractHandlers } from './operator-handler-context.js';
 
-export function buildMcpOperatorContractHandlers(options: OperatorMcpProviderContext & OperatorAvailabilityContext): OperatorContractHandlerMap {
-  return {
+export function buildMcpOperatorContractHandlers(options: OperatorMcpProviderContext & OperatorAvailabilityContext) {
+  return defineOperatorContractHandlers({
     'mcp.status': () => {
       const serverAvailability = options.serverAvailabilityProvider?.();
-      return { body: { servers: options.mcpStatusProvider?.getStatus() ?? [], ...(serverAvailability ? { serverAvailability } : {}) } };
+      const body: OperatorApiSuccess<'mcp.status'> = {
+        servers: options.mcpStatusProvider?.getStatus() ?? [],
+        ...(serverAvailability ? { serverAvailability } : {}),
+      };
+      return { body };
     },
-    'mcp.tools': () => ({ body: options.mcpToolsProvider?.getToolsReadModel() ?? { tools: [], servers: [], invocationStats: {}, serverDetails: [] } }),
-  };
+    'mcp.tools': () => {
+      const body: OperatorApiSuccess<'mcp.tools'> = options.mcpToolsProvider?.getToolsReadModel()
+        ?? { tools: [], servers: [], invocationStats: {}, serverDetails: [] };
+      return { body };
+    },
+  });
 }

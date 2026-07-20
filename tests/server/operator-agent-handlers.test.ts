@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import Fastify from 'fastify';
 
 import {
   AgentConversationResponseSchema,
   AgentDetailResponseSchema,
   AgentListResponseSchema,
   AgentLlmExchangeResponseSchema,
+  agentOperatorApiContracts,
 } from '../../src/contracts/operator-api-agents.js';
 import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
 import { appendAppLogEntry, appLogEntrySchema } from '../../src/persistence/app-log.js';
@@ -15,6 +17,9 @@ import { appLogFile } from '../../src/persistence/layout.js';
 import { providerExchangeAppLogEntry } from '../../src/persistence/provider-exchange-log.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
 import type { ProviderExchangePayload } from '../../src/contracts/provider-exchange.js';
+import { ContractRuntime } from '../../src/server/contract-runtime.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
+import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 const timestamp = '2026-07-17T00:00:00.000Z';
@@ -46,14 +51,21 @@ describe('operator Agent exact identity contracts and handlers', () => {
     expect(AgentLlmExchangeResponseSchema.safeParse({ sessionId: 'analyst:test', exchange: exchange() }).success).toBe(false);
   });
 
-  it.each(invalid)('rejects every ID-bearing route before card reads for %s', async (id) => {
-    const read = jest.fn(() => { throw new Error('must not read'); });
-    const handlers = buildAgentOperatorContractHandlers({ projectRoot: '/nonexistent', cardStore: { read }, runtimeApplication: { captureExecutingLlmSnapshots: () => [] } } as never);
-    const request = { log: { error: jest.fn() } };
-    expect(await handlers['agents.detail']!({ params: { id }, request } as never)).toMatchObject({ statusCode: 400 });
-    expect(await handlers['agents.conversation']!({ params: { id }, request } as never)).toMatchObject({ statusCode: 400 });
-    expect(await handlers['agents.llmExchange']!({ params: { id }, request } as never)).toMatchObject({ statusCode: 400 });
-    expect(read).not.toHaveBeenCalled();
+  it.each(invalid)('rejects every ID-bearing route before handler dependencies are used for %s', async (id) => {
+    const snapshots = jest.fn(() => { throw new Error('must not capture'); });
+    const fastify = Fastify({ logger: false });
+    const handlers = buildAgentOperatorContractHandlers({ projectRoot: '/nonexistent', runtimeApplication: { captureExecutingLlmSnapshots: snapshots } as unknown as RuntimeApplication });
+    new ContractRuntime({ authPolicy: new AuthPolicy() }).mount(fastify, agentOperatorApiContracts, handlers);
+    try {
+      for (const path of [`/api/agents/${encodeURIComponent(id)}`, `/api/agents/${encodeURIComponent(id)}/conversation`, `/api/agents/${encodeURIComponent(id)}/llm-exchange`]) {
+        const response = await fastify.inject({ method: 'GET', url: path });
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({ error: 'ValidationError' });
+      }
+      expect(snapshots).not.toHaveBeenCalled();
+    } finally {
+      await fastify.close();
+    }
   });
 
   it.each(['ok', 'error'] as const)('independently redacts canonical %s exchanges without rewriting persistence', async (status) => {
@@ -68,7 +80,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     }));
     const before = readFileSync(appLogFile(root), 'utf8');
     const request = { log: { error: jest.fn() } };
-    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root } as never);
+    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root });
 
     const result = await handlers['agents.llmExchange']!({ params: { id: 'planner:project' }, request } as never);
 
@@ -110,7 +122,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     mkdirSync(dirname(appLogFile(root)), { recursive: true });
     writeFileSync(appLogFile(root), Buffer.concat([line, line]));
     const error = jest.fn();
-    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root } as never);
+    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root });
 
     const result = await handlers['agents.llmExchange']!({ params: { id: 'planner:project' }, request: { log: { error } } } as never);
 

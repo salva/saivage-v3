@@ -1,23 +1,39 @@
 import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
 import { listConversationSessionIds, probeConversation, readConversation } from '../../persistence/conversation-file.js';
-import { conversationSessionIdentity, parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
+import {
+  conversationSessionIdentity,
+  parseConversationSessionId,
+  type AgentMessage,
+  type ConversationSessionId,
+  type ExecutorConversationSessionId,
+  type PlannerConversationSessionId,
+  type ReviewerConversationSessionId,
+} from '../../schemas/index.js';
 import type { ExactWaitBarrier, ExecutingLlmSnapshot } from '../../runtime/actors/executing-llm-snapshot.js';
 import { inspectConversationCallPairs } from '../../runtime/actors/conversation-call-pairs.js';
+import type {
+  OperatorApiHandlerResult,
+  OperatorApiSuccess,
+} from '../../contracts/index.js';
 
-export type ListedAgentStatus = 'active' | 'waiting' | 'inactive';
-export interface AgentActivityStatus { status: ListedAgentStatus; pending_calls: Array<{ id: string; tool: string; started_at: string }> }
-export type AgentOperatorSessionSummary = {
-  id: ConversationSessionId; role: 'analyst' | 'planner' | 'reviewer' | 'executor'; card_id: string | null;
-  status: ListedAgentStatus; started_at: string; model?: string;
+type AgentListResponse = OperatorApiSuccess<'agents.list'>;
+type AgentActivityStatus = OperatorApiSuccess<'agents.conversation'>['activity_status'];
+export type ListedAgentStatus = AgentActivityStatus['status'];
+export type AgentOperatorSessionSummary = AgentListResponse['sessions'][number];
+export type AgentOperatorConversationResponse = OperatorApiSuccess<'agents.conversation'>;
+type SuccessResult<K extends 'agents.detail' | 'agents.conversation'> = {
+  statusCode?: 200;
+  body: OperatorApiSuccess<K>;
 };
-export interface AgentOperatorConversationResponse { session: AgentOperatorSessionSummary; entries: AgentMessage[]; activity_status: AgentActivityStatus }
+type AgentDetailReadModelResult = SuccessResult<'agents.detail'> | Extract<OperatorApiHandlerResult<'agents.detail'>, { statusCode: 400 | 404 }>;
+type AgentConversationReadModelResult = SuccessResult<'agents.conversation'> | Extract<OperatorApiHandlerResult<'agents.conversation'>, { statusCode: 400 | 404 }>;
 
 type SnapshotProvider = () => readonly ExecutingLlmSnapshot[];
 
 export class AgentOperatorReadModelService {
   constructor(private readonly projectRoot: string, private readonly snapshots: SnapshotProvider) {}
 
-  listSessions(): { sessions: AgentOperatorSessionSummary[] } {
+  listSessions(): AgentListResponse {
     const live = captureExecutingLlmSnapshotMap(this.snapshots());
     const sessions = listConversationSessionIds(this.projectRoot).map((id) => this.project(id, readConversation(this.projectRoot, id).physicalRows, live.get(id)).session);
     for (const id of live.keys()) if (!sessions.some((session) => session.id === id)) throw new Error(`Executing agent snapshot '${id}' has no aggregate conversation row.`);
@@ -25,21 +41,21 @@ export class AgentOperatorReadModelService {
     return { sessions };
   }
 
-  getSession(sessionId: string): { statusCode?: number; body: { session?: Record<string, unknown>; error?: string; sessionId?: string } } {
+  getSession(sessionId: string): AgentDetailReadModelResult {
     const live = captureExecutingLlmSnapshotMap(this.snapshots());
     const parsed = this.parse(sessionId);
     if (!parsed) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    if (!probeConversation(this.projectRoot, parsed)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    if (!probeConversation(this.projectRoot, parsed)) return { statusCode: 404, body: { error: 'Agent session not found' } };
     const messages = readConversation(this.projectRoot, parsed).physicalRows;
     const projected = this.project(parsed, messages, live.get(parsed));
     return { body: { session: { ...projected.session, message_count: messages.length, last_activity_at: this.lastTimestamp(messages) ?? projected.session.started_at } } };
   }
 
-  getConversation(sessionId: string): { statusCode?: number; body: AgentOperatorConversationResponse | { error: string; sessionId?: string } } {
+  getConversation(sessionId: string): AgentConversationReadModelResult {
     const live = captureExecutingLlmSnapshotMap(this.snapshots());
     const parsed = this.parse(sessionId);
     if (!parsed) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    if (!probeConversation(this.projectRoot, parsed)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    if (!probeConversation(this.projectRoot, parsed)) return { statusCode: 404, body: { error: 'Agent session not found' } };
     return { body: this.project(parsed, readConversation(this.projectRoot, parsed).physicalRows, live.get(parsed)) };
   }
 
@@ -88,9 +104,28 @@ export function projectAgentConversation(input: { sessionId: ConversationSession
     }
     pending_calls.push({ id: call.toolCallId, tool: call.toolName, started_at: call.startedAt });
   }
-  const session: AgentOperatorSessionSummary = { id: sessionId, role: identity.role, card_id: identity.cardId, status, started_at: messages[0]!.timestamp, ...(input.model ? { model: input.model } : {}) };
+  const session = projectSessionSummary(sessionId, identity.cardId, status, messages[0]!.timestamp, input.model);
   return { session, entries: messages.filter((message) => message.kind !== 'provider_private').map(stripPrivateProjectionMarker), activity_status: { status, pending_calls } };
 }
+
+function projectSessionSummary(
+  sessionId: ConversationSessionId,
+  cardId: ReturnType<typeof conversationSessionIdentity>['cardId'],
+  status: ListedAgentStatus,
+  startedAt: string,
+  model: string | null,
+): AgentOperatorSessionSummary {
+  const common = { status, started_at: startedAt, ...(model ? { model } : {}) };
+  if (sessionId === 'analyst:global') return { id: sessionId, role: 'analyst', card_id: null, ...common };
+  if (isPlannerSessionId(sessionId)) return { id: sessionId, role: 'planner', card_id: cardId, ...common };
+  if (isReviewerSessionId(sessionId)) return { id: sessionId, role: 'reviewer', card_id: cardId, ...common };
+  if (isExecutorSessionId(sessionId)) return { id: sessionId, role: 'executor', card_id: cardId, ...common };
+  throw new Error(`Unreachable conversation session '${sessionId}'.`);
+}
+
+function isPlannerSessionId(sessionId: ConversationSessionId): sessionId is PlannerConversationSessionId { return sessionId.startsWith('planner:'); }
+function isReviewerSessionId(sessionId: ConversationSessionId): sessionId is ReviewerConversationSessionId { return sessionId.startsWith('reviewer:'); }
+function isExecutorSessionId(sessionId: ConversationSessionId): sessionId is ExecutorConversationSessionId { return sessionId.startsWith('executor:'); }
 
 function barrierToolIdentity(barrier: ExactWaitBarrier) { return barrier.kind === 'child' ? barrier.relationship : barrier; }
 function freezeBarrier(barrier: ExactWaitBarrier): ExactWaitBarrier { return barrier.kind === 'child' ? Object.freeze({ kind: 'child', relationship: Object.freeze({ ...barrier.relationship }) }) : Object.freeze({ ...barrier }); }

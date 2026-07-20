@@ -1,16 +1,7 @@
 import type { RuntimeApi } from '../../runtime/control-api.js';
-import type { ServerAvailability } from '../../contracts/index.js';
-import type { ActorRuntimeReadModel } from './actor-runtime-read-model.js';
-import type { RuntimeStatus } from '../../schemas/index.js';
+import type { RuntimeStatusResponse, ServerAvailability } from '../../contracts/index.js';
 
-export interface RuntimeStatusReadModel {
-  runtime: RuntimeStatus;
-  currentCardId: string | null;
-  started_at: string;
-  pid: number;
-  actorRuntime: ActorRuntimeReadModel;
-  serverAvailability?: ServerAvailability;
-}
+export type RuntimeStatusReadModel = Omit<RuntimeStatusResponse, 'restart_server_available'>;
 
 export interface RuntimeStatusInputs {
   runtimeApi: Pick<RuntimeApi, 'getStatus' | 'getActorRuntimeReadModel'>;

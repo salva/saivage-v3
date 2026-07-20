@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
+import type { OperatorApiHandlerResult, WorkspaceFilesListResponse } from '../../contracts/index.js';
 import { getSafeFileForAgent, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
 interface ProjectCardRecordReader {
@@ -15,15 +16,17 @@ interface ProjectCardRecordReader {
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
 
-export type WorkspaceFileResult = { statusCode?: number; body: unknown };
+export type WorkspaceFilesListResult = OperatorApiHandlerResult<'files.list'>;
+export type WorkspaceFileContentResult = OperatorApiHandlerResult<'files.content'>;
 
-interface ResolvedRequestPath {
-  safe: boolean;
+interface ResolvedRequestPathBase {
   absolutePath: string;
   responsePath: string;
-  reason?: string;
   kind: 'project' | 'work';
 }
+type ResolvedRequestPath =
+  | ResolvedRequestPathBase & { safe: true }
+  | ResolvedRequestPathBase & { safe: false; reason: string };
 
 function isBinaryBuffer(buffer: Buffer): boolean {
   const length = Math.min(buffer.length, BINARY_SAMPLE_BYTES);
@@ -39,31 +42,41 @@ function isBinaryBuffer(buffer: Buffer): boolean {
 }
 
 export class WorkspaceFileReadModelService {
-  constructor(private readonly projectRoot: string, private readonly records?: () => ProjectCardRecordReader) {}
+  constructor(private readonly projectRoot: string, private readonly records: () => ProjectCardRecordReader) {}
 
   private resolveRequestedPath(requestedPath: string): ResolvedRequestPath {
     if (requestedPath.startsWith('work:///')) {
+      let parsed;
       try {
-        const parsed = parseScopedPathUrl(requestedPath, 'work');
-        if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== requestedPath) return { safe: false, absolutePath: '', responsePath: requestedPath, reason: 'Invalid work URL.', kind: 'work' };
-        const resolved = resolveContainedProjectPath(this.projectRoot, `${SAIVAGE_WORK_RELATIVE_DIR}/${parsed.segments.join('/')}`);
-        return { safe: resolved.safe, absolutePath: resolved.absolutePath, responsePath: requestedPath, reason: resolved.reason, kind: 'work' };
+        parsed = parseScopedPathUrl(requestedPath, 'work');
       } catch (err) {
         return { safe: false, absolutePath: '', responsePath: requestedPath, reason: err instanceof Error ? err.message : String(err), kind: 'work' };
       }
+      if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== requestedPath) return { safe: false, absolutePath: '', responsePath: requestedPath, reason: 'Invalid work URL.', kind: 'work' };
+      const resolved = resolveContainedProjectPath(this.projectRoot, `${SAIVAGE_WORK_RELATIVE_DIR}/${parsed.segments.join('/')}`);
+      if (!resolved.safe) {
+        if (!resolved.reason) throw new Error('Unsafe contained path is missing its rejection reason.');
+        return { safe: false, absolutePath: resolved.absolutePath, responsePath: requestedPath, reason: resolved.reason, kind: 'work' };
+      }
+      return { safe: true, absolutePath: resolved.absolutePath, responsePath: requestedPath, kind: 'work' };
     }
     const resolved = resolveContainedProjectPath(this.projectRoot, requestedPath);
-    return { safe: resolved.safe, absolutePath: resolved.absolutePath, responsePath: resolved.relativePath ?? requestedPath, reason: resolved.reason, kind: 'project' };
+    if (!resolved.safe) {
+      if (!resolved.reason) throw new Error('Unsafe contained path is missing its rejection reason.');
+      return { safe: false, absolutePath: resolved.absolutePath, responsePath: resolved.relativePath ?? requestedPath, reason: resolved.reason, kind: 'project' };
+    }
+    return { safe: true, absolutePath: resolved.absolutePath, responsePath: resolved.relativePath ?? requestedPath, kind: 'project' };
   }
 
-  listFiles(requestedPath = '.'): WorkspaceFileResult {
+  listFiles(requestedPath = '.'): WorkspaceFilesListResult {
     if (this.inactiveCardPath(requestedPath)) return { statusCode: 404, body: { error: 'Path not found', path: requestedPath } };
-    const { safe, absolutePath, reason, responsePath, kind } = this.resolveRequestedPath(requestedPath);
-    if (!safe) return { statusCode: 403, body: { error: reason } };
+    const resolvedPath = this.resolveRequestedPath(requestedPath);
+    if (!resolvedPath.safe) return { statusCode: 403, body: { error: resolvedPath.reason } };
+    const { absolutePath, responsePath, kind } = resolvedPath;
     if (!existsSync(absolutePath)) return { statusCode: 404, body: { error: 'Path not found', path: responsePath } };
     const pathStat = statSync(absolutePath);
     if (!pathStat.isDirectory()) return { statusCode: 400, body: { error: 'Path is not a directory', path: responsePath } };
-    const files = readdirSync(absolutePath).flatMap((entry: string) => {
+    const files = readdirSync(absolutePath).flatMap((entry: string): WorkspaceFilesListResponse['files'] => {
       const entryAbsolutePath = join(absolutePath, entry);
       const lexicalEntryPath = relative(this.projectRoot, entryAbsolutePath).replace(/\\/g, '/');
       const containedEntry = resolveContainedProjectPath(this.projectRoot, lexicalEntryPath);
@@ -81,11 +94,10 @@ export class WorkspaceFileReadModelService {
     return { body: { path: responsePath, files } };
   }
 
-  readFileContent(requestedPath: string | undefined): WorkspaceFileResult {
+  readFileContent(requestedPath: string | undefined): WorkspaceFileContentResult {
     if (!requestedPath) return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
     if (this.inactiveCardPath(requestedPath)) return { statusCode: 404, body: { error: 'File not found', path: requestedPath } };
     if (requestedPath.startsWith('record:///')) {
-      if (!this.records) return { statusCode: 503, body: { error: 'Record read model is unavailable.' } };
       try {
         const parsed = parseScopedPathUrl(requestedPath, 'record');
         if (parsed.segments.length !== 1 || !parsed.query) return { statusCode: 400, body: { error: 'Invalid record URL.', path: requestedPath } };
@@ -98,8 +110,9 @@ export class WorkspaceFileReadModelService {
         return { body: { path: record.recordUrl, size: Buffer.byteLength(record.artifact.content), contentType: 'text/markdown', content: record.artifact.content, redacted: false, sensitivity: 'normal', version: record.version, modifiedAt: record.artifact.committed_at } };
       } catch (error) { return { statusCode: 404, body: { error: error instanceof Error ? error.message : String(error), path: requestedPath } }; }
     }
-    const { safe, absolutePath, reason, responsePath } = this.resolveRequestedPath(requestedPath);
-    if (!safe) return { statusCode: 403, body: { error: reason } };
+    const resolvedPath = this.resolveRequestedPath(requestedPath);
+    if (!resolvedPath.safe) return { statusCode: 403, body: { error: resolvedPath.reason } };
+    const { absolutePath, responsePath } = resolvedPath;
     if (!existsSync(absolutePath)) return { statusCode: 404, body: { error: 'File not found', path: responsePath } };
     const fileStat = statSync(absolutePath);
     if (fileStat.isDirectory()) return { statusCode: 400, body: { error: 'Path is a directory', path: responsePath } };
@@ -108,11 +121,11 @@ export class WorkspaceFileReadModelService {
     if (isBinaryBuffer(rawBuffer)) return { statusCode: 415, body: { error: 'Binary or non-text file cannot be previewed.', path: responsePath } };
     const safeResult = getSafeFileForAgent(responsePath, rawBuffer.toString('utf-8'));
     if (safeResult.blocked) return { statusCode: 403, body: { error: safeResult.reason || 'Access to this file is blocked for security reasons.', path: responsePath } };
+    if (safeResult.safeContent === undefined) throw new Error('Allowed safe-file result is missing content.');
     return { body: { path: responsePath, size: fileStat.size, contentType: 'text/plain', content: safeResult.safeContent, redacted: Boolean(safeResult.reason), sensitivity: safeResult.reason ? 'sensitive-redacted' : 'normal' } };
   }
 
   private inactiveCardPath(requestedPath: string): boolean {
-    if (!this.records) return false;
     const match = /^\.saivage\/cards\/([^/]+)(?:\/|$)/u.exec(requestedPath.replace(/^\.\//u, ''));
     return match !== null && !this.records().isActiveCardId(match[1]!);
   }

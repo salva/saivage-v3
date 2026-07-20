@@ -7,7 +7,7 @@ import { operatorRouteInventory } from '../../src/contracts/operator-api.js';
 import { recordControlAction } from '../../src/persistence/index.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
-import type { SaivageConfig } from '../../src/agents/config-api.js';
+import { saivageConfigSchema, type SaivageConfig } from '../../src/agents/config-api.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { writeSaivageConfig } from '../helpers/project-config.js';
 import { testAppLogs } from '../helpers/app-logs.js';
@@ -15,9 +15,10 @@ import { ProviderRegistry } from '../../src/agents/provider.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { buildProviderRoutingReadModel } from '../../src/agents/provider-routing-read-model.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 
 function testConfig(): SaivageConfig {
-  return {
+  return saivageConfigSchema.parse({
     models: { default: ['test-model'], max_tokens: { analyst: 200 } },
     providers: {
       test: {
@@ -31,18 +32,25 @@ function testConfig(): SaivageConfig {
         },
       },
     },
-    server: { host: '127.0.0.1', port: 0 },
-    runtime: {},
-    security: {},
     compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: 'primary', model: 'test-model' } },
     card_processes: DEFAULT_CARD_PROCESSES,
-  } as unknown as SaivageConfig;
+  });
 }
 
 function providerRoutingReadModelProvider() {
   const registry = new ProviderRegistry(testConfig());
   const readModel = buildProviderRoutingReadModel({ registry, availability: new MemoryCandidateAvailability() });
   return () => readModel;
+}
+
+function routeCompositionDependencies() {
+  return {
+    saivageConfig: testConfig(),
+    runtimeApplication: {
+      analystRuntime: { submit: async () => { throw new Error('Analyst runtime is not used by config route tests.'); } },
+      captureExecutingLlmSnapshots: () => [],
+    } as unknown as RuntimeApplication,
+  };
 }
 
 describe('contract-backed config/providers/control-actions routes', () => {
@@ -57,7 +65,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         compaction: testConfig().compaction,
         card_processes: DEFAULT_CARD_PROCESSES,
       });
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), ...routeCompositionDependencies(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/config' });
 
@@ -83,7 +91,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         compaction: testConfig().compaction,
         card_processes: DEFAULT_CARD_PROCESSES,
       });
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), saivageConfig: testConfig(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), ...routeCompositionDependencies(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/providers' });
 
@@ -147,7 +155,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         outcome: 'ok',
         outcome_summary: 'updated',
       });
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), ...routeCompositionDependencies(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/control-actions?card_id=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&since=2026-01-01T12:00:00.000Z' });
 
@@ -166,7 +174,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-config-error-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), ...routeCompositionDependencies(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const configResponse = await fastify.inject({ method: 'GET', url: '/api/config' });
       const providersResponse = await fastify.inject({ method: 'GET', url: '/api/providers' });
@@ -191,7 +199,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
         compaction: testConfig().compaction,
         card_processes: DEFAULT_CARD_PROCESSES,
       });
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), ...routeCompositionDependencies(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/config' });
 

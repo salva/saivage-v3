@@ -1,8 +1,9 @@
 import type { ProcessRecord } from '../../schemas/index.js';
+import type { OperatorApiResponse, ProcessView } from '../../contracts/operator-api.js';
 import { redactCommandForOperator, redactOperatorErrorMessage, toContainedRelativePath, workUrlFromAbsolutePath } from '../../workspace/index.js';
-import type { OperatorContractHandlerMap, OperatorProjectContext } from './operator-handler-context.js';
+import { defineOperatorContractHandlers, type OperatorProjectContext } from './operator-handler-context.js';
 
-export function toProcessView(projectRoot: string, record: ProcessRecord): Record<string, unknown> {
+export function toProcessView(projectRoot: string, record: ProcessRecord): ProcessView {
   const safePath = (path: string | null | undefined) => path ? toContainedRelativePath(projectRoot, path) : null;
   const logUrl = (path: string | null | undefined) => path ? workUrlFromAbsolutePath(projectRoot, path) : null;
   return {
@@ -22,19 +23,16 @@ export function toProcessView(projectRoot: string, record: ProcessRecord): Recor
   };
 }
 
-export function buildProcessOperatorContractHandlers(options: OperatorProjectContext): OperatorContractHandlerMap {
+export function buildProcessOperatorContractHandlers(options: OperatorProjectContext) {
   const processRunner = options.processRunner;
-  const unavailable = () => ({
-    statusCode: 500,
-    body: {
-      error: 'Process runner unavailable',
-      message: 'Process runner is required for process operator routes.',
-    },
-  });
+  const unavailableBody: OperatorApiResponse<'processes.list', 500> & OperatorApiResponse<'processes.get', 500> = {
+    error: 'Process runner unavailable',
+    message: 'Process runner is required for process operator routes.',
+  };
 
-  return {
+  return defineOperatorContractHandlers({
     'processes.list': () => {
-      if (!processRunner) return unavailable();
+      if (!processRunner) return { statusCode: 500, body: unavailableBody };
       try {
         return { body: { processes: processRunner.list().map((record) => toProcessView(options.projectRoot, record)) } };
       } catch (err) {
@@ -48,11 +46,8 @@ export function buildProcessOperatorContractHandlers(options: OperatorProjectCon
       }
     },
     'processes.get': ({ params }) => {
-      if (!processRunner) return unavailable();
-      const processId = (params as { id?: string } | undefined)?.id;
-      if (!processId) {
-        return { statusCode: 400, body: { error: 'Process ID is required.' } };
-      }
+      if (!processRunner) return { statusCode: 500, body: unavailableBody };
+      const processId = params.id;
 
       try {
         const record = processRunner.get(processId);
@@ -78,5 +73,5 @@ export function buildProcessOperatorContractHandlers(options: OperatorProjectCon
         };
       }
     },
-  };
+  });
 }
