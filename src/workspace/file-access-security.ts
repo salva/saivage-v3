@@ -60,12 +60,12 @@ export function sanitizeFilePath(filePath: string): string {
 
 export function isSensitivePath(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
-  return sharedLooksLikeSecretPath(clean) || NON_SECRET_SENSITIVE_PATHS.has(clean) || NON_SECRET_READ_BLOCKED_PATHS.has(clean) || clean.startsWith('.saivage/locks/');
+  return sharedLooksLikeSecretPath(clean) || NON_SECRET_SENSITIVE_PATHS.has(clean) || NON_SECRET_READ_BLOCKED_PATHS.has(clean) || clean === '.saivage/locks' || clean.startsWith('.saivage/locks/');
 }
 
 export function isReadBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
-  if (clean.startsWith('.saivage/locks/')) return true;
+  if (clean === '.saivage/locks' || clean.startsWith('.saivage/locks/')) return true;
   if (NON_SECRET_READ_BLOCKED_PATHS.has(clean)) return true;
   try {
     assertNotSecretPath(clean);
@@ -117,6 +117,7 @@ export interface SafeProjectPathResult {
   safe: boolean;
   absolutePath: string;
   relativePath?: string;
+  realTargetProjectRelativePath?: string;
   reason?: string;
 }
 
@@ -171,10 +172,12 @@ export function resolveContainedProjectPath(
         };
       }
       const rel = relative(resolvedRoot, resolvedPath).replace(/\\/g, '/');
+      const realTargetRel = relative(realRoot, realPath).replace(/\\/g, '/');
       return {
         safe: true,
         absolutePath: resolvedPath,
         relativePath: rel === '' ? '.' : rel,
+        realTargetProjectRelativePath: realTargetRel === '' ? '.' : realTargetRel,
       };
     } catch {
       return {
@@ -313,35 +316,4 @@ export function isStashPathAllowed(stashDir: string, requestedPath: string): boo
   const reqNorm = resolvedRequested.endsWith(sep) ? resolvedRequested : resolvedRequested + sep;
 
   return reqNorm.startsWith(stashNorm);
-}
-
-export interface SafeFileResult {
-  blocked: boolean;
-  safeContent?: string;
-  reason?: string;
-}
-
-export function getSafeFileForAgent(
-  filePath: string,
-  content: string,
-): SafeFileResult {
-  if (isReadBlocked(filePath)) {
-    return {
-      blocked: true,
-      reason: `Access to "${filePath}" is blocked for security reasons.`,
-    };
-  }
-
-  if (isRedacted(filePath)) {
-    return {
-      blocked: false,
-      safeContent: redactTextForOutbound(content, 'operator.api', { source: 'file-access-security.safe-file' }),
-      reason: `Secrets in "${filePath}" have been redacted.`,
-    };
-  }
-
-  return {
-    blocked: false,
-    safeContent: content,
-  };
 }

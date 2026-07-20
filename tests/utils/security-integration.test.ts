@@ -4,7 +4,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
  *
  * Verifies:
  * - Full pipeline: heuristic scanner → content-review app log
- * - Content safety helper behavior
+ * - Path-policy behavior
  * - Sensitive file checks with file-tree utilities
  * - All modules work together without errors
  * - Existing file-tree tests still pass
@@ -18,6 +18,7 @@ import {
   rmSync,
   mkdtempSync,
   mkdirSync,
+  symlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -27,9 +28,11 @@ import { readProjectFileAtomic } from '../../src/persistence/file-tree.js';
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
 import { quarantineContent, recordContentPass } from '../helpers/content-review.js';
 import {
-  getSafeFileForAgent,
+  isReadBlocked,
+  isRedacted,
   isSensitivePath,
   isStashPathAllowed,
+  resolveContainedProjectPath,
 } from '../../src/workspace/file-access-security.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
 
@@ -62,62 +65,30 @@ function writeSaivageConfig(json: Record<string, unknown>) {
   );
 }
 
-describe('content safety helpers', () => {
-
-  it('getSafeFileForAgent blocks auth-profiles.json', () => {
-    writeSaivageConfig({
-      models: { planner: ['gpt-5.5'] },
-      providers: {
-        github: { priority: 10, models: ['gpt-5.5'] },
-      },
-    });
-
-    const result = getSafeFileForAgent(
-      '.saivage/auth-profiles.json',
-      '{"profiles": []}',
-    );
-
-    expect(result.blocked).toBe(true);
-    expect(result.reason).toContain('blocked');
-    expect(result.reason).toContain('auth-profiles.json');
-    expect(result.safeContent).toBeUndefined();
+describe('workspace path policy primitives', () => {
+  it('keeps blocked, redacted, and ordinary decisions distinct', () => {
+    expect(isReadBlocked('.saivage/auth-profiles.json')).toBe(true);
+    expect(isReadBlocked('.saivage/locks')).toBe(true);
+    expect(isReadBlocked('.saivage/locks/not-created.lock')).toBe(true);
+    expect(isRedacted('.saivage/saivage.yaml')).toBe(true);
+    expect(isReadBlocked('.saivage/saivage.yaml')).toBe(false);
+    expect(isReadBlocked('src/app.ts')).toBe(false);
+    expect(isRedacted('src/app.ts')).toBe(false);
   });
 
-  it('getSafeFileForAgent redacts secrets in saivage.yaml', () => {
-    writeSaivageConfig({
-      models: { planner: ['gpt-5.5'] },
-      providers: {
-        github: { priority: 10, models: ['gpt-5.5'] },
-      },
-    });
+  it('keeps lexical and existing real-target project identities separate', () => {
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    writeFileSync(join(root, 'docs', 'target.txt'), 'ordinary', 'utf8');
+    symlinkSync('docs/target.txt', join(root, 'alias.txt'));
 
-    const rawJson = JSON.stringify({
-      apiKey: 'sk-abc123secret',
-      name: 'test-project',
-    });
-
-    const result = getSafeFileForAgent('.saivage/saivage.yaml', rawJson);
-
-    expect(result.blocked).toBe(false);
-    expect(result.safeContent).toBeDefined();
-    expect(result.safeContent).not.toContain('sk-abc123secret');
-    expect(result.safeContent).toContain('[REDACTED]');
-    expect(result.reason).toContain('redacted');
-  });
-
-  it('getSafeFileForAgent passes normal files through', () => {
-    writeSaivageConfig({
-      models: { planner: ['gpt-5.5'] },
-      providers: {
-        github: { priority: 10, models: ['gpt-5.5'] },
-      },
-    });
-
-    const result = getSafeFileForAgent('src/app.ts', 'export const x = 1;');
-
-    expect(result.blocked).toBe(false);
-    expect(result.safeContent).toBe('export const x = 1;');
-    expect(result.reason).toBeUndefined();
+    expect(resolveContainedProjectPath(root, 'alias.txt')).toEqual(expect.objectContaining({
+      safe: true,
+      relativePath: 'alias.txt',
+      realTargetProjectRelativePath: 'docs/target.txt',
+    }));
+    expect(resolveContainedProjectPath(root, 'missing.txt')).toEqual(expect.not.objectContaining({
+      realTargetProjectRelativePath: expect.anything(),
+    }));
   });
 });
 
@@ -230,7 +201,6 @@ describe('all modules import and work together', () => {
     expect(typeof mod.recordContentPass).toBe('function');
 
     // file-access-security exports
-    expect(typeof mod.getSafeFileForAgent).toBe('function');
     expect('redactSecrets' in mod).toBe(false);
     expect(typeof mod.isReadBlocked).toBe('function');
     expect(typeof mod.isWriteBlocked).toBe('function');
@@ -307,13 +277,6 @@ describe('integration edge cases', () => {
     expect(mod.isWriteBlocked('.saivage/locks/runtime.lock')).toBe(true);
     expect(isSensitivePath('.saivage/locks/runtime.lock')).toBe(true);
     expect(() => readProjectFileAtomic(root, '.saivage/locks/runtime.lock')).toThrow(/blocked for security reasons/);
-  });
-
-  it('getSafeFileForAgent preserves content for safe files', () => {
-    const result = getSafeFileForAgent('src/app.ts', 'const x = 1;');
-    expect(result.blocked).toBe(false);
-    expect(result.safeContent).toBe('const x = 1;');
-    expect(result.reason).toBeUndefined();
   });
 
   it('redaction port does not modify non-secret keys', () => {

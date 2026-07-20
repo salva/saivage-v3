@@ -236,6 +236,8 @@ The Analyst may inspect secrets when authorized and necessary. The UI may still 
 
 If the Analyst needs to discuss or use a secret, it should avoid unnecessary disclosure and should summarize where possible. Redaction in the UI is a display policy, not a limitation on Analyst inspection authority.
 
+The Files backend read model, not client-side presentation, is authoritative for file browsing and preview admission. Blocked secret paths and aliases to blocked targets are absent from browsable listings and cannot be previewed. Admitted explicitly redacted files and aliases remain visible and readable only through redacted previews; the UI must not reconstruct or request unredacted content.
+
 ## 10. Process And Tool Output Projections
 
 Process visibility is broader than termination authority. `owner_kind`, `owner_id`, card association, labels, and displayed command/log metadata explain provenance only; a tool can terminate a process only through the exact direct scope capability and category that launched it. The UI must not infer authority from a visible owner match. A process group is not displayed or acknowledged as stopped until the backend proves group absence with `ESRCH`; an unverifiable group remains a failed/diagnostic outcome rather than being normalized to stopped.

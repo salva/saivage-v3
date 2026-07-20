@@ -237,7 +237,7 @@ All card-target absences use strict `{ error: 'Card not found', cardId }`. Histo
 
 DebugAgentDetail and the primary Agents conversation/raw-exchange components are keyed presentation lifetimes over AgentStore, not data owners or a consumer registry. A mounted conversation claims one fresh opaque current-consumer token, disposes its live subscription before token-guarded clear, and invalidates its request when the key or route departs; subscribe precedes fetch so initial loading cannot miss an invalidation. Exchange selection uses an independent token and abort boundary. Token identity and request epochs reject stale callbacks, completion, `finally`, and delayed cleanup, including replacement by the same session ID.
 
-The Files read model maps canonical `work:///` to the `.saivage/work` directory root and emits canonical descendant URLs. The process API remains narrower: stdout/stderr fields require a concrete card-owned or non-card process-log URL and reject the root.
+The Files read model maps canonical `work:///` to the `.saivage/work` directory root and emits canonical descendant URLs. Its containment resolver returns a normalized lexical project-relative identity and, when the target exists, a separate resolved in-project real-target identity. The operator pipeline then has distinct stages: dual-identity blocked-path admission; admitted target metadata, listing, or content I/O; and post-read outbound redaction when either admitted identity is explicitly redacted. Either blocked identity wins before target projection I/O, explicit requests return 403, and blocked children are omitted before child metadata projection. Files and VFS share the same blocked-path predicate and omission semantics, but retain separate containment, traversal, and response read models. The process API remains narrower: stdout/stderr fields require a concrete card-owned or non-card process-log URL and reject the root.
 
 The UI exposes one **Stop project** action and a distinct confirmed **Restart server** action only when required `restart_server_available` is true. It never optimistically writes a running card as cancelled. Raw conversation views retain canonical compaction JSON; rendered views show its single synthetic system context.
 
@@ -270,8 +270,8 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/providers` | Provider routing projection. | `src/contracts/operator-api-config.ts:81` |
 | `GET /api/control-actions` | Control-action projection. | `src/contracts/operator-api-config.ts:91` |
 | `GET /api/events` | Event timeline. | `src/contracts/operator-api-events.ts:33` |
-| `GET /api/files` | Workspace listing. | `src/contracts/operator-api-files-debug.ts:44` |
-| `GET /api/files/content` | Workspace content. | `src/contracts/operator-api-files-debug.ts:55` |
+| `GET /api/files` | Contained, blocked-path-filtered workspace listing. | `src/contracts/operator-api-files-debug.ts:44` |
+| `GET /api/files/content` | Contained, pre-read-admitted workspace content with outbound redaction where required. | `src/contracts/operator-api-files-debug.ts:55` |
 | `GET /api/mcp/status` | MCP status. | `src/contracts/operator-api-mcp.ts:70` |
 | `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:80` |
 | `GET /api/processes` | Process list. | `src/contracts/operator-api-processes.ts:69` |

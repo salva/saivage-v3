@@ -6,8 +6,8 @@ export {
   looksLikeSecretPath,
 } from './secret-paths.js';
 export {
-  getSafeFileForAgent,
   isReadBlocked,
+  isRedacted,
   isWriteBlocked,
   redactCommandForOperator,
   redactOperatorErrorMessage,
@@ -17,7 +17,6 @@ export {
   isAnalystSecretPath,
   isSecretLikeKey,
   redactAnalystSecretValue,
-  type SafeFileResult,
   type SafeProjectPathResult,
 } from './file-access-security.js';
 export {

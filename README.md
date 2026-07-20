@@ -10,6 +10,8 @@ Runtime execution state is process-local. The acquired lifecycle lock supplies o
 
 Provider candidate availability is live process-local routing advice and resets on process restart. Auth profiles use direct strict canonical-file reads and complete `replaceFile` publication. OAuth refresh carries the original invocation abort signal through response/body completion and the final no-await reread/replace; concurrent refresh is deliberately optimistic last-completed-write-wins with no repository, revision/CAS, mode enforcement, or persistence-health machinery.
 
+**Files security:** Operator Files omits blocked secret paths from listings and rejects explicit blocked paths before target metadata or content reads. Explicitly redacted paths are read only for an outbound-redacted projection.
+
 ## Quick start
 
 Use Node.js 24 (the repository engines require `node >=24 <25` and `npm >=10 <12`, matching the GitHub Actions validation profile) on a POSIX system with Bash and POSIX process-group behavior. Build Saivage from a source checkout, then operate it from the target project directory so the project-local `.saivage/` runtime tree is created beside the work Saivage will manage:
