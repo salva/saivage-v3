@@ -18,6 +18,9 @@ import { readConversation } from '../../src/persistence/conversation-file.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { classifyConversationRounds, estimateMessageTokens } from '../../src/runtime/actors/compaction/round-classifier.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 const roots: string[] = [];
 
@@ -89,6 +92,8 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
       appLogs,
       cardStore,
       readModelChanges,
+      processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()),
+      mcpToolInvocation: testAutonomousCompaction.mcpToolInvocation,
     });
 
     await application.analystRuntime.submit({

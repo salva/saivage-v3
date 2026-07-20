@@ -13,6 +13,9 @@ import { EventBus } from '../../src/events/index.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -43,7 +46,7 @@ describe('required autonomous compaction E2E', () => {
     const eventBus = new EventBus();
     const readModelChanges = new ReadModelChangeBroadcaster();
     const appLogs = { projectRoot };
-    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs), appLogs, cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges });
+    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs), appLogs, cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges, processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), mcpToolInvocation: testAutonomousCompaction.mcpToolInvocation });
 
     await application.runtimeApi.start();
     await application.runtimeApi.startProject();

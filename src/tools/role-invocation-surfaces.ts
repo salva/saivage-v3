@@ -29,7 +29,7 @@ export interface RoleSurfaceContext {
   processRunner?: ProcessRunner;
   ownerId?: string;
   processScope?: ManagedProcessScope;
-  mcpManagerProvider?: () => McpToolInvocationPort | undefined;
+  mcpToolInvocation: McpToolInvocationPort;
   children?: PlannerControlProviderContext['children'];
   cancelCard?: PlannerControlProviderContext['cancelCard'];
   notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
@@ -96,7 +96,7 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
     analystToolContext: role === 'analyst' ? ctx.toolContext : undefined,
   }),
   skill: (ctx, role) => createSkillProvider({ projectRoot: ctx.projectRoot, agentRole: role as SkillMcpRole }),
-  mcp: (ctx, role) => createMcpProvider({ mcpManagerProvider: ctx.mcpManagerProvider!, agentRole: role as SkillMcpRole }),
+  mcp: (ctx, role) => createMcpProvider({ mcpToolInvocation: ctx.mcpToolInvocation, agentRole: role as SkillMcpRole }),
 };
 
 export function buildRoleSurface(role: RoleSurfaceRole, ctx: RoleSurfaceContext): InvocationSurface {

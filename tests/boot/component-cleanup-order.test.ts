@@ -30,7 +30,7 @@ describe('termination-first component cleanup', () => {
       const analyst = new AnalystRuntime({ runtimeDeps: { processRunner: runner, analystProcessRootScope: runner.analystRootScope } } as never);
       cleanup = analyst.cleanupForApplicationStop();
     } else {
-      const mcp = new McpManager({ configAuthority: {}, processRunner: runner } as never);
+      const mcp = new McpManager({ configAuthority: {}, processRunner: runner, eventLogger: { appendEvent() {} } } as never);
       cleanup = mcp.cleanupForApplicationStop();
     }
 
@@ -46,7 +46,7 @@ describe('termination-first component cleanup', () => {
       ? new SupervisorRuntimeApi({ runtimeGate: { close: jest.fn() }, interventionBinding: {}, processRunner: runner } as never).cleanupForApplicationStop()
       : component === 'analyst'
         ? new AnalystRuntime({ runtimeDeps: { processRunner: runner, analystProcessRootScope: runner.analystRootScope } } as never).cleanupForApplicationStop()
-        : new McpManager({ configAuthority: {}, processRunner: runner } as never).cleanupForApplicationStop();
+        : new McpManager({ configAuthority: {}, processRunner: runner, eventLogger: { appendEvent() {} } } as never).cleanupForApplicationStop();
     await expect(cleanup).resolves.toBeUndefined();
   });
 });

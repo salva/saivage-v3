@@ -7,6 +7,7 @@ import { CardService } from '../../src/cards/card-service.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 
 const CHILD_SEGMENT = 'a';
 const CHILD = `card-${CHILD_SEGMENT}`;
@@ -37,7 +38,7 @@ describe('reviewer role surface record access', () => {
       cardId: 'project',
       sessionId: 'reviewer:project',
       store,
-      mcpManagerProvider: () => undefined,
+      mcpToolInvocation: unusedMcpToolInvocation,
     });
 
     await expect(invokeToolForLlm(surface, 'read', { path: `record:///status.md?card=${CHILD}&v=1` })).resolves.toEqual({

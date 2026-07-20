@@ -4,6 +4,7 @@ import type { CompactorPort } from '../../src/runtime/actors/llm-actor.js';
 import type { SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { compileCardProcesses } from '../../src/runtime/card-process/card-process-config.js';
 import { cardProcessesSchema } from '../../src/agents/config-schema.js';
+import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
 
 export const testCompactionPolicy: AutonomousCompactionPolicy = {
   input_budget_tokens: 100_000,
@@ -21,12 +22,18 @@ export const unusedSummarizerProvider: SummarizerProviderPort = {
   completeTurn: () => Promise.reject(new Error('Unexpected summarizer call in test.')),
   projectProviderExchanges: () => { throw new Error('Unexpected summarizer exchange projection in test.'); },
 };
+export const unusedMcpToolInvocation: McpToolInvocationPort = {
+  getServerTools: () => { throw new Error('Unexpected MCP server tools read in test.'); },
+  findToolCapability: () => { throw new Error('Unexpected MCP capability read in test.'); },
+  invokeTool: () => Promise.reject(new Error('Unexpected MCP invocation in test.')),
+};
 
 export const testAutonomousCompaction = {
   processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' },
   compactor: testCompactor,
   compactionConfig: testCompactionPolicy,
   summarizerProvider: unusedSummarizerProvider,
+  mcpToolInvocation: unusedMcpToolInvocation,
   cardProcesses: compileCardProcesses(cardProcessesSchema.parse({
     planning: { entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'recover', prompt: 'stopped-recovery' } }, nodes: {
       plan: { role: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: [{ name: 'status.md', updated: true }], edges: { complete_direct: { target: { terminal: 'DONE' } }, admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } },

@@ -12,6 +12,9 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import * as YAML from 'yaml';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { registerServerRoutes } from '../../src/server/composition/route-composition.js';
+import { RuntimeControlService } from '../../src/application/runtime-control-service.js';
+import type { AppTerminalRegistration, ShutdownComponent } from '../../src/boot/app.js';
+import { McpToolInvocationInstaller } from '../../src/mcp/tool-invocation-installation.js';
 
 function config(): SaivageConfig {
   return {
@@ -96,13 +99,36 @@ describe('server lifecycle composition', () => {
 
   it('closes runtime admission once before runtime and Fastify cleanup while disposing LiveSync once', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-server-cleanup-'));
+    const startupOrder: string[] = [];
+    const originalReconcile = McpManager.prototype.reconcilePersistedConfig;
+    const reconciliation = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig').mockImplementation(async function (this: McpManager) {
+      const report = await originalReconcile.call(this);
+      startupOrder.push('reconciled');
+      return report;
+    });
+    const originalInstall = McpToolInvocationInstaller.prototype.install;
+    const install = jest.spyOn(McpToolInvocationInstaller.prototype, 'install').mockImplementation(function (this: McpToolInvocationInstaller, authority) {
+      startupOrder.push('installed');
+      return originalInstall.call(this, authority);
+    });
+    const originalRuntimeStart = RuntimeControlService.prototype.start;
+    const runtimeStart = jest.spyOn(RuntimeControlService.prototype, 'start').mockImplementation(async function (this: RuntimeControlService) {
+      await originalRuntimeStart.call(this);
+      startupOrder.push('runtime-started');
+    });
     try {
       initProjectTree(projectRoot);
       writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), validConfigYaml());
       const environment = await loadEnvironment(['node', 'test', '--project-root', projectRoot], { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined });
       const terminal = createAppTerminalCoordinator();
       const services = await createServerServices({ environment, terminal, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' } });
+      expect(startupOrder).toEqual(['reconciled', 'installed', 'runtime-started']);
+      expect(reconciliation).toHaveBeenCalledTimes(1);
+      expect(install).toHaveBeenCalledTimes(1);
+      expect(runtimeStart).toHaveBeenCalledTimes(1);
       const order: string[] = [];
+      const sharedRunner = services.runtimeApplication.processRunner;
+      const terminateOwnedRoot = jest.spyOn(sharedRunner, 'terminateOwnedRoot');
       const closeRuntimeAdmission = services.runtimeApplication.closeRuntimeAdmission.bind(services.runtimeApplication);
       const runtimeAdmissionClose = jest.spyOn(services.runtimeApplication, 'closeRuntimeAdmission').mockImplementation(() => {
         order.push('runtime-admission');
@@ -138,7 +164,18 @@ describe('server lifecycle composition', () => {
       expect(mcpCleanup).toHaveBeenCalledTimes(1);
       expect(liveDispose).toHaveBeenCalledTimes(1);
       expect(fastifyClose).toHaveBeenCalledTimes(1);
+      expect(new Set([sharedRunner.runtimeRootScope, sharedRunner.analystRootScope, sharedRunner.mcpRootScope]).size).toBe(3);
+      expect(services.runtimeApplication.analystDeps.processRunner).toBe(sharedRunner);
+      expect(services.runtimeApplication.analystDeps.analystProcessRootScope).toBe(sharedRunner.analystRootScope);
+      expect(terminateOwnedRoot).toHaveBeenCalledTimes(2);
+      expect(terminateOwnedRoot.mock.calls.map(([component, scope]) => [component, scope])).toEqual([
+        ['mcp', sharedRunner.mcpRootScope],
+        ['runtime', sharedRunner.runtimeRootScope],
+      ]);
     } finally {
+      reconciliation.mockRestore();
+      install.mockRestore();
+      runtimeStart.mockRestore();
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
@@ -161,6 +198,8 @@ describe('server lifecycle composition', () => {
       };
     });
     const mcpCleanup = jest.spyOn(McpManager.prototype, 'cleanupForApplicationStop');
+    const runtimeStart = jest.spyOn(RuntimeControlService.prototype, 'start');
+    const install = jest.spyOn(McpToolInvocationInstaller.prototype, 'install');
     let stopped = false;
     try {
       initProjectTree(projectRoot);
@@ -169,6 +208,8 @@ describe('server lifecycle composition', () => {
 
       await expect(createServerServices({ environment, terminal, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' } })).rejects.toThrow(rejection.message);
       expect(markers).toEqual(['allocation-started']);
+      expect(install).not.toHaveBeenCalled();
+      expect(runtimeStart).not.toHaveBeenCalled();
 
       expect((await terminal.stop()).warnings).toEqual([]);
       stopped = true;
@@ -177,6 +218,62 @@ describe('server lifecycle composition', () => {
       if (!stopped) await terminal.stop();
       reconciliation.mockRestore();
       mcpCleanup.mockRestore();
+      runtimeStart.mockRestore();
+      install.mockRestore();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('installs converged MCP before runtime start and cleans post-install start failure in reverse component order', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-server-runtime-startup-failure-'));
+    const coordinator = createAppTerminalCoordinator();
+    const cleanupOrder: string[] = [];
+    const terminal: AppTerminalRegistration = {
+      registerAdmissionCloser: (component, close) => coordinator.registerAdmissionCloser(component, close),
+      registerCleanupLeaf: (component: ShutdownComponent, cleanup) => coordinator.registerCleanupLeaf(component, async () => {
+        if (component === 'runtime' || component === 'analyst' || component === 'mcp') cleanupOrder.push(component);
+        await cleanup();
+      }),
+      isApplicationClosing: () => coordinator.isApplicationClosing(),
+    };
+    const markers: string[] = [];
+    const reconciliation = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig').mockImplementation(async () => {
+      markers.push('reconciled');
+      return { converged: true, desired: [], active: [], pending: [] };
+    });
+    const startError = new Error('runtime startup failed after MCP installation');
+    const originalInstall = McpToolInvocationInstaller.prototype.install;
+    const install = jest.spyOn(McpToolInvocationInstaller.prototype, 'install').mockImplementation(function (this: McpToolInvocationInstaller, authority) {
+      markers.push('installed');
+      return originalInstall.call(this, authority);
+    });
+    const runtimeStart = jest.spyOn(RuntimeControlService.prototype, 'start').mockImplementation(async () => {
+      markers.push('runtime-start');
+      throw startError;
+    });
+    let stopped = false;
+    try {
+      initProjectTree(projectRoot);
+      writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), validConfigYaml());
+      const environment = await loadEnvironment(['node', 'test', '--project-root', projectRoot], { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined });
+
+      await expect(createServerServices({ environment, terminal, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' } })).rejects.toBe(startError);
+      expect(markers).toEqual(['reconciled', 'installed', 'runtime-start']);
+      expect(reconciliation).toHaveBeenCalledTimes(1);
+      expect(install).toHaveBeenCalledTimes(1);
+      expect(runtimeStart).toHaveBeenCalledTimes(1);
+
+      expect((await coordinator.stop()).warnings).toEqual([]);
+      stopped = true;
+      expect(cleanupOrder).toEqual(['mcp', 'analyst', 'runtime']);
+      expect(reconciliation).toHaveBeenCalledTimes(1);
+      expect(install).toHaveBeenCalledTimes(1);
+      expect(runtimeStart).toHaveBeenCalledTimes(1);
+    } finally {
+      if (!stopped) await coordinator.stop();
+      reconciliation.mockRestore();
+      install.mockRestore();
+      runtimeStart.mockRestore();
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });

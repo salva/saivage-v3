@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
+import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
 import { defineTool, type ToolProvider } from './invocation.js';
 
 export interface McpProviderContext {
-  readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
+  readonly mcpToolInvocation: McpToolInvocationPort;
   readonly agentRole: 'executor' | 'reviewer' | 'analyst';
 }
 
@@ -32,12 +33,11 @@ export function createMcpProvider(ctx: McpProviderContext): ToolProvider {
         inputSchema: mcpToolCallSchema,
         executor: async (args) => {
           try {
-            const manager = ctx.mcpManagerProvider();
-            if (!manager) return { success: false, error: 'MCP manager is not available for this runtime.' };
-            assertReviewerMayCall(ctx, args.serverName, args.toolName, manager);
-            const data = await manager.invokeTool(args.serverName, args.toolName, args.args ?? {});
+            assertReviewerMayCall(ctx, args.serverName, args.toolName, ctx.mcpToolInvocation);
+            const data = await ctx.mcpToolInvocation.invokeTool(args.serverName, args.toolName, args.args ?? {});
             return { success: true, data };
           } catch (error) {
+            if (error instanceof McpToolInvocationNotInstalledError) throw error;
             return { success: false, error: error instanceof Error ? error.message : String(error) };
           }
         },

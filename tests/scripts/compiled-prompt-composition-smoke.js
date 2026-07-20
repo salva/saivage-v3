@@ -31,6 +31,8 @@ const [
   { createResolvedConfigAuthority },
   { EventBus },
   { createEventLog },
+  { ManagedProcessGroupRegistry },
+  { ProcessRunner },
 ] = await Promise.all([
   import(compiledModule('agents/config-schema.js')),
   import(compiledModule('agents/default-card-processes.js')),
@@ -40,6 +42,8 @@ const [
   import(compiledModule('config/index.js')),
   import(compiledModule('events/index.js')),
   import(compiledModule('observability/index.js')),
+  import(compiledModule('runtime/managed-process-group-registry.js')),
+  import(compiledModule('runtime/process-runner.js')),
 ]);
 
 const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-compiled-prompt-composition-'));
@@ -64,6 +68,12 @@ try {
     source: { kind: 'default' },
     interpolationEnvironment: process.env,
   });
+  const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
+  const mcpToolInvocation = {
+    getServerTools() { throw new Error('Unexpected MCP server tools read in compiled prompt smoke.'); },
+    findToolCapability() { throw new Error('Unexpected MCP capability read in compiled prompt smoke.'); },
+    invokeTool() { return Promise.reject(new Error('Unexpected MCP invocation in compiled prompt smoke.')); },
+  };
 
   application = createRuntimeApplication({
     projectRoot,
@@ -75,6 +85,8 @@ try {
     appLogs,
     cardStore: new CardService(projectRoot, eventBus, readModelChanges),
     readModelChanges,
+    processRunner,
+    mcpToolInvocation,
   });
 } finally {
   try {

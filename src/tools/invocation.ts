@@ -5,6 +5,7 @@ import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import type { AgentRole } from '../schemas/index.js';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
+import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
 
 export type ToolResult =
   | { success: true; data?: unknown; error?: never }
@@ -70,6 +71,7 @@ export async function invokeToolForLlm(surface: InvocationSurface, name: string,
     if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
     return result;
   } catch (error) {
+    if (error instanceof McpToolInvocationNotInstalledError) throw error;
     if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
     if (signal?.aborted) throw error;
     return { success: false, error: error instanceof Error ? error.message : String(error) };

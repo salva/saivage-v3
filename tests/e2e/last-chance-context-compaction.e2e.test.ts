@@ -19,6 +19,9 @@ import { appendConversationBatch, readConversation } from '../../src/persistence
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { estimateMessageTokens } from '../../src/runtime/actors/compaction/round-classifier.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -78,7 +81,7 @@ describe('ordinary-runtime last-chance context compaction E2E', () => {
     const readModelChanges = new ReadModelChangeBroadcaster();
     const appLogs = { projectRoot };
     const cards = new CardService(projectRoot, eventBus, readModelChanges);
-    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs), appLogs, cardStore: cards, readModelChanges });
+    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs), appLogs, cardStore: cards, readModelChanges, processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), mcpToolInvocation: testAutonomousCompaction.mcpToolInvocation });
 
     await application.runtimeApi.start();
     await application.runtimeApi.startProject();

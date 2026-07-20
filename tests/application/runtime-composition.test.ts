@@ -15,6 +15,9 @@ import { initProjectTree, testConfigAuthority } from '../helpers/canonical-proje
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import { agentMessageSchema } from '../../src/schemas/index.js';
+import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -39,6 +42,7 @@ function services(runtimeApiFactory: (deps: RuntimeApiFactoryDeps) => any, selec
     projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config: selectedConfig, configAuthority: testConfigAuthority(projectRoot), eventBus,
     eventLogger: createEventLog(projectRoot, appLogs), appLogs,
     cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges, runtimeApiFactory,
+    processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), mcpToolInvocation: unusedMcpToolInvocation,
   };
 }
 
@@ -77,7 +81,8 @@ describe('runtime compaction composition', () => {
     const runtimeApiFactory = jest.fn((value: RuntimeApiFactoryDeps) => { deps = value; return mechanics(); });
     const invoke = jest.spyOn(InvocationService.prototype, 'invokeWithRecovery').mockResolvedValue({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] });
     const project = jest.spyOn(InvocationService.prototype, 'projectProviderExchanges').mockImplementation(() => undefined);
-    const app = createRuntimeApplication(services(runtimeApiFactory));
+    const selected = services(runtimeApiFactory);
+    const app = createRuntimeApplication(selected);
 
     expect(runtimeApiFactory).toHaveBeenCalledTimes(1);
     expect(app.runtimeApi).toBe(app.runtimeControl);
@@ -88,6 +93,10 @@ describe('runtime compaction composition', () => {
     expect(app.analystDeps.compactionPolicy).toBe(deps.compactionPolicy);
     expect(app.analystDeps.compactor).toBe(deps.compactor);
     expect(app.analystDeps.summarizerProvider).toBe(deps.summarizerProvider);
+    expect(app.processRunner).toBe(selected.processRunner);
+    expect(deps.processRunner).toBe(selected.processRunner);
+    expect(deps.mcpToolInvocation).toBe(selected.mcpToolInvocation);
+    expect(app.analystDeps.mcpToolInvocation).toBe(selected.mcpToolInvocation);
     expect(app.analystDeps.compactor).toEqual({ shouldCompact: expect.any(Function), compact: expect.any(Function) });
     expect(deps).not.toHaveProperty('config');
     expect(deps).not.toHaveProperty('summarizer_candidate');

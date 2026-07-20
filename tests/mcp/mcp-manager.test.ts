@@ -85,7 +85,7 @@ function createManager(root: string, control: { failStop?: boolean } = {}) {
     },
   };
   const processRunner = new ProcessRunner(root, new ManagedProcessGroupRegistry(platform));
-  return { manager: new McpManager({ configAuthority: testConfigAuthority(root), processRunner }), spawn, signal };
+  return { manager: new McpManager({ configAuthority: testConfigAuthority(root), processRunner, eventLogger: { appendEvent() {} } as any }), spawn, signal };
 }
 
 function rpcResponse(id: number, result: Record<string, unknown>): Response {

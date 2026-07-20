@@ -1,7 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
+import { buildInvocationSurface, invokeTool, invokeToolCall, invokeToolForLlm } from '../../src/tools/invocation.js';
 import { createMcpProvider } from '../../src/tools/mcp-provider.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
+import { createMcpToolInvocationInstallation, McpToolInvocationNotInstalledError } from '../../src/mcp/tool-invocation-installation.js';
 
 describe('MCP activity segmentation', () => {
   it('keeps the complete current MCP invocation active without calling any wait callback', async () => {
@@ -15,8 +16,57 @@ describe('MCP activity segmentation', () => {
       },
     };
     const manager = { invokeTool: jest.fn(async () => ({ value: 1 })), findToolCapability: jest.fn(() => null), getServerTools: jest.fn(() => undefined) };
-    const surface = buildInvocationSurface('executor', [createMcpProvider({ agentRole: 'executor', mcpManagerProvider: () => manager })]);
+    const surface = buildInvocationSurface('executor', [createMcpProvider({ agentRole: 'executor', mcpToolInvocation: manager })]);
     await expect(invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, new AbortController().signal, context)).resolves.toEqual({ success: true, data: { value: 1 } });
     expect(waits).toEqual({ external: 0, process: 0, child: 0 });
+  });
+
+  it('preserves the fatal pre-install invariant through every tool boundary', async () => {
+    const installation = createMcpToolInvocationInstallation();
+    const surface = buildInvocationSurface('executor', [createMcpProvider({ agentRole: 'executor', mcpToolInvocation: installation.port })]);
+    const args = { serverName: 'server', toolName: 'tool' };
+    for (const invoke of [
+      () => invokeTool(surface, 'mcp_tool_call', args),
+      () => invokeToolForLlm(surface, 'mcp_tool_call', args),
+      () => invokeToolCall(surface, 'mcp_tool_call', JSON.stringify(args)),
+    ]) {
+      const invocation = invoke();
+      await expect(invocation).rejects.toBeInstanceOf(McpToolInvocationNotInstalledError);
+      await expect(invocation).rejects.toThrow('MCP tool invocation authority is not installed.');
+    }
+  });
+
+  it('keeps ordinary invocation and reviewer capability failures as failed tool results', async () => {
+    const invocationFailure = buildInvocationSurface('executor', [createMcpProvider({
+      agentRole: 'executor',
+      mcpToolInvocation: { getServerTools: () => [], findToolCapability: () => null, invokeTool: async () => { throw new Error('transport failed'); } },
+    })]);
+    await expect(invokeToolForLlm(invocationFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' })).resolves.toEqual({ success: false, error: 'transport failed' });
+
+    const reviewerFailure = buildInvocationSurface('reviewer', [createMcpProvider({
+      agentRole: 'reviewer',
+      mcpToolInvocation: { getServerTools: () => [], findToolCapability: () => null, invokeTool: async () => 'unused' },
+    })]);
+    await expect(invokeToolForLlm(reviewerFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' })).resolves.toEqual({ success: false, error: "MCP tool 'server/tool' is missing metadata required for reviewer access." });
+
+    const reviewerDestructive = buildInvocationSurface('reviewer', [createMcpProvider({
+      agentRole: 'reviewer',
+      mcpToolInvocation: {
+        getServerTools: () => [],
+        findToolCapability: () => ({ serverName: 'server', name: 'tool', description: 'tool', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true, destructiveHint: true } }),
+        invokeTool: async () => 'unused',
+      },
+    })]);
+    await expect(invokeToolForLlm(reviewerDestructive, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' })).resolves.toEqual({ success: false, error: "Reviewer cannot call destructive MCP tool 'server/tool'." });
+
+    const reviewerWritable = buildInvocationSurface('reviewer', [createMcpProvider({
+      agentRole: 'reviewer',
+      mcpToolInvocation: {
+        getServerTools: () => [],
+        findToolCapability: () => ({ serverName: 'server', name: 'tool', description: 'tool', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }),
+        invokeTool: async () => 'unused',
+      },
+    })]);
+    await expect(invokeToolForLlm(reviewerWritable, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' })).resolves.toEqual({ success: false, error: "Reviewer can only call read-only MCP tool 'server/tool'." });
   });
 });

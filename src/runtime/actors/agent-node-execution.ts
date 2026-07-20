@@ -61,7 +61,7 @@ export interface AgentNodeExecutionDeps {
   notifyCard?: (cardId: string, notification: import('../../schemas/index.js').CardNotification) => import('../runtime-api.js').NotifyCardResult;
   appLogs: AppLogContext;
   processRunner: ProcessRunner;
-  mcpManagerProvider: () => McpToolInvocationPort | undefined;
+  mcpToolInvocation: McpToolInvocationPort;
   promptTemplates: PromptTemplateRegistry;
   processPrompts: ProcessPromptRegistry;
   conversations: ConversationFileContext;
@@ -190,11 +190,11 @@ export class AgentNodeExecution {
   }
 
   private buildSurface(role: ProcessRole, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {
-    if (role === 'planner') return buildRoleSurface('planner', { projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId, store: this.deps.store, children: this.deps.children, cancelCard: this.deps.cancelCard, notifyCard: this.deps.notifyCard, appLogs: this.deps.appLogs, beginStructuralWait: (relationship) => this.deps.ownerStructuralWait.begin(relationship), endStructuralWait: (relationship) => this.deps.ownerStructuralWait.end(relationship) });
-    if (role === 'reviewer') return buildRoleSurface('reviewer', { projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId, store: this.deps.store, mcpManagerProvider: this.deps.mcpManagerProvider });
+    if (role === 'planner') return buildRoleSurface('planner', { projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId, store: this.deps.store, mcpToolInvocation: this.deps.mcpToolInvocation, children: this.deps.children, cancelCard: this.deps.cancelCard, notifyCard: this.deps.notifyCard, appLogs: this.deps.appLogs, beginStructuralWait: (relationship) => this.deps.ownerStructuralWait.begin(relationship), endStructuralWait: (relationship) => this.deps.ownerStructuralWait.end(relationship) });
+    if (role === 'reviewer') return buildRoleSurface('reviewer', { projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId, store: this.deps.store, mcpToolInvocation: this.deps.mcpToolInvocation });
     if (!scope) throw new Error(`Executor node for '${this.deps.cardId}' requires a node-local process scope.`);
     const ownerId = `${input.activationId}:node:${nodeOrdinal}`;
-    return buildRoleSurface('executor', { projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId: ownerId, ownerId, store: this.deps.store, processRunner: this.deps.processRunner, processScope: scope, mcpManagerProvider: this.deps.mcpManagerProvider, appLogs: this.deps.appLogs });
+    return buildRoleSurface('executor', { projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId: ownerId, ownerId, store: this.deps.store, processRunner: this.deps.processRunner, processScope: scope, mcpToolInvocation: this.deps.mcpToolInvocation, appLogs: this.deps.appLogs });
   }
 
   private executorScope(input: CardActivationInput, ordinal: number): ManagedProcessScope {

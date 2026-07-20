@@ -3,10 +3,9 @@ import type { EventLog } from '../observability/index.js';
 export interface McpInvocationStat { total: number; success: number; error: number; lastInvokedAt?: string }
 
 export class McpInvocationStatsRecorder {
-  private eventLogger?: EventLog;
   private readonly stats = new Map<string, McpInvocationStat>();
 
-  setEventLog(logger: EventLog): void { this.eventLogger = logger; }
+  constructor(private readonly eventLogger: EventLog) {}
 
   record(serverName: string, toolName: string, success: boolean): void {
     const key = `${serverName}:${toolName}`;
@@ -19,7 +18,6 @@ export class McpInvocationStatsRecorder {
   }
 
   log(server: string, tool: string, success: boolean, durationMs: number, error?: string): void {
-    if (!this.eventLogger) return;
     this.eventLogger.appendEvent({ kind: 'mcp_tool_invocation', server, tool, success, duration_ms: durationMs, error });
   }
 

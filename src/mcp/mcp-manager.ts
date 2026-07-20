@@ -26,7 +26,7 @@ export interface McpReconciliationReport {
   pending: Array<{ name: string; operation: 'add' | 'remove' | 'replace' | 'start' | 'stop'; diagnostic: string }>;
 }
 export interface McpReconciliationPort { reconcilePersistedConfig(): Promise<McpReconciliationReport> }
-export interface McpManagerOptions { configAuthority: ResolvedConfigAuthority; processRunner: ProcessRunner }
+export interface McpManagerOptions { configAuthority: ResolvedConfigAuthority; processRunner: ProcessRunner; eventLogger: EventLog }
 
 interface DesiredServer { name: string; config: McpServerConfig; revision: string; shouldRun: boolean }
 
@@ -43,15 +43,16 @@ function revisionOf(config: McpServerConfig): string {
 export class McpManager implements McpReconciliationPort {
   private readonly runtimes = new Map<string, McpServerRuntime>();
   private nextMsgId = 1;
-  private readonly invocationStats = new McpInvocationStatsRecorder();
+  private readonly invocationStats: McpInvocationStatsRecorder;
   private reconciliationTail: Promise<void> = Promise.resolve();
   private currentReconciliation: Promise<McpReconciliationReport> | null = null;
   private admissionOpen = true;
 
-  constructor(private readonly options: McpManagerOptions) {}
+  constructor(private readonly options: McpManagerOptions) {
+    this.invocationStats = new McpInvocationStatsRecorder(options.eventLogger);
+  }
 
   next(): number { return this.nextMsgId++; }
-  setEventLog(logger: EventLog): void { this.invocationStats.setEventLog(logger); }
   getInvocationStats(): Record<string, { total: number; success: number; error: number; lastInvokedAt?: string }> { return this.invocationStats.snapshot(); }
 
   reconcilePersistedConfig(): Promise<McpReconciliationReport> {

@@ -7,7 +7,7 @@ import { ReadModelChangeBroadcaster, type ReadModelChangeSubscription } from '..
 import { CardService } from '../../cards/card-api.js';
 import type { Environment } from '../../config/index.js';
 import { EventBus } from '../../events/index.js';
-import { McpManager } from '../../mcp/manager-api.js';
+import { createMcpToolInvocationInstallation, McpManager } from '../../mcp/manager-api.js';
 import { createEventLog, createErrorLog, type ErrorLog, type EventLog } from '../../observability/index.js';
 import type { AppLogContext } from '../../persistence/app-log.js';
 import { AuthPolicy } from '../auth-policy.js';
@@ -15,6 +15,8 @@ import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
 import type { RuntimeProcessIdentity } from '../../runtime/lock.js';
+import { ManagedProcessGroupRegistry } from '../../runtime/managed-process-group-registry.js';
+import { ProcessRunner } from '../../runtime/process-runner.js';
 
 export interface ServerServices {
   projectRoot: string;
@@ -64,22 +66,24 @@ export async function createServerServices(input: {
   terminal.registerAdmissionCloser('websocket-admission', () => liveSyncSocket.closeAdmission());
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, configAuthority: environment.configAuthority, eventBus, eventLogger, appLogs, cardStore, readModelChanges, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
-  await runtimeApplication.runtimeApi.start();
-  fastify.log.info('Runtime application started');
+  const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
+  const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
+  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, configAuthority: environment.configAuthority, eventBus, eventLogger, appLogs, cardStore, readModelChanges, processRunner, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());
   terminal.registerAdmissionCloser('process-admission', () => runtimeApplication.processRunner.closeLaunchAdmission());
   terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());
   terminal.registerCleanupLeaf('runtime', () => runtimeApplication.cleanupRuntimeForApplicationStop());
   terminal.registerCleanupLeaf('analyst', () => runtimeApplication.cleanupAnalystForApplicationStop());
 
-  const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner: runtimeApplication.processRunner });
+  const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner, eventLogger });
   terminal.registerAdmissionCloser('mcp', () => mcpManager.closeAdmission());
   terminal.registerCleanupLeaf('mcp', () => mcpManager.cleanupForApplicationStop());
   const mcpReconciliation = await mcpManager.reconcilePersistedConfig();
   if (!mcpReconciliation.converged) throw new Error('MCP startup did not converge to persisted configuration.');
   fastify.log.info('MCP manager started');
-  runtimeApplication.setMcpManager(mcpManager);
+  mcpToolInvocationInstallation.installer.install(mcpManager);
+  await runtimeApplication.runtimeApi.start();
+  fastify.log.info('Runtime application started');
 
   syncHub.wire(runtimeApplication.runtimeApi);
   let readModelChangeSubscription: ReadModelChangeSubscription | null = readModelChanges.subscribe(syncHub);

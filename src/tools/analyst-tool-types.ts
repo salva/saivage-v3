@@ -1,5 +1,5 @@
 import type { CardService } from '../cards/card-api.js';
-import type { McpManager } from '../mcp/manager-api.js';
+import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { ControlActionSurface } from '../schemas/index.js';
 import type { ActorRole } from '../agents/authz.js';
@@ -32,7 +32,7 @@ export interface ToolContext {
   sessionId?: string;
   runtime?: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
   runtimeControl?: RuntimeControlApplicationPort;
-  mcpManager?: McpManager;
+  mcpToolInvocation: McpToolInvocationPort;
   restartServerAvailable: boolean;
   actor: ActorRole;
   surface: ControlActionSurface;

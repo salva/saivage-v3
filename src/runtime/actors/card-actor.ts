@@ -94,7 +94,7 @@ export interface CardActorDeps {
   compactionConfig: AutonomousCompactionPolicy;
   summarizerProvider: SummarizerProviderPort;
   gate?: RuntimeGate;
-  mcpManagerProvider?: () => McpToolInvocationPort | undefined;
+  mcpToolInvocation: McpToolInvocationPort;
   processRunner: ProcessRunner;
   promptTemplates: PromptTemplateRegistry;
   cardProcesses: CompiledCardProcesses;
@@ -524,7 +524,7 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       processRunner: owner.deps.processRunner,
       gate: owner.deps.gate,
       notifyCard: owner.deps.notifyCard,
-      mcpManagerProvider: owner.deps.mcpManagerProvider,
+      mcpToolInvocation: owner.deps.mcpToolInvocation,
       compactor: owner.deps.compactor,
       compactionConfig: owner.deps.compactionConfig,
       summarizerProvider: owner.deps.summarizerProvider,

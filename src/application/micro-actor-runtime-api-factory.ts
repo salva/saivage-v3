@@ -36,7 +36,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner;
   runtimeGate?: RuntimeGate;
-  mcpManagerProvider?: () => McpToolInvocationPort | undefined;
+  mcpToolInvocation: McpToolInvocationPort;
   now?: () => string;
   conversations: ConversationFileContext;
   appLogs: AppLogContext;
@@ -60,7 +60,7 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     cardProcesses: deps.cardProcesses,
     processPrompts: deps.processPrompts,
     runtimeGate: deps.runtimeGate,
-    mcpManagerProvider: deps.mcpManagerProvider,
+    mcpToolInvocation: deps.mcpToolInvocation,
     now: deps.now,
     conversations: deps.conversations,
     appLogs: deps.appLogs,

@@ -9,7 +9,7 @@ import { AnalystRuntime, type AnalystRuntimeDeps } from '../agents/analyst-api.j
 import { ProviderRegistry } from '../agents/provider.js';
 import { ModelRouter } from '../agents/model-router.js';
 import type { EventBus } from '../events/index.js';
-import type { McpManager } from '../mcp/manager-api.js';
+import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import type { EventLog } from '../observability/index.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 
@@ -17,7 +17,6 @@ import { CardService } from '../cards/card-service.js';
 import { InvocationService } from '../agents/invocation-service.js';
 import { createInvocationServiceProvider, createMicroActorRuntimeApi, invocationRequest } from './micro-actor-runtime-api-factory.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
-import { ManagedProcessGroupRegistry } from '../runtime/managed-process-group-registry.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
 import { createPromptTemplateRegistry, type PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
@@ -50,7 +49,7 @@ export interface RuntimeApiFactoryDeps {
   summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner;
   runtimeGate: RuntimeGate;
-  mcpManagerProvider?: () => McpManager | undefined;
+  mcpToolInvocation: McpToolInvocationPort;
   conversations: ConversationFileContext;
   appLogs: AppLogContext;
   readModelChanges: ReadModelChanges;
@@ -69,7 +68,6 @@ export interface RuntimeApplication {
   cleanupRuntimeForApplicationStop(): Promise<void>;
   cleanupAnalystForApplicationStop(): Promise<void>;
   getProviderRoutingReadModel(): ProviderRoutingReadModel;
-  setMcpManager(mcpManager: McpManager): void;
   captureExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[];
 }
 
@@ -86,6 +84,8 @@ export interface RuntimeApplicationServices {
   restartServerAvailable?: boolean;
   restartPort?: RestartPort;
   readModelChanges: ReadModelChanges;
+  processRunner: ProcessRunner;
+  mcpToolInvocation: McpToolInvocationPort;
 }
 
 function buildAnalystDeps(input: {
@@ -96,7 +96,7 @@ function buildAnalystDeps(input: {
   eventBus: EventBus;
   invocationService: InvocationService;
   processRunner: ProcessRunner;
-  mcpManager?: McpManager;
+  mcpToolInvocation: McpToolInvocationPort;
   conversations: ConversationFileContext;
   configAuthority: ResolvedConfigAuthority;
   appLogs: AppLogContext;
@@ -120,7 +120,7 @@ function buildAnalystDeps(input: {
     summarizerProvider: input.summarizerProvider,
     processRunner: input.processRunner,
     analystProcessRootScope: input.processRunner.analystRootScope,
-    mcpManager: input.mcpManager,
+    mcpToolInvocation: input.mcpToolInvocation,
     conversations: input.conversations,
     appLogs: input.appLogs,
     interventionReadiness: input.interventionReadiness,
@@ -150,7 +150,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const conversations: ConversationFileContext = { projectRoot, changes: services.readModelChanges, observeEntry };
   interventionBinding.markStoppedReady();
-  let mcpManager: McpManager | undefined;
 
   const registry = new ProviderRegistry(config);
   const summarizerCandidate = registry.assertCandidate(config.compaction.summarizer_candidate);
@@ -172,8 +171,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   };
   const { enabled: _enabled, summarizer_candidate: _summarizerCandidate, ...compactionPolicy } = config.compaction;
   const compactor: CompactorPort = { shouldCompact, compact };
-  const processRegistry = new ManagedProcessGroupRegistry();
-  const processRunner = new ProcessRunner(projectRoot, processRegistry);
+  const processRunner = services.processRunner;
   const runtimeGate = new RuntimeGate();
   const promptTemplates = createPromptTemplateRegistry({
     defaultRoot: bundledPromptDefaultsRoot(),
@@ -201,39 +199,35 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   }
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
-  const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
+  const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
   const runtimeControl = new RuntimeControlService({ interventionBinding, mechanics: runtimeMechanics });
   const runtimeApi: RuntimeApi = runtimeControl;
   cardStore.setNotifyCard((cardId, notification) => runtimeApi.notifyCard(cardId, notification));
-  let analystDepsCache: AnalystRuntimeDeps | null = null;
   let analystRuntimeCache: AnalystRuntime | null = null;
-  const getAnalystDeps = (): AnalystRuntimeDeps => {
-    analystDepsCache ??= buildAnalystDeps({
-      runtimeApi,
-      runtimeControl,
-      cardStore,
-      eventLogger,
-      eventBus,
-      invocationService,
-      processRunner,
-      mcpManager,
-      conversations,
-      configAuthority: services.configAuthority,
-      appLogs: services.appLogs,
-      interventionReadiness: interventionBinding,
-      compactionPolicy,
-      compactor,
-      summarizerProvider,
-      runtimeProjectionChanged: () => services.readModelChanges.agentsChanged(),
-      captureExecutingLlmSnapshots: () => {
-        const snapshots = [...runtimeMechanics.captureAutonomousExecutingLlmSnapshots()];
-        const analyst = analystRuntimeCache?.executingLlmSnapshot();
-        if (analyst) snapshots.push(analyst);
-        return snapshots;
-      },
-    });
-    return analystDepsCache;
-  };
+  const analystDeps = buildAnalystDeps({
+    runtimeApi,
+    runtimeControl,
+    cardStore,
+    eventLogger,
+    eventBus,
+    invocationService,
+    processRunner,
+    mcpToolInvocation: services.mcpToolInvocation,
+    conversations,
+    configAuthority: services.configAuthority,
+    appLogs: services.appLogs,
+    interventionReadiness: interventionBinding,
+    compactionPolicy,
+    compactor,
+    summarizerProvider,
+    runtimeProjectionChanged: () => services.readModelChanges.agentsChanged(),
+    captureExecutingLlmSnapshots: () => {
+      const snapshots = [...runtimeMechanics.captureAutonomousExecutingLlmSnapshots()];
+      const analyst = analystRuntimeCache?.executingLlmSnapshot();
+      if (analyst) snapshots.push(analyst);
+      return snapshots;
+    },
+  });
 
   return {
     runtimeApi,
@@ -241,11 +235,11 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     cardStore,
     processRunner,
     get analystRuntime() {
-      analystRuntimeCache ??= new AnalystRuntime({ projectRoot, config, runtimeDeps: getAnalystDeps(), promptTemplates, restartServerAvailable, restartPort });
+      analystRuntimeCache ??= new AnalystRuntime({ projectRoot, config, runtimeDeps: analystDeps, promptTemplates, restartServerAvailable, restartPort });
       return analystRuntimeCache;
     },
     get analystDeps() {
-      return getAnalystDeps();
+      return analystDeps;
     },
     captureExecutingLlmSnapshots() {
       const snapshots = [...runtimeMechanics.captureAutonomousExecutingLlmSnapshots()];
@@ -262,12 +256,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         registry,
         availability: candidateAvailability,
       });
-    },
-    setMcpManager(nextMcpManager) {
-      mcpManager = nextMcpManager;
-      analystDepsCache = null;
-      analystRuntimeCache = null;
-      nextMcpManager.setEventLog(eventLogger);
     },
   };
 }

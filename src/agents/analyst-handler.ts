@@ -11,7 +11,7 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventBus } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
 import type { EventLog } from '../observability/index.js';
-import type { McpManager } from '../mcp/manager-api.js';
+import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
@@ -90,7 +90,7 @@ export interface AnalystRuntimeDeps {
   runtimeControl?: import('../application/runtime-control-service.js').RuntimeControlApplicationPort;
   eventLogger?: EventLog;
   eventBus: EventBus;
-  mcpManager?: McpManager;
+  mcpToolInvocation: McpToolInvocationPort;
   provider: LLMProviderPort;
   compactionPolicy: AutonomousCompactionPolicy;
   compactor: CompactorPort;
@@ -164,7 +164,7 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: AnalystCon
 function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardService; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
   const notifyCard = args.runtimeDeps.runtime.notifyCard.bind(args.runtimeDeps.runtime);
   const analystMutations = createAnalystMutationServices({ projectRoot: args.projectRoot, store: args.store, configAuthority: args.runtimeDeps.configAuthority, surface: args.surface, notifyCard, cancelCard: args.runtimeDeps.runtime.cancelCard.bind(args.runtimeDeps.runtime) });
-  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs, captureExecutingLlmSnapshots: args.runtimeDeps.captureExecutingLlmSnapshots, analystMutations };
+  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpToolInvocation: args.runtimeDeps.mcpToolInvocation, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs, captureExecutingLlmSnapshots: args.runtimeDeps.captureExecutingLlmSnapshots, analystMutations };
 }
 
 type PendingAnalystTurn = {
@@ -307,7 +307,7 @@ export class AnalystSessionActor extends BaseActor {
     }
     const store = this.args.runtimeDeps.cardStore;
     const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
-    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
+    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope: this.processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpToolInvocation: ctx.mcpToolInvocation, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) });
     const previousToolCallFingerprints = new Set<string>();
     let noProgressDirectiveSent = false;
     const invocationInput = this.buildInvocationInput(input, surface);
@@ -597,7 +597,7 @@ export class AnalystRuntime {
     try {
       const catalogStore = this.args.runtimeDeps.cardStore;
       const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store: catalogStore, processScope, actor, surface, restartServerAvailable: this.args.restartServerAvailable ?? false });
-      return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
+      return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, processScope, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpToolInvocation: ctx.mcpToolInvocation, appLogs: ctx.appLogs, notifyCard: (cardId, notification) => this.args.runtimeDeps.runtime.notifyCard(cardId, notification) }).tools.keys());
     } finally {
       this.args.runtimeDeps.processRunner.closeScope(processScope);
     }
