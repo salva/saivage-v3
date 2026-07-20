@@ -2,6 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseDocument } from 'yaml';
 
 const DEFAULT_DOCUMENTED_COMMAND_FILES = [
   'README.md',
@@ -46,7 +47,7 @@ const REQUIRED_VALIDATION_SCRIPTS = [
   {
     name: 'audit:security:all',
     mustInclude: ['npm audit --audit-level=moderate', 'cd web && npm audit --audit-level=moderate'],
-    description: 'scheduled/manual full dependency audit profile',
+    description: 'full local dependency audit profile',
     documentationOptional: true,
   },
   {
@@ -58,7 +59,7 @@ const REQUIRED_VALIDATION_SCRIPTS = [
   {
     name: 'deps:review',
     mustInclude: ['npm run audit:security:all', 'npm run deps:freshness'],
-    description: 'scheduled/manual dependency governance review',
+    description: 'local dependency governance review',
   },
 ];
 
@@ -418,6 +419,7 @@ function validateWorkflowCommands({ root, scripts, workflowFiles }) {
   const failures = [];
   const checked = [];
   const profileCommands = new Set();
+  const workflowDocuments = new Map();
   const files = workflowFiles ?? listWorkflowFiles(root);
 
   for (const file of files) {
@@ -427,6 +429,15 @@ function validateWorkflowCommands({ root, scripts, workflowFiles }) {
       continue;
     }
     const content = readFileSync(fullPath, 'utf8');
+    const document = parseDocument(content, { uniqueKeys: true });
+    if (document.errors.length > 0) {
+      for (const error of document.errors) {
+        failures.push(`${file} has invalid YAML: ${error.message}`);
+      }
+      continue;
+    }
+    const workflow = document.toJS();
+    workflowDocuments.set(file, { content, workflow });
     const commands = workflowRunCommands(content);
     validateWorkflowHardening({ file, content, commands, failures });
     for (const { command, line } of commands) {
@@ -459,40 +470,210 @@ function validateWorkflowCommands({ root, scripts, workflowFiles }) {
     }
   }
 
-  return { checked, failures, workflowFilesChecked: files };
+  return { checked, failures, workflowFilesChecked: files, workflowDocuments };
 }
 
-function validateDependencyHygieneWorkflow({ root, workflowFiles }) {
+function expressionBody(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const match = value.match(/^\s*\$\{\{([\s\S]*)\}\}\s*$/);
+  return (match?.[1] ?? value).replace(/\s+/g, ' ').trim();
+}
+
+function scalarRunSteps(job) {
+  return Array.isArray(job?.steps)
+    ? job.steps.filter((step) => step && typeof step === 'object' && typeof step.run === 'string')
+    : [];
+}
+
+function requirePattern({ file, text, label, pattern, failures, checked }) {
+  checked.push(`${file} ${label}`);
+  if (!pattern.test(text)) {
+    failures.push(`${file} validation workflow must preserve ${label}`);
+  }
+}
+
+const CLASSIFIER_OUTPUTS = {
+  backend: '${{ steps.classify.outputs.backend }}',
+  ui: '${{ steps.classify.outputs.ui }}',
+  browser: '${{ steps.classify.outputs.browser }}',
+  docs_only: '${{ steps.classify.outputs.docs_only }}',
+  package_or_workflow: '${{ steps.classify.outputs.package_or_workflow }}',
+  run_all: '${{ steps.classify.outputs.run_all }}',
+  summary: '${{ steps.classify.outputs.summary }}',
+};
+
+const PATH_JOBS = {
+  'backend-jest-build': {
+    prefix: 'BACKEND',
+    condition: "needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true'",
+  },
+  'ui-vitest': {
+    prefix: 'UI',
+    condition: "needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.ui == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true'",
+  },
+  'browser-smoke': {
+    prefix: 'BROWSER',
+    condition: "needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true'",
+  },
+  'dependency-hygiene': {
+    prefix: 'DEPENDENCY',
+    condition: "needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true'",
+  },
+};
+
+function validatePushOnlyTrigger({ file, workflow, failures, checked }) {
+  checked.push(`${file} push-only master trigger`);
+  const trigger = workflow?.on;
+  const valid = trigger && typeof trigger === 'object' && !Array.isArray(trigger)
+    && Object.keys(trigger).length === 1
+    && trigger.push && typeof trigger.push === 'object' && !Array.isArray(trigger.push)
+    && Object.keys(trigger.push).length === 1
+    && Array.isArray(trigger.push.branches)
+    && trigger.push.branches.length === 1
+    && trigger.push.branches[0] === 'master';
+  if (!valid) {
+    failures.push(`${file} must use the exact push-only master trigger: on.push.branches: [master]`);
+  }
+}
+
+function validateClassifier({ file, jobs, failures, checked }) {
+  const job = jobs?.['classify-changes'];
+  if (!job || typeof job !== 'object') {
+    failures.push(`${file} validation workflow must define classify-changes`);
+    return;
+  }
+  checked.push(`${file} classify-changes outputs`);
+  if (JSON.stringify(job.outputs) !== JSON.stringify(CLASSIFIER_OUTPUTS)) {
+    failures.push(`${file} classify-changes must publish exactly backend, ui, browser, docs_only, package_or_workflow, run_all, and summary from steps.classify.outputs`);
+  }
+  const classifyStep = Array.isArray(job.steps) ? job.steps.find((step) => step?.id === 'classify') : null;
+  const shell = classifyStep?.run;
+  if (typeof shell !== 'string') {
+    failures.push(`${file} classify-changes must contain the inline classify shell step`);
+    return;
+  }
+  checked.push(`${file} classifier has no event-selection dispatch`);
+  if (/github\.event_name|inputs\.|github\.event\.pull_request/.test(shell)) {
+    failures.push(`${file} classify-changes must not contain event-selection dispatch; every invocation is a push`);
+  }
+  const requirements = [
+    ['push base from github.event.before', /base='\$\{\{ github\.event\.before \}\}'/],
+    ['push head from github.sha', /head='\$\{\{ github\.sha \}\}'/],
+    ['empty or all-zero push-base fail-closed check', /\[\[ -z "\$base" \|\| "\$base" =~ \^0\+\$ \]\][\s\S]*fail_closed 'push base SHA unavailable'/],
+    ['base/head presence fail-closed check', /\[\[ -z "\$base" \|\| -z "\$head" \]\][\s\S]*fail_closed 'base or head SHA unavailable'/],
+    ['base/head commit availability fail-closed check', /git cat-file -e "\$base\^\{commit\}"[\s\S]*git cat-file -e "\$head\^\{commit\}"[\s\S]*fail_closed 'base or head commit unavailable after checkout'/],
+    ['git diff failure fail-closed check', /! git diff --name-only "\$base" "\$head" > changed-files\.txt[\s\S]*fail_closed 'git diff failed'/],
+    ['docs-like path class', /docs\/\*\|architecture-audit\/\*\|audit-findings\/\*\|ui-findings\/\*\|\*\.md\|README\.md\|EADME\.md/],
+    ['package/workflow path class', /package\.json\|package-lock\.json\|web\/package\.json\|web\/package-lock\.json\|\.github\/workflows\/\*/],
+    ['workflow run-all path class', /\.github\/workflows\/\*\)[\s\S]*?run_all=true/],
+    ['contracts backend/UI/browser path class', /src\/contracts\/\*\)[\s\S]*?backend=true[\s\S]*?ui=true[\s\S]*?browser=true/],
+    ['backend path class with Playwright exclusion', /src\/\*\|src\/\*\*\/\*\|bin\/\*\|bin\/\*\*\/\*\|scripts\/\*\|scripts\/\*\*\/\*\|tests\/\*\|tests\/\*\*\/\*\|jest\.config\.\*\|tsconfig\*\.json\)[\s\S]*?"\$file" != tests\/playwright\/\*/],
+    ['web/Playwright UI and browser path class', /web\/\*\|web\/\*\*\/\*\|tests\/playwright\/\*\|tests\/playwright\/\*\*\/\*\)[\s\S]*?ui=true[\s\S]*?browser=true/],
+    ['non-doc clearing', /if \[\[ "\$docs_like" != true \]\]; then[\s\S]*?docs_only=false/],
+    ['empty-list routine/docs-only handling', /if \[\[ ! -s changed-files\.txt \]\]; then[\s\S]*?docs_only=true[\s\S]*?routine\/docs only/],
+    ['normal-list initial docs-only classification', /else\s+docs_only=true\s+while IFS= read -r changed_file/],
+    ['run-all promotion', /if \[\[ "\$run_all" == true \]\]; then\s+backend=true\s+ui=true\s+browser=true\s+package_or_workflow=true\s+docs_only=false/],
+    ['package/workflow promotion', /elif \[\[ "\$package_or_workflow" == true \]\]; then\s+backend=true\s+ui=true\s+browser=true/],
+  ];
+  for (const [label, pattern] of requirements) {
+    requirePattern({ file, text: shell, label: `classifier ${label}`, pattern, failures, checked });
+  }
+  const failClosedBody = shell.match(/fail_closed\(\) \{([\s\S]*?)\n\s*\}/)?.[1] ?? '';
+  requirePattern({ file, text: failClosedBody, label: 'classifier fail-closed run_all assignment', pattern: /run_all=true/, failures, checked });
+  requirePattern({ file, text: failClosedBody, label: 'classifier fail-closed docs_only assignment', pattern: /docs_only=false/, failures, checked });
+  for (const output of Object.keys(CLASSIFIER_OUTPUTS)) {
+    requirePattern({ file, text: shell, label: `classifier ${output} GITHUB_OUTPUT write`, pattern: new RegExp(`echo "${output}=\\$${output}"[\\s\\S]*?\\$GITHUB_OUTPUT`), failures, checked });
+  }
+}
+
+function validateAggregate({ file, jobs, failures, checked }) {
+  const aggregate = jobs?.['validation-required'];
+  if (!aggregate || typeof aggregate !== 'object') {
+    failures.push(`${file} validation workflow must define validation-required`);
+    return;
+  }
+  const expectedNeeds = ['classify-changes', 'routine-docs', ...Object.keys(PATH_JOBS)];
+  checked.push(`${file} validation-required exact needs`);
+  if (!Array.isArray(aggregate.needs) || aggregate.needs.length !== expectedNeeds.length || !expectedNeeds.every((name) => aggregate.needs.includes(name))) {
+    failures.push(`${file} validation-required needs must contain exactly ${expectedNeeds.join(', ')}`);
+  }
+  if (expressionBody(aggregate.if) !== 'always()') {
+    failures.push(`${file} validation-required must retain if: \${{ always() }}`);
+  }
+  const enforceStep = scalarRunSteps(aggregate).find((step) => step.name === 'Enforce required validation conclusions') ?? scalarRunSteps(aggregate)[0];
+  const env = enforceStep?.env;
+  const shell = enforceStep?.run;
+  if (!env || typeof env !== 'object' || typeof shell !== 'string') {
+    failures.push(`${file} validation-required must contain its enforcement shell step and environment`);
+    return;
+  }
+  const exactEnv = {
+    CLASSIFIER_RESULT: '${{ needs.classify-changes.result }}',
+    ROUTINE_RESULT: '${{ needs.routine-docs.result }}',
+    CLASSIFIER_SUMMARY: '${{ needs.classify-changes.outputs.summary }}',
+  };
+  for (const [name, value] of Object.entries(exactEnv)) {
+    checked.push(`${file} aggregate ${name}`);
+    if (env[name] !== value) failures.push(`${file} validation-required ${name} must be exactly ${value}`);
+  }
+  const aggregateRequirements = [
+    ['classifier require_success', /require_success classify-changes "\$CLASSIFIER_RESULT"/],
+    ['routine require_success', /require_success routine-docs "\$ROUTINE_RESULT"/],
+    ['classifier summary line', /classifier: \$CLASSIFIER_RESULT \(\$CLASSIFIER_SUMMARY\)/],
+    ['routine summary line', /routine-docs: \$ROUTINE_RESULT/],
+    ['failure array initialization', /failures=\(\)/],
+    ['require_success semantics', /require_success\(\) \{[^}]*if \[\[ "\$result" != success \]\][^}]*failures\+=/],
+    ['applicable success semantics', /require_applicable\(\) \{[^}]*if \[\[ "\$applies" == true \]\]; then[^}]*if \[\[ "\$result" != success \]\][^}]*failures\+=/],
+    ['non-applicable skipped semantics', /require_applicable\(\) \{[^}]*else\s+if \[\[ "\$result" != skipped \]\][^}]*failures\+=/],
+    ['failure accumulation exit', /if \(\(\$\{#failures\[@\]\} > 0\)\); then[\s\S]*?exit 1/],
+  ];
+  for (const [label, pattern] of aggregateRequirements) {
+    requirePattern({ file, text: shell, label: `aggregate ${label}`, pattern, failures, checked });
+  }
+  for (const [jobName, contract] of Object.entries(PATH_JOBS)) {
+    const job = jobs[jobName];
+    checked.push(`${file} ${jobName} classifier dependency and applicability`);
+    if (!job || job.needs !== 'classify-changes') failures.push(`${file} ${jobName} must depend exactly on classify-changes`);
+    if (expressionBody(job?.if) !== contract.condition) failures.push(`${file} ${jobName} must use exact push path applicability: ${contract.condition}`);
+    const resultName = `${contract.prefix}_RESULT`;
+    const appliesName = `${contract.prefix}_APPLIES`;
+    const expectedResult = `\${{ needs.${jobName}.result }}`;
+    if (env[resultName] !== expectedResult) failures.push(`${file} validation-required ${resultName} must be exactly ${expectedResult}`);
+    if (expressionBody(env[appliesName]) !== contract.condition) failures.push(`${file} validation-required ${appliesName} must match ${jobName} applicability exactly`);
+    requirePattern({ file, text: shell, label: `aggregate ${jobName} require_applicable call`, pattern: new RegExp(`require_applicable ${jobName} "\\$${appliesName}" "\\$${resultName}"`), failures, checked });
+    requirePattern({ file, text: shell, label: `aggregate ${jobName} summary line`, pattern: new RegExp(`${jobName}: \\$${resultName} \\(applies=\\$${appliesName}\\)`), failures, checked });
+  }
+  const allowedEnv = new Set([...Object.keys(exactEnv), ...Object.values(PATH_JOBS).flatMap(({ prefix }) => [`${prefix}_RESULT`, `${prefix}_APPLIES`])]);
+  for (const name of Object.keys(env)) {
+    if (!allowedEnv.has(name)) failures.push(`${file} validation-required has unexpected aggregate environment state ${name}`);
+  }
+}
+
+function validateValidationWorkflowContract({ workflowDocuments }) {
   const failures = [];
   const checked = [];
-  for (const file of workflowFiles) {
-    const fullPath = path.join(root, file);
-    if (!existsSync(fullPath)) {
+  for (const [file, { content, workflow }] of workflowDocuments) {
+    validatePushOnlyTrigger({ file, workflow, failures, checked });
+    const executable = JSON.stringify(workflow);
+    for (const token of ['schedule', 'workflow_dispatch', 'pull_request', 'run_full_sweep', 'scheduled-release-backstop']) {
+      if (executable.includes(token)) failures.push(`${file} validation workflow must not retain obsolete event/backstop token ${token}`);
+    }
+    const jobs = workflow?.jobs;
+    if (!jobs || typeof jobs !== 'object' || Array.isArray(jobs)) {
+      failures.push(`${file} validation workflow must define a jobs mapping`);
       continue;
     }
-    const content = readFileSync(fullPath, 'utf8');
-    if (!/^[ \t]{2}dependency-hygiene:\s*$/m.test(content)) {
-      failures.push(`${file} must define a dependency-hygiene job`);
-      continue;
+    validateClassifier({ file, jobs, failures, checked });
+    validateAggregate({ file, jobs, failures, checked });
+    const dependency = jobs['dependency-hygiene'];
+    checked.push(`${file} path-aware production dependency audit gate`);
+    const dependencyRuns = scalarRunSteps(dependency).map(({ run }) => run);
+    for (const command of ['npm ci', 'cd web && npm ci', 'npm run audit:security']) {
+      if (!dependencyRuns.includes(command)) failures.push(`${file} dependency-hygiene must run ${command}`);
     }
-    checked.push(`${file} job dependency-hygiene`);
-    const requirements = [
-      { label: 'root npm ci', pattern: /run:\s*npm ci/ },
-      { label: 'web npm ci', pattern: /run:\s*cd web && npm ci/ },
-      { label: 'audit security gate', pattern: /run:\s*npm run audit:security/ },
-      { label: 'scheduled/manual deps review', pattern: /npm run deps:review/ },
-      { label: 'validation-required needs dependency-hygiene', pattern: /^[ \t]+- dependency-hygiene\s*$/m },
-      { label: 'dependency result env', pattern: /DEPENDENCY_RESULT:\s*\$\{\{ needs\.dependency-hygiene\.result \}\}/ },
-      { label: 'dependency applies env', pattern: /DEPENDENCY_APPLIES:/ },
-      { label: 'aggregate requires dependency-hygiene', pattern: /require_applicable dependency-hygiene "\$DEPENDENCY_APPLIES" "\$DEPENDENCY_RESULT"/ },
-      { label: 'summary includes dependency-hygiene', pattern: /dependency-hygiene: \$DEPENDENCY_RESULT \(applies=\$DEPENDENCY_APPLIES\)/ },
-    ];
-    for (const requirement of requirements) {
-      checked.push(`${file} ${requirement.label}`);
-      if (!requirement.pattern.test(content)) {
-        failures.push(`${file} dependency-hygiene workflow must include ${requirement.label}`);
-      }
-    }
+    if (content.includes('npm run deps:review')) failures.push(`${file} dependency-hygiene must not run the local-only deps:review command in CI`);
   }
   return { checked, failures };
 }
@@ -787,7 +968,7 @@ export function verifyValidationCadence(options = {}) {
     scripts,
     workflowFiles: options.workflowFiles,
   });
-  const dependencyHygieneWorkflow = validateDependencyHygieneWorkflow({ root, workflowFiles: workflow.workflowFilesChecked });
+  const validationWorkflowContract = validateValidationWorkflowContract({ workflowDocuments: workflow.workflowDocuments });
   const requiredScripts = validateRequiredValidationScripts({
     scripts,
     documentedCommands: documented.checked,
@@ -804,13 +985,13 @@ export function verifyValidationCadence(options = {}) {
   const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
   const failClosedJest = validateFailClosedJestGates({ scripts, workflowCommands: workflow.checked });
-  const failures = [...documented.failures, ...workflow.failures, ...dependencyHygieneWorkflow.failures, ...requiredScripts.failures, ...profiles.failures, ...webTestAliases.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures];
+  const failures = [...documented.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...webTestAliases.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures];
   return {
     ok: failures.length === 0,
     failures,
     documentedCommandsChecked: documented.checked,
     workflowCommandsChecked: workflow.checked,
-    dependencyHygieneWorkflowEntriesChecked: dependencyHygieneWorkflow.checked,
+    validationWorkflowContractEntriesChecked: validationWorkflowContract.checked,
     workflowFilesChecked: workflow.workflowFilesChecked,
     requiredValidationScriptsChecked: requiredScripts.checked,
     validationProfilesChecked: profiles.checked,

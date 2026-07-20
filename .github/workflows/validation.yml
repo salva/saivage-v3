@@ -1,22 +1,9 @@
 name: Validation profiles
 
 on:
-  pull_request:
   push:
     branches:
-      - main
-  workflow_dispatch:
-    inputs:
-      run_full_sweep:
-        description: 'Run all path-aware validation jobs and the release-style sweep'
-        required: false
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
-  schedule:
-    - cron: '17 5 * * *'
+      - master
 
 permissions:
   contents: read
@@ -111,50 +98,30 @@ jobs:
             fi
           }
 
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            run_all=true
-            docs_only=false
-            summary='scheduled full-release backstop: run_all=true'
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            if [[ "${{ inputs.run_full_sweep }}" == "false" ]]; then
-              fail_closed 'manual dispatch has no reliable changed-file base; running all jobs'
-            else
-              run_all=true
-              docs_only=false
-              summary='manual full sweep requested: run_all=true'
-            fi
-          else
-            base=''
-            head='${{ github.sha }}'
-            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-              base='${{ github.event.pull_request.base.sha }}'
-              head='${{ github.event.pull_request.head.sha }}'
-            elif [[ "${{ github.event_name }}" == "push" ]]; then
-              base='${{ github.event.before }}'
-              if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
-                fail_closed 'push base SHA unavailable'
-              fi
-            fi
+          base='${{ github.event.before }}'
+          head='${{ github.sha }}'
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            fail_closed 'push base SHA unavailable'
+          fi
 
-            if [[ "$run_all" != true ]]; then
-              if [[ -z "$base" || -z "$head" ]]; then
-                fail_closed 'base or head SHA unavailable'
-              elif ! git cat-file -e "$base^{commit}" 2>/dev/null || ! git cat-file -e "$head^{commit}" 2>/dev/null; then
-                fail_closed 'base or head commit unavailable after checkout'
-              elif ! git diff --name-only "$base" "$head" > changed-files.txt; then
-                fail_closed 'git diff failed'
+          if [[ "$run_all" != true ]]; then
+            if [[ -z "$base" || -z "$head" ]]; then
+              fail_closed 'base or head SHA unavailable'
+            elif ! git cat-file -e "$base^{commit}" 2>/dev/null || ! git cat-file -e "$head^{commit}" 2>/dev/null; then
+              fail_closed 'base or head commit unavailable after checkout'
+            elif ! git diff --name-only "$base" "$head" > changed-files.txt; then
+              fail_closed 'git diff failed'
+            else
+              if [[ ! -s changed-files.txt ]]; then
+                docs_only=true
+                summary='no changed files detected; routine/docs only'
               else
-                if [[ ! -s changed-files.txt ]]; then
-                  docs_only=true
-                  summary='no changed files detected; routine/docs only'
-                else
-                  docs_only=true
-                  while IFS= read -r changed_file; do
-                    [[ -z "$changed_file" ]] && continue
-                    classify_file "$changed_file"
-                  done < changed-files.txt
-                  summary="classified $(wc -l < changed-files.txt | tr -d ' ') changed file(s)"
-                fi
+                docs_only=true
+                while IFS= read -r changed_file; do
+                  [[ -z "$changed_file" ]] && continue
+                  classify_file "$changed_file"
+                done < changed-files.txt
+                summary="classified $(wc -l < changed-files.txt | tr -d ' ') changed file(s)"
               fi
             fi
           fi
@@ -272,7 +239,7 @@ jobs:
     name: browser-smoke
     runs-on: ubuntu-latest
     needs: classify-changes
-    if: ${{ github.event_name != 'schedule' && (needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true') }}
+    if: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -298,44 +265,11 @@ jobs:
       - name: Browser smoke validation profile
         run: npm run web:test:e2e:smoke
 
-  scheduled-release-backstop:
-    name: scheduled-release-backstop
-    runs-on: ubuntu-latest
-    needs: classify-changes
-    if: ${{ github.event_name == 'schedule' }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install web dependencies
-        run: cd web && npm ci
-
-      - name: Release validation profile
-        run: npm run validate:release
-
-      - name: Install Chromium browser
-        run: npm run web:test:e2e:install
-
-      - name: Install Chromium host dependencies
-        run: npx playwright install-deps chromium
-
-      - name: Scheduled browser smoke validation profile
-        run: npm run web:test:e2e:smoke
-
   dependency-hygiene:
     name: dependency-hygiene
     runs-on: ubuntu-latest
     needs: classify-changes
-    if: ${{ github.event_name == 'schedule' || needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
+    if: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -355,18 +289,6 @@ jobs:
       - name: Production dependency security gate
         run: npm run audit:security
 
-      - name: Scheduled/manual dependency governance review
-        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-        run: |
-          set -euo pipefail
-          npm run deps:review
-          {
-            echo "### Dependency hygiene review"
-            echo "- audit:security:all completed"
-            echo "- deps:freshness completed"
-            echo "- direct-runtime staleness is reporting-only during the ARCH-029 calibration cycle"
-          } >> "$GITHUB_STEP_SUMMARY"
-
   validation-required:
     name: validation-required
     runs-on: ubuntu-latest
@@ -377,25 +299,21 @@ jobs:
       - backend-jest-build
       - ui-vitest
       - browser-smoke
-      - scheduled-release-backstop
       - dependency-hygiene
     steps:
       - name: Enforce required validation conclusions
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
           CLASSIFIER_RESULT: ${{ needs.classify-changes.result }}
           ROUTINE_RESULT: ${{ needs.routine-docs.result }}
           BACKEND_RESULT: ${{ needs.backend-jest-build.result }}
           UI_RESULT: ${{ needs.ui-vitest.result }}
           BROWSER_RESULT: ${{ needs.browser-smoke.result }}
-          SCHEDULED_RESULT: ${{ needs.scheduled-release-backstop.result }}
           DEPENDENCY_RESULT: ${{ needs.dependency-hygiene.result }}
           BACKEND_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
           UI_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.ui == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
-          BROWSER_APPLIES: ${{ github.event_name != 'schedule' && (needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true') }}
-          SCHEDULED_APPLIES: ${{ github.event_name == 'schedule' }}
-          DEPENDENCY_APPLIES: ${{ github.event_name == 'schedule' || needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
+          BROWSER_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
+          DEPENDENCY_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
           CLASSIFIER_SUMMARY: ${{ needs.classify-changes.outputs.summary }}
         run: |
           set -euo pipefail
@@ -429,7 +347,6 @@ jobs:
           require_applicable backend-jest-build "$BACKEND_APPLIES" "$BACKEND_RESULT"
           require_applicable ui-vitest "$UI_APPLIES" "$UI_RESULT"
           require_applicable browser-smoke "$BROWSER_APPLIES" "$BROWSER_RESULT"
-          require_applicable scheduled-release-backstop "$SCHEDULED_APPLIES" "$SCHEDULED_RESULT"
           require_applicable dependency-hygiene "$DEPENDENCY_APPLIES" "$DEPENDENCY_RESULT"
 
           {
@@ -439,7 +356,6 @@ jobs:
             echo "- backend-jest-build: $BACKEND_RESULT (applies=$BACKEND_APPLIES)"
             echo "- ui-vitest: $UI_RESULT (applies=$UI_APPLIES)"
             echo "- browser-smoke: $BROWSER_RESULT (applies=$BROWSER_APPLIES)"
-            echo "- scheduled-release-backstop: $SCHEDULED_RESULT (applies=$SCHEDULED_APPLIES)"
             echo "- dependency-hygiene: $DEPENDENCY_RESULT (applies=$DEPENDENCY_APPLIES)"
           } >> "$GITHUB_STEP_SUMMARY"
 

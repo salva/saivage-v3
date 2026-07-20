@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyValidationCadence } from '../../scripts/check-validation-cadence.js';
@@ -68,145 +68,20 @@ node scripts/check-existing.js
 NODE_OPTIONS=--experimental-vm-modules npx jest tests/existing.test.js --runInBand --forceExit || ALL_OK=false
 `;
 
-const VALID_WORKFLOW = `name: Validation profiles
-on:
-  pull_request:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-    inputs:
-      run_full_sweep:
-        default: 'true'
-  schedule:
-    - cron: '17 5 * * *'
-permissions:
-  contents: read
-concurrency:
-  group: \${{ github.workflow }}-\${{ github.ref }}
-  cancel-in-progress: true
-jobs:
-  classify-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      backend: \${{ steps.classify.outputs.backend }}
-      ui: \${{ steps.classify.outputs.ui }}
-      browser: \${{ steps.classify.outputs.browser }}
-      docs_only: \${{ steps.classify.outputs.docs_only }}
-      package_or_workflow: \${{ steps.classify.outputs.package_or_workflow }}
-      run_all: \${{ steps.classify.outputs.run_all }}
-      summary: \${{ steps.classify.outputs.summary }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: classify
-        run: |
-          set -euo pipefail
-          echo "run_all=true" >> "$GITHUB_OUTPUT"
-          echo "package_or_workflow=true" >> "$GITHUB_OUTPUT"
-          echo "summary=fixture" >> "$GITHUB_OUTPUT"
-  routine-docs:
-    runs-on: ubuntu-latest
-    needs: classify-changes
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run validate:routine
-      - run: npm run validate:docs
-  backend-jest-build:
-    runs-on: ubuntu-latest
-    needs: classify-changes
-    if: \${{ needs.classify-changes.outputs.run_all == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - run: npm test
-  ui-smoke:
-    runs-on: ubuntu-latest
-    needs: classify-changes
-    if: \${{ needs.classify-changes.outputs.ui == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run validate:ui-smoke
-  browser-smoke:
-    runs-on: ubuntu-latest
-    needs: classify-changes
-    if: \${{ needs.classify-changes.outputs.browser == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run web:test:e2e:install
-      - run: npx playwright install-deps chromium
-      - run: npm run web:test:e2e:smoke
-  scheduled-release-backstop:
-    runs-on: ubuntu-latest
-    needs: classify-changes
-    if: \${{ github.event_name == 'schedule' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run validate:release
-      - run: npm run web:test:e2e:install
-      - run: npx playwright install-deps chromium
-      - run: npm run web:test:e2e:smoke
-  dependency-hygiene:
-    runs-on: ubuntu-latest
-    needs: classify-changes
-    if: \${{ github.event_name == 'schedule' || needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: cd web && npm ci
-      - run: npm run audit:security
-      - run: npm run deps:review
-        if: \${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-  validation-required:
-    runs-on: ubuntu-latest
-    if: \${{ always() }}
-    needs:
-      - classify-changes
-      - routine-docs
-      - backend-jest-build
-      - ui-smoke
-      - browser-smoke
-      - scheduled-release-backstop
-      - dependency-hygiene
-    steps:
-      - run: |
-          DEPENDENCY_RESULT=success
-          DEPENDENCY_APPLIES=true
-        env:
-          DEPENDENCY_RESULT: \${{ needs.dependency-hygiene.result }}
-          DEPENDENCY_APPLIES: \${{ github.event_name == 'schedule' || needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
-          require_applicable dependency-hygiene "$DEPENDENCY_APPLIES" "$DEPENDENCY_RESULT"
-          echo "- dependency-hygiene: $DEPENDENCY_RESULT (applies=$DEPENDENCY_APPLIES)"
-          echo validation-required passed
-`;
+const VALID_WORKFLOW = readFileSync(new URL('../../.github/workflows/validation.yml', import.meta.url), 'utf8');
+
+function mutateWorkflow(search, replacement = '') {
+  expect(VALID_WORKFLOW).toContain(search);
+  return VALID_WORKFLOW.replace(search, replacement);
+}
+
+function expectWorkflowFailure(workflow, expected) {
+  withFixture(validFiles({ '.github/workflows/validation.yml': workflow }), (root) => {
+    const result = verifyValidationCadence({ root });
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContainEqual(expect.stringContaining(expected));
+  });
+}
 
 function validFiles(overrides = {}) {
   return {
@@ -232,8 +107,8 @@ describe('validation cadence guard', () => {
       expect(result.requiredValidationScriptsChecked).toContain('package.json script web:test:operator-smoke');
       expect(result.requiredValidationScriptsChecked).toContain('package.json script audit:security');
       expect(result.requiredValidationScriptsChecked).toContain('package.json script deps:review');
-      expect(result.dependencyHygieneWorkflowEntriesChecked).toContain('.github/workflows/validation.yml job dependency-hygiene');
-      expect(result.dependencyHygieneWorkflowEntriesChecked).toContain('.github/workflows/validation.yml aggregate requires dependency-hygiene');
+      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml path-aware production dependency audit gate');
+      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml aggregate dependency-hygiene require_applicable call');
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run validate:routine'));
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run audit:security'));
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
@@ -326,7 +201,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutJob }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml must define a dependency-hygiene job');
+      expect(result.failures).toContainEqual(expect.stringContaining('dependency-hygiene must depend exactly'));
     });
   });
 
@@ -335,16 +210,116 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutAggregate }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml dependency-hygiene workflow must include aggregate requires dependency-hygiene');
+      expect(result.failures).toContainEqual(expect.stringContaining('aggregate dependency-hygiene require_applicable call'));
     });
   });
 
-  it('fails clearly when scheduled/manual dependency review is removed', () => {
-    const workflowWithoutDepsReview = VALID_WORKFLOW.replace('      - run: npm run deps:review\n        if: \${{ github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\' }}\n', '');
-    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutDepsReview }), (root) => {
-      const result = verifyValidationCadence({ root });
-      expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml dependency-hygiene workflow must include scheduled/manual deps review');
+  describe('structured YAML and exact trigger mutations', () => {
+    const triggerBlock = 'on:\n  push:\n    branches:\n      - master\n';
+    const triggerMutations = [
+      ['malformed YAML', 'on: [', 'invalid YAML'],
+      ['duplicate top-level on', `${triggerBlock}on:\n  push:\n    branches: [master]\n`, 'Map keys must be unique'],
+      ['duplicate push', `on:\n  push:\n    branches: [master]\n  push:\n    branches: [master]\n`, 'Map keys must be unique'],
+      ['duplicate branches', `on:\n  push:\n    branches: [master]\n    branches: [master]\n`, 'Map keys must be unique'],
+      ['wrong branch', `on:\n  push:\n    branches: [main]\n`, 'exact push-only master trigger'],
+      ['missing branch', `on:\n  push:\n    branches: []\n`, 'exact push-only master trigger'],
+      ['extra branch', `on:\n  push:\n    branches: [master, release]\n`, 'exact push-only master trigger'],
+      ['duplicate branch item', `on:\n  push:\n    branches: [master, master]\n`, 'exact push-only master trigger'],
+      ['scalar on', `on: push\n`, 'exact push-only master trigger'],
+      ['null on', `on:\n`, 'exact push-only master trigger'],
+      ['list on', `on: [push]\n`, 'exact push-only master trigger'],
+      ['scalar push', `on:\n  push: master\n`, 'exact push-only master trigger'],
+      ['null push', `on:\n  push:\n`, 'exact push-only master trigger'],
+      ['list push', `on:\n  push: [master]\n`, 'exact push-only master trigger'],
+      ...['pull_request', 'workflow_dispatch', 'schedule'].map((event) => [`extra ${event} event`, `${triggerBlock}  ${event}:\n`, 'exact push-only master trigger']),
+      ...['paths', 'paths-ignore', 'tags', 'tags-ignore', 'future-filter'].map((filter) => [`extra ${filter} push filter`, `on:\n  push:\n    branches: [master]\n    ${filter}: ['**']\n`, 'exact push-only master trigger']),
+    ];
+
+    it.each(triggerMutations)('rejects %s', (_label, replacement, expected) => {
+      expectWorkflowFailure(mutateWorkflow(triggerBlock, replacement), expected);
+    });
+  });
+
+  describe('classifier contract mutations', () => {
+    const mutations = [
+      ['push base', "base='\${{ github.event.before }}'", "base='\${{ github.sha }}'", 'push base from github.event.before'],
+      ['push head', "head='\${{ github.sha }}'", "head='\${{ github.event.before }}'", 'push head from github.sha'],
+      ['empty/all-zero fallback', 'if [[ -z "$base" || "$base" =~ ^0+$ ]]; then', 'if [[ -z "$base" ]]; then', 'empty or all-zero push-base'],
+      ['base/head presence', 'if [[ -z "$base" || -z "$head" ]]; then', 'if [[ -z "$base" ]]; then', 'base/head presence'],
+      ['commit availability', 'elif ! git cat-file -e "$base^{commit}" 2>/dev/null || ! git cat-file -e "$head^{commit}" 2>/dev/null; then', 'elif false; then', 'commit availability'],
+      ['diff failure', 'elif ! git diff --name-only "$base" "$head" > changed-files.txt; then', 'elif git diff --name-only "$base" "$head" > changed-files.txt; then', 'git diff failure'],
+      ['fail-closed run_all', '            run_all=true\n            docs_only=false\n            summary="fail-closed: $1"', '            docs_only=false\n            summary="fail-closed: $1"', 'fail-closed run_all assignment'],
+      ['fail-closed docs_only', '            run_all=true\n            docs_only=false\n            summary="fail-closed: $1"', '            run_all=true\n            summary="fail-closed: $1"', 'fail-closed docs_only assignment'],
+      ['docs-like class', 'docs/*|architecture-audit/*|audit-findings/*|ui-findings/*|*.md|README.md|EADME.md', 'docs/*', 'docs-like path class'],
+      ['package/workflow class', 'package.json|package-lock.json|web/package.json|web/package-lock.json|.github/workflows/*', 'package.json', 'package/workflow path class'],
+      ['workflow run-all class', '              .github/workflows/*)\n                run_all=true', '              .github/workflows/*)\n                package_or_workflow=true', 'workflow run-all path class'],
+      ['contracts class', '              src/contracts/*)', '              src/contract-files/*)', 'contracts backend/UI/browser'],
+      ['backend class', 'src/*|src/**/*|bin/*|bin/**/*|scripts/*|scripts/**/*|tests/*|tests/**/*|jest.config.*|tsconfig*.json)', 'src/*)', 'backend path class with Playwright exclusion'],
+      ['Playwright exclusion', 'if [[ "$file" != tests/playwright/* ]]; then', 'if [[ true ]]; then', 'backend path class with Playwright exclusion'],
+      ['web/Playwright class', 'web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)', 'web/*)', 'web/Playwright UI and browser'],
+      ['non-doc clearing', 'if [[ "$docs_like" != true ]]; then', 'if [[ "$docs_like" == true ]]; then', 'non-doc clearing'],
+      ['empty-list handling', 'if [[ ! -s changed-files.txt ]]; then', 'if [[ -s changed-files.txt ]]; then', 'empty-list routine/docs-only'],
+      ['initial docs-only', '              else\n                docs_only=true\n                while IFS= read -r changed_file;', '              else\n                while IFS= read -r changed_file;', 'normal-list initial docs-only'],
+      ['run-all promotion', '          if [[ "$run_all" == true ]]; then', '          if [[ "$run_all" == false ]]; then', 'run-all promotion'],
+      ['package promotion', '          elif [[ "$package_or_workflow" == true ]]; then', '          elif [[ "$package_or_workflow" == false ]]; then', 'package/workflow promotion'],
+      ['event dispatch remnant', '          base=', '          echo pull_request\n          base=', 'obsolete event/backstop token pull_request'],
+      ['push event-selection dispatch', '          base=', "          if [[ \"\${{ github.event_name }}\" == push ]]; then :; fi\n          base=", 'must not contain event-selection dispatch'],
+      ['obsolete backstop', 'jobs:\n', 'jobs:\n  scheduled-release-backstop: {}\n', 'obsolete event/backstop token scheduled-release-backstop'],
+    ];
+    for (const output of ['backend', 'ui', 'browser', 'docs_only', 'package_or_workflow', 'run_all', 'summary']) {
+      mutations.push([`${output} declared output`, `      ${output}: \${{ steps.classify.outputs.${output} }}\n`, '', 'publish exactly']);
+      mutations.push([`${output} output write`, `            echo "${output}=$${output}"\n`, '', `${output} GITHUB_OUTPUT write`]);
+    }
+
+    it.each(mutations)('rejects mutation of %s', (_label, search, replacement, expected) => {
+      expectWorkflowFailure(mutateWorkflow(search, replacement), expected);
+    });
+  });
+
+  describe('complete aggregate mutations', () => {
+    const pathJobs = [
+      ['backend-jest-build', 'BACKEND'],
+      ['ui-vitest', 'UI'],
+      ['browser-smoke', 'BROWSER'],
+      ['dependency-hygiene', 'DEPENDENCY'],
+    ];
+    const mutations = [
+      ...['classify-changes', 'routine-docs', ...pathJobs.map(([name]) => name)].map((name) => [`remove need ${name}`, `      - ${name}\n`, '', 'needs must contain exactly']),
+      ...['classify-changes', 'routine-docs', ...pathJobs.map(([name]) => name)].map((name) => [`rename need ${name}`, `      - ${name}\n`, `      - ${name}-renamed\n`, 'needs must contain exactly']),
+      ['extra need', '      - dependency-hygiene\n', '      - dependency-hygiene\n      - extra-job\n', 'needs must contain exactly'],
+      ['always', '    if: \${{ always() }}', '    if: \${{ success() }}', 'must retain if'],
+      ['classifier result', '          CLASSIFIER_RESULT: \${{ needs.classify-changes.result }}', '          CLASSIFIER_RESULT: wrong', 'CLASSIFIER_RESULT must be exactly'],
+      ['routine result', '          ROUTINE_RESULT: \${{ needs.routine-docs.result }}', '          ROUTINE_RESULT: wrong', 'ROUTINE_RESULT must be exactly'],
+      ['classifier require_success', '          require_success classify-changes "$CLASSIFIER_RESULT"\n', '', 'classifier require_success'],
+      ['routine require_success', '          require_success routine-docs "$ROUTINE_RESULT"\n', '', 'routine require_success'],
+      ['classifier summary ref', '          CLASSIFIER_SUMMARY: \${{ needs.classify-changes.outputs.summary }}', '          CLASSIFIER_SUMMARY: wrong', 'CLASSIFIER_SUMMARY must be exactly'],
+      ['classifier summary line', '            echo "- classifier: $CLASSIFIER_RESULT ($CLASSIFIER_SUMMARY)"\n', '', 'classifier summary line'],
+      ['routine summary line', '            echo "- routine-docs: $ROUTINE_RESULT"\n', '', 'routine summary line'],
+      ['require_success semantics', '          require_success() {\n            local name="$1"\n            local result="$2"\n            if [[ "$result" != success ]]; then', '          require_success() {\n            local name="$1"\n            local result="$2"\n            if [[ "$result" == success ]]; then', 'require_success semantics'],
+      ['applicable success', '            if [[ "$applies" == true ]]; then\n              if [[ "$result" != success ]]; then', '            if [[ "$applies" == true ]]; then\n              if [[ "$result" == success ]]; then', 'applicable success semantics'],
+      ['non-applicable skipped', 'if [[ "$result" != skipped ]]; then', 'if [[ "$result" == skipped ]]; then', 'non-applicable skipped semantics'],
+      ['failure accumulation', '          failures=()\n', '', 'failure array initialization'],
+      ['failure exit', '            exit 1\n', '', 'failure accumulation exit'],
+      ['obsolete event state', '          CLASSIFIER_RESULT:', '          EVENT_NAME: pull_request\n          CLASSIFIER_RESULT:', 'obsolete event/backstop token pull_request'],
+    ];
+    for (const [job, prefix] of pathJobs) {
+      const header = `  ${job}:\n    name: ${job}\n    runs-on: ubuntu-latest\n    needs: classify-changes`;
+      mutations.push(
+        [`${job} classifier dependency`, header, header.replace('needs: classify-changes', 'needs: routine-docs'), 'must depend exactly'],
+        [`${job} job applicability`, `${header}\n    if:`, `${header}\n    if: \${{ false }} #`, 'must use exact push path applicability'],
+        [`${job} result env`, `          ${prefix}_RESULT: \${{ needs.${job}.result }}`, `          ${prefix}_RESULT: wrong`, `${prefix}_RESULT must be exactly`],
+        [`${job} applies env`, `          ${prefix}_APPLIES:`, `          ${prefix}_APPLIES: \${{ false }} #`, `${prefix}_APPLIES must match`],
+        [`${job} call`, `          require_applicable ${job} "$${prefix}_APPLIES" "$${prefix}_RESULT"\n`, '', `${job} require_applicable call`],
+        [`${job} summary`, `            echo "- ${job}: $${prefix}_RESULT (applies=$${prefix}_APPLIES)"\n`, '', `${job} summary line`],
+      );
+    }
+    mutations.push(
+      ['browser schedule exclusion', '          BROWSER_APPLIES:', "          BROWSER_APPLIES: \${{ github.event_name != 'schedule' &&", 'obsolete event/backstop token schedule'],
+      ['dependency schedule alternative', '          DEPENDENCY_APPLIES:', "          DEPENDENCY_APPLIES: \${{ github.event_name == 'schedule' ||", 'obsolete event/backstop token schedule'],
+    );
+
+    it.each(mutations)('rejects mutation of %s', (_label, search, replacement, expected) => {
+      expectWorkflowFailure(mutateWorkflow(search, replacement), expected);
     });
   });
 
