@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
-import { ProviderTurnFailure, type LlmCallFn } from '../../src/agents/llm-contracts.js';
-import { LlmRequestError } from '../../src/agents/llm-errors.js';
+import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { testAppLogs } from '../helpers/app-logs.js';
+import { chatSuccess, invocationProviderRegistry, serverUnavailable } from '../helpers/invocation-provider-fixture.js';
 
 const candidate: Candidate = { provider: 'p', account: null, model: 'm' };
 const alternate: Candidate = { provider: 'alt', account: null, model: 'm-alt' };
@@ -30,22 +30,26 @@ function request(chain: Candidate[] = [candidate], signal?: AbortSignal): Invoca
   };
 }
 
-function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvailability; llmCallFn?: LlmCallFn } = {}): InvocationService {
+const roots: string[] = [];
+
+function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvailability } = {}): InvocationService {
   const chain = args.chain ?? [candidate];
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-'));
+  roots.push(projectRoot);
   return new InvocationService({
     appLogs: testAppLogs(projectRoot),
     readModelChanges: new ReadModelChangeBroadcaster(),
     projectRoot,
-    registry: { getEffectiveCapabilities: () => ({ transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', streaming: false, quirks: [] }) } as never,
+    registry: invocationProviderRegistry(chain.length > 0 ? chain : [candidate]),
     router: { resolve: async () => chain, getLastCapabilitySkips: () => [] } as never,
     candidateAvailability: args.availability ?? new MemoryCandidateAvailability(),
-    llmCallFn: args.llmCallFn ?? (async () => ({ result: { kind: 'message', content: 'ok' }, provider_exchanges: [] })),
   });
 }
 
 afterEach(() => {
   jest.useRealTimers();
+  jest.restoreAllMocks();
+  while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
 describe('InvocationService temporary LLM unavailability wait', () => {
@@ -55,22 +59,17 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const markSucceeded = jest.spyOn(availability, 'markSucceeded');
     const controller = new AbortController();
     const reason = new Error('owner stopped');
-    let calls = 0;
-    const invocation = service({
-      availability,
-      llmCallFn: async (_candidate, _prompt, _conversation, _session, invocationOptions) => {
-        calls += 1;
-        controller.abort(reason);
-        const cancelled = new LlmRequestError({ kind: 'cancelled', provider: candidate.provider, reason: 'abort', message: reason.message });
-        throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [cancelledAttempt(invocationOptions.inputId, reason)], originalFailure: cancelled });
-      },
-    }).invokeWithRecovery(request([candidate], controller.signal));
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      controller.abort(reason);
+      throw init?.signal?.reason;
+    });
+    const invocation = service({ availability }).invokeWithRecovery(request([candidate], controller.signal));
 
     await expect(invocation).rejects.toMatchObject({
       originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } },
       provider_exchanges: [{ source_input_id: 'planner:card:1', attempt_index: 0, status: 'error', error: { name: 'Error', message: 'owner stopped' } }],
     });
-    expect(calls).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(markFailed).not.toHaveBeenCalled();
     expect(markSucceeded).not.toHaveBeenCalled();
   });
@@ -82,30 +81,26 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const markSucceeded = jest.spyOn(availability, 'markSucceeded');
     const controller = new AbortController();
     const reason = new Error('owner stopped');
-    let calls = 0;
-    const invocation = service({
-      availability,
-      llmCallFn: async (_candidate, _prompt, _conversation, _session, invocationOptions) => {
-        calls += 1;
-        if (calls === 1) {
-          const transient = new LlmRequestError({ kind: 'server_transient', provider: candidate.provider, status: 503, message: 'try again' });
-          throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [failedAttempt(invocationOptions.inputId, 'LlmRequestError', 'try again', 503)], originalFailure: transient });
-        }
-        controller.abort(reason);
-        const cancelled = new LlmRequestError({ kind: 'cancelled', provider: candidate.provider, reason: 'abort', message: reason.message });
-        throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [cancelledAttempt(invocationOptions.inputId, reason)], originalFailure: cancelled });
-      },
-    }).invokeWithRecovery(request([candidate], controller.signal));
+    const bodies: string[] = [];
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      bodies.push(init?.body as string);
+      if (fetch.mock.calls.length === 1) return serverUnavailable();
+      controller.abort(reason);
+      throw init?.signal?.reason;
+    });
+    const invocation = service({ availability }).invokeWithRecovery(request([candidate], controller.signal));
 
     const rejection = expect(invocation).rejects.toMatchObject({
       provider_exchanges: [
-        { attempt_index: 0, error: { message: 'try again', status: 503 } },
+        { attempt_index: 0, error: { message: expect.stringContaining('try again'), status: 503 } },
         { attempt_index: 1, error: { name: 'Error', message: 'owner stopped' } },
       ],
     });
     await jest.advanceTimersByTimeAsync(60_000);
     await rejection;
-    expect(calls).toBe(2);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toBe(bodies[0]);
     expect(markFailed).toHaveBeenCalledTimes(1);
     expect(markSucceeded).not.toHaveBeenCalled();
   });
@@ -113,52 +108,52 @@ describe('InvocationService temporary LLM unavailability wait', () => {
   it('discards a late successful availability update after its owner closes', async () => {
     const availability = new MemoryCandidateAvailability();
     const controller = new AbortController();
-    let release!: (value: Awaited<ReturnType<LlmCallFn>>) => void;
-    const invocation = service({
-      availability,
-      llmCallFn: () => new Promise((resolve) => { release = resolve; }),
-    });
+    let release!: (value: Response) => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    jest.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise((resolve) => {
+      release = resolve;
+      markStarted();
+    }));
+    const invocation = service({ availability });
     const pending = invocation.invokeWithRecovery(request([candidate], controller.signal));
-    await Promise.resolve();
-    release({ result: { kind: 'message', content: 'late' }, provider_exchanges: [] });
+    await started;
     controller.abort(new Error('owner stopped'));
+    release(chatSuccess('late'));
     await expect(pending).rejects.toThrow('owner stopped');
     expect(availability.getEntry(candidate)).toBeUndefined();
   });
 
   it('waits and retries after a temporary failed candidate cools down', async () => {
     jest.useFakeTimers({ now: 0 });
-    let calls = 0;
-    const invocation = service({
-      llmCallFn: async () => {
-        calls += 1;
-        if (calls === 1) throw new Error('transient');
-        return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [] };
-      },
-    }).invokeWithRecovery(request());
+    const bodies: string[] = [];
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      bodies.push(init?.body as string);
+      return fetch.mock.calls.length === 1 ? serverUnavailable() : chatSuccess('ok');
+    });
+    const invocation = service().invokeWithRecovery(request());
 
     await jest.advanceTimersByTimeAsync(60_000);
 
     await expect(invocation).resolves.toMatchObject({ result: { kind: 'message', content: 'ok' } });
-    expect(calls).toBe(2);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toBe(bodies[0]);
   });
 
   it('waits when the only candidate is already cooling, then invokes it after the horizon', async () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
     availability.markFailed(candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
-    let calls = 0;
-    const invocation = service({ availability, llmCallFn: async () => {
-      calls += 1;
-      return { result: { kind: 'message', content: 'ok' }, provider_exchanges: [] };
-    } }).invokeWithRecovery(request());
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(chatSuccess('ok'));
+    const invocation = service({ availability }).invokeWithRecovery(request());
 
     await jest.advanceTimersByTimeAsync(59_999);
-    expect(calls).toBe(0);
+    expect(fetch).not.toHaveBeenCalled();
     await jest.advanceTimersByTimeAsync(1);
 
     await expect(invocation).resolves.toMatchObject({ result: { kind: 'message', content: 'ok' } });
-    expect(calls).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('fails after the fixed two-hour timeout when a temporary candidate never becomes usable', async () => {
@@ -190,18 +185,16 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
     availability.markFailed(candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
-    const seen: Candidate[] = [];
+    const seen: string[] = [];
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const provider = new URL(String(input)).hostname.split('.')[0]!;
+      seen.push(provider);
+      return chatSuccess(provider);
+    });
+    const completion = await service({ availability, chain: [candidate, alternate] }).invokeWithRecovery(request([candidate, alternate]));
 
-    const completion = await service({
-      availability,
-      llmCallFn: async (called) => {
-        seen.push(called);
-        return { result: { kind: 'message', content: called.provider }, provider_exchanges: [] };
-      },
-    }).invokeWithRecovery(request([candidate, alternate]));
-
-    expect(completion.result).toEqual({ kind: 'message', content: 'alt' });
-    expect(seen).toEqual([alternate]);
+    expect(completion.result).toMatchObject({ kind: 'message', content: 'alt' });
+    expect(seen).toEqual(['alt']);
     expect(jest.getTimerCount()).toBe(0);
   });
 
@@ -218,28 +211,3 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     await expect(invocation).rejects.toBe(reason);
   });
 });
-
-function cancelledAttempt(inputId: string, reason: Error) {
-  return {
-    contract_id: 'planner.v1',
-    contract_name: 'planner',
-    transport: 'generic' as const,
-    provider: candidate.provider,
-    model: candidate.model,
-    source_input_id: inputId,
-    request_params: {},
-    started_at: '2026-07-20T00:00:00.000Z',
-    completed_at: '2026-07-20T00:00:00.001Z',
-    status: 'error' as const,
-    terminal_tool_fired: null,
-    error: { name: reason.name, message: reason.message },
-  };
-}
-
-function failedAttempt(inputId: string, name: string, message: string, status: number) {
-  return {
-    ...cancelledAttempt(inputId, Object.assign(new Error(message), { name })),
-    response_status: status,
-    error: { name, message, status },
-  };
-}

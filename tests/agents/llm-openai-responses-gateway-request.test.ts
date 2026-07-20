@@ -67,7 +67,7 @@ describe('OpenAI Responses request shape', () => {
       return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }), { status: 200 });
     });
 
-    const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', capabilities }).complete(CANDIDATE, 'role prompt', providerConversation, 'planner:project', { ...opts, builtCandidateRequest: built });
+    const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', capabilities }).complete(CANDIDATE, 'role prompt', providerConversation, 'planner:project', opts);
 
     const body = JSON.parse(built.serializedBody) as { instructions: string; input: unknown[] };
     expect(body.instructions).toBe(`role prompt\n\n--- system context ---\nRound one-activation:\n${fixture.c2Summary}\n\nRound two-activation:\n${fixture.c2Summary}`);

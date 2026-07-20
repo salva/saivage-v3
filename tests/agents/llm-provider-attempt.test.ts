@@ -42,9 +42,9 @@ describe('shared LLM provider attempt', () => {
     expect(value.trace).toEqual([]); expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('throws the singular integrity error before capability, credentials, wire, recorder, or fetch and ignores the options copy', async () => {
-    const value = fixture(); value.plan.request.serializedBody = '{"corrupt":true}'; const supplied = options(); supplied.builtCandidateRequest = { body: {}, serializedBody: '{}', estimatedWireInputTokens: 1, requestHash: createHash('sha256').update('{}').digest('hex') }; const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    const pending = executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'summary:test', plan: value.plan, options: supplied });
+  it('throws the singular integrity error before capability, credentials, wire, recorder, or fetch', async () => {
+    const value = fixture(); value.plan.request.serializedBody = '{"corrupt":true}'; const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    const pending = executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'summary:test', plan: value.plan, options: options() });
     await expect(pending).rejects.toBeInstanceOf(CandidateRequestPlanIntegrityError); expect(value.trace).toEqual([]); expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -137,6 +137,44 @@ describe('shared LLM provider attempt', () => {
       expect((error as { provider_exchanges: Array<{ status: string }> }).provider_exchanges).toHaveLength(1);
       expect((error as { provider_exchanges: Array<{ status: string }> }).provider_exchanges).not.toContainEqual(expect.objectContaining({ status: 'ok' }));
     }
+  });
+
+  it('passes the original streaming response and body directly to the parser', async () => {
+    const fetchedResponse = new Response('data: original\n\n', {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+    let parserResponse: Response | undefined;
+    let parserBody: string | undefined;
+    const value = fixture({
+      deriveWire: () => {
+        value.trace.push('wire');
+        return {
+          endpoint: 'https://provider.test/codex/responses',
+          headers: {},
+          requestParams: {},
+          transport: 'codex',
+          streaming: true,
+        };
+      },
+      parseSuccess: async (_candidate, response) => {
+        parserResponse = response;
+        parserBody = await response.text();
+        return { result: { kind: 'message', content: 'ok' }, finishReason: 'stop' };
+      },
+    });
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(fetchedResponse);
+
+    await executeLlmProviderAttempt({
+      projectRoot: '.',
+      registry: value.registry,
+      sessionId: 'planner:project',
+      plan: value.plan,
+      options: options(),
+    });
+
+    expect(parserResponse).toBe(fetchedResponse);
+    expect(parserBody).toBe('data: original\n\n');
   });
 
   it('keeps credential/setup failure pre-attempt with no fetch or adapter wire work', async () => {

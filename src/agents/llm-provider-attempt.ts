@@ -13,7 +13,6 @@ import { ProviderTurnFailure } from './llm-contracts.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifyTransportFailure } from './llm-failure-classifiers.js';
 import { createProviderExchangeRecorder } from './provider-exchange-recorder.js';
-import { teeStreamForRecorder } from './llm-recording.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 
 export async function executeLlmProviderAttempt(args: {
@@ -86,16 +85,7 @@ export async function executeLlmProviderAttempt(args: {
         plan.request.body,
         options,
       );
-    let parserResponse = response;
-    if (wire.streaming && response.body) {
-      const tee = teeStreamForRecorder(response.body);
-      parserResponse = new Response(tee.stream, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
-    }
-    const parsed = await plan.adapter.parseSuccess(plan.candidate, parserResponse, options);
+    const parsed = await plan.adapter.parseSuccess(plan.candidate, response, options);
     exchangeRecorded = true;
     await handle.recordResponse(
       {

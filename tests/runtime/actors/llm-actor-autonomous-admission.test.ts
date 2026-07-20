@@ -12,12 +12,15 @@ import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm
 import { InvocationService } from '../../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../../src/agents/candidate-availability.js';
 import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
-import { LlmRequestError } from '../../../src/agents/llm-errors.js';
 import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 import { testAppLogs } from '../../helpers/app-logs.js';
+import { invocationProviderRegistry } from '../../helpers/invocation-provider-fixture.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => {
+  jest.restoreAllMocks();
+  while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
+});
 
 describe('prepared conversation LLM admission', () => {
   it('persists and publishes inside the admitted raw callback before consumer delivery', async () => {
@@ -75,20 +78,19 @@ describe('prepared conversation LLM admission', () => {
     const project = jest.fn();
     let internalFailure: ProviderTurnFailure | undefined;
     const candidate = { provider: 'test', account: null, model: 'model' } as const;
+    jest.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      providerStarted();
+      return new Promise((_resolve, reject) => {
+        releaseProvider = () => reject(init?.signal?.reason);
+      });
+    });
     const invocationService = new InvocationService({
       projectRoot,
       appLogs: testAppLogs(projectRoot),
       readModelChanges: new ReadModelChangeBroadcaster(),
-      registry: { getEffectiveCapabilities: () => ({ transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', streaming: false, contextWindowTokens: 100_000, maxOutputTokens: 10_000, quirks: [] }) } as never,
+      registry: invocationProviderRegistry([candidate]),
       router: { getLastCapabilitySkips: () => [] } as never,
       candidateAvailability: new MemoryCandidateAvailability(),
-      llmCallFn: async (_candidate, _prompt, _conversation, _session, invocationOptions) => {
-        providerStarted();
-        await new Promise<void>((resolve) => { releaseProvider = resolve; });
-        const reason = invocationOptions.signal!.reason as Error;
-        const cancelled = new LlmRequestError({ kind: 'cancelled', provider: candidate.provider, reason: 'abort', message: reason.message });
-        throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [{ ...exchangeAttempt(), status: 'error', response_status: undefined, error: { name: reason.name, message: reason.message } }], originalFailure: cancelled });
-      },
     });
     const actor = new ConversationLLMActor({
       projectRoot,

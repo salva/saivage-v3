@@ -1,5 +1,4 @@
 import type { AgentMessage, ConversationSessionId } from '../schemas/index.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 
@@ -43,7 +42,6 @@ export interface LlmCompleteOptions extends LlmModelParams {
   contract_id: string;
   contractName: string;
   terminalToolOffered: readonly string[];
-  builtCandidateRequest?: BuiltCandidateRequest;
   tools: ToolDefinition[];
   tool_choice: 'auto';
 }
@@ -122,11 +120,3 @@ export class ProviderTurnFailure extends Error {
     this.cause = args.originalFailure;
   }
 }
-
-export type LlmCallFn = (
-  candidate: Candidate,
-  systemPrompt: string,
-  providerConversation: ProviderConversationProjection,
-  sessionId: string,
-  opts: LlmCompleteOptions,
-) => Promise<ProviderTurnCompletion>;

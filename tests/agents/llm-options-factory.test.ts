@@ -3,10 +3,20 @@ import { buildLlmOptions } from '../../src/agents/llm-options-factory.js';
 import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
 
 describe('LLM options authority', () => {
-  it('does not carry recorder state or create a built request', () => {
+  it('builds the exact provider options contract', () => {
     const options = buildLlmOptions('planner', [], [], {}, undefined, 'input');
-    expect(options).not.toHaveProperty('recorder');
-    expect(options).not.toHaveProperty('builtCandidateRequest');
+    expect(options).toEqual({
+      inputId: 'input',
+      temperature: undefined,
+      max_tokens: undefined,
+      signal: undefined,
+      stream: false,
+      contract_id: 'planner.v1',
+      contractName: 'planner',
+      terminalToolOffered: [],
+      tools: [],
+      tool_choice: 'auto',
+    });
   });
 
   it('rejects recorder authority at the type boundary', () => {

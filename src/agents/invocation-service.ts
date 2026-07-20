@@ -10,7 +10,6 @@ import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js
 import {
   assertProviderConversationSourceRows,
   ProviderTurnFailure,
-  type LlmCallFn,
   type ProviderConversationProjection,
   type ProviderTurnCompletion,
   type ToolDefinition,
@@ -82,7 +81,6 @@ export interface InvocationServiceConfig {
   registry: ProviderRegistry;
   router: ModelRouter;
   candidateAvailability: CandidateAvailability;
-  llmCallFn?: LlmCallFn;
   appLogs: AppLogContext;
   readModelChanges: ReadModelChanges;
 }
@@ -93,7 +91,6 @@ export class InvocationService {
   private readonly candidateAvailability: CandidateAvailability;
   private readonly recoveryDelayMs: number;
   private readonly maxRecoveryRetries: number;
-  private readonly llmCallFn?: LlmCallFn;
   private readonly appLogs: AppLogContext;
   private readonly registry: ProviderRegistry;
   private readonly readModelChanges: ReadModelChanges;
@@ -105,7 +102,6 @@ export class InvocationService {
     this.candidateAvailability = config.candidateAvailability;
     this.recoveryDelayMs = INVOCATION_RECOVERY_DELAY_MS;
     this.maxRecoveryRetries = MAX_INVOCATION_RECOVERY_RETRIES;
-    this.llmCallFn = config.llmCallFn;
     this.appLogs = config.appLogs;
     this.readModelChanges = config.readModelChanges;
   }
@@ -164,16 +160,6 @@ export class InvocationService {
           plan.capabilities.maxOutputTokens,
           reason,
         );
-    }
-    if (this.llmCallFn) {
-      options.builtCandidateRequest = { ...plan.request, body: { ...plan.request.body } };
-      return this.llmCallFn(
-        candidate,
-        request.systemPrompt,
-        request.providerConversation,
-        request.sessionId,
-        options,
-      );
     }
     return executeLlmProviderAttempt({
       projectRoot: this.projectRoot,

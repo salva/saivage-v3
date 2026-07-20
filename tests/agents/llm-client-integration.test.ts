@@ -331,7 +331,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
         maxOutputTokens: 10_000,
         quirks: ['openai-codex-backend'],
       };
-      const builtCandidateRequest = buildCandidateRequest({
+      const expectedRequest = buildCandidateRequest({
         candidate,
         capabilities,
         adapter: selectLlmProtocolAdapter(capabilities.transportProtocol),
@@ -339,18 +339,18 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
         providerConversation: msgs(),
         options,
       }).request;
-      expect(Object.prototype.hasOwnProperty.call(JSON.parse(builtCandidateRequest.serializedBody), 'max_output_tokens')).toBe(false);
-      expect(builtCandidateRequest.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(builtCandidateRequest.serializedBody, 'utf8') / 4));
-      expect(builtCandidateRequest.requestHash).toBe(createHash('sha256').update(builtCandidateRequest.serializedBody, 'utf8').digest('hex'));
+      expect(Object.prototype.hasOwnProperty.call(JSON.parse(expectedRequest.serializedBody), 'max_output_tokens')).toBe(false);
+      expect(expectedRequest.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(expectedRequest.serializedBody, 'utf8') / 4));
+      expect(expectedRequest.requestHash).toBe(createHash('sha256').update(expectedRequest.serializedBody, 'utf8').digest('hex'));
 
       const client = new PipelineClient({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123'), openAICodexAccountId: 'acct-test-123' });
       const result = await client.complete(
         candidate, sp(), msgs(), 'sess-codex-built',
-        { ...options, builtCandidateRequest });
+        options);
 
       expect(asMessage(result).content).toBe('Single succeeded');
       expect(captures).toHaveLength(1);
-      expect(captures[0].body).toBe(builtCandidateRequest.serializedBody);
+      expect(captures[0].body).toBe(expectedRequest.serializedBody);
       expect(captures[0].url).toBe('/backend-api/codex/responses');
     } finally {
       await closeServer(server);
