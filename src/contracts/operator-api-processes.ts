@@ -3,7 +3,8 @@ import { cardIdSchema } from '../schemas/index.js';
 import { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 import {
   ApiErrorSchema,
-  publicContract,
+  operatorSessionContract,
+  UnauthorizedErrorSchema,
   ValidationErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
@@ -71,8 +72,8 @@ export const processesOperatorApiContracts = {
     path: '/api/processes',
     success: ProcessListResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: ProcessListResponseSchema, 400: ValidationErrorSchema, 500: ApiErrorSchema },
-    ...publicContract,
+    response: { 200: ProcessListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: ApiErrorSchema },
+    ...operatorSessionContract,
     successSchemaName: 'ProcessListResponse',
   },
   'processes.get': {
@@ -82,8 +83,8 @@ export const processesOperatorApiContracts = {
     params: ProcessIdParamsSchema,
     success: ProcessDetailResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: ProcessDetailResponseSchema, 400: ApiErrorSchema, 404: ProcessNotFoundErrorSchema, 500: ApiErrorSchema },
-    ...publicContract,
+    response: { 200: ProcessDetailResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 404: ProcessNotFoundErrorSchema, 500: ApiErrorSchema },
+    ...operatorSessionContract,
     successSchemaName: 'ProcessDetailResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

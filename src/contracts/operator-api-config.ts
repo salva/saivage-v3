@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { cardIdSchema } from '../schemas/index.js';
 import { controlActionAuditEntrySchema } from '../schemas/index.js';
 import {
-  publicContract,
+  operatorSessionContract,
+  UnauthorizedErrorSchema,
   ValidationErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
@@ -73,8 +74,8 @@ export const configOperatorApiContracts = {
     path: '/api/config',
     success: ConfigGetResponseSchema,
     error: ConfigUnavailableErrorSchema,
-    response: { 200: ConfigGetResponseSchema, 500: ConfigUnavailableErrorSchema },
-    ...publicContract,
+    response: { 200: ConfigGetResponseSchema, 401: UnauthorizedErrorSchema, 500: ConfigUnavailableErrorSchema },
+    ...operatorSessionContract,
     successSchemaName: 'ConfigGetResponse',
   },
   'providers.list': {
@@ -83,8 +84,8 @@ export const configOperatorApiContracts = {
     path: '/api/providers',
     success: ProvidersListResponseSchema,
     error: ProvidersUnavailableErrorSchema,
-    response: { 200: ProvidersListResponseSchema, 500: ProvidersUnavailableErrorSchema },
-    ...publicContract,
+    response: { 200: ProvidersListResponseSchema, 401: UnauthorizedErrorSchema, 500: ProvidersUnavailableErrorSchema },
+    ...operatorSessionContract,
     successSchemaName: 'ProvidersListResponse',
   },
   'controlActions.list': {
@@ -94,8 +95,8 @@ export const configOperatorApiContracts = {
     query: ControlActionsQuerySchema,
     success: ControlActionsListResponseSchema,
     error: ControlActionsListFailureSchema,
-    response: { 200: ControlActionsListResponseSchema, 400: ValidationErrorSchema, 500: ControlActionsListFailureSchema },
-    ...publicContract,
+    response: { 200: ControlActionsListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: ControlActionsListFailureSchema },
+    ...operatorSessionContract,
     successSchemaName: 'ControlActionsListResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

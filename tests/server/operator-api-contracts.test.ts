@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import * as contractsModule from '../../src/contracts/index.js';
 import * as operatorApiModule from '../../src/contracts/operator-api.js';
-import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, type OperatorApiBody } from '../../src/contracts/operator-api.js';
+import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, UnauthorizedErrorSchema, type OperatorApiBody } from '../../src/contracts/operator-api.js';
 import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
 
 const runtimeState = {
@@ -14,6 +14,27 @@ const runtimeState = {
 };
 
 describe('operator API runtime contract without runtime ledgers', () => {
+  it('reserves public contracts for the exact health probes and authenticates every operator API route', () => {
+    const contracts = Object.values(operatorApiContracts);
+    const inventoryByOperation = new Map(operatorRouteInventory().map((route) => [route.operationId, route]));
+    const publicContracts = contracts.filter((contract) => contract.auth === 'public');
+
+    expect(publicContracts.map(({ operationId, path }) => ({ operationId, path }))).toEqual([
+      { operationId: 'health.liveness', path: '/health' },
+      { operationId: 'health.readiness', path: '/health/ready' },
+    ]);
+
+    for (const contract of contracts) {
+      if (contract.path.startsWith('/api/')) {
+        expect(contract.auth).toBe('operator-session');
+        expect(inventoryByOperation.get(contract.operationId)?.requiresAuth).toBe(true);
+      }
+      if (contract.auth === 'operator-session') expect(contract.response[401]).toBe(UnauthorizedErrorSchema);
+    }
+
+    for (const contract of publicContracts) expect(contract.response).not.toHaveProperty('401');
+  });
+
   it('uses each operation response 200 schema as its exact success authority', () => {
     for (const contract of Object.values(operatorApiContracts)) {
       expect(contract.response).toHaveProperty('200');

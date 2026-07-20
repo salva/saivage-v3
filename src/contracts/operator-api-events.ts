@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { loggedEventSchema } from '../schemas/index.js';
 import {
-  publicContract,
+  operatorSessionContract,
+  UnauthorizedErrorSchema,
   ValidationErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
@@ -36,8 +37,8 @@ export const eventsOperatorApiContracts = {
     query: EventsQuerySchema,
     success: EventsListResponseSchema,
     error: EventsListFailureSchema,
-    response: { 200: EventsListResponseSchema, 400: ValidationErrorSchema, 500: EventsListFailureSchema },
-    ...publicContract,
+    response: { 200: EventsListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: EventsListFailureSchema },
+    ...operatorSessionContract,
     successSchemaName: 'EventsListResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

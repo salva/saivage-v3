@@ -174,11 +174,20 @@ Start Saivage from the target project directory:
 SAIVAGE_API_TOKEN=test "$SAIVAGE_BIN" start
 ```
 
-Open the web UI at `http://localhost:8080/`, or check health with:
+Open the web UI at `http://localhost:8080/`, or check the two public probes with:
 
 ```bash
 curl http://localhost:8080/health
+curl http://localhost:8080/health/ready
 ```
+
+Every `/api/*` operator contract uses the operator-session boundary. When `SAIVAGE_API_TOKEN` is configured, send it only as a bearer header, for example:
+
+```bash
+curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/processes
+```
+
+Omitting `SAIVAGE_API_TOKEN` intentionally runs development auth-disabled mode, in which those same operator-session routes accept headerless requests. Never place the token in a URL.
 
 ## Current documentation
 

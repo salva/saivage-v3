@@ -44,6 +44,10 @@ Use that generated contract exactly; the configured edge decides what follows.
 
 Zero or multiple placeholders, obsolete result directives, unknown process prompts, or malformed graphs fail startup before actor construction and name the effective prompt/card-role or config path. Update the override or remove it to select the bundled file. Never rewrite an override automatically, translate `status` to `outcome`, map old values, or start with a fallback graph.
 
+## Operator REST authentication
+
+`GET /health` and `GET /health/ready` are the only public operator contracts. Direct requests to every `/api/*` operator resource—including events, process list/detail, redacted config, providers, and control actions—use the server's published mode: bearer mode sends `Authorization: Bearer $SAIVAGE_API_TOKEN`, while intentionally disabled mode sends no Authorization header. Never put a token in the URL. Authentication rejection is the same generic 401 for all protected resources and occurs before request validation or handler work. The internal doctor and supervision routes use the same policy directly; WebSocket access retains its separate ticket flow.
+
 ## Runtime controls and lifecycle lock
 
 `status`, `pause`, `resume`, `stop`, and `restart_server` classify `.saivage/locks/runtime.lock` as missing, verified live, positively dead, indeterminate, or malformed. Only verified live delegates, using exactly the record's published non-null origin and disabled/bearer auth mode. Null means only `active lifecycle owner; runtime control unavailable`; do not infer init/start/reset phase. Bearer mode requires `SAIVAGE_API_TOKEN`; disabled mode sends no Authorization header. Connection, auth, response, and schema failures have no config/file fallback.
