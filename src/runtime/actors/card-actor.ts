@@ -113,8 +113,7 @@ export interface CardActorDeps {
 const CARD_ACTOR_DEFINITION = compileActorDefinition({
   initial: 'parked',
   states: {
-    parked: { parked: true, on: { activate: 'running', wait: 'structural_wait', cancel: 'cancelled' } },
-    structural_wait: { parked: true, on: { child_settled: 'running', claim_cancel: 'cancelling', settled: 'parked' } },
+    parked: { parked: true, on: { activate: 'running', cancel: 'cancelled' } },
     running: { on: { settled: 'parked', claim_cancel: 'cancelling' } },
     cancelling: { parked: true, on: { cancel: 'cancelled' } },
     cancelled: { terminal: true },
@@ -176,6 +175,8 @@ export class CardActor extends BaseActor {
     if (card.parent !== this.cardId) return null;
     const existing = this.deps.lookup.get(cardId);
     if (existing) return existing;
+    if (card.status === 'running') throw new Error(`Running card '${cardId}' has no retained activation owner.`);
+    if (cardProcessEntryForStatus(card.status) === null) return null;
     return CardActor.fromCard({ card, deps: this.deps });
   }
 
@@ -210,17 +211,12 @@ export class CardActor extends BaseActor {
     return pending.finally(() => this.deps.currentness.resumeParent(this.cardId, caller.cardId));
   }
 
-  restartRunning(caller: CardActivationCaller): Promise<CardActivationOutcome> {
-    const pending = this.prepareRunning(caller, 'STOPPED');
-    this.startPreparedProcessor();
-    return pending;
-  }
-
-  prepareRunning(caller: CardActivationCaller, entry: CardProcessEntry, alreadyStabilizedRoles: ReadonlySet<'planner' | 'reviewer' | 'executor'> = new Set()): Promise<CardActivationOutcome> {
+  prepareRootRunning(entry: CardProcessEntry, alreadyStabilizedRoles: ReadonlySet<'planner' | 'reviewer' | 'executor'> = new Set()): Promise<CardActivationOutcome> {
     const card = this.requireCard();
-    if (card.status !== 'running' || this.state() !== 'parked' || this.#result) throw new Error(`Card '${this.cardId}' is not an unowned running restart leaf.`);
+    if (card.id !== 'project' || card.type !== 'project' || card.parent !== null) throw new Error(`Card '${this.cardId}' is not the project root.`);
+    if (card.status !== 'running' || this.state() !== 'parked' || this.#result) throw new Error(`Project root '${this.cardId}' is not an unowned prepared launch.`);
     this.#activationId = randomUUID();
-    this.#activationCaller = caller;
+    this.#activationCaller = { kind: 'root' };
     this.#activationEntry = entry;
     this.#alreadyStabilizedRoles = alreadyStabilizedRoles;
     this.#result = deferred<CardActivationOutcome>();
@@ -230,39 +226,9 @@ export class CardActor extends BaseActor {
     return this.#result.promise;
   }
 
-  startPreparedProcessor(): void {
+  startPreparedRootProcessor(): void {
     if (!this.#result || this.state() !== 'parked') throw new Error(`Card '${this.cardId}' has no prepared processor activation.`);
     this.parkedSendEvent('activate');
-  }
-
-  installStructuralWait(child: CardActor, caller: CardActivationCaller): Promise<CardActivationOutcome> {
-    const card = this.requireCard();
-    if (card.status !== 'running' || this.state() !== 'parked' || this.#result) throw new Error(`Card '${this.cardId}' cannot enter structural wait.`);
-    if (child.requireCard().parent !== this.cardId) throw new Error(`Card '${child.cardId}' is not the immediate child of '${this.cardId}'.`);
-    this.#activationId = randomUUID();
-    this.#activationCaller = caller;
-    this.#alreadyStabilizedRoles = new Set();
-    this.#result = deferred<CardActivationOutcome>();
-    this.#terminalClaim = 'open';
-    this.#stopSettlementEventQueued = false;
-    this.#structuralChildId = child.cardId;
-    this.claimLiveOwnership();
-    this.parkedSendEvent('wait');
-    void child.awaitSettlement().then(
-      (outcome) => {
-        if (this.#terminalClaim !== 'open' || this.#continuationSuppressed || this.deps.isRuntimeClosing()) return;
-        this.deps.currentness.resumeParent(child.cardId, this.cardId);
-        void outcome;
-        this.#activationEntry = 'STOPPED';
-        this.#structuralChildId = null;
-        this.parkedSendEvent('child_settled');
-      },
-      (error) => {
-        if (isRuntimeStoppedInterruption(error)) return;
-        this.#result?.reject(error);
-      },
-    );
-    return this.#result.promise;
   }
 
   get structuralChildId(): string | null { return this.#structuralChildId; }
@@ -291,8 +257,7 @@ export class CardActor extends BaseActor {
       this.#activationAbort?.abort(operation.interruption);
       this.processor?.disposeActivation(operation.interruption);
       this.#stopSettlementEventQueued = true;
-      if (this.state() === 'structural_wait') this.parkedSendEvent('settled');
-      else if (this.state() === 'running') this.sendEvent('settled');
+      if (this.state() === 'running') this.sendEvent('settled');
     } else if (this.#terminalClaim === 'claimed_result') {
       this.processor?.suppressContinuationAndPrepareJoin(operation.interruption);
     }
@@ -317,8 +282,7 @@ export class CardActor extends BaseActor {
     this.processor?.disposeActivation(reason);
     this.#result?.reject(reason);
     this.#result = null;
-    if (this.state() === 'structural_wait') this.parkedSendEvent('settled');
-    else if (this.state() === 'running') this.sendEvent('settled');
+    if (this.state() === 'running') this.sendEvent('settled');
   }
 
   awaitSettlement(caller?: { kind: 'parent'; cardId: string; sessionId?: string | null }): Promise<CardActivationOutcome> {

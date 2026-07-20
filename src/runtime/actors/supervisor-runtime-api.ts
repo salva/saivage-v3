@@ -44,7 +44,7 @@ export interface SupervisorRuntimeApiOptions {
   processIdentity: RuntimeProcessIdentity;
 }
 
-interface SupervisorLaunchPlan extends RuntimeLaunchPlan { readonly chain: readonly CardRecord[]; readonly entry: CardProcessEntry; readonly alreadyStabilizedRoles: ReadonlySet<ProcessRole> }
+interface SupervisorLaunchPlan extends RuntimeLaunchPlan { readonly root: CardRecord; readonly entry: CardProcessEntry; readonly alreadyStabilizedRoles: ReadonlySet<ProcessRole> }
 
 export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   private readonly eventBus: EventBus;
@@ -168,8 +168,8 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       if (root.status === 'stopped') this.options.actorStore.activateStopped(PROJECT_CARD_ID); else this.options.actorStore.setStatus(PROJECT_CARD_ID, 'running');
       chain = selectLinkedRunningChain(this.options.actorStore);
     }
-    if (chain.length === 0) throw new Error('Runtime preparation did not produce a running chain.');
-    const launch = Object.freeze({ chain, entry, alreadyStabilizedRoles }) as unknown as SupervisorLaunchPlan;
+    const root = requireProjectOnlyLaunchChain(chain, 'Runtime preparation');
+    const launch = Object.freeze({ root, entry, alreadyStabilizedRoles }) as unknown as SupervisorLaunchPlan;
     this.preparedLaunch = launch;
     return { accepted: true, launch };
   }
@@ -179,16 +179,17 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (!prepared || launch !== prepared) throw new Error('Runtime launch plan is foreign, stale, or already consumed.');
     this.preparedLaunch = null;
     const chain = selectLinkedRunningChain(this.options.actorStore);
-    if (chain.length !== prepared.chain.length || chain.some((card, index) => card.id !== prepared.chain[index]?.id)) throw new Error('Prepared runtime chain changed before launch.');
-    const installed = this.installRunningChain(chain, prepared.entry, prepared.alreadyStabilizedRoles);
+    const root = requireProjectOnlyLaunchChain(chain, 'Prepared runtime launch');
+    if (root.id !== prepared.root.id) throw new Error('Prepared runtime root changed before launch.');
+    const installed = this.installProjectRoot(root, prepared.entry, prepared.alreadyStabilizedRoles);
     const identity = {};
     this.runIdentity = identity;
     this.status = 'running';
     this.runtimeGate.open();
     this.options.interventionBinding.markNotReady();
-    this.currentness.setChain(chain.map((card) => card.id));
-    void installed.rootSettlement.then(() => this.continueRunningChain(identity), (error) => this.handleRootRejection(identity, error));
-    installed.leaf.startPreparedProcessor();
+    this.currentness.setChain([PROJECT_CARD_ID]);
+    void installed.rootSettlement.then(() => this.completeNaturalRoot(identity), (error) => this.handleRootRejection(identity, error));
+    installed.root.startPreparedRootProcessor();
     const state = this.runtimeState();
     if (!state) throw new Error('Runtime launch completed without an authoritative state projection.');
     return state;
@@ -282,45 +283,26 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (!this.runIdentity || !currentCardId) return null;
     return { status: this.status, project_id: 'project', pid: this.options.processIdentity.pid, started_at: this.options.processIdentity.startedAt, current_card_id: currentCardId, updated_at: this.now() };
   }
-  private launchLeaf(identity: object, leaf: CardRecord, actor: CardActor): void {
-    const caller = leaf.parent === null ? { kind: 'root' as const } : { kind: 'parent' as const, cardId: leaf.parent };
-    void actor.restartRunning(caller).then(() => this.continueRunningChain(identity), (error) => this.handleRootRejection(identity, error));
+  private installProjectRoot(rootCard: CardRecord, entry: CardProcessEntry, alreadyStabilizedRoles: ReadonlySet<ProcessRole>): { readonly rootSettlement: Promise<unknown>; readonly root: CardActor } {
+    if (rootCard.id !== PROJECT_CARD_ID || rootCard.type !== 'project' || rootCard.parent !== null || rootCard.status !== 'running') throw new Error('Runtime launch requires the running project root.');
+    if (this.cardActors.size !== 0 || this.liveCardActors.size !== 0) throw new Error('Runtime project-root ownership installation requires empty owner maps.');
+    const root = CardActor.fromCard({ card: rootCard, deps: this.cardActorDeps(), deferProcessorStart: true });
+    const rootSettlement = root.prepareRootRunning(entry, alreadyStabilizedRoles);
+    if ([...this.cardActors].length !== 1 || this.cardActors.get(PROJECT_CARD_ID) !== root || [...this.liveCardActors].length !== 1 || this.liveCardActors.get(PROJECT_CARD_ID) !== root) throw new Error('Runtime project-root ownership installation is incomplete.');
+    return { rootSettlement, root };
   }
-  private installRunningChain(chain: readonly CardRecord[], leafEntry: CardProcessEntry, alreadyStabilizedRoles: ReadonlySet<ProcessRole>): { readonly rootSettlement: Promise<unknown>; readonly leaf: CardActor } {
-    if (chain.length === 0) throw new Error('Runtime launch requires a running chain.');
-    const actors = chain.map((card, index) => {
-      if (this.cardActors.has(card.id) || this.liveCardActors.has(card.id)) throw new Error(`Card '${card.id}' already has runtime ownership.`);
-      return CardActor.fromCard({ card, deps: this.cardActorDeps(), deferProcessorStart: index < chain.length - 1 });
-    });
-    const leaf = actors.at(-1)!;
-    const leafCard = chain.at(-1)!;
-    const leafCaller = leafCard.parent === null ? { kind: 'root' as const } : { kind: 'parent' as const, cardId: leafCard.parent };
-    const leafSettlement = leaf.prepareRunning(leafCaller, leafEntry, alreadyStabilizedRoles);
-    let rootSettlement = leafSettlement;
-    for (let index = actors.length - 2; index >= 0; index -= 1) {
-      const actor = actors[index]!;
-      const card = chain[index]!;
-      const caller = card.parent === null ? { kind: 'root' as const } : { kind: 'parent' as const, cardId: card.parent };
-      rootSettlement = actor.installStructuralWait(actors[index + 1]!, caller);
-    }
-    if (this.liveCardActors.size !== chain.length || chain.some((card) => !this.liveCardActors.has(card.id))) throw new Error('Runtime running-chain ownership installation is incomplete.');
-    return { rootSettlement, leaf };
-  }
-  private continueRunningChain(identity: object): void {
+  private completeNaturalRoot(identity: object): void {
     if (this.runIdentity !== identity || this.status === 'closing') return;
+    if (this.cardActors.size !== 0 || this.liveCardActors.size !== 0) throw new Error('Natural root settlement retained runtime ownership.');
     const chain = selectLinkedRunningChain(this.options.actorStore);
-    const leaf = chain.at(-1);
-    if (!leaf) { this.finishRun(identity); return; }
-    const actor = this.cardActor(leaf.id);
-    this.currentness.setChain(chain.map((card) => card.id));
-    this.launchLeaf(identity, leaf, actor);
+    if (chain.length !== 0) throw new Error('Natural root settlement retained a durable running chain.');
+    this.finishRun(identity);
   }
   private finishRun(identity: object): void { if (this.runIdentity !== identity || this.status === 'closing') return; this.runIdentity = null; this.status = 'stopped'; this.options.interventionBinding.markStoppedReady(); this.currentness.clear(); }
   private handleRootRejection(identity: object, error: unknown): void {
     if (isRuntimeStoppedInterruption(error)) return;
     this.finishRun(identity);
   }
-  private cardActor(cardId: string): CardActor { const existing = this.cardActors.get(cardId); if (existing) return existing; const card = this.options.actorStore.read(cardId); if (!card) throw new Error(`Card '${cardId}' not found.`); return CardActor.fromCard({ card, deps: this.cardActorDeps() }); }
   private releaseSettledActor(actor: CardActor): void {
     if (this.liveCardActors.get(actor.cardId) !== actor || this.cardActors.get(actor.cardId) !== actor) throw new Error(`Card '${actor.cardId}' settled actor ownership changed unexpectedly.`);
     this.liveCardActors.delete(actor.cardId);
@@ -356,4 +338,11 @@ function eligibleRoles(card: CardRecord): readonly ProcessRole[] {
 
 function sessionForRecovery(role: ProcessRole, cardId: string) {
   return role === 'planner' ? plannerActorId(cardId) : role === 'reviewer' ? reviewerActorId(cardId) : executorActorId(cardId);
+}
+
+function requireProjectOnlyLaunchChain(chain: readonly CardRecord[], context: string): CardRecord {
+  if (chain.length !== 1) throw new Error(`${context} did not produce exactly one running project card.`);
+  const root = chain[0]!;
+  if (root.id !== PROJECT_CARD_ID || root.type !== 'project' || root.parent !== null || root.status !== 'running') throw new Error(`${context} did not produce exactly one running project card.`);
+  return root;
 }

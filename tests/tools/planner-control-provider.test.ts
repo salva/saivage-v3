@@ -339,12 +339,16 @@ describe('planner activate_card dependency-completion admission', () => {
     expect(test.actor.activate).not.toHaveBeenCalled();
   });
 
-  it.each(['done', 'failed', 'cancelled'] as const)('preserves existing %s target activation errors after all-done admission', async (status) => {
-    const activate = jest.fn<Actor['activate']>(async () => { throw new Error(`Card '${CHILD}' in status '${status}' is not activatable.`); });
-    const test = harness(projection(card(status), [{ id: DEPENDENCY_A, status: 'done' }]), { activate });
+  it.each(['done', 'failed', 'cancelled'] as const)('rejects terminal %s before actor lookup after all-done admission', async (status) => {
+    const test = harness(projection(card(status), [{ id: DEPENDENCY_A, status: 'done' }]));
     await expect(test.invoke()).resolves.toEqual({ success: false, error: `Card '${CHILD}' in status '${status}' is not activatable.` });
-    expect(test.get).toHaveBeenCalledTimes(1);
-    expect(activate).toHaveBeenCalledTimes(1);
+    expect(test.get).not.toHaveBeenCalled();
+    expect(test.actor.activate).not.toHaveBeenCalled();
+    expect(test.actor.awaitSettlement).not.toHaveBeenCalled();
+    expect(test.setStatus).not.toHaveBeenCalled();
+    expect(test.activateStopped).not.toHaveBeenCalled();
+    expect(test.beginStructuralWait).not.toHaveBeenCalled();
+    expect(test.events).toEqual([]);
   });
 
   it('propagates projection invariants outside actor-operation failure conversion', async () => {

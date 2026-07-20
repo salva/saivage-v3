@@ -105,8 +105,14 @@ describe('CardActor authoritative cancellation', () => {
   function prepareBacklogRoot(owned: { actor: CardActor; processor: ControlledProcessor }): Promise<CardActivationOutcome> {
     expect(cards.read('project')?.status).toBe('backlog');
     cards.setStatus('project', 'running');
-    const activation = owned.actor.prepareRunning({ kind: 'root' }, 'BACKLOG');
-    owned.actor.startPreparedProcessor();
+    const activation = owned.actor.prepareRootRunning('BACKLOG');
+    owned.actor.startPreparedRootProcessor();
+    return activation;
+  }
+
+  function prepareStoppedRoot(owned: { actor: CardActor; processor: ControlledProcessor }): Promise<CardActivationOutcome> {
+    const activation = owned.actor.prepareRootRunning('STOPPED');
+    owned.actor.startPreparedRootProcessor();
     return activation;
   }
 
@@ -393,10 +399,36 @@ describe('CardActor authoritative cancellation', () => {
     expect(cards.read(orphan.id)?.status).toBe('running');
   });
 
+  it('enforces singular child actor construction eligibility', () => {
+    const running = cards.create(child('project', 'running child'));
+    const terminal = cards.create(child('project', 'terminal child'));
+    cards.setStatus(running.id, 'running');
+    cards.setStatus(terminal.id, 'running');
+    cards.commitTerminalLifecyclePatch(terminal.id, { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } });
+    const parent = actor('project');
+
+    expect(() => parent.actor.childCardActor(running.id)).toThrow(`Running card '${running.id}' has no retained activation owner.`);
+    expect(parent.actor.childCardActor(terminal.id)).toBeNull();
+    expect([...lookup.keys()]).toEqual(['project']);
+
+    const retainedRunning = actor(running.id);
+    expect(parent.actor.childCardActor(running.id)).toBe(retainedRunning.actor);
+    expect([...lookup.keys()]).toEqual(['project', running.id]);
+  });
+
+  it('rejects non-project prepared launch ownership', () => {
+    const childCard = cards.create(child('project', 'not root'));
+    cards.setStatus(childCard.id, 'running');
+    const owned = actor(childCard.id);
+
+    expect(() => owned.actor.prepareRootRunning('STOPPED')).toThrow(`Card '${childCard.id}' is not the project root.`);
+    expect(liveLookup.size).toBe(0);
+  });
+
   it('project Stop rejects by exact interruption identity without card mutation or owner removal', async () => {
     cards.setStatus('project', 'running');
     const owned = actor('project');
-    const activation = owned.actor.restartRunning({ kind: 'root' });
+    const activation = prepareStoppedRoot(owned);
     await Promise.resolve();
     const interruption = new RuntimeStoppedInterruption();
     const failures: string[] = [];
@@ -414,7 +446,7 @@ describe('CardActor authoritative cancellation', () => {
   it.each(['success' as const, 'failure' as const])('preserves result-winner arbitration with controlled processor settlement %s', async (cleanup) => {
     cards.setStatus('project', 'running');
     const owned = actor('project');
-    const activation = owned.actor.restartRunning({ kind: 'root' });
+    const activation = prepareStoppedRoot(owned);
     await Promise.resolve();
     const cleanupSettlement = deferred<readonly InvocationJoinOutcome[]>();
     owned.processor.joinResult = cleanupSettlement.promise;
@@ -442,7 +474,7 @@ describe('CardActor authoritative cancellation', () => {
   it('keeps Stop pending until caller-first cancellation publishes and settles its activation caller', async () => {
     cards.setStatus('project', 'running');
     const owned = actor('project');
-    const activation = owned.actor.restartRunning({ kind: 'root' });
+    const activation = prepareStoppedRoot(owned);
     await Promise.resolve();
     const cleanupSettlement = deferred<readonly InvocationJoinOutcome[]>();
     owned.processor.joinResult = cleanupSettlement.promise;
@@ -476,7 +508,7 @@ describe('CardActor authoritative cancellation', () => {
   it('lets Stop start the exact claim-owned cancellation settlement before the normal caller reaches it', async () => {
     cards.setStatus('project', 'running');
     const owned = actor('project');
-    const activation = owned.actor.restartRunning({ kind: 'root' });
+    const activation = prepareStoppedRoot(owned);
     await Promise.resolve();
     const cleanupSettlement = deferred<readonly InvocationJoinOutcome[]>();
     owned.processor.joinResult = cleanupSettlement.promise;
@@ -505,7 +537,7 @@ describe('CardActor authoritative cancellation', () => {
   it('reports caller-first cancellation settlement failure through Stop containment without replacing the cancellation error', async () => {
     cards.setStatus('project', 'running');
     const owned = actor('project');
-    void owned.actor.restartRunning({ kind: 'root' });
+    void prepareStoppedRoot(owned);
     await Promise.resolve();
     const cleanupSettlement = deferred<readonly InvocationJoinOutcome[]>();
     owned.processor.joinResult = cleanupSettlement.promise;
@@ -523,33 +555,6 @@ describe('CardActor authoritative cancellation', () => {
     expect(liveLookup.get('project')).toBe(owned.actor);
     expect(lookup.get('project')).toBe(owned.actor);
     expect(releaseSettledActor).not.toHaveBeenCalled();
-  });
-
-  it('wakes only the immediate structural parent through a three-level chain', async () => {
-    const goal = cards.create(child('project', 'goal', 'goal'));
-    const leaf = cards.create(child(goal.id, 'leaf'));
-    for (const id of ['project', goal.id, leaf.id]) cards.setStatus(id, 'running');
-    const rootOwner = actor('project');
-    const goalOwner = actor(goal.id);
-    const leafOwner = actor(leaf.id);
-    const leafSettlement = leafOwner.actor.prepareRunning({ kind: 'parent', cardId: goal.id }, 'STOPPED');
-    const goalSettlement = goalOwner.actor.installStructuralWait(leafOwner.actor, { kind: 'parent', cardId: 'project' });
-    rootOwner.actor.installStructuralWait(goalOwner.actor, { kind: 'root' });
-    leafOwner.actor.startPreparedProcessor();
-    await Promise.resolve();
-
-    leafOwner.processor.input!.claimResult();
-    leafOwner.processor.outcome.resolve({ status: 'done', summary: 'leaf done', result: { kind: 'done', summary: 'leaf done' } });
-    await leafSettlement;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(goalOwner.processor.input).not.toBeNull();
-    expect(rootOwner.processor.input).toBeNull();
-
-    goalOwner.processor.input!.claimResult();
-    goalOwner.processor.outcome.resolve({ status: 'done', summary: 'goal done', result: { kind: 'done', summary: 'goal done' } });
-    await goalSettlement;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(rootOwner.processor.input).not.toBeNull();
   });
 
   it('publishes dynamic admission before child entry, then release before parent resumption', async () => {
@@ -600,10 +605,8 @@ describe('CardActor authoritative cancellation', () => {
     ]);
   });
 
-  it('publishes existing-child wait entry and both direct and structural parent resumptions', async () => {
-    const first = cards.create(child('project', 'existing wait'));
-    const second = cards.create(child('project', 'structural wait'));
-    for (const id of ['project', first.id, second.id]) cards.setStatus(id, 'running');
+  it('publishes ordinary child activation and parent resumption', async () => {
+    const first = cards.create(child('project', 'ordinary wait'));
     const retained = new Map<string, CardActor>();
     const live = new Map<string, CardActor>();
     const currents: Array<string | null> = [];
@@ -623,31 +626,15 @@ describe('CardActor authoritative cancellation', () => {
       value.start();
       return { value, processor };
     };
-    const parent = makeActor('project');
+    makeActor('project');
     const directChild = makeActor(first.id);
     currentness.setChain(['project']);
     currents.length = 0;
-    directChild.value.prepareRunning({ kind: 'parent', cardId: 'project' }, 'STOPPED');
-    const directWait = directChild.value.awaitSettlement({ kind: 'parent', cardId: 'project' });
-    directChild.value.startPreparedProcessor();
+    const activation = directChild.value.activate({ kind: 'parent', cardId: 'project' }, () => cards.setStatus(first.id, 'running'));
     expect(currents).toEqual([first.id]);
     directChild.processor.input!.claimResult();
     directChild.processor.outcome.resolve({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } });
-    await directWait;
+    await expect(activation).resolves.toEqual({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } });
     expect(currents).toEqual([first.id, 'project']);
-
-    const structuralChild = makeActor(second.id);
-    const structuralSettlement = structuralChild.value.prepareRunning({ kind: 'parent', cardId: 'project' }, 'STOPPED');
-    parent.value.installStructuralWait(structuralChild.value, { kind: 'root' });
-    expect(parent.value.structuralChildId).toBe(second.id);
-    currentness.setChain(['project', second.id]);
-    currents.length = 0;
-    structuralChild.value.startPreparedProcessor();
-    structuralChild.processor.input!.claimResult();
-    structuralChild.processor.outcome.resolve({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } });
-    await structuralSettlement;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(currents).toEqual(['project']);
-    expect(parent.value.structuralChildId).toBeNull();
   });
 });

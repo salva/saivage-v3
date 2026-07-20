@@ -18,6 +18,7 @@ import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 import type { LlmToolInvocationContext, StructuralChildRelationship } from '../runtime/actors/executing-llm-snapshot.js';
+import { cardProcessEntryForStatus } from '../runtime/card-process/card-process-config.js';
 
 interface PlannerChildActor {
   activate(input: { kind: 'parent'; cardId: string; sessionId: string }, parentAdmit: () => void): Promise<CardActivationOutcome>;
@@ -180,6 +181,9 @@ async function activateCard(ctx: PlannerControlProviderContext, record: Activate
   const incomplete = admission.dependencies.filter(({ status }) => status !== 'done');
   if (incomplete.length > 0) {
     return failure(`Child card '${record.card_id}' has incomplete dependencies: ${incomplete.map(({ id, status }) => `${id} (${status})`).join(', ')}.`);
+  }
+  if (child.status !== 'running' && cardProcessEntryForStatus(child.status) === null) {
+    return failure(`Card '${record.card_id}' in status '${child.status}' is not activatable.`);
   }
   const actor = ctx.children.get(record.card_id);
   if (!actor) return failure(`No CardActor is registered for child '${record.card_id}'.`);

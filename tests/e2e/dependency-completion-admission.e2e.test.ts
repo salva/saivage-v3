@@ -7,7 +7,6 @@ import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents
 import { CardService } from '../../src/cards/card-service.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
-import type { CardActor } from '../../src/runtime/actors/card-actor.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
@@ -30,10 +29,9 @@ async function settleWithin(promise: Promise<void>, label: string): Promise<void
   try { await Promise.race([promise, timeout]); } finally { clearTimeout(timer); }
 }
 
-type RuntimeInternals = {
-  cardActors: Map<string, CardActor>;
-  liveCardActors: Map<string, CardActor>;
-  cardActor(cardId: string): CardActor;
+type RuntimeOwnership = {
+  cardActors: Map<string, { readonly cardId: string }>;
+  liveCardActors: Map<string, { readonly cardId: string }>;
 };
 
 function runtime(projectRoot: string, cards: CardService, processRunner: ProcessRunner, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> }): SupervisorRuntimeApi {
@@ -127,8 +125,7 @@ describe('dependency-completion activation admission E2E', () => {
     };
     const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
     const supervisor = runtime(projectRoot, cards, processRunner, provider);
-    const internals = supervisor as unknown as RuntimeInternals;
-    const cardActorLookup = jest.spyOn(internals, 'cardActor');
+    const ownership = supervisor as unknown as RuntimeOwnership;
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
     supervisor.launchStartedProject(prepared.launch);
@@ -139,9 +136,10 @@ describe('dependency-completion activation admission E2E', () => {
       error: `Child card '${dependent.id}' has incomplete dependencies: ${dependency.id} (backlog).`,
     });
     expect(cards.read(dependent.id)).toMatchObject({ status: 'backlog', version_seq: 1 });
-    expect(cardActorLookup.mock.calls.filter(([cardId]) => cardId === dependent.id)).toHaveLength(0);
-    expect(internals.cardActors.has(dependent.id)).toBe(false);
-    expect(internals.liveCardActors.has(dependent.id)).toBe(false);
+    expect(ownership.cardActors.has(dependent.id)).toBe(false);
+    expect(ownership.liveCardActors.has(dependent.id)).toBe(false);
+    expect([...ownership.cardActors.keys()]).toEqual(['project', parent.id]);
+    expect([...ownership.liveCardActors.keys()]).toEqual(['project', parent.id]);
     expect(supervisor.getActorRuntimeReadModel().cards.some(({ cardId }) => cardId === dependent.id)).toBe(false);
     expect(supervisor.getActorRuntimeReadModel()).not.toHaveProperty('agents');
     expect(supervisor.getStatus().currentCardId).toBe(parent.id);
@@ -165,7 +163,7 @@ describe('dependency-completion activation admission E2E', () => {
     expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id, dependent.id]);
     expect(supervisor.getStatus().currentCardId).toBe(dependent.id);
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(dependent.id);
-    expect(internals.liveCardActors.get(dependent.id)?.cardId).toBe(dependent.id);
+    expect(ownership.liveCardActors.get(dependent.id)?.cardId).toBe(dependent.id);
     expect(dependentCalls).toBe(1);
 
     allowDependentTool.resolve();
@@ -181,8 +179,10 @@ describe('dependency-completion activation admission E2E', () => {
     expect(cards.read(dependent.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'B complete.' } } });
     expect(cards.readRecord(dependent.id, 'status.md').artifact.content).toBe('B admitted after A.');
     expect(dependentCalls).toBe(2);
-    expect(internals.cardActors.has(dependent.id)).toBe(false);
-    expect(internals.liveCardActors.has(dependent.id)).toBe(false);
+    expect(ownership.cardActors.has(dependent.id)).toBe(false);
+    expect(ownership.liveCardActors.has(dependent.id)).toBe(false);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
+    expect(ownership.cardActors.size).toBe(0);
+    expect(ownership.liveCardActors.size).toBe(0);
   }, 15_000);
 });

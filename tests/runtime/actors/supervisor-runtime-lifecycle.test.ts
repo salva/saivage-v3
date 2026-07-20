@@ -205,13 +205,11 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const internals = supervisor as unknown as SupervisorInternals;
     internals.liveCardActors.set('unprojected-extra', { cardId: 'unprojected-extra' } as CardActor);
 
-    expect(() => supervisor.launchStartedProject(prepared.launch)).toThrow('ownership installation is incomplete');
-    expect(snapshots.slice(1)).toMatchObject([
-      { status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: ['project'] },
-    ]);
+    expect(() => supervisor.launchStartedProject(prepared.launch)).toThrow('requires empty owner maps');
+    expect(snapshots.slice(1)).toEqual([]);
     expect(supervisor.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(supervisor.getRuntimeState()).toBeNull();
-    expect(supervisor.getActorRuntimeReadModel().cards.map(({ cardId }) => cardId)).toEqual(['project']);
+    expect(supervisor.getActorRuntimeReadModel().cards).toEqual([]);
   });
 
   it('publishes closing before synchronous Stop owner validation failure and never publishes stopped', async () => {
@@ -226,40 +224,6 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(() => supervisor.stopProject()).toThrow('duplicate card ownership');
     expect(snapshots).toEqual([expect.objectContaining({ status: 'closing', currentCardId: 'project' })]);
     expect(snapshots.some(({ status }) => status === 'stopped')).toBe(false);
-  });
-
-  it('replaces the continuation leaf without publishing an intermediate null', async () => {
-    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-continuation-currentness-'));
-    initProjectTree(projectRoot);
-    const changes = new ReadModelChangeBroadcaster();
-    const cards = new CardService(projectRoot, undefined, changes);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'next leaf', brief: 'continue', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    cards.setStatus('project', 'running');
-    const intervention = new RuntimeInterventionBinding();
-    let supervisor!: SupervisorRuntimeApi;
-    const snapshots: ProjectionSnapshot[] = [];
-    changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(supervisor, intervention)), cardProjectionChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
-    supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
-      projectRoot, actorStore: cards, interventionBinding: intervention,
-      provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
-      conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
-      processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
-    });
-    const prepared = await supervisor.beginStartProject();
-    if (!prepared.accepted) throw new Error('runtime start was not accepted');
-    supervisor.launchStartedProject(prepared.launch);
-    const internals = supervisor as unknown as SupervisorInternals;
-    const rootOwner = internals.cardActors.get('project')!;
-    (supervisor as unknown as { releaseSettledActor(actor: CardActor): void }).releaseSettledActor(rootOwner);
-    cards.setStatus(child.id, 'running');
-    snapshots.length = 0;
-
-    (supervisor as unknown as { continueRunningChain(identity: object): void }).continueRunningChain(internals.runIdentity!);
-    expect(snapshots.slice(0, 2)).toMatchObject([
-      { status: { currentCardId: 'project' }, runtimeCardId: 'project', cards: [child.id] },
-      { status: { currentCardId: child.id }, runtimeCardId: child.id, cards: [child.id] },
-    ]);
-    expect(snapshots.some(({ status }) => status.currentCardId === null)).toBe(false);
   });
 
   it('publishes pausing, paused, and completed resume boundaries after each owned mutation', async () => {
@@ -396,6 +360,21 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     expect(cards.read('project')).toMatchObject({ status: 'failed', version_seq: runningVersion + 1 });
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(snapshots.at(-1)).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtimeCardId: null, cards: [], readiness: 'stopped' });
+  });
+
+  it('finishes a natural root cancellation only after ownership and the running chain are empty', async () => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-natural-cancellation-'));
+    const { cards, intervention, supervisor, internals } = await startRunningRoot(projectRoot);
+
+    await expect(supervisor.cancelCard('project', 'natural cancellation')).resolves.toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['project'] });
+    await waitUntil(() => supervisor.getStatus().status === 'stopped');
+
+    expect(cards.read('project')?.status).toBe('cancelled');
+    expect(internals.cardActors.size).toBe(0);
+    expect(internals.liveCardActors.size).toBe(0);
+    expect(supervisor.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
+    expect(supervisor.getRuntimeState()).toBeNull();
+    expect(intervention.interventionReadiness()).toBe('stopped');
   });
 
   it('rejects stale settled-actor release without changing current ownership', async () => {
