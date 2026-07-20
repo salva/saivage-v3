@@ -1,6 +1,7 @@
 import type { ProviderExchangePayload } from '../contracts/provider-exchange.js';
 import { providerExchangeLogDataSchema, providerExchangeLogId, type ProviderExchangeLogData } from '../contracts/provider-exchange-log.js';
-import { readAppLogEntries, type AppLogEntry } from './app-log.js';
+import type { AppLogEntry } from '../contracts/app-log.js';
+import { readAppLogEntries } from './app-log.js';
 
 export { providerExchangeLogDataSchema, type ProviderExchangeLogData } from '../contracts/provider-exchange-log.js';
 

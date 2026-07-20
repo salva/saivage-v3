@@ -10,7 +10,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, readonly } from 'vue';
 import type {
-  DebugError,
+  DebugErrorRecord,
   DebugTimelineEvent,
   DebugErrorsResponse,
   DebugTimelineResponse,
@@ -32,8 +32,10 @@ import {
   ApiError,
 } from '../api/client';
 import { createLogger } from '../utils/logger';
-import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import {
+  projectErrorRecord,
+  type DebugErrorItem,
+  type DebugTimelineItem,
   selectErrorsBySource,
   selectSortedTimeline,
   selectTimelineDerivedErrors,
@@ -42,7 +44,7 @@ import {
 const log = createLogger('store:debug');
 
 export const useDebugStore = defineStore('debug', () => {
-  const errors = ref<DebugError[]>([]);
+  const errors = ref<DebugErrorRecord[]>([]);
   const timelineEvents = ref<DebugTimelineEvent[]>([]);
   const timelineTotal = ref(0);
 
@@ -65,20 +67,21 @@ export const useDebugStore = defineStore('debug', () => {
   const error = ref<string | null>(null);
 
 
-  const eventDerivedErrors = computed<DebugError[]>(() => selectTimelineDerivedErrors(timelineEvents.value));
+  const projectedErrors = computed<DebugErrorItem[]>(() => errors.value.map(projectErrorRecord));
+  const eventDerivedErrors = computed<DebugErrorItem[]>(() => selectTimelineDerivedErrors(timelineEvents.value));
 
-  const combinedErrors = computed<DebugError[]>(() => [...errors.value, ...eventDerivedErrors.value]);
+  const combinedErrors = computed<DebugErrorItem[]>(() => [...projectedErrors.value, ...eventDerivedErrors.value]);
 
-  const errorsBySource = computed<Map<string, DebugError[]>>(() => selectErrorsBySource(combinedErrors.value));
+  const errorsBySource = computed<Map<string, DebugErrorItem[]>>(() => selectErrorsBySource(combinedErrors.value));
 
-  const sortedTimeline = computed<DebugTimelineEvent[]>(() => selectSortedTimeline(timelineEvents.value));
+  const sortedTimeline = computed<DebugTimelineItem[]>(() => selectSortedTimeline(timelineEvents.value));
 
   async function fetchErrors(): Promise<void> {
     loading.value = true;
     error.value = null;
     try {
       const response: DebugErrorsResponse = await getDebugErrors();
-      errors.value = response.errors.map((entry) => redactObservabilityValue(entry));
+      errors.value = response.errors;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug errors';
       error.value = msg;
@@ -94,7 +97,7 @@ export const useDebugStore = defineStore('debug', () => {
     error.value = null;
     try {
       const response: DebugTimelineResponse = await getDebugTimeline();
-      timelineEvents.value = response.events.map((entry) => redactObservabilityValue(entry));
+      timelineEvents.value = response.events;
       timelineTotal.value = response.total;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug timeline';
@@ -175,7 +178,6 @@ export const useDebugStore = defineStore('debug', () => {
     loading.value = false;
   }
 
-  const refetch = fetchAll;
   const refetchTimeline = fetchTimeline;
   const refetchProcesses = fetchProcesses;
 
@@ -208,6 +210,5 @@ export const useDebugStore = defineStore('debug', () => {
     fetchDoctor,
     fetchSupervision,
     fetchAll,
-    refetch,
   };
 });

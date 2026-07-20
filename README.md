@@ -1,6 +1,6 @@
 # Saivage v3
 
-Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator workspace projects cards, agents, files, timeline events, and runtime state while the Analyst chat is the ordinary mutating user surface, with direct Dashboard **Stop project** and confirmed bearer-only **Restart server** as bounded exceptions.
+Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator workspace projects cards, agents, files, strict redacted app-log errors/timeline events, and runtime state while the Analyst chat is the ordinary mutating user surface, with direct Dashboard **Stop project** and confirmed bearer-only **Restart server** as bounded exceptions.
 
 Configured planning and terminal workflows are genuine micro-actors. Startup compiles one immutable topology per family: lifecycle entries, configured nodes, and terminal sinks become states, while accepted outcomes become events and edges become transitions. Same-node edges are explicit external reentry. Node corrections remain hidden inside one state task. Promptless ordinary entries add no lifecycle message; STOPPED adds the discarded-position recovery statement and its configured prompt. Live state and zero-based node ordinal are transient only—there is no graph interpreter or durable cursor.
 

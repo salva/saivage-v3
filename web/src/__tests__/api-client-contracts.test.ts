@@ -62,6 +62,15 @@ describe('operator API client contracts after S06 mutation removal', () => {
     expect(chatContract).toBeNull();
   });
 
+  it('returns exact shared Debug operation promises and rejects malformed Debug JSON', async () => {
+    const errorsClient: () => Promise<OperatorApiSuccess<'debug.errors'>> = client.getDebugErrors;
+    const timelineClient: () => Promise<OperatorApiSuccess<'debug.timeline'>> = client.getDebugTimeline;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ errors: [{ source: 'legacy' }], total: 1 }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    await expect(errorsClient()).rejects.toThrow();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ events: [{ id: 'event-1', kind: 'obsolete_event', timestamp: '2026-01-01T00:00:00.000Z' }], total: 1 }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    await expect(timelineClient()).rejects.toThrow();
+  });
+
   it('retains exact Agent identities', () => {
     const agentId: Parameters<typeof client.getAgentConversation>[0] = 'planner:project';
     const llmId: Parameters<typeof client.getAgentLlmExchange>[0] = agentId;

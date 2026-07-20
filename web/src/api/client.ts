@@ -260,11 +260,11 @@ export function listProcesses(): Promise<ProcessListResponse> {
 }
 
 export function getDebugErrors(): Promise<DebugErrorsResponse> {
-  return operatorRequest('debug.errors') as Promise<DebugErrorsResponse>;
+  return operatorRequest('debug.errors');
 }
 
 export function getDebugTimeline(): Promise<DebugTimelineResponse> {
-  return operatorRequest('debug.timeline') as Promise<DebugTimelineResponse>;
+  return operatorRequest('debug.timeline');
 }
 
 export function getDoctor(): Promise<DoctorResponse> {

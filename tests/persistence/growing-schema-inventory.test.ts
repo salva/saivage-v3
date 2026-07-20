@@ -6,13 +6,16 @@ const source = (path: string) => readFileSync(join(process.cwd(), path), 'utf8')
 
 describe('durable growing-schema and writer inventory', () => {
   it('keeps retained strict row families on the shared envelope mechanics', () => {
+    const appLogContract = source('src/contracts/app-log.ts');
     const appLog = source('src/persistence/app-log.ts');
     const messages = source('src/schemas/validators.ts');
     const conversations = source('src/persistence/conversation-file.ts');
 
-    expect(appLog).toContain("z.discriminatedUnion('type'");
-    for (const type of ['event', 'error', 'control_action', 'provider_exchange', 'content_review']) expect(appLog).toContain(`z.literal('${type}')`);
-    expect(appLog).not.toContain('card_deleted');
+    expect(appLogContract).toContain("z.discriminatedUnion('type'");
+    for (const type of ['event', 'error', 'control_action', 'provider_exchange', 'content_review']) expect(appLogContract).toContain(`z.literal('${type}')`);
+    expect(Array.from(appLogContract.matchAll(/type: z\.literal\('([^']+)'\)/g), (match) => match[1])).toEqual(['event', 'error', 'control_action', 'provider_exchange', 'content_review']);
+    expect(appLogContract).not.toContain('card_deleted');
+    expect(appLogContract).not.toMatch(/from ['"]node:|from ['"]\.\.\/persistence\//);
     expect(messages).toMatch(/entityLinkSchema = z\.object\([\s\S]*?\)\.strict\(\)/);
     expect(messages).toMatch(/agentMessageSchema = z\.object\([\s\S]*?\)\.strict\(\)\.superRefine/);
 

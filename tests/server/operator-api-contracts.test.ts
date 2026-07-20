@@ -3,6 +3,7 @@ import * as contractsModule from '../../src/contracts/index.js';
 import * as operatorApiModule from '../../src/contracts/operator-api.js';
 import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, UnauthorizedErrorSchema, type OperatorApiBody } from '../../src/contracts/operator-api.js';
 import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
+import { allRepresentativeLoggedEvents } from '../helpers/logged-events.js';
 
 const runtimeState = {
   status: 'running',
@@ -151,6 +152,27 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(operatorApiModule).not.toHaveProperty('DebugRuntimeStateSchema');
     expect(operatorApiModule).not.toHaveProperty('DebugStateResponseSchema');
     expect(contractsModule).not.toHaveProperty('DebugStateResponseSchema');
+  });
+
+  it('accepts only exact canonical Debug rows with matching totals', () => {
+    const error = { id: 'err-1', timestamp: '2026-01-01T00:00:00.000Z', kind: 'error' as const, message: 'boom', cardId: 'card-a', metadata: { attempt: 1 } };
+    expect(parseOperatorResponse('debug.errors', { errors: [error], total: 1 })).toEqual({ errors: [error], total: 1 });
+    expect(parseOperatorResponse('debug.timeline', { events: allRepresentativeLoggedEvents, total: 12 }).events).toHaveLength(12);
+
+    for (const invalid of [
+      { errors: [{ ...error, message: 1 }], total: 1 },
+      { errors: [{ ...error, extra: true }], total: 1 },
+      { errors: [error], total: 0 },
+    ]) expect(() => parseOperatorResponse('debug.errors', invalid)).toThrow();
+
+    const event = allRepresentativeLoggedEvents[0]!;
+    for (const invalid of [
+      { events: [{ ...event, id: undefined }], total: 1 },
+      { events: [{ ...event, extra: true }], total: 1 },
+      { events: [{ ...event, kind: 'obsolete_event' }], total: 1 },
+      { events: [{ ...event, error_message: 1 }], total: 1 },
+      { events: [event], total: 0 },
+    ]) expect(() => parseOperatorResponse('debug.timeline', invalid)).toThrow();
   });
 
   it('keeps the operator card route inventory read-only', () => {

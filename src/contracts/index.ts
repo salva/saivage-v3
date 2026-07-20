@@ -73,6 +73,9 @@ export {
   parseOperatorResponse,
 } from './operator-api.js';
 
+export { appLogEntrySchema, errorRecordSchema } from './app-log.js';
+export type { AppLogEntry, AppLogEntryOfType, AppLogEntryType, ErrorRecord } from './app-log.js';
+
 export {
   agentOperatorApiContracts,
 } from './operator-api-agents.js';

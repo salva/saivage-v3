@@ -115,11 +115,11 @@
           <div v-else class="timeline-list">
             <div v-for="event in filteredTimeline" :key="timelineKey(event)" class="tl-event">
               <span class="tl-event-type">{{ formatEventKind(event.kind) }}</span>
-              <span v-if="event.card_id" class="tl-event-card mono">Card: {{ event.card_id }}</span>
-              <span v-if="event.goal_id" class="tl-event-card mono">Goal: {{ event.goal_id }}</span>
-              <span v-if="event.session_id" class="tl-event-card mono">Session: {{ event.session_id }}</span>
+              <span v-if="event.cardId" class="tl-event-card mono">Card: {{ event.cardId }}</span>
+              <span v-if="event.goalId" class="tl-event-card mono">Goal: {{ event.goalId }}</span>
+              <span v-if="event.sessionId" class="tl-event-card mono">Session: {{ event.sessionId }}</span>
               <span class="tl-event-time">{{ fmtDate(event.timestamp) }}</span>
-              <CodeBlock v-if="Object.keys(timelineDetails(event)).length" :code="formatJson(timelineDetails(event))" language="json" copyable />
+              <CodeBlock v-if="Object.keys(event.details).length" :code="formatJson(event.details)" language="json" copyable />
             </div>
           </div>
         </template>
@@ -330,7 +330,6 @@ import { useAgentStore } from '../stores/agents';
 import type { ConversationSessionId } from '../api/contracts';
 import { useDebugReadModel } from '../composables/useDebugReadModel';
 import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
-import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
@@ -340,7 +339,8 @@ import StatusBanner from '../components/ui/StatusBanner.vue';
 import StatusBadge from '../components/ui/StatusBadge.vue';
 import { statusForRuntimeStatus } from '../utils/status';
 import { selectOperatorDataFreshnessLabel } from '../stores/debug-read-model';
-import type { DebugTimelineEvent, ProcessView } from '../types/view-models';
+import type { ProcessView } from '../types/view-models';
+import type { DebugTimelineItem } from '../stores/debug-read-model';
 
 const debugStore = useDebugStore();
 const liveSyncStore = useLiveSyncStore();
@@ -425,8 +425,7 @@ function hasProcessLogs(proc: ProcessView): boolean { return processLogEntries(p
 
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
-function timelineKey(event: DebugTimelineEvent): string { return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`); }
-function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { const details: Record<string, unknown> = {}; for (const [key, value] of Object.entries(event)) { if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id'].includes(key)) continue; if (value === undefined || value === null) continue; details[key] = value; } return redactObservabilityValue(details); }
+function timelineKey(event: DebugTimelineItem): string { return event.id; }
 
 let unregisterTimeline: (() => void) | null = null;
 let unregisterProcesses: (() => void) | null = null;

@@ -131,14 +131,18 @@ export type RuntimeEventKind = EventKind;
 export type AgentEventKind = EventKind;
 export interface BaseEvent { id: string; kind: EventKind; timestamp: string; session_id?: string; goal_id?: string; card_id?: string; }
 export interface RuntimeDiagnosticEvent extends BaseEvent { kind: 'runtime_diagnostic'; goal_id?: string; card_id?: string; phase?: string; error_message: string; error_name?: string; metadata?: Record<string, unknown>; }
-export interface RuntimeActionableErrorEvent extends BaseEvent { kind: 'runtime_actionable_error'; actionable_error: ActionableErrorEnvelope; }
+export interface RuntimeActionableErrorEvent extends BaseEvent { kind: 'runtime_actionable_error'; actionable_error: Record<string, unknown>; }
 export interface SubscriberErrorEvent extends BaseEvent { kind: 'subscriber_error'; subscription_id: string; source_kind: string; error_message: string; error_name?: string; timed_out?: boolean; }
 export interface CardHistoryAppendedEvent extends BaseEvent { kind: 'card_history_appended'; entry_id: string; entry_kind: CardHistoryKind; card_id: string; version_seq: number; changed_fields: string[]; changed_at: string; }
 export interface NotificationAddedEvent extends Omit<BaseEvent, 'session_id'> { kind: 'notification_added'; session_id: string | null; notification_kind: string; }
 export interface ControlActionRecordedEvent extends BaseEvent { kind: 'control_action_recorded'; id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; created_at: string; actor?: string; surface?: string; }
 export interface AnalystToolInvokedEvent extends BaseEvent { kind: 'analyst_tool_invoked'; sessionId: 'analyst:global'; tool: string; success: boolean; summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; }
 export interface McpToolInvocationEvent extends BaseEvent { kind: 'mcp_tool_invocation'; server: string; tool: string; success: boolean; duration_ms: number; error?: string; }
-export type LoggedEvent = RuntimeDiagnosticEvent | RuntimeActionableErrorEvent | SubscriberErrorEvent | CardHistoryAppendedEvent | NotificationAddedEvent | ControlActionRecordedEvent | AnalystToolInvokedEvent | McpToolInvocationEvent;
+export interface ConversationChangedEvent extends BaseEvent { kind: 'conversation_changed'; session_id: ConversationSessionId; mutation: 'entry_appended'; message_id: string; message_kind: string; role: string; message_timestamp: string; }
+export interface ControlActionRecordAppendedEvent extends BaseEvent { kind: 'control_action_record_appended'; record: Record<string, unknown>; }
+export interface EventLogRecordAppendedEvent extends BaseEvent { kind: 'event_log_record_appended'; record: Record<string, unknown>; }
+export interface ErrorLogRecordAppendedEvent extends BaseEvent { kind: 'error_log_record_appended'; record: Record<string, unknown>; }
+export type LoggedEvent = RuntimeDiagnosticEvent | RuntimeActionableErrorEvent | SubscriberErrorEvent | CardHistoryAppendedEvent | NotificationAddedEvent | ControlActionRecordedEvent | AnalystToolInvokedEvent | McpToolInvocationEvent | ConversationChangedEvent | ControlActionRecordAppendedEvent | EventLogRecordAppendedEvent | ErrorLogRecordAppendedEvent;
 
 export type LoggedEventByKind = { [K in EventKind]: Extract<LoggedEvent, { kind: K }> };
 export type EventPayloadByKind = { [K in EventKind]: Omit<LoggedEventByKind[K], keyof BaseEvent | 'kind'> };

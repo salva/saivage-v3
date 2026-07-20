@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { errorRecordSchema, type ErrorRecord } from '../contracts/app-log.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { appendAppLogEntry, errorRecordSchema, readAppLogEntries, type AppLogContext, type ErrorInput, type ErrorRecord } from '../persistence/app-log.js';
+import { appendAppLogEntry, readAppLogEntries, type AppLogContext } from '../persistence/app-log.js';
 import { appLogFile } from '../persistence/layout.js';
 
 // ── Constants ─────────────────────────────────────────────────
@@ -15,7 +16,7 @@ function nextErrorId(): string {
   return `err-${shortId}-${Date.now()}-${errorCounter}`;
 }
 
-export type { ErrorInput, ErrorRecord } from '../persistence/app-log.js';
+export type ErrorInput = Omit<ErrorRecord, 'kind' | 'id' | 'timestamp'> & { id?: string; timestamp?: string };
 
 /**
  * Optional filter for getErrors(). Fields are AND-ed together.

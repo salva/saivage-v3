@@ -134,24 +134,8 @@ export interface FileEntry {
 
 export type FileContent = OperatorApiSuccess<'files.content'>;
 
-export interface DebugError {
-  source: string;
-  type: string;
-  severity: string;
-  message: string;
-  details?: string;
-  timestamp: string;
-}
-
-export interface DebugTimelineEvent {
-  id?: string;
-  kind: string;
-  card_id?: string;
-  goal_id?: string;
-  session_id?: string;
-  timestamp: string;
-  [key: string]: unknown;
-}
+export type DebugErrorRecord = OperatorApiSuccess<'debug.errors'>['errors'][number];
+export type DebugTimelineEvent = OperatorApiSuccess<'debug.timeline'>['events'][number];
 
 
 export type McpToolWithStats = ContractMcpToolsResponse['serverDetails'][number]['tools'][number];
@@ -192,5 +176,5 @@ export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'>;
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
-export type DebugErrorsResponse = Omit<OperatorApiSuccess<'debug.errors'>, 'errors'> & { errors: DebugError[]; };
-export type DebugTimelineResponse = Omit<OperatorApiSuccess<'debug.timeline'>, 'events'> & { events: DebugTimelineEvent[]; };
+export type DebugErrorsResponse = OperatorApiSuccess<'debug.errors'>;
+export type DebugTimelineResponse = OperatorApiSuccess<'debug.timeline'>;

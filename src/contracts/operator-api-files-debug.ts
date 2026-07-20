@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { errorRecordSchema } from './app-log.js';
+import { loggedEventSchema } from '../schemas/index.js';
 import {
   ApiErrorSchema,
   ForbiddenErrorSchema,
@@ -32,8 +34,10 @@ export const WorkspaceFileContentResponseSchema = z.object({
   modifiedAt: z.string().nullable().optional(),
 });
 
-export const DebugErrorsResponseSchema = z.object({ errors: z.array(z.unknown()), total: z.number().int().nonnegative() });
-export const DebugTimelineResponseSchema = z.object({ events: z.array(z.unknown()), total: z.number().int().nonnegative() });
+export const DebugErrorsResponseSchema = z.object({ errors: z.array(errorRecordSchema), total: z.number().int().nonnegative() }).strict()
+  .refine((response) => response.total === response.errors.length, { path: ['total'], message: 'total must equal errors.length' });
+export const DebugTimelineResponseSchema = z.object({ events: z.array(loggedEventSchema), total: z.number().int().nonnegative() }).strict()
+  .refine((response) => response.total === response.events.length, { path: ['total'], message: 'total must equal events.length' });
 
 export type WorkspaceFilesListResponse = z.infer<typeof WorkspaceFilesListResponseSchema>;
 export type WorkspaceFileContentResponse = z.infer<typeof WorkspaceFileContentResponseSchema>;

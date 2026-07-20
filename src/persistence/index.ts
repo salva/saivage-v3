@@ -17,5 +17,4 @@ export type { AuthoredRecordSlot, RecordVersionArtifact } from './canonical-reco
 export { AuthoredRecordNotFoundError, readAuthoredRecord } from './authored-record-files.js';
 export type { RecordProjection } from './authored-record-files.js';
 export { listControlActions, recordControlAction, stableStringify } from './control-action-audit.js';
-export { appendAppLogEntry, readAppLogEntries, appLogEntrySchema, type AppLogContext } from './app-log.js';
-export type { AppLogEntry, AppLogEntryType } from './app-log.js';
+export { appendAppLogEntry, readAppLogEntries, type AppLogContext } from './app-log.js';

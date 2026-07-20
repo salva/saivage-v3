@@ -1,22 +1,22 @@
 import { computed, ref } from 'vue';
-import type { DebugError } from '../api/types';
+import type { EventKind } from '@saivage/schemas/event-catalog';
+import type { DebugErrorItem } from '../stores/debug-read-model';
 import type { useDebugStore } from '../stores/debug';
 import type { useRuntimeStore } from '../stores/runtime';
 import {
   filterTimelineByKinds,
   selectRuntimeStatusLabel,
-  selectRuntimeStatusTone,
   selectSortedProcesses,
   selectTimelineKindOptions,
 } from '../stores/debug-read-model';
 import { selectCurrentCardId } from '../stores/runtime-read-model';
 
-export interface ErrorSourceEntry { source: string; errors: DebugError[] }
+export interface ErrorSourceEntry { source: string; errors: DebugErrorItem[] }
 export type DebugTabId = 'state' | 'operator' | 'errors' | 'timeline' | 'agents' | 'mcp' | 'processes' | 'supervision';
 
 export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, runtimeStore: ReturnType<typeof useRuntimeStore>) {
   const localActiveTab = ref<DebugTabId>('state');
-  const selectedTimelineKinds = ref<string[]>([]);
+  const selectedTimelineKinds = ref<EventKind[]>([]);
   const tabs = [
     { id: 'state' as const, label: 'State' },
     { id: 'operator' as const, label: 'Operator Control' },
@@ -29,7 +29,6 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
   ];
 
   const runtimeStatusLabel = computed(() => selectRuntimeStatusLabel(runtimeStore.runtime));
-  const runtimeStatusTone = computed(() => selectRuntimeStatusTone(runtimeStore.runtime));
   const currentCardId = computed(() => selectCurrentCardId(runtimeStore.runtime));
   const operatorPanelBusy = computed(() => runtimeStore.loading || runtimeStore.refreshing);
   const sortedProcesses = computed(() => selectSortedProcesses(debugStore.processes));
@@ -46,7 +45,6 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
     localActiveTab,
     selectedTimelineKinds,
     runtimeStatusLabel,
-    runtimeStatusTone,
     currentCardId,
     operatorPanelBusy,
     sortedProcesses,

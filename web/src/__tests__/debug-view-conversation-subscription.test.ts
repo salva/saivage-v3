@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
 import DebugView from '../views/DebugView.vue';
 import { useAgentStore } from '../stores/agents';
+import { useDebugStore } from '../stores/debug';
 import type { AgentConversationResponse, AgentSession } from '../api/types';
 import { AgentSessionSummarySchema, type ConversationSessionId } from '../api/contracts';
 
@@ -93,6 +94,14 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
     expect(api.getAgentConversation).toHaveBeenCalledWith(SESSION_B, expect.any(AbortSignal));
     expect(wrapper.find(`[data-session-id="${SESSION_B}"]`).exists()).toBe(true);
     expect(api.listAgentSessions).not.toHaveBeenCalled();
+  });
+
+  it('keeps timeline and process live-sync registrations on their focused refetch functions', async () => {
+    const { wrapper } = await mountDebug();
+    const debugStore = useDebugStore();
+    expect(live.registerResource).toHaveBeenCalledWith({ resource: 'timeline', scope: 'active', refetch: debugStore.refetchTimeline });
+    expect(live.registerResource).toHaveBeenCalledWith({ resource: 'processes', scope: 'active', refetch: debugStore.refetchProcesses });
+    wrapper.unmount();
   });
 
   it('preserves explicit intent across reorder, fallback, reappearance, kind, empty, tab, and route changes', async () => {

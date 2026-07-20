@@ -8,7 +8,6 @@ export type {
   CardRefView,
   CardStatus,
   CardType,
-  DebugTimelineEvent,
   DetailErrorState,
   EntityLink,
   FileEntry,

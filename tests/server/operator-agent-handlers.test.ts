@@ -12,7 +12,8 @@ import {
   agentOperatorApiContracts,
 } from '../../src/contracts/operator-api-agents.js';
 import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
-import { appendAppLogEntry, appLogEntrySchema } from '../../src/persistence/app-log.js';
+import { appLogEntrySchema } from '../../src/contracts/app-log.js';
+import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
 import { providerExchangeAppLogEntry } from '../../src/persistence/provider-exchange-log.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';

@@ -53,6 +53,23 @@ const projectCard = {
 
 const rootChildren = parseOperatorResponse('cards.children', { card: projectCard, children: [card] });
 const cardDetail = parseOperatorResponse('cards.get', { card });
+const debugErrors = parseOperatorResponse('debug.errors', {
+  errors: [{
+    id: 'err-playwright-1',
+    kind: 'error',
+    message: 'Synthetic provider failure redacted',
+    phase: 'planner-smoke',
+    timestamp: now,
+  }],
+  total: 1,
+});
+const debugTimeline = parseOperatorResponse('debug.timeline', {
+  events: [
+    { id: 'evt-1', kind: 'runtime_diagnostic', session_id: 'planner-smoke', timestamp: now, error_message: 'Synthetic provider failure redacted' },
+    { id: 'evt-2', kind: 'card_history_appended', card_id: smokeCardId, timestamp: now, entry_id: '11111111-1111-4111-8111-111111111111', entry_kind: 'status', version_seq: 1, changed_fields: ['status'], changed_at: now },
+  ],
+  total: 2,
+});
 
 const sessions = [
   { id: 'analyst:global', role: 'analyst', status: 'inactive', started_at: now, model: 'synthetic-model' },
@@ -237,10 +254,10 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       });
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/errors') {
-      return json(route, { errors: [{ source: 'planner-smoke', type: 'runtime_diagnostic', severity: 'error', message: 'Synthetic provider failure redacted', timestamp: now }], total: 1 });
+      return json(route, debugErrors);
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/timeline') {
-      return json(route, { events: [{ id: 'evt-1', kind: 'runtime_diagnostic', session_id: 'planner-smoke', timestamp: now, error_message: 'Synthetic provider failure redacted' }, { id: 'evt-2', kind: 'card_history_appended', card_id: smokeCardId, timestamp: now, entry_id: '11111111-1111-4111-8111-111111111111', entry_kind: 'status', version_seq: 1, changed_fields: ['status'], changed_at: now }], total: 2 });
+      return json(route, debugTimeline);
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, { status: 'ok', checks: [], issues: [] });
     if (request.method() === 'GET' && url.pathname === '/api/debug/supervision') return json(route, { reviews: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } });

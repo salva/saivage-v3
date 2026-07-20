@@ -1,50 +1,10 @@
 import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
-import { z } from 'zod';
 import { join } from 'node:path';
-import { cardIdSchema } from '../schemas/card-id.js';
-
-import { providerExchangeLogDataSchema, providerExchangeLogId } from '../contracts/provider-exchange-log.js';
-import { contentReviewSchema, controlActionAuditEntrySchema, loggedEventSchema } from '../schemas/index.js';
+import { appLogEntrySchema, type AppLogEntry, type AppLogEntryOfType, type AppLogEntryType } from '../contracts/app-log.js';
 import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope } from './growing-file.js';
 import { appLogFile } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 
-export const errorRecordSchema = z.object({
-  id: z.string().min(1),
-  timestamp: z.string().datetime(),
-  kind: z.literal('error'),
-  message: z.string(),
-  cardId: cardIdSchema.optional(),
-  goalId: cardIdSchema.optional(),
-  phase: z.string().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-}).strict();
-
-export type ErrorRecord = z.infer<typeof errorRecordSchema>;
-export type ErrorInput = Omit<ErrorRecord, 'kind' | 'id' | 'timestamp'> & { id?: string; timestamp?: string };
-
-const eventEntrySchema = z.object({ id: z.string().min(1), timestamp: z.string().datetime(), type: z.literal('event'), data: loggedEventSchema }).strict();
-const errorEntrySchema = z.object({ id: z.string().min(1), timestamp: z.string().datetime(), type: z.literal('error'), data: errorRecordSchema }).strict();
-const controlEntrySchema = z.object({ id: z.string().min(1), timestamp: z.string().datetime(), type: z.literal('control_action'), data: controlActionAuditEntrySchema }).strict();
-const providerEntrySchema = z.object({ id: z.string().min(1), timestamp: z.string().datetime(), type: z.literal('provider_exchange'), data: providerExchangeLogDataSchema }).strict();
-const contentEntrySchema = z.object({ id: z.string().min(1), timestamp: z.string().datetime(), type: z.literal('content_review'), data: contentReviewSchema }).strict();
-
-export const appLogEntrySchema = z.discriminatedUnion('type', [
-  eventEntrySchema,
-  errorEntrySchema,
-  controlEntrySchema,
-  providerEntrySchema,
-  contentEntrySchema,
-]).superRefine((entry, ctx) => {
-  const authoritativeId = entry.type === 'provider_exchange' ? providerExchangeLogId(entry.data) : entry.data.id;
-  const authoritativeTime = entry.type === 'control_action' || entry.type === 'content_review' ? entry.data.created_at : entry.data.timestamp;
-  if (entry.id !== authoritativeId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['id'], message: 'Outer app-log id must equal the payload identity.' });
-  if (entry.timestamp !== authoritativeTime) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['timestamp'], message: 'Outer app-log timestamp must equal the payload timestamp.' });
-});
-
-export type AppLogEntry = z.infer<typeof appLogEntrySchema>;
-export type AppLogEntryType = AppLogEntry['type'];
-export type AppLogEntryOfType<T extends AppLogEntryType> = Extract<AppLogEntry, { type: T }>;
 export interface AppLogContext { readonly projectRoot: string }
 
 export function readAppLogEntries(projectRoot: string): AppLogEntry[];

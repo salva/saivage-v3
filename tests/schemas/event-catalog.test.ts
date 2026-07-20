@@ -1,6 +1,15 @@
 import { describe, expect, it } from '@jest/globals';
 import { buildLoggedEventSchema, EventRegistry, eventKindValues, payloadSchemaByKind } from '../../src/schemas/event-catalog.js';
-import { appLogEntrySchema } from '../../src/persistence/app-log.js';
+import { appLogEntrySchema } from '../../src/contracts/app-log.js';
+import type { EventKind, LoggedEvent, LoggedEventByKind, RuntimeActionableErrorEvent } from '../../src/schemas/index.js';
+import { allRepresentativeLoggedEvents, representativeLoggedEvents } from '../helpers/logged-events.js';
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+type Assert<T extends true> = T;
+type AllKindsPresent = { [K in EventKind]: [LoggedEventByKind[K]] extends [never] ? false : true }[EventKind];
+type _LoggedKindsEqualCatalog = Assert<Equal<LoggedEvent['kind'], EventKind>>;
+type _NoLoggedKindIsNever = Assert<Equal<AllKindsPresent, true>>;
+type _ActionablePayloadRemainsOpen = Assert<Equal<RuntimeActionableErrorEvent['actionable_error'], Record<string, unknown>>>;
 
 describe('EventRegistry', () => {
   it('keeps the exact v1 event catalog, including replay-only append notifications', () => {
@@ -24,6 +33,21 @@ describe('EventRegistry', () => {
     const data = { id: `event-${kind}`, kind, timestamp: '2026-01-01T00:00:00.000Z', record: { durable: true } };
     expect(buildLoggedEventSchema(kind).parse(data)).toEqual(data);
     expect(appLogEntrySchema.parse({ id: data.id, timestamp: data.timestamp, type: 'event', data })).toEqual({ id: data.id, timestamp: data.timestamp, type: 'event', data });
+  });
+
+  it('accepts representative logged events and app-log entries for all 12 static variants', () => {
+    expect(allRepresentativeLoggedEvents).toHaveLength(12);
+    for (const data of allRepresentativeLoggedEvents) {
+      expect(buildLoggedEventSchema(data.kind).parse(data)).toEqual(data);
+      expect(appLogEntrySchema.parse({ id: data.id, timestamp: data.timestamp, type: 'event', data }).data).toEqual(data);
+    }
+    expect(representativeLoggedEvents.conversation_changed).toMatchObject({ message_id: expect.any(String), message_kind: expect.any(String), role: expect.any(String), message_timestamp: expect.any(String) });
+  });
+
+  it.each([{}, { message: null }, { message: 'fix this' }])('retains open runtime actionable-error acceptance: %p', (actionable_error) => {
+    const data = { ...representativeLoggedEvents.runtime_actionable_error, actionable_error };
+    expect(buildLoggedEventSchema('runtime_actionable_error').parse(data)).toEqual(data);
+    expect(appLogEntrySchema.safeParse({ id: data.id, timestamp: data.timestamp, type: 'event', data }).success).toBe(true);
   });
 
   it('does not contain removed legacy runtime, session, or LLM event kinds', () => {
