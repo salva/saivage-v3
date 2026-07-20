@@ -7,6 +7,7 @@ import { createAnalystMutationServices } from '../../src/application/analyst-mut
 import { CardService } from '../../src/cards/card-service.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import { initProjectTree, testAnalystMutationServices } from '../helpers/canonical-project.js';
+import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 
 const FIRST = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const SECOND = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -166,5 +167,20 @@ describe('other Analyst mutation facets', () => {
       expect(cards.readRecord(card.id, 'brief.md', 'latest').artifact.content).toContain('Newest');
       expect(cards.readRecord(card.id, 'brief.md', 'latest').artifact.content).not.toContain('Fresh current');
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('admits only typed open-record absence and propagates strict read failures', () => {
+    const card = { id: FIRST, type: 'code', parent: 'project', status: 'backlog' } as CardRecord;
+    const base = { read: () => card, recordReader: { record: jest.fn() } };
+    const content = '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew';
+    const path = `record:///brief.md?card=${FIRST}&v=next`;
+
+    const absentStore = { ...base, readRecord: () => { throw new AuthoredRecordNotFoundError(); }, openRecord: jest.fn(() => { throw new Error('OPEN_REACHED'); }) } as unknown as CardService;
+    expect(() => services(absentStore).briefRecords.write(path, content)).toThrow('OPEN_REACHED');
+
+    const hostile = new Error('HOSTILE_STRICT_READ');
+    const failedStore = { ...base, readRecord: () => { throw hostile; }, openRecord: jest.fn() } as unknown as CardService;
+    expect(() => services(failedStore).briefRecords.write(path, content)).toThrow(hostile);
+    expect(failedStore.openRecord).not.toHaveBeenCalled();
   });
 });

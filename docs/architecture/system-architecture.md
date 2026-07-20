@@ -35,7 +35,7 @@ Successful-path visibility checks occur only after the confirmed parent-link app
 Saivage-owned persistence is direct stateless synchronous file I/O by the domain or actor owner:
 
 - `card-files.ts` owns direct deterministic child-namespace claiming, complete initial stream publication/proof, exact `card.jsonl` reads, append-only card versions/history, cumulative child links, and terminal tombstone rows.
-- `authored-record-files.ts` owns exact append-only `brief.jsonl`, `status.jsonl`, and `review.jsonl` streams. The initial brief is closed logical version 1; status and review use their strict open/edit/terminal revision transitions.
+- `authored-record-files.ts` owns exact append-only `brief.jsonl`, `status.jsonl`, and `review.jsonl` streams. The initial brief is closed logical version 1; status and review use their strict open/edit/terminal revision transitions. `readAuthoredRecord()` emits the concrete `AuthoredRecordNotFoundError` only for a cleanly absent card or selector after strict direct reads; malformed canonical data, required-file absence, I/O errors, and invariants retain their original failures. Optional runtime, workspace, and tool consumers catch only that concrete type.
 - `conversation-file.ts` owns one stable append-only conversation per role session.
 - `app-log.ts` owns the one strict unified append/read format for event, error, control-action, provider-exchange, and content-review entries. Domain producers construct those rows and own any post-commit effects; the app-log context contains only the project root.
 - `ResolvedConfigAuthority` owns selected YAML document reads, effective validation, and config mutation orchestration; `config-file.ts` owns canonical atomic replacement.
@@ -227,9 +227,15 @@ Exact invalidation checks the target against accepted loaded/visible state: chil
 
 `CardsView` derives the finite ancestor-parent chain from the one current stable route grammar; bootstrap, not the view, owns root loading. Reveal follows only edges represented by accepted non-stale slices, loading an idle required parent in order. A stale or failed ancestor stops traversal. After a successful hierarchy replacement, the view compares replaced parent keys with the current route's stable-ID ancestor-parent chain and invokes the existing reveal action once only when relevant. That fresh action-local token can traverse multiple newly represented levels, sharing in-flight owners and loading only next idle slices, bounded by five card-ID segments. Irrelevant replacements do nothing; a failed-stale slice waits for explicit Retry, whose successful replacement may trigger one later continuation. The action-local monotonic token is ephemeral async ownership only: after every await and before a later request, a superseded invocation stops. Root/current-invalid routes clear selected route ownership and supersede reveal without aborting shared hierarchy work. Current-valid terminal not-found retains route ownership but closes subordinate admission. Detail presentation binds success/loading/error exactly to route and detail identity, so a remount cannot paint a prior route. Recovery is explicit user `push` to Cards root with ordinary history; there is no compatibility resolver, redirect, probing, or normalization. The layout chain remains the bounded workspace stack → flex-column workspace content → optional non-growing auth banner → remaining-space route host → contained Cards route → independently scrolling tree and detail panes.
 
-The backend operator boundary mirrors those disjoint resources. Operator-card `allowedActions` derive from the reduced canonical action schema and the role/action/state permission matrix, whose action vocabulary is exactly `card.start`, `card.create`, `card.cancel`, `card.delete`, and `card.reorder_child`; there is no `card.restart`, and blocked has no projected start action. Projections do not add capabilities outside that authority. `proveActiveCardPath()` derives and validates the exact committed root-to-target path once and returns the target's one call-local `CardArtifactIndex`. Hierarchy then reads each exact committed immediate child stream once; detail performs no post-proof read; history list, entry, and diff derive from that same target index without target rereads; and current authored-record access alone reads one exact selected slot stream after path proof. At depth `d`, detail/history operations read `d + 1` card streams; hierarchy adds one card-stream read for each committed immediate child ID; authored record adds one selected slot read. No operation enumerates siblings, reads unrelated streams, retains an index, or introduces a repository/cache lifecycle.
+The backend operator boundary mirrors those disjoint resources. Operator-card `allowedActions` derive from the reduced canonical action schema and the role/action/state permission matrix, whose action vocabulary is exactly `card.start`, `card.create`, `card.cancel`, `card.delete`, and `card.reorder_child`; there is no `card.restart`, and blocked has no projected start action. Projections do not add capabilities outside that authority. `proveActiveCardPath()` derives and validates the exact committed root-to-target path once and returns the target's one call-local `CardArtifactIndex`. Hierarchy then reads each exact committed immediate child stream once; detail performs no post-proof read; history list, entry, and diff derive from that same target index without target rereads; and current authored-record access alone reads one exact selected slot stream after path proof. `WorkspaceFileReadModelService` validates the complete exposed `record:///` URL before its one read, maps only concrete authored-record absence or a found non-closed numeric revision to the fixed 404, and lets every strict read failure cross the contract handler boundary. At depth `d`, detail/history operations read `d + 1` card streams; hierarchy adds one card-stream read for each committed immediate child ID; authored record adds one selected slot read. No operation enumerates siblings, reads unrelated streams, retains an index, or introduces a repository/cache lifecycle.
 
-The hand-authored shared Zod `operatorApiContracts` registry is the sole operator REST contract authority for the backend and web. Its exact public set is the liveness and readiness contracts; every registry path under `/api/*` is `operator-session`, reports authenticated inventory metadata, and maps status 401 to the shared `UnauthorizedErrorSchema`. `ContractRuntime` applies that auth class before parsing untrusted requests or dispatching handlers, then validates parsed handler values and each returned body against the schema selected by its runtime status code. Disabled auth remains a successful operator-session policy result rather than a second public route class. Operation-indexed handler and read-model types are compile-time projections of that same registry, including transformed request values, exact success bodies, declared non-200 bodies, and complete operation ownership; they are not a second contract. Operator route composition supplies required production dependencies directly, including the runtime application and startup-selected configuration required by chat handlers and the card service required by file-record reads. The two hand-mounted internal debug `/api/*` routes use the same `AuthPolicy` directly, `/ws` retains ticket-or-disabled admission, and static SPA/docs/assets remain outside the operator registry. There is no OpenAPI document, code generator, generated client/server source, declaration snapshot, or generation/staleness workflow.
+The hand-authored shared Zod `operatorApiContracts` registry is the sole operator REST contract authority for the backend and web. Its exact public set is the liveness and readiness contracts; every registry path under `/api/*` is `operator-session`, reports authenticated inventory metadata, and maps status 401 to the shared `UnauthorizedErrorSchema`. Disabled auth remains a successful operator-session policy result rather than a second public route class. Operation-indexed handler and read-model types are compile-time projections of that same registry, including transformed request values, exact success bodies, declared non-200 bodies, and complete operation ownership; they are not a second contract.
+
+`ContractRuntime` owns each registry operation from authentication evaluation through request parsing/transforms, validated canonical card/session failure-identity projection, permission evaluation, handler execution, selected response validation, fixed contract-violation publication, and successful-response audit publication. One outer catch maps a throw in any of those pre-send phases to the strict shared unexpected-500 body and an allowlisted operation/phase/validated-identity log. Ordinary 400/401/403 decisions stay typed. Handlers receive a narrow reply capability limited to headers and the raw finish acknowledgement hook; they cannot select status or send. The runtime computes one descriptor, leaves the catch, and performs one final send. It does not catch or recover from final-send, serializer, framework, socket, or later transport failures, and there is no generic error service.
+
+`createServerServices()` owns the server's one `EventBus`; `createServer()` passes that exact reference through `registerServerRoutes()` and `registerOperatorContractRoutes()` into required `ContractRuntime` composition. There is no optional bus or route-local replacement. Contract-violation and audit effects execute before final send and are part of operation success. Route composition likewise requires the application-owned `ProcessRunner`; an unavailable-runner HTTP branch is not a production state. Other required production dependencies include the runtime application and startup-selected configuration for chat handlers and the card service for file-record reads.
+
+The two directly mounted internal debug `/api/*` routes have no authentication pre-handler. Doctor and Supervision each evaluate the same `AuthPolicy` as the first operation inside its own complete pre-send descriptor boundary, preserve normal denial as the typed 401, and map a thrown evaluation to the shared opaque 500 with fixed `auth_evaluation_failed` logging. Doctor's card-load check alone may become a successful fixed-text `issues_found` diagnostic. Each route performs one final send outside its catch and makes no transport-recovery claim. `/ws` retains its separate ticket-or-disabled admission, and static SPA/docs/assets remain outside the operator registry. There is no OpenAPI document, code generator, generated client/server source, declaration snapshot, or generation/staleness workflow.
 
 `CardService.listCardHistory()`, `getCardHistoryEntry()`, and `diffCardHistory()` are the singular domain history resources, and `card-history-provider.ts` is the sole tool implementation. “Card history” means embedded `CardHistoryEntry` snapshots in `card.jsonl`, ordered newest first for list projection; it never means `brief.jsonl`, `status.jsonl`, or `review.jsonl` revisions. One shared positive-safe-integer schema validates every numeric tool, application/read-model, and domain sequence before exact reads. HTTP route/query parsing accepts only transformed canonical positive ASCII decimal strings with no sign, leading zero, fraction, suffix, whitespace, exponent, non-ASCII digit, or unsafe value; diff additionally accepts `last` and `current`. Syntax failures are 400 before handlers or reads, and resolved `from > to` is a separate semantic 400.
 
@@ -266,36 +272,36 @@ This appendix is maintained as source-derived reference data for documentation d
 |---|---|---|
 | `GET /api/agents` | Agent session list projection. | `src/contracts/operator-api-agents.ts:66` |
 | `GET /api/agents/:id` | Agent session detail projection. | `src/contracts/operator-api-agents.ts:76` |
-| `GET /api/agents/:id/conversation` | Agent conversation projection. | `src/contracts/operator-api-agents.ts:87` |
-| `GET /api/agents/:id/llm-exchange` | Agent provider-exchange projection. | `src/contracts/operator-api-agents.ts:98` |
+| `GET /api/agents/:id/conversation` | Agent conversation projection. | `src/contracts/operator-api-agents.ts:88` |
+| `GET /api/agents/:id/llm-exchange` | Agent provider-exchange projection. | `src/contracts/operator-api-agents.ts:100` |
 | `POST /api/auth/ws-ticket` | WebSocket ticket issuance. | `src/contracts/operator-api-auth.ts:20` |
 | `GET /api/chats` | Analyst session list. | `src/contracts/operator-api-chats.ts:59` |
 | `GET /api/chats/:sessionId` | Analyst transcript. | `src/contracts/operator-api-chats.ts:69` |
 | `POST /api/chats/:sessionId` | Analyst turn submission. | `src/contracts/operator-api-chats.ts:80` |
-| `GET /api/config` | Operator-session redacted configuration. | `src/contracts/operator-api-config.ts:71` |
-| `GET /api/providers` | Operator-session provider routing projection. | `src/contracts/operator-api-config.ts:81` |
-| `GET /api/control-actions` | Operator-session control-action projection. | `src/contracts/operator-api-config.ts:91` |
-| `GET /api/events` | Operator-session event timeline. | `src/contracts/operator-api-events.ts:33` |
+| `GET /api/config` | Operator-session redacted configuration. | `src/contracts/operator-api-config.ts:72` |
+| `GET /api/providers` | Operator-session provider routing projection. | `src/contracts/operator-api-config.ts:82` |
+| `GET /api/control-actions` | Operator-session control-action projection. | `src/contracts/operator-api-config.ts:92` |
+| `GET /api/events` | Operator-session event timeline. | `src/contracts/operator-api-events.ts:34` |
 | `GET /api/files` | Contained, blocked-path-filtered workspace listing. | `src/contracts/operator-api-files-debug.ts:44` |
 | `GET /api/files/content` | Contained, pre-read-admitted workspace content with outbound redaction where required. | `src/contracts/operator-api-files-debug.ts:55` |
 | `GET /api/mcp/status` | MCP status. | `src/contracts/operator-api-mcp.ts:70` |
 | `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:80` |
-| `GET /api/processes` | Operator-session process list. | `src/contracts/operator-api-processes.ts:69` |
-| `GET /api/processes/:id` | Operator-session process detail. | `src/contracts/operator-api-processes.ts:79` |
+| `GET /api/processes` | Operator-session process list. | `src/contracts/operator-api-processes.ts:70` |
+| `GET /api/processes/:id` | Operator-session process detail. | `src/contracts/operator-api-processes.ts:80` |
 | `GET /health` | Public liveness. | `src/contracts/operator-api-runtime-cards.ts:123` |
 | `GET /health/ready` | Public readiness. | `src/contracts/operator-api-runtime-cards.ts:134` |
 | `GET /api/state` | Operator runtime state without card inventory. | `src/contracts/operator-api-runtime-cards.ts:145` |
 | `GET /api/cards/:id/children` | Immediate committed active-child hierarchy slice. | `src/contracts/operator-api-runtime-cards.ts:155` |
-| `GET /api/cards/:id` | Current card detail only. | `src/contracts/operator-api-runtime-cards.ts:166` |
-| `GET /api/cards/:id/history` | Embedded card-version history headers. | `src/contracts/operator-api-runtime-cards.ts:178` |
-| `GET /api/cards/:id/history/:seq` | Embedded card-version history entry. | `src/contracts/operator-api-runtime-cards.ts:189` |
-| `GET /api/cards/:id/diff` | Embedded card-version diff. | `src/contracts/operator-api-runtime-cards.ts:200` |
-| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:212` |
-| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:222` |
-| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:232` |
-| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:242` |
-| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:252` |
-| `GET /api/runtime/card-runs` | Exact `current_card_id`, `active_breadcrumb`, and `dormant_planners` projection. | `src/contracts/operator-api-runtime-cards.ts:263` |
+| `GET /api/cards/:id` | Current card detail only. | `src/contracts/operator-api-runtime-cards.ts:167` |
+| `GET /api/cards/:id/history` | Embedded card-version history headers. | `src/contracts/operator-api-runtime-cards.ts:180` |
+| `GET /api/cards/:id/history/:seq` | Embedded card-version history entry. | `src/contracts/operator-api-runtime-cards.ts:192` |
+| `GET /api/cards/:id/diff` | Embedded card-version diff. | `src/contracts/operator-api-runtime-cards.ts:204` |
+| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:217` |
+| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:227` |
+| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:237` |
+| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:247` |
+| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:257` |
+| `GET /api/runtime/card-runs` | Exact `current_card_id`, `active_breadcrumb`, and `dormant_planners` projection. | `src/contracts/operator-api-runtime-cards.ts:268` |
 <!-- saivage:operator-routes:end -->
 
 ### Internal debug routes
@@ -303,9 +309,9 @@ This appendix is maintained as source-derived reference data for documentation d
 <!-- saivage:internal-debug-routes:start -->
 | Route | Purpose | Source |
 |---|---|---|
-| `GET /api/debug/doctor` | Authenticated internal card diagnostic. | `src/server/routes/chats-files-debug.ts:14` |
+| `GET /api/debug/doctor` | Authenticated internal card diagnostic. | `src/server/routes/chats-files-debug.ts:9` |
 | `GET /api/debug/errors` | Internal error projection. | `src/contracts/operator-api-files-debug.ts:66` |
-| `GET /api/debug/supervision` | Authenticated internal supervision projection. | `src/server/routes/chats-files-debug.ts:35` |
+| `GET /api/debug/supervision` | Authenticated internal supervision projection. | `src/server/routes/chats-files-debug.ts:49` |
 | `GET /api/debug/timeline` | Internal timeline projection. | `src/contracts/operator-api-files-debug.ts:76` |
 <!-- saivage:internal-debug-routes:end -->
 

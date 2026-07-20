@@ -42,6 +42,34 @@ describe('operator API runtime contract without runtime ledgers', () => {
     }
   });
 
+  it('uses one strict unexpected-500 schema for every mounted operation', () => {
+    const body = { error: 'InternalServerError', message: 'Internal server error' };
+    expect(contractsModule.UNEXPECTED_INTERNAL_SERVER_ERROR).toEqual(body);
+    expect(Object.isFrozen(contractsModule.UNEXPECTED_INTERNAL_SERVER_ERROR)).toBe(true);
+    for (const contract of Object.values(operatorApiContracts)) {
+      expect(contract.response[500]).toBe(contractsModule.UnexpectedInternalServerErrorSchema);
+      expect(contract.response[500].parse(body)).toEqual(body);
+      expect(contract.response[500].safeParse({ ...body, diagnostic: 'secret' }).success).toBe(false);
+      expect(contract.response[500].safeParse({ error: 'anything', message: 'secret' }).success).toBe(false);
+    }
+  });
+
+  it('declares failure identities only for canonical session and card parameters', () => {
+    const identities = Object.values(operatorApiContracts)
+      .filter((contract) => 'failureIdentity' in contract)
+      .map((contract) => ({ operationId: contract.operationId, identity: contract.failureIdentity }));
+    expect(identities).toEqual([
+      { operationId: 'cards.children', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'cards.get', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'cards.history.list', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'cards.history.get', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'cards.diff', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'agents.detail', identity: { kind: 'session', parameter: 'id' } },
+      { operationId: 'agents.conversation', identity: { kind: 'session', parameter: 'id' } },
+      { operationId: 'agents.llmExchange', identity: { kind: 'session', parameter: 'id' } },
+    ]);
+  });
+
   it('declares Pause, Resume, and Stop as bodyless while Restart retains exact confirmation', () => {
     expect(operatorApiContracts['runtime.pause']).not.toHaveProperty('body');
     expect(operatorApiContracts['runtime.resume']).not.toHaveProperty('body');

@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +7,7 @@ import { WorkspaceFileReadModelService } from '../../src/application/read-models
 import { CardService } from '../../src/cards/card-service.js';
 import { cardNamespace } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 
 function cardFilesReader(cards: CardService) {
   return {
@@ -95,6 +96,30 @@ describe('WorkspaceFileReadModelService work URLs', () => {
       },
     });
     expect(service.readFileContent('work:///')).toEqual({ statusCode: 400, body: { error: 'Path is a directory', path: 'work:///' } });
+  }));
+});
+
+describe('WorkspaceFileReadModelService record URLs', () => {
+  it('validates the complete URL before reading and maps only typed absence to fixed 404', () => withRoot((root) => {
+    const record = jest.fn(() => { throw new AuthoredRecordNotFoundError(); });
+    const service = new WorkspaceFileReadModelService(root, () => ({ ...records(), record }));
+    for (const path of [
+      'record:///bogus.md?card=project&v=latest',
+      'record:///brief.md?card=project&v=latest&extra=x',
+      'record:///brief.md?card=project&card=project&v=latest',
+      'record:///brief.md?card=INVALID&v=latest',
+      'record:///brief.md?card=project&v=open',
+      'record:///brief.md?card=project&v=1e0',
+      'record:///brief.md?card=project&v=latest#fragment',
+    ]) expect(service.readFileContent(path).statusCode).toBe(400);
+    expect(record).not.toHaveBeenCalled();
+    expect(service.readFileContent('record:///brief.md?card=project&v=latest')).toEqual({ statusCode: 404, body: { error: 'Closed record not found.', path: 'record:///brief.md?card=project&v=latest' } });
+  }));
+
+  it('propagates hostile non-absence reader failures unchanged', () => withRoot((root) => {
+    const hostile = Object.assign(new Error('HOSTILE_RECORD_FAILURE'), { token: 'HOSTILE_TOKEN' });
+    const service = new WorkspaceFileReadModelService(root, () => ({ ...records(), record: () => { throw hostile; } }));
+    expect(() => service.readFileContent('record:///brief.md?card=project&v=latest')).toThrow(hostile);
   }));
 });
 

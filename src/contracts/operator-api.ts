@@ -92,8 +92,10 @@ export {
   HttpMethodSchema,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
+  UnexpectedInternalServerErrorSchema,
+  UNEXPECTED_INTERNAL_SERVER_ERROR,
 } from './operator-api-core.js';
-export type { ContractAuthClass, HttpMethod, OperatorRouteContract } from './operator-api-core.js';
+export type { ContractAuthClass, ContractFailureIdentity, HttpMethod, OperatorRouteContract, UnexpectedInternalServerError } from './operator-api-core.js';
 export {
   AvailabilityComponentSchema,
   AvailabilityComponentSourceSchema,

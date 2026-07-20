@@ -11,6 +11,10 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { ProcessLogRefsSchema } from '../../src/contracts/operator-api-processes.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { EventBus } from '../../src/events/index.js';
+import { processesOperatorApiContracts } from '../../src/contracts/operator-api-processes.js';
+import { ContractRuntime } from '../../src/server/contract-runtime.js';
+import { buildProcessOperatorContractHandlers } from '../../src/server/routes/operator-process-handlers.js';
 
 const providerRoutingReadModelProvider = () => ({ availabilityScope: 'process_local_reset_on_restart' as const, providers: {} });
 function runtimeApplication(processRunner: ProcessRunner): RuntimeApplication {
@@ -35,7 +39,7 @@ describe('contract-backed process routes', () => {
       const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'route-test', 'runtime_card');
       const record = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerId: 'runtime-owner', ownerKind: 'runtime' });
       await processRunner.waitForSettlement(record.id);
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: runtimeApplication(processRunner), saivageConfig: TEST_SAIVAGE_CONFIG, providerRoutingReadModelProvider, authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: runtimeApplication(processRunner), saivageConfig: TEST_SAIVAGE_CONFIG, providerRoutingReadModelProvider, authPolicy: new AuthPolicy(), eventBus: new EventBus() });
 
       const list = await fastify.inject({ method: 'GET', url: '/api/processes' });
       expect(list.statusCode).toBe(200);
@@ -70,7 +74,7 @@ describe('contract-backed process routes', () => {
     const fastify = Fastify({ logger: false });
     try {
       const processRunner = createTestProcessRunner(projectRoot);
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: runtimeApplication(processRunner), saivageConfig: TEST_SAIVAGE_CONFIG, providerRoutingReadModelProvider, authPolicy: new AuthPolicy() });
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: runtimeApplication(processRunner), saivageConfig: TEST_SAIVAGE_CONFIG, providerRoutingReadModelProvider, authPolicy: new AuthPolicy(), eventBus: new EventBus() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });
       expect(response.statusCode).toBe(404);
@@ -78,6 +82,37 @@ describe('contract-backed process routes', () => {
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('lets list and projection failures reach the strict contract boundary while retaining typed absence', async () => {
+    const marker = 'hostile-process-read-token';
+    const failure = Object.assign(new Error(marker), { token: marker, path: `/secret/${marker}` });
+    const processRunner = {
+      list: () => { throw failure; },
+      get: (id: string) => id === 'missing' ? undefined : (() => { throw failure; })(),
+    } as unknown as ProcessRunner;
+    const handlers = buildProcessOperatorContractHandlers({ projectRoot: '/secret/project', processRunner });
+    const fastify = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventBus: new EventBus() }).mount(
+      fastify,
+      processesOperatorApiContracts,
+      handlers,
+    );
+    try {
+      const list = await fastify.inject({ method: 'GET', url: '/api/processes' });
+      const detail = await fastify.inject({ method: 'GET', url: '/api/processes/process-1' });
+      const missing = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });
+
+      for (const response of [list, detail]) {
+        expect(response.statusCode).toBe(500);
+        expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+        expect(response.body).not.toContain(marker);
+      }
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json()).toEqual({ error: 'Process not found', processId: 'missing' });
+    } finally {
+      await fastify.close();
     }
   });
 });

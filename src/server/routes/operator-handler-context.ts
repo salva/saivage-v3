@@ -10,7 +10,6 @@ import type { RuntimeApi } from '../../runtime/control-api.js';
 import type { CardService } from '../../cards/card-api.js';
 import type { buildServerAvailability } from '../availability.js';
 import type { ContractRequestContext } from '../contract-runtime.js';
-import type { ProcessRunner } from '../../runtime/process-runner.js';
 import type { RestartPort } from '../../boot/restart-port.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 
@@ -33,7 +32,6 @@ export type OperatorServerAvailabilityProvider = () => ReturnType<typeof buildSe
 
 export interface OperatorProjectContext {
   projectRoot: string;
-  processRunner?: ProcessRunner;
 }
 
 export interface OperatorCardServiceContext {

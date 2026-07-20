@@ -20,6 +20,7 @@ import type { ProviderExchangePayload } from '../../src/contracts/provider-excha
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
+import { EventBus } from '../../src/events/index.js';
 
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 const timestamp = '2026-07-17T00:00:00.000Z';
@@ -55,7 +56,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const snapshots = jest.fn(() => { throw new Error('must not capture'); });
     const fastify = Fastify({ logger: false });
     const handlers = buildAgentOperatorContractHandlers({ projectRoot: '/nonexistent', runtimeApplication: { captureExecutingLlmSnapshots: snapshots } as unknown as RuntimeApplication });
-    new ContractRuntime({ authPolicy: new AuthPolicy() }).mount(fastify, agentOperatorApiContracts, handlers);
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventBus: new EventBus() }).mount(fastify, agentOperatorApiContracts, handlers);
     try {
       for (const path of [`/api/agents/${encodeURIComponent(id)}`, `/api/agents/${encodeURIComponent(id)}/conversation`, `/api/agents/${encodeURIComponent(id)}/llm-exchange`]) {
         const response = await fastify.inject({ method: 'GET', url: path });
@@ -110,7 +111,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     expect(request.log.error).not.toHaveBeenCalled();
   });
 
-  it('returns and logs only stable non-sensitive data when a canonical read fails', async () => {
+  it('lets a canonical read failure reach ContractRuntime for one strict non-sensitive response', async () => {
     const secret = 'tok_malformed_duplicate_secret';
     const root = projectRoot('saivage-secret-project-path-');
     const payload = { ...sensitiveExchange('ok'), source_input_id: secret, attempt_index: 0 };
@@ -121,23 +122,27 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const line = serializeGrowingEnvelope([entry], appLogEntrySchema);
     mkdirSync(dirname(appLogFile(root)), { recursive: true });
     writeFileSync(appLogFile(root), Buffer.concat([line, line]));
-    const error = jest.fn();
     const handlers = buildAgentOperatorContractHandlers({ projectRoot: root });
-
-    const result = await handlers['agents.llmExchange']!({ params: { id: 'planner:project' }, request: { log: { error } } } as never);
-
-    expect(result).toEqual({ statusCode: 500, body: { error: 'Failed to read LLM exchange' } });
-    expect(error).toHaveBeenCalledTimes(1);
-    expect(error).toHaveBeenCalledWith(
-      { sessionId: 'planner:project', operation: 'agents.llmExchange' },
-      'Failed to read LLM exchange',
+    const fastify = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventBus: new EventBus() }).mount(
+      fastify,
+      { 'agents.llmExchange': agentOperatorApiContracts['agents.llmExchange'] },
+      { 'agents.llmExchange': handlers['agents.llmExchange']! },
     );
-    const output = JSON.stringify({ loggerArguments: error.mock.calls, body: result.body });
-    expect(output).not.toContain(secret);
-    expect(output).not.toContain(root);
-    expect(output).not.toContain('duplicate');
-    expect(output).not.toContain('stack');
-    expect(output).not.toContain('Error');
+
+    try {
+      await expect(handlers['agents.llmExchange']!({ params: { id: 'planner:project' } } as never)).rejects.toThrow();
+      const response = await fastify.inject({ method: 'GET', url: '/api/agents/planner%3Aproject/llm-exchange' });
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+      const output = response.body;
+      expect(output).not.toContain(secret);
+      expect(output).not.toContain(root);
+      expect(output).not.toContain('duplicate');
+      expect(output).not.toContain('stack');
+    } finally {
+      await fastify.close();
+    }
   });
 });
 

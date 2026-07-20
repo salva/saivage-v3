@@ -4,6 +4,7 @@ import {
   ForbiddenErrorSchema,
   operatorSessionContract,
   UnauthorizedErrorSchema,
+  UnexpectedInternalServerErrorSchema,
   ValidationErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
@@ -22,7 +23,7 @@ export const authOperatorApiContracts = {
     path: '/api/auth/ws-ticket',
     success: WebSocketTicketResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: WebSocketTicketResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
+    response: { 200: WebSocketTicketResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'WebSocketTicketResponse',
   },

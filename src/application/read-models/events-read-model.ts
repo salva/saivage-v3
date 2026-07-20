@@ -26,8 +26,4 @@ export class EventsReadModelService {
     const events = allMatching.slice(offset, offset + limit);
     return { events, total };
   }
-
-  errorMessage(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
-  }
 }

@@ -1,6 +1,5 @@
 import { GLOBAL_ANALYST_SESSION_ID } from '../../schemas/index.js';
 import { AgentOperatorReadModelService } from '../../application/read-models/index.js';
-import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import type {
   OperatorProjectContext,
 } from './operator-handler-context.js';
@@ -36,24 +35,20 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
     },
     'chats.send': async ({ body, reply }) => {
       if (!body.content) return { statusCode: 400, body: { error: 'Message content is required' } };
-      try {
-        const response = await options.runtimeApplication.analystRuntime.submit({ userContent: body.content, workspaceContext: body.workspaceContext, actor: 'analyst', surface: 'web-chat' });
-        const result = {
-          body: {
-            sessionId: response.sessionId,
-            toolInvocations: response.toolInvocations ?? [],
-            restart: response.restart,
-          },
-        };
-        if (response.restart?.status === 'scheduled') {
-          const restartPort = options.restartPort;
-          if (!restartPort) throw new Error('Scheduled restart response requires an application-owned restart port.');
-          reply.raw.once('finish', () => { void restartPort.acknowledge(); });
-        }
-        return result;
-      } catch (err) {
-        return { statusCode: 500, body: { error: 'Failed to process chat message', message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot) } };
+      const response = await options.runtimeApplication.analystRuntime.submit({ userContent: body.content, workspaceContext: body.workspaceContext, actor: 'analyst', surface: 'web-chat' });
+      const result = {
+        body: {
+          sessionId: response.sessionId,
+          toolInvocations: response.toolInvocations ?? [],
+          restart: response.restart,
+        },
+      };
+      if (response.restart?.status === 'scheduled') {
+        const restartPort = options.restartPort;
+        if (!restartPort) throw new Error('Scheduled restart response requires an application-owned restart port.');
+        reply.raw.once('finish', () => { void restartPort.acknowledge(); });
       }
+      return result;
     },
   });
 }

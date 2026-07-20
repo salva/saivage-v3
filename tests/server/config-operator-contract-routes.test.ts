@@ -1,8 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 import Fastify from 'fastify';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { operatorRouteInventory } from '../../src/contracts/operator-api.js';
 import { recordControlAction } from '../../src/persistence/index.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
@@ -16,6 +16,8 @@ import { MemoryCandidateAvailability } from '../../src/agents/candidate-availabi
 import { buildProviderRoutingReadModel } from '../../src/agents/provider-routing-read-model.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
+import { EventBus } from '../../src/events/index.js';
+import { appLogFile } from '../../src/persistence/layout.js';
 
 function testConfig(): SaivageConfig {
   return saivageConfigSchema.parse({
@@ -50,6 +52,7 @@ function routeCompositionDependencies() {
       analystRuntime: { submit: async () => { throw new Error('Analyst runtime is not used by config route tests.'); } },
       captureExecutingLlmSnapshots: () => [],
     } as unknown as RuntimeApplication,
+    eventBus: new EventBus(),
   };
 }
 
@@ -180,7 +183,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
       const providersResponse = await fastify.inject({ method: 'GET', url: '/api/providers' });
 
       expect(configResponse.statusCode).toBe(500);
-      expect(configResponse.json()).toEqual({ error: 'Configuration unavailable', message: expect.stringContaining('Configuration not found') });
+      expect(configResponse.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
       expect(providersResponse.statusCode).toBe(200);
       expect(providersResponse.json()).toEqual(providerRoutingReadModelProvider()());
     } finally {
@@ -204,10 +207,38 @@ describe('contract-backed config/providers/control-actions routes', () => {
       const response = await fastify.inject({ method: 'GET', url: '/api/config' });
 
       expect(response.statusCode).toBe(500);
-      expect(response.json()).toEqual({
-        error: 'Configuration unavailable',
-        message: expect.stringContaining('Effective Analyst max tokens 201 (source: analyst) exceed reserved completion tokens 200'),
+      expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+    } finally {
+      await fastify.close();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('contains hostile Config and Control Actions failures only at ContractRuntime', async () => {
+    const marker = 'hostile-config-control-token';
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-config-control-hostile-'));
+    const fastify = Fastify({ logger: false });
+    try {
+      mkdirSync(dirname(appLogFile(projectRoot)), { recursive: true });
+      writeFileSync(appLogFile(projectRoot), `{"marker":"${marker}"}\n`);
+      const configAuthority = {
+        loadEffective: () => { throw Object.assign(new Error(marker), { token: marker, path: `/secret/${marker}` }); },
+      };
+      registerOperatorContractRoutes({
+        fastify,
+        projectRoot,
+        configAuthority: configAuthority as never,
+        ...routeCompositionDependencies(),
+        providerRoutingReadModelProvider: providerRoutingReadModelProvider(),
+        authPolicy: new AuthPolicy(),
       });
+
+      for (const url of ['/api/config', '/api/control-actions']) {
+        const response = await fastify.inject({ method: 'GET', url });
+        expect(response.statusCode).toBe(500);
+        expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+        expect(response.body).not.toContain(marker);
+      }
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });

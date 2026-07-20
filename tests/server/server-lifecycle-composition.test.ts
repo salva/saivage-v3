@@ -11,6 +11,7 @@ import { createServerServices } from '../../src/server/composition/server-servic
 import { initProjectTree } from '../helpers/canonical-project.js';
 import * as YAML from 'yaml';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { registerServerRoutes } from '../../src/server/composition/route-composition.js';
 
 function config(): SaivageConfig {
   return {
@@ -26,6 +27,52 @@ function config(): SaivageConfig {
 }
 
 describe('server lifecycle composition', () => {
+  it('threads the exact server-owned EventBus through route composition and publishes contract violations on it', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-server-event-bus-'));
+    const terminal = createAppTerminalCoordinator();
+    let stopped = false;
+    try {
+      initProjectTree(projectRoot);
+      writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), validConfigYaml());
+      const environment = await loadEnvironment(['node', 'test', '--project-root', projectRoot], { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined });
+      const services = await createServerServices({ environment, terminal, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' } });
+      const published: unknown[] = [];
+      const exactBusEmit = jest.spyOn(services.eventBus, 'emit');
+      services.eventBus.subscribe('runtime_actionable_error', (event) => { published.push(event.payload); });
+      jest.spyOn(services.runtimeApplication, 'getProviderRoutingReadModel').mockReturnValue({ invalid: 'response' } as never);
+
+      registerServerRoutes({
+        fastify: services.fastify,
+        projectRoot: services.projectRoot,
+        cardStore: services.cardStore,
+        runtimeApplication: services.runtimeApplication,
+        mcpManager: services.mcpManager,
+        configAuthority: environment.configAuthority,
+        saivageConfig: services.config,
+        liveSyncSocket: services.liveSyncSocket,
+        authPolicy: services.authPolicy,
+        eventBus: services.eventBus,
+      });
+
+      const response = await services.fastify.inject({ method: 'GET', url: '/api/providers' });
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+      expect(exactBusEmit).toHaveBeenCalledWith('runtime_actionable_error', expect.any(Object));
+      expect(published).toEqual([expect.objectContaining({
+        actionable_error: expect.objectContaining({
+          code: 'contract_response_violation',
+          currentState: expect.objectContaining({ operation: 'providers.list' }),
+        }),
+      })]);
+
+      expect((await terminal.stop()).warnings).toEqual([]);
+      stopped = true;
+    } finally {
+      if (!stopped) await terminal.stop();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('serves built web assets instead of falling through to the SPA shell', async () => {
     const assetDir = join(process.cwd(), 'web', 'dist', 'assets');
     const assetName = existsSync(assetDir) ? readdirSync(assetDir).find((name) => name.endsWith('.js')) : undefined;

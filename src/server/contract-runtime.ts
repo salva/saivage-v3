@@ -1,8 +1,12 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest, RouteOptions } from 'fastify';
+import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
 import type { z } from 'zod';
 import type { AuthPolicy } from './auth-policy.js';
 import type { EventBus, EventKind } from '../events/index.js';
-import type { OperatorRouteContract } from '../contracts/index.js';
+import {
+  UNEXPECTED_INTERNAL_SERVER_ERROR,
+  type OperatorRouteContract,
+} from '../contracts/index.js';
+import { ConversationSessionIdSchema, cardIdSchema } from '../schemas/index.js';
 
 type ContractSchemaOutput<
   TContract extends OperatorRouteContract,
@@ -27,8 +31,13 @@ export type ContractPermissionPredicate<TContract extends OperatorRouteContract 
   context: ContractPermissionContext<TContract>,
 ) => boolean | { allowed: true } | { allowed: false; reason?: string } | Promise<boolean | { allowed: true } | { allowed: false; reason?: string }>;
 
+export interface ContractPreSendReply {
+  readonly raw: { once(event: string, listener: (...args: unknown[]) => void): unknown };
+  header(name: string, value: string | number | string[] | undefined): void;
+}
+
 export interface ContractRequestContext<TContract extends OperatorRouteContract = OperatorRouteContract> extends ContractPermissionContext<TContract> {
-  reply: FastifyReply;
+  reply: ContractPreSendReply;
 }
 
 export type ContractHandler<TContract extends OperatorRouteContract = OperatorRouteContract> = (
@@ -41,9 +50,23 @@ export interface ContractHandlerResult {
 }
 
 export interface ContractRuntimeOptions {
-  eventBus?: EventBus;
+  eventBus: EventBus;
   authPolicy: AuthPolicy;
 }
+
+type FailureCode =
+  | 'auth_evaluation_failed'
+  | 'request_validation_failed'
+  | 'failure_identity_projection_failed'
+  | 'permission_evaluation_failed'
+  | 'handler_failed'
+  | 'response_validation_failed'
+  | 'contract_violation_event_failed'
+  | 'audit_publication_failed';
+
+type SafeFailureIdentity = { sessionId: string } | { cardId: string } | Record<never, never>;
+type ResponseDescriptor = { statusCode: number; body: unknown };
+const RESPONSE_CONTRACT_VIOLATION = Symbol('response-contract-violation');
 
 function zodIssues(error: z.ZodError): Array<{ path: string; message: string }> {
   return error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }));
@@ -65,14 +88,6 @@ function forbiddenBody(reason?: string): Record<string, unknown> {
   return { error: 'Forbidden', statusCode: 403, ...(reason ? { message: reason } : {}) };
 }
 
-function internalErrorBody(message = 'Internal server error'): Record<string, unknown> {
-  return { error: 'InternalServerError', message };
-}
-
-function contractViolationBody(operationId: string): Record<string, unknown> {
-  return { error: 'ContractViolation', message: `${operationId} response did not match the operator API contract` };
-}
-
 function schemaForStatus(contract: OperatorRouteContract, statusCode: number): z.ZodTypeAny | undefined {
   return contract.response?.[statusCode] ?? (statusCode >= 200 && statusCode < 300 ? contract.success : contract.error);
 }
@@ -87,7 +102,7 @@ export function defineContract<TContract extends OperatorRouteContract>(contract
 }
 
 export class ContractRuntime {
-  private readonly eventBus?: EventBus;
+  private readonly eventBus: EventBus;
   private readonly authPolicy: AuthPolicy;
 
   constructor(options: ContractRuntimeOptions) {
@@ -113,39 +128,89 @@ export class ContractRuntime {
       method: contract.method,
       url: contract.path,
       handler: async (request, reply) => {
-        const authFailure = this.validateAuth(contract, request);
-        if (authFailure) return reply.status(401).send(this.validateEnvelope(contract, 401, authFailure));
+        let failureCode: FailureCode = 'auth_evaluation_failed';
+        let safeIdentity: SafeFailureIdentity = {};
+        let final: ResponseDescriptor;
 
-        const parsed = this.parseRequest(contract, request);
-        if (!parsed.ok) return reply.status(400).send(this.validateEnvelope(contract, 400, parsed.body));
-
-        const permissionFailure = await this.validatePermission(contract, request, parsed);
-        if (permissionFailure) return reply.status(403).send(this.validateEnvelope(contract, 403, permissionFailure));
-
-        let result: ContractHandlerResult;
         try {
-          result = await handler({ request, reply, contract, params: parsed.params, query: parsed.query, body: parsed.body });
-        } catch (err) {
-          request.log.error({ err, operationId: contract.operationId }, 'Contract handler threw');
-          return reply.status(500).send(this.validateEnvelope(contract, 500, internalErrorBody()));
-        }
-        if (reply.sent) return reply;
+          let candidate: ResponseDescriptor | undefined;
 
-        const statusCode = result.statusCode ?? 200;
-        if (statusCode === 204) return reply.status(204).send();
-        const response = this.validateResponse(contract, statusCode, result.body, request);
-        return reply.status(response.statusCode).send(response.body);
+          failureCode = 'auth_evaluation_failed';
+          if (contract.auth !== 'public') {
+            const authResult = contract.auth === 'operator-session'
+              ? this.authPolicy.validateHttpRequest(request)
+              : { ok: false as const };
+            if (!authResult.ok) candidate = { statusCode: 401, body: unauthorizedBody() };
+          }
+
+          let parsed: ParsedContractRequest<TContract> | undefined;
+          if (!candidate) {
+            failureCode = 'request_validation_failed';
+            const parsedResult = this.parseRequest(contract, request);
+            if (!parsedResult.ok) candidate = { statusCode: 400, body: parsedResult.body };
+            else parsed = parsedResult;
+          }
+
+          if (!candidate && parsed) {
+            failureCode = 'failure_identity_projection_failed';
+            safeIdentity = this.projectFailureIdentity(contract, parsed);
+
+            failureCode = 'permission_evaluation_failed';
+            const permissionFailure = await this.validatePermission(contract, request, parsed);
+            if (permissionFailure) candidate = { statusCode: 403, body: permissionFailure };
+          }
+
+          if (!candidate && parsed) {
+            failureCode = 'handler_failed';
+            const replyCapability: ContractPreSendReply = {
+              raw: reply.raw,
+              header: (name, value) => { reply.header(name, value); },
+            };
+            const result = await handler({ request, reply: replyCapability, contract, params: parsed.params, query: parsed.query, body: parsed.body });
+            candidate = { statusCode: result.statusCode ?? 200, body: result.body };
+          }
+
+          if (!candidate) throw new Error('Contract operation produced no response descriptor.');
+
+          failureCode = 'response_validation_failed';
+          const schema = schemaForStatus(contract, candidate.statusCode);
+          const parsedResponse = schema?.safeParse(candidate.body);
+          if (schema && !parsedResponse?.success) {
+            failureCode = 'contract_violation_event_failed';
+            this.eventBus.emit('runtime_actionable_error', {
+              actionable_error: {
+                code: 'contract_response_violation',
+                message: 'Operator contract response validation failed.',
+                nextAction: 'Fix the route handler to return the declared contract response shape.',
+                currentState: {
+                  operation: contract.operationId,
+                  statusCode: candidate.statusCode,
+                  failureCode: 'response_validation_failed',
+                },
+              },
+            });
+            failureCode = 'response_validation_failed';
+            throw RESPONSE_CONTRACT_VIOLATION;
+          }
+
+          final = { statusCode: candidate.statusCode, body: parsedResponse?.success ? parsedResponse.data : candidate.body };
+
+          if (contract.audit && final.statusCode >= 200 && final.statusCode < 300) {
+            failureCode = 'audit_publication_failed';
+            this.emitAudit(contract, final.statusCode, final.body, request);
+          }
+        } catch {
+          request.log.error(
+            { operation: contract.operationId, failureCode, ...safeIdentity },
+            'Operator contract operation failed',
+          );
+          final = { statusCode: 500, body: UNEXPECTED_INTERNAL_SERVER_ERROR };
+        }
+
+        return reply.status(final.statusCode).send(final.body);
       },
     };
     fastify.route(route);
-  }
-
-  private validateAuth(contract: OperatorRouteContract, request: FastifyRequest): Record<string, unknown> | null {
-    const auth = contract.auth;
-    if (auth === 'public') return null;
-    if (auth !== 'operator-session') return { error: 'Unauthorized', statusCode: 401, message: `${auth} is not available for operator routes` };
-    const result = this.authPolicy.validateHttpRequest(request);
-    return result.ok ? null : unauthorizedBody();
   }
 
   private parseRequest<TContract extends OperatorRouteContract>(contract: TContract, request: FastifyRequest):
@@ -163,6 +228,15 @@ export class ContractRuntime {
     return { ok: true, params: paramsResult?.data, query: queryResult?.data, body: bodyResult?.data };
   }
 
+  private projectFailureIdentity<TContract extends OperatorRouteContract>(contract: TContract, parsed: ParsedContractRequest<TContract>): SafeFailureIdentity {
+    if (!contract.failureIdentity) return {};
+    const params = parsed.params as unknown as Record<string, unknown>;
+    if (contract.failureIdentity.kind === 'session') {
+      return { sessionId: ConversationSessionIdSchema.parse(params[contract.failureIdentity.parameter]) };
+    }
+    return { cardId: cardIdSchema.parse(params[contract.failureIdentity.parameter]) };
+  }
+
   private async validatePermission<TContract extends OperatorRouteContract>(
     contract: TContract,
     request: FastifyRequest,
@@ -173,54 +247,17 @@ export class ContractRuntime {
     return decision.allowed ? null : forbiddenBody(decision.reason);
   }
 
-  private validateEnvelope(contract: OperatorRouteContract, statusCode: number, body: unknown): unknown {
-    const schema = schemaForStatus(contract, statusCode);
-    if (!schema) return body;
-    const parsed = schema.safeParse(body);
-    return parsed.success ? parsed.data : body;
-  }
-
-  private validateResponse(contract: OperatorRouteContract, statusCode: number, body: unknown, request: FastifyRequest): { statusCode: number; body: unknown } {
-    const schema = schemaForStatus(contract, statusCode);
-    if (!schema) return { statusCode, body };
-    const parsed = schema.safeParse(body);
-    if (parsed.success) {
-      this.emitAudit(contract, statusCode, parsed.data, request);
-      return { statusCode, body: parsed.data };
-    }
-
-    const violation = contractViolationBody(contract.operationId);
-    request.log.error({ operationId: contract.operationId, statusCode, issues: zodIssues(parsed.error) }, 'Contract response validation failed');
-    try {
-      this.eventBus?.emit('runtime_actionable_error', {
-        actionable_error: {
-          code: 'contract_response_violation',
-          message: `${contract.operationId} returned an invalid ${statusCode} response`,
-          nextAction: 'Fix the route handler to return the declared contract response shape.',
-          currentState: { operationId: contract.operationId, statusCode, issues: zodIssues(parsed.error) },
-        },
-      });
-    } catch (err) {
-      request.log.warn({ err, operationId: contract.operationId }, 'Failed to emit contract response violation event');
-    }
-    return { statusCode: 500, body: this.validateEnvelope(contract, 500, violation) };
-  }
-
   private emitAudit(contract: OperatorRouteContract, statusCode: number, body: unknown, request: FastifyRequest): void {
-    if (!contract.audit || statusCode < 200 || statusCode >= 300) return;
-    try {
-      this.eventBus?.emit(contract.audit.kind as EventKind, {
-        id: `${contract.operationId}:${Date.now()}`,
-        action: contract.audit.action ?? contract.operationId,
-        target_kind: contract.audit.targetKind ?? null,
-        target_id: contract.audit.targetId?.({ request, body }) ?? null,
-        outcome: 'success',
-        created_at: new Date().toISOString(),
-        actor: 'operator',
-        surface: 'rest',
-      } as never);
-    } catch (err) {
-      request.log.warn({ err, operationId: contract.operationId }, 'Failed to emit contract audit event');
-    }
+    if (!contract.audit) return;
+    this.eventBus.emit(contract.audit.kind as EventKind, {
+      id: `${contract.operationId}:${Date.now()}`,
+      action: contract.audit.action ?? contract.operationId,
+      target_kind: contract.audit.targetKind ?? null,
+      target_id: contract.audit.targetId?.({ request, body }) ?? null,
+      outcome: 'success',
+      created_at: new Date().toISOString(),
+      actor: 'operator',
+      surface: 'rest',
+    } as never);
   }
 }

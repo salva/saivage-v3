@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
 import { exposedRecordSlotDefinitionForFilename, recordSlotDefinitions, type RecordSlotDefinition, type RecordSlotFormat } from '../runtime/records/record-slots.js';
-import type { RecordProjection } from '../persistence/authored-record-files.js';
+import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
 type AuthoredRecordReader = { record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection };
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl } from '../contracts/scoped-path-url.js';
@@ -234,7 +234,7 @@ function recordSummaries(reader: AuthoredRecordReader, cardId: string): RecordSu
 type LatestClosedRecordEntry = RecordProjection;
 
 function latestClosedRecordEntry(reader: AuthoredRecordReader, cardId: string, definition: RecordSlotDefinition): LatestClosedRecordEntry | null {
-  try { return reader.record(cardId, definition.filename, 'latest'); } catch { return null; }
+  try { return reader.record(cardId, definition.filename, 'latest'); } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return null; throw error; }
 }
 
 export async function listScopedPath(ctx: VfsContext, raw: string): Promise<VfsListing> {

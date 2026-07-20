@@ -5,6 +5,7 @@ import {
   operatorSessionContract,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
+  UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { ServerAvailabilitySchema } from './operator-api-availability.js';
@@ -72,7 +73,7 @@ export const mcpOperatorApiContracts = {
     path: '/api/mcp/status',
     success: McpStatusResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: McpStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
+    response: { 200: McpStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'McpStatusResponse',
   },
@@ -82,7 +83,7 @@ export const mcpOperatorApiContracts = {
     path: '/api/mcp/tools',
     success: McpToolsResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: McpToolsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
+    response: { 200: McpToolsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'McpToolsResponse',
   },

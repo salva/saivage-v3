@@ -4,6 +4,7 @@ import {
   operatorSessionContract,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
+  UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
 
@@ -37,7 +38,7 @@ export const eventsOperatorApiContracts = {
     query: EventsQuerySchema,
     success: EventsListResponseSchema,
     error: EventsListFailureSchema,
-    response: { 200: EventsListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: EventsListFailureSchema },
+    response: { 200: EventsListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'EventsListResponse',
   },

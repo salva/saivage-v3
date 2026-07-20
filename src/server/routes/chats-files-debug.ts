@@ -1,59 +1,89 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { CardService } from '../../cards/card-api.js';
-import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import { listRecentReviews } from '../../workspace/index.js';
+import { UNEXPECTED_INTERNAL_SERVER_ERROR } from '../../contracts/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
 import type { AuthPolicy } from '../auth-policy.js';
 
 export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardService, authPolicy: AuthPolicy): void {
-  const requireOperator = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    if (authPolicy.validateHttpRequest(request).ok) return;
-    await reply.status(401).send({ error: 'Unauthorized', statusCode: 401 });
-  };
-
-  fastify.get('/api/debug/doctor', { preHandler: requireOperator }, async (_request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/api/debug/doctor', async (request: FastifyRequest, reply: FastifyReply) => {
+    let failureCode = 'auth_evaluation_failed';
+    let final: { statusCode: number; body: unknown };
     try {
-      const checks: DoctorCheck[] = [];
-      const issues: DoctorIssue[] = [];
+      const auth = authPolicy.validateHttpRequest(request);
+      if (!auth.ok) {
+        final = { statusCode: 401, body: { error: 'Unauthorized', statusCode: 401 } };
+      } else {
+        failureCode = 'doctor_failed';
+        const checks: DoctorCheck[] = [];
+        const issues: DoctorIssue[] = [];
 
-      try {
-        store.list();
-      } catch (err) {
-        checks.push({ name: 'cards_loadable', passed: false, details: 'Cards failed to load.' });
-        issues.push({ severity: 'error', message: `Cards failed to load: ${err instanceof Error ? err.message : String(err)}` });
-        return reply.send({ status: 'issues_found', checks, issues } as DoctorResponse);
+        try {
+          store.list();
+          checks.push({ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' });
+        } catch {
+          request.log.error(
+            { operation: 'debug.doctor', failureCode: 'cards_load_failed' },
+            'Operator Doctor card check failed',
+          );
+          checks.push({ name: 'cards_loadable', passed: false, details: 'Cards failed to load.' });
+          issues.push({ severity: 'error', message: 'Cards failed to load.' });
+        }
+
+        const allPassed = checks.every((check) => check.passed);
+        final = {
+          statusCode: 200,
+          body: { status: allPassed ? 'ok' : 'issues_found', checks, issues } as DoctorResponse,
+        };
       }
-      checks.push({ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' });
-
-      const allPassed = checks.every((c) => c.passed);
-      return reply.send({ status: allPassed ? 'ok' : 'issues_found', checks, issues } as DoctorResponse);
-    } catch (err) {
-      return reply.status(500).send({ error: 'Failed to run doctor consistency check', message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot) });
+    } catch {
+      request.log.error(
+        { operation: 'debug.doctor', failureCode },
+        'Operator Doctor operation failed',
+      );
+      final = { statusCode: 500, body: UNEXPECTED_INTERNAL_SERVER_ERROR };
     }
+    return reply.status(final.statusCode).send(final.body);
   });
 
-  fastify.get('/api/debug/supervision', { preHandler: requireOperator }, async (_request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/api/debug/supervision', async (request: FastifyRequest, reply: FastifyReply) => {
+    let failureCode = 'auth_evaluation_failed';
+    let final: { statusCode: number; body: unknown };
     try {
-      const reviews = listRecentReviews(projectRoot, 50);
-      const byRisk: Record<string, number> = {};
-      const bySourceKind: Record<string, number> = {};
-      for (const r of reviews) {
-        byRisk[r.risk] = (byRisk[r.risk] || 0) + 1;
-        bySourceKind[r.source_kind] = (bySourceKind[r.source_kind] || 0) + 1;
+      const auth = authPolicy.validateHttpRequest(request);
+      if (!auth.ok) {
+        final = { statusCode: 401, body: { error: 'Unauthorized', statusCode: 401 } };
+      } else {
+        failureCode = 'supervision_read_failed';
+        const reviews = listRecentReviews(projectRoot, 50);
+        const byRisk: Record<string, number> = {};
+        const bySourceKind: Record<string, number> = {};
+        for (const review of reviews) {
+          byRisk[review.risk] = (byRisk[review.risk] || 0) + 1;
+          bySourceKind[review.source_kind] = (bySourceKind[review.source_kind] || 0) + 1;
+        }
+        final = {
+          statusCode: 200,
+          body: {
+            reviews,
+            stats: {
+              total: reviews.length,
+              blocked: reviews.filter((review) => review.status === 'blocked').length,
+              passed: reviews.filter((review) => review.status === 'passed').length,
+              sanitized: reviews.filter((review) => review.status === 'sanitized').length,
+              byRisk,
+              bySourceKind,
+            },
+          },
+        };
       }
-      return reply.send({
-        reviews,
-        stats: {
-          total: reviews.length,
-          blocked: reviews.filter((r) => r.status === 'blocked').length,
-          passed: reviews.filter((r) => r.status === 'passed').length,
-          sanitized: reviews.filter((r) => r.status === 'sanitized').length,
-          byRisk,
-          bySourceKind,
-        },
-      });
-    } catch (err) {
-      return reply.status(500).send({ error: 'Failed to read supervision data', message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot) });
+    } catch {
+      request.log.error(
+        { operation: 'debug.supervision', failureCode },
+        'Operator Supervision operation failed',
+      );
+      final = { statusCode: 500, body: UNEXPECTED_INTERNAL_SERVER_ERROR };
     }
+    return reply.status(final.statusCode).send(final.body);
   });
 }

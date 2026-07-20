@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { operatorApiContracts, type OperatorApiOperationId, type OperatorRouteContract } from '../../src/contracts/operator-api.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime, type ContractHandler } from '../../src/server/contract-runtime.js';
+import { EventBus } from '../../src/events/index.js';
 
 const unauthorized = { error: 'Unauthorized', statusCode: 401 };
 
@@ -46,7 +47,7 @@ function mountCases(authPolicy: AuthPolicy) {
   handlers['health.liveness'] = jest.fn(() => ({ body: { status: 'ok', version: 'test', project: 'test' } }));
   handlers['health.readiness'] = jest.fn(() => ({ body: { status: 'ready' } }));
 
-  new ContractRuntime({ authPolicy }).mount(fastify, contracts, handlers);
+  new ContractRuntime({ authPolicy, eventBus: new EventBus() }).mount(fastify, contracts, handlers);
   return { fastify, handlers };
 }
 

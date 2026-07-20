@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { exposedRecordSlotDefinitionForFilename } from '../../src/runtime/records/record-slots.js';
 import { resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, type ResolveScopedPathContext } from '../../src/workspace/scoped-path-schemes.js';
+import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 
 function fail(message: string): Error {
   const error = new Error(message);
@@ -60,6 +61,17 @@ describe('scoped path resolvers', () => {
       exposedRecordSlotDefinitionForFilename('bogus.md');
     } catch (error) {
       expect((error as Error).name).toBe('Error');
+    }
+  });
+
+  it('translates only concrete authored-record absence into a tool-facing rejection', async () => {
+    for (const version of ['latest', 'next', '1']) {
+      const absent = { ...ctx(), records: { record: () => { throw new AuthoredRecordNotFoundError(); } } };
+      await expectWorkspaceToolInputError(() => resolveRecordReadTarget(absent, `record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=${version}`));
+
+      const hostile = new Error(`HOSTILE_STRICT_READ_${version}`);
+      const failed = { ...ctx(), records: { record: () => { throw hostile; } } };
+      expect(() => resolveRecordReadTarget(failed, `record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=${version}`)).toThrow(hostile);
     }
   });
 });

@@ -11,6 +11,7 @@ import type {
   OperatorRuntimeProviderContext,
 } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
+import { RuntimeControlConflictError } from '../../runtime/actors/supervisor-runtime-api.js';
 
 type RuntimeCardOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorAvailabilityContext & OperatorCardServiceContext;
 
@@ -77,7 +78,7 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       if (!options.runtimeApplication) throw new Error('Runtime application is required for project stop.');
       try { return { body: await options.runtimeApplication.runtimeControl.stopProject() }; }
       catch (error) {
-        if (error instanceof Error && 'code' in error && error.code === 'runtime_control_conflict') return { statusCode: 409, body: { code: 'runtime_control_conflict', message: error.message } };
+        if (error instanceof RuntimeControlConflictError) return { statusCode: 409, body: { code: 'runtime_control_conflict', message: 'Runtime control conflicts with an in-flight project stop.' } };
         throw error;
       }
     },

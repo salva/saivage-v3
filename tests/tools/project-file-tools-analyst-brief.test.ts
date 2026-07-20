@@ -41,4 +41,16 @@ describe('project-file Analyst brief writes', () => {
       content: '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew',
     })).rejects.toThrow('do not support target card status changed');
   });
+
+  it('propagates strict open-record read failures instead of treating them as writable', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-project-file-brief-'));
+    roots.push(root);
+    initProjectTree(root);
+    const cards = new CardService(root);
+    const card = cards.create({ type: 'code', parent: 'project', title: 'Strict', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const hostile = new Error('HOSTILE_STRICT_READ');
+    const original = cards.readRecord.bind(cards);
+    cards.readRecord = ((cardId, filename, version, instrumentation) => version === 'open' ? (() => { throw hostile; })() : original(cardId, filename, version, instrumentation)) as CardService['readRecord'];
+    await expect(writeProject({ projectRoot: root, cardId: card.id, agentRole: 'analyst', store: cards, notifyCard: () => ({ ok: true, notificationId: 'n' }) }, { path: `record:///brief.md?card=${card.id}&v=next`, content: '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew' })).rejects.toBe(hostile);
+  });
 });

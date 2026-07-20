@@ -5,18 +5,6 @@ export function buildEventsOperatorContractHandlers(options: OperatorProjectCont
   const readModel = new EventsReadModelService(options.projectRoot);
 
   return defineOperatorContractHandlers({
-    'events.list': ({ query }) => {
-      try {
-        return { body: readModel.listEvents(query) };
-      } catch (err) {
-        return {
-          statusCode: 500,
-          body: {
-            error: 'Failed to query events',
-            message: readModel.errorMessage(err),
-          },
-        };
-      }
-    },
+    'events.list': ({ query }) => ({ body: readModel.listEvents(query) }),
   });
 }

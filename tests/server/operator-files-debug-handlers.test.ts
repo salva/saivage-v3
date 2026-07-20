@@ -11,6 +11,7 @@ import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { buildFilesDebugOperatorContractHandlers } from '../../src/server/routes/operator-files-debug-handlers.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { cardNamespace } from '../../src/persistence/layout.js';
+import { EventBus } from '../../src/events/index.js';
 
 describe('operator files and debug contract handlers', () => {
   let fastify: FastifyInstance;
@@ -26,7 +27,7 @@ describe('operator files and debug contract handlers', () => {
     cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cardServiceProvider = jest.fn(() => cards);
     fastify = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }) }).mount(
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventBus: new EventBus() }).mount(
       fastify,
       filesDebugOperatorApiContracts,
       buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider }),

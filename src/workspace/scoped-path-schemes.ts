@@ -2,7 +2,7 @@ import { relative, resolve } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
 import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot } from '../runtime/records/record-slots.js';
-import type { RecordProjection } from '../persistence/authored-record-files.js';
+import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
 import { cardIdSchema } from '../schemas/index.js';
 type AuthoredRecordReader = { record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection };
 import { resolveContainedProjectPath } from './file-access-security.js';
@@ -50,6 +50,14 @@ function assertOnlyRecordQuery(raw: string, parsed: ParsedScopedPathUrl, fail: S
 
 function toolFacingErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function readRecordOrNotFound(ctx: ResolveScopedPathContext, read: () => RecordProjection): RecordProjection {
+  try { return read(); }
+  catch (error) {
+    if (error instanceof AuthoredRecordNotFoundError) throw ctx.fail('Record not found.');
+    throw error;
+  }
 }
 
 export function assertRecordWrite(role: AgentRole | undefined, currentCardId: string | undefined, cardId: string, filename: string, version: string, fail: ScopedPathErrorFactory): void {
@@ -103,17 +111,16 @@ export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: stri
   const cardId = cardIdSchema.parse(validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail));
   const version = parsed.query?.get('v') ?? 'latest';
   if (version === 'next') {
-    const open = ctx.records.record(cardId, filename, 'open');
+    const open = readRecordOrNotFound(ctx, () => ctx.records!.record(cardId, filename, 'open'));
     if (!agent.cardId || cardId !== agent.cardId || !exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole!)) throw ctx.fail('Only the owning agent may read its current open record slot.');
     return open;
   }
   if (version === 'latest') {
-    try { return latestClosedRecordSlot(ctx.records, { cardId, filename }); } catch (error) { throw ctx.fail(toolFacingErrorMessage(error)); }
+    return readRecordOrNotFound(ctx, () => latestClosedRecordSlot(ctx.records!, { cardId, filename }));
   }
   const numeric = Number(version);
   if (!Number.isInteger(numeric) || numeric < 1) throw ctx.fail(`Invalid record version '${version}'.`);
-  let record: RecordProjection;
-  try { record = concreteRecordSlot(ctx.records, { cardId, filename, version: numeric }); } catch (error) { throw ctx.fail(toolFacingErrorMessage(error)); }
+  const record = readRecordOrNotFound(ctx, () => concreteRecordSlot(ctx.records!, { cardId, filename, version: numeric }));
   if (record.artifact.state !== 'closed' && !(record.artifact.state === 'open' && cardId === agent.cardId && exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole!))) throw ctx.fail('Only closed records are readable outside the owning open slot.');
   return record;
 }

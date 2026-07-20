@@ -6,6 +6,7 @@ import {
   operatorSessionContract,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
+  UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
 
@@ -72,7 +73,7 @@ export const processesOperatorApiContracts = {
     path: '/api/processes',
     success: ProcessListResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: ProcessListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: ApiErrorSchema },
+    response: { 200: ProcessListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ProcessListResponse',
   },
@@ -83,7 +84,7 @@ export const processesOperatorApiContracts = {
     params: ProcessIdParamsSchema,
     success: ProcessDetailResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: ProcessDetailResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 404: ProcessNotFoundErrorSchema, 500: ApiErrorSchema },
+    response: { 200: ProcessDetailResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 404: ProcessNotFoundErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ProcessDetailResponse',
   },

@@ -6,6 +6,7 @@ import { CardService } from '../../src/cards/card-service.js';
 import { readCanonicalCardHierarchy, readCard, readLinkedChildren } from '../../src/persistence/card-files.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -191,7 +192,7 @@ describe('exact hierarchical card files', () => {
     expect(cards.listCardHistory(parent.id)).toEqual({ kind: 'card-not-found' });
     expect(cards.getCardHistoryEntry(parent.id, 1)).toEqual({ kind: 'card-not-found' });
     expect(cards.diffCardHistory(parent.id, { fromSeq: 1, toSeq: 2 })).toEqual({ kind: 'card-not-found' });
-    expect(() => cards.readRecord(parent.id, 'brief.md')).toThrow(`Card '${parent.id}' does not exist.`);
+    expect(() => cards.readRecord(parent.id, 'brief.md')).toThrow(AuthoredRecordNotFoundError);
 
     writeFileSync(cardStreamFile(root, child.id), '{complete-malformed}\n');
     expect(readCard(root, child.id)).toBeNull();

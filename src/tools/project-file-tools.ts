@@ -7,7 +7,7 @@ import type { AgentRole } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
-import type { CardService } from '../cards/card-api.js';
+import { AuthoredRecordNotFoundError, type CardService } from '../cards/card-api.js';
 import { propagateAnalystBriefEdit } from '../runtime/changed-propagation.js';
 import { analystBriefEditEffect } from '../cards/status-api.js';
 import type { CardNotification } from '../schemas/index.js';
@@ -338,7 +338,7 @@ function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path:
   const card = ctx.store.read(target.cardId);
   if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
   if (analystBriefEditEffect(card.status) === null) throw toolInputError(`Analyst brief edits do not support target card status ${card.status}.`);
-  try { ctx.store.readRecord(target.cardId, 'brief.md', 'open'); throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`); } catch (error) { if (error instanceof WorkspaceToolInputError) throw error; }
+  try { ctx.store.readRecord(target.cardId, 'brief.md', 'open'); throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`); } catch (error) { if (error instanceof WorkspaceToolInputError) throw error; if (!(error instanceof AuthoredRecordNotFoundError)) throw error; }
   return target;
 }
 

@@ -6,6 +6,9 @@ import { isReadBlocked, isRedacted, resolveContainedProjectPath, workUrlFromAbso
 import { redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
 import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
+import { AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
+import { exposedRecordSlotDefinitionForFilename } from '../../runtime/records/record-slots.js';
+import { cardIdSchema } from '../../schemas/index.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
@@ -28,6 +31,10 @@ type FilesAdmission =
   | { kind: 'generic' }
   | { kind: 'reserved-card' }
   | { kind: 'rejected'; reason: string; responsePath: string; blockedSource?: true };
+
+type RecordContentRequest =
+  | { kind: 'valid'; cardId: string; filename: string; version: number | 'latest' }
+  | { kind: 'invalid'; error: string };
 
 const CANNOT_RESOLVE_REASON = 'Path cannot be resolved.';
 const MAX_CLASSIFIER_SYMLINK_EXPANSIONS = 40;
@@ -52,6 +59,28 @@ function isBinaryBuffer(buffer: Buffer): boolean {
     if (!isPrintable) suspicious += 1;
   }
   return suspicious / length > 0.3;
+}
+
+function parseRecordContentRequest(requestedPath: string): RecordContentRequest {
+  let parsed: ReturnType<typeof parseScopedPathUrl>;
+  try { parsed = parseScopedPathUrl(requestedPath, 'record'); }
+  catch { return { kind: 'invalid', error: 'Invalid record URL.' }; }
+  if (parsed.hadFragment || parsed.segments.length !== 1 || !parsed.query) return { kind: 'invalid', error: 'Invalid record URL.' };
+  for (const key of parsed.query.keys()) if (key !== 'card' && key !== 'v') return { kind: 'invalid', error: 'Invalid record URL.' };
+  if (parsed.query.getAll('card').length !== 1 || parsed.query.getAll('v').length > 1) return { kind: 'invalid', error: 'Invalid record URL.' };
+  const filename = parsed.segments[0]!;
+  try { exposedRecordSlotDefinitionForFilename(filename); }
+  catch { return { kind: 'invalid', error: 'Invalid record URL.' }; }
+  const rawCardId = parsed.query.get('card');
+  if (!rawCardId) return { kind: 'invalid', error: 'Record URL requires card.' };
+  const parsedCardId = cardIdSchema.safeParse(rawCardId);
+  if (!parsedCardId.success) return { kind: 'invalid', error: 'Invalid record URL.' };
+  const rawVersion = parsed.query.get('v') ?? 'latest';
+  if (rawVersion === 'latest') return { kind: 'valid', cardId: parsedCardId.data, filename, version: 'latest' };
+  if (!/^[1-9]\d*$/u.test(rawVersion)) return { kind: 'invalid', error: 'Invalid record version.' };
+  const version = Number(rawVersion);
+  if (!Number.isSafeInteger(version) || version < 1) return { kind: 'invalid', error: 'Invalid record version.' };
+  return { kind: 'valid', cardId: parsedCardId.data, filename, version };
 }
 
 export class WorkspaceFileReadModelService {
@@ -256,17 +285,16 @@ export class WorkspaceFileReadModelService {
   readFileContent(requestedPath: string | undefined): WorkspaceFileContentResult {
     if (!requestedPath) return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
     if (requestedPath.startsWith('record:///')) {
+      const request = parseRecordContentRequest(requestedPath);
+      if (request.kind === 'invalid') return { statusCode: 400, body: { error: request.error, path: requestedPath } };
       try {
-        const parsed = parseScopedPathUrl(requestedPath, 'record');
-        if (parsed.segments.length !== 1 || !parsed.query) return { statusCode: 400, body: { error: 'Invalid record URL.', path: requestedPath } };
-        const cardId = parsed.query.get('card'); const rawVersion = parsed.query.get('v') ?? 'latest';
-        if (!cardId) return { statusCode: 400, body: { error: 'Record URL requires card.', path: requestedPath } };
-        const version = rawVersion === 'latest' ? 'latest' : Number(rawVersion);
-        if (version !== 'latest' && (!Number.isSafeInteger(version) || version < 1)) return { statusCode: 400, body: { error: 'Invalid record version.', path: requestedPath } };
-        const record = this.records().record(cardId, parsed.segments[0]!, version);
+        const record = this.records().record(request.cardId, request.filename, request.version);
         if (record.artifact.state !== 'closed') return { statusCode: 404, body: { error: 'Closed record not found.', path: requestedPath } };
         return { body: { path: record.recordUrl, size: Buffer.byteLength(record.artifact.content), contentType: 'text/markdown', content: record.artifact.content, redacted: false, sensitivity: 'normal', version: record.version, modifiedAt: record.artifact.committed_at } };
-      } catch (error) { return { statusCode: 404, body: { error: error instanceof Error ? error.message : String(error), path: requestedPath } }; }
+      } catch (error) {
+        if (error instanceof AuthoredRecordNotFoundError) return { statusCode: 404, body: { error: 'Closed record not found.', path: requestedPath } };
+        throw error;
+      }
     }
     const admission = this.admitRequestedPath(requestedPath);
     if (admission.kind === 'rejected') {

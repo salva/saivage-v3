@@ -7,6 +7,7 @@ import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { buildRuntimeCardOperatorContractHandlers } from '../../src/server/routes/operator-runtime-card-handlers.js';
+import { EventBus } from '../../src/events/index.js';
 
 describe('runtime-control route request contracts', () => {
   let fastify: FastifyInstance;
@@ -49,7 +50,7 @@ describe('runtime-control route request contracts', () => {
       restartServerAvailable: true,
       restartPort: { schedule, acknowledge },
     });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }) }).mount(fastify, operatorApiContracts, handlers);
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventBus: new EventBus() }).mount(fastify, operatorApiContracts, handlers);
     await fastify.ready();
   });
 

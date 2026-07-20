@@ -8,6 +8,13 @@ import type { PublicationTemporaryIdFactory } from './replace-file.js';
 
 export interface RecordProjection { readonly cardId: string; readonly filename: string; readonly slot: AuthoredRecordSlot; readonly version: number; readonly recordUrl: string; readonly artifact: RecordVersionArtifact }
 
+export class AuthoredRecordNotFoundError extends Error {
+  constructor() {
+    super('Authored record not found.');
+    this.name = 'AuthoredRecordNotFoundError';
+  }
+}
+
 function slotFor(filename: string): AuthoredRecordSlot {
   const slot = basename(filename).replace(/\.(?:md|json)$/u, '');
   if (!authoredRecordSlotValues.includes(slot as AuthoredRecordSlot)) throw new Error(`Unsupported record slot '${filename}'.`);
@@ -18,7 +25,7 @@ function projection(artifact: RecordVersionArtifact): RecordProjection {
   return Object.freeze({ cardId: artifact.card_id, filename, slot: artifact.slot, version: artifact.version, recordUrl: `record:///${filename}?card=${encodeURIComponent(artifact.card_id)}&v=${artifact.version}`, artifact });
 }
 function rows(projectRoot: string, cardId: string, slot: AuthoredRecordSlot, instrumentation?: CanonicalReadInstrumentation): RecordVersionArtifact[] {
-  if (!readCard(projectRoot, cardId, instrumentation)) throw new Error(`Card '${cardId}' does not exist.`);
+  if (!readCard(projectRoot, cardId, instrumentation)) throw new AuthoredRecordNotFoundError();
   const path = cardRecordStreamFile(projectRoot, cardId, slot);
   try { return validateRecordStream(readCanonicalGrowingFile(path, recordVersionArtifactSchema, undefined, instrumentation), path, cardId, slot); }
   catch (error) {
@@ -40,7 +47,7 @@ export function readAuthoredRecord(projectRoot: string, cardId: string, filename
   if (version === 'open') artifact = all.at(-1)?.state === 'open' ? all.at(-1) : undefined;
   else if (version === 'latest') artifact = [...all].reverse().find((row) => row.state === 'closed');
   else artifact = [...all].reverse().find((row) => row.version === version);
-  if (!artifact) throw new Error(`Record '${cardId}/${slot}/${String(version)}' does not exist.`);
+  if (!artifact) throw new AuthoredRecordNotFoundError();
   return projection(artifact);
 }
 export function openAuthoredRecord(projectRoot: string, cardId: string, filename: string, temporary?: PublicationTemporaryIdFactory, io?: GrowingFileIo): RecordProjection {

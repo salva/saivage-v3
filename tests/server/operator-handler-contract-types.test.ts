@@ -16,9 +16,15 @@ import {
 } from '../../src/server/routes/operator-handler-context.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { buildChatOperatorContractHandlers } from '../../src/server/routes/operator-chat-handlers.js';
+import { buildProcessOperatorContractHandlers } from '../../src/server/routes/operator-process-handlers.js';
+import type { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { ContractRuntime, type ContractPreSendReply } from '../../src/server/contract-runtime.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
+import { EventBus } from '../../src/events/index.js';
 
 declare const runtimeApplication: RuntimeApplication;
 declare const saivageConfig: SaivageConfig;
+declare const processRunner: ProcessRunner;
 
 function chatFactoryDependencyTypeFixtures(): void {
   buildChatOperatorContractHandlers({ projectRoot: '.', runtimeApplication, saivageConfig });
@@ -28,21 +34,43 @@ function chatFactoryDependencyTypeFixtures(): void {
   buildChatOperatorContractHandlers({ projectRoot: '.', runtimeApplication });
 }
 
+function processFactoryDependencyTypeFixtures(): void {
+  buildProcessOperatorContractHandlers({ projectRoot: '.', processRunner });
+  // @ts-expect-error Process composition requires the application-owned runner.
+  buildProcessOperatorContractHandlers({ projectRoot: '.' });
+}
+
+function contractRuntimeDependencyTypeFixtures(): void {
+  new ContractRuntime({ authPolicy: new AuthPolicy(), eventBus: new EventBus() });
+  // @ts-expect-error ContractRuntime requires the composition-owned EventBus.
+  new ContractRuntime({ authPolicy: new AuthPolicy() });
+}
+
 const handlers = defineOperatorContractHandlers({
   'cards.history.get': ({ params }) => {
     const parsed: { id: string; seq: number } = params;
-    return { statusCode: 500, body: { error: `unavailable ${parsed.seq}` } };
+    void parsed.seq;
+    return { statusCode: 500, body: { error: 'InternalServerError', message: 'Internal server error' } };
   },
   'cards.diff': ({ params, query }) => {
     const parsedParams: { id: string } = params;
     const parsedQuery: { from?: number | 'last' | 'current'; to?: number | 'last' | 'current' } = query;
-    return { statusCode: 500, body: { error: `${parsedParams.id}:${String(parsedQuery.from)}` } };
+    void `${parsedParams.id}:${String(parsedQuery.from)}`;
+    return { statusCode: 500, body: { error: 'InternalServerError', message: 'Internal server error' } };
   },
   'chats.send': ({ body, request, reply }) => {
     const parsedBody: { content?: string; workspaceContext?: { view: string | null; entityId: string | null; refinement: Record<string, string> | null } } = body;
     const rawRequest: FastifyRequest = request;
+    const preSendReply: ContractPreSendReply = reply;
+    preSendReply.header('x-type-fixture', 'ok');
+    // @ts-expect-error Contract handlers cannot send responses directly.
+    reply.send({});
+    // @ts-expect-error Contract handlers cannot select response status directly.
+    reply.status(500);
+    // @ts-expect-error The narrowed capability is not a FastifyReply.
     const rawReply: FastifyReply = reply;
-    return { statusCode: 500, body: { error: `${String(parsedBody.content)}:${rawRequest.id}:${rawReply.sent}` } };
+    void `${String(parsedBody.content)}:${rawRequest.id}:${String(rawReply)}`;
+    return { statusCode: 500, body: { error: 'InternalServerError', message: 'Internal server error' } };
   },
 });
 
@@ -98,6 +126,8 @@ describe('operator handler contract type fixtures', () => {
       missingBody,
       incompleteAssembly,
       chatFactoryDependencyTypeFixtures,
+      processFactoryDependencyTypeFixtures,
+      contractRuntimeDependencyTypeFixtures,
     ]).toBeDefined();
   });
 });

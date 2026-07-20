@@ -22,16 +22,11 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
     'agents.list': () => ({ body: agentReadModel().listSessions() }),
     'agents.detail': ({ params }) => agentReadModel().getSession(params.id),
     'agents.conversation': ({ params }) => agentReadModel().getConversation(params.id),
-    'agents.llmExchange': async ({ params, request }) => {
+    'agents.llmExchange': async ({ params }) => {
       const sessionId = params.id;
-      try {
-        const exchange = readLatestProviderExchangePayload(projectRoot, sessionId);
-        if (!exchange) return { statusCode: 404, body: { error: 'No LLM exchange recorded for this session yet.' } };
-        return { body: { sessionId, exchange: projectProviderExchangeForOperator(exchange) } };
-      } catch {
-        request.log.error({ sessionId, operation: 'agents.llmExchange' }, 'Failed to read LLM exchange');
-        return { statusCode: 500, body: { error: 'Failed to read LLM exchange' } };
-      }
+      const exchange = readLatestProviderExchangePayload(projectRoot, sessionId);
+      if (!exchange) return { statusCode: 404, body: { error: 'No LLM exchange recorded for this session yet.' } };
+      return { body: { sessionId, exchange: projectProviderExchangeForOperator(exchange) } };
     },
   });
 }

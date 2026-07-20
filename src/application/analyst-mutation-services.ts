@@ -1,5 +1,5 @@
 import type { CardService } from '../cards/card-api.js';
-import { PROJECT_CARD_ID } from '../cards/card-api.js';
+import { AuthoredRecordNotFoundError, PROJECT_CARD_ID } from '../cards/card-api.js';
 import { analystBriefEditEffect, canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
@@ -213,7 +213,7 @@ class AnalystBriefRecordMutationImplementation implements AnalystBriefRecordMuta
       throw new AnalystMutationDeniedError(`Cannot write '${target.recordUrl}': latest brief.md version is open.`);
     } catch (error) {
       if (error instanceof AnalystMutationDeniedError) throw error;
-      if (!(error instanceof Error) || !/Record '.+' does not exist\./.test(error.message)) throw error;
+      if (!(error instanceof AuthoredRecordNotFoundError)) throw error;
     }
     return { cardId: target.cardId, recordUrl: target.recordUrl, card };
   }

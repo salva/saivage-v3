@@ -11,13 +11,14 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 
 import { CardService } from '../../src/cards/card-service.js';
 import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
 import { cardNamespace } from '../../src/persistence/layout.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
+import { EventBus } from '../../src/events/index.js';
 import { buildFilesDebugOperatorContractHandlers } from '../../src/server/routes/operator-files-debug-handlers.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
@@ -45,6 +46,7 @@ type Harness = {
   cards: CardService;
   app: FastifyInstance;
   provider: jest.Mock<() => CardService>;
+  logs: unknown[][];
 };
 
 const roots: string[] = [];
@@ -56,15 +58,18 @@ async function harness(): Promise<Harness> {
   initProjectTree(root);
   const cards = new CardService(root);
   const provider = jest.fn(() => cards);
-  const app = Fastify({ logger: false });
-  new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }) }).mount(
+  const logs: unknown[][] = [];
+  const capture = (...args: unknown[]) => { logs.push(args); };
+  const logger = { level: 'trace', fatal: capture, error: capture, warn: capture, info: capture, debug: capture, trace: capture, silent: capture, child() { return this; } } as unknown as FastifyBaseLogger;
+  const app = Fastify({ loggerInstance: logger });
+  new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventBus: new EventBus() }).mount(
     app,
     filesDebugOperatorApiContracts,
     buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider }),
   );
   await app.ready();
   apps.push(app);
-  return { root, cards, app, provider };
+  return { root, cards, app, provider, logs };
 }
 
 async function list(app: FastifyInstance, path: string, authenticated = true) {
@@ -101,7 +106,7 @@ describe('canonical card Files browsing through real routes and CardService stat
     const reconstructed = new CardService(root);
     const provider = jest.fn(() => reconstructed);
     const reconstructedApp = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }) }).mount(
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventBus: new EventBus() }).mount(
       reconstructedApp,
       filesDebugOperatorApiContracts,
       buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider }),
@@ -265,5 +270,35 @@ describe('canonical card Files browsing through real routes and CardService stat
 
     const recordUrl = 'record:///brief.md?card=project&v=latest';
     expect((await content(app, recordUrl)).statusCode).toBe(200);
+  });
+
+  it('keeps record URL absence typed while strict and hostile reads reach the opaque 500 boundary', async () => {
+    const { root, cards, app, provider, logs } = await harness();
+    expect((await content(app, 'record:///status.md?card=project&v=latest')).json()).toEqual({ error: 'Closed record not found.', path: 'record:///status.md?card=project&v=latest' });
+    expect((await content(app, 'record:///brief.md?card=card-z&v=latest')).statusCode).toBe(404);
+
+    const open = cards.openRecord('project', 'status.md');
+    expect((await content(app, `record:///status.md?card=project&v=${open.version}`)).statusCode).toBe(404);
+
+    writeFileSync(join(cardNamespace(root, 'project'), 'status.jsonl'), 'complete malformed record stream\n');
+    const malformed = await content(app, 'record:///status.md?card=project&v=latest');
+    expect(malformed.statusCode).toBe(500);
+    expect(malformed.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(malformed.body).not.toContain('malformed record stream');
+
+    const hostileMarker = 'HOSTILE_RECORD_TOKEN_AND_PATH';
+    const hostile = Object.assign(new Error(hostileMarker), { token: hostileMarker, path: `/secret/${hostileMarker}` });
+    provider.mockImplementationOnce(() => ({
+      recordReader: { record: () => { throw hostile; } },
+      getCanonicalCard: cards.getCanonicalCard.bind(cards),
+      getCanonicalCardChildren: cards.getCanonicalCardChildren.bind(cards),
+      getCanonicalCardFilesMetadata: cards.getCanonicalCardFilesMetadata.bind(cards),
+      getCanonicalCardFileContent: cards.getCanonicalCardFileContent.bind(cards),
+    } as unknown as CardService));
+    const failed = await content(app, 'record:///brief.md?card=project&v=latest');
+    expect(failed.statusCode).toBe(500);
+    expect(failed.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(failed.body).not.toContain(hostileMarker);
+    expect(JSON.stringify(logs)).not.toContain(hostileMarker);
   });
 });
