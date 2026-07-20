@@ -242,6 +242,8 @@ Process rows and process detail responses expose nullable `card_id`, explicit `o
 
 Current Raw LLM Exchange request-parameter metadata has no LLM `phase` key. The panel renders transport-specific request parameters generically; old rows that contain `phase` remain raw records and are neither interpreted nor normalized.
 
+The backend independently projects the latest canonical exchange under `operator.api` before returning Raw LLM Exchange, even though newly written provider-exchange diagnostics already receive their producer-side policy. This defense-in-depth projection recursively redacts supported credential-shaped text and values under secret-like keys while retaining the existing envelope, relational IDs, timestamps, and structured request-parameter property names. Request parameters therefore remain structured metadata; raw HTTP bodies and provider-private context are unavailable. A strict canonical read or projection failure returns only the stable generic API error and writes only the stable operation and validated session identity to the server log; raw exception text, malformed content, stack, and project path are exposed to neither sink.
+
 Canonical `work:///` is the browsable Files root for `.saivage/work`; content preview rejects that root as a directory. Concrete process-log Browse actions remain canonical descendant URLs, and the process API rejects `work:///` itself as a log reference.
 
 The Debug supervision panel shows content-review stats and recent sanitized review summaries from `/api/debug/supervision`. Blocked content has no Browse-in-Files action: supervision does not persist raw blocked content, does not create quarantine paths, and does not expose quarantine IDs for file browsing.

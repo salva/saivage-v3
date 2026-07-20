@@ -6,6 +6,8 @@ import type {
 } from './operator-handler-context.js';
 import type { CardService } from '../../cards/card-api.js';
 import { ConversationSessionIdSchema } from '../../schemas/index.js';
+import { providerExchangePayloadSchema, type ProviderExchangePayload } from '../../contracts/provider-exchange.js';
+import { redactForOutbound } from '../../redaction/index.js';
 
 type AgentOperatorHandlerOptions = OperatorProjectContext & { cardStore?: CardService; runtimeApplication?: import('../../application/runtime-composition.js').RuntimeApplication };
 
@@ -27,11 +29,17 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
       try {
         const exchange = readLatestProviderExchangePayload(projectRoot, parsedSessionId.data);
         if (!exchange) return { statusCode: 404, body: { error: 'No LLM exchange recorded for this session yet.' } };
-        return { body: { sessionId: parsedSessionId.data, exchange } };
-      } catch (err) {
-        request.log.error({ err, sessionId }, 'Failed to read provider exchange record');
-        return { statusCode: 500, body: { error: 'Failed to read LLM exchange', message: err instanceof Error ? err.message : String(err) } };
+        return { body: { sessionId: parsedSessionId.data, exchange: projectProviderExchangeForOperator(exchange) } };
+      } catch {
+        request.log.error({ sessionId: parsedSessionId.data, operation: 'agents.llmExchange' }, 'Failed to read LLM exchange');
+        return { statusCode: 500, body: { error: 'Failed to read LLM exchange' } };
       }
     },
   };
+}
+
+function projectProviderExchangeForOperator(exchange: ProviderExchangePayload): ProviderExchangePayload {
+  return providerExchangePayloadSchema.parse(redactForOutbound(exchange, 'operator.api', {
+    source: 'agents.llm-exchange',
+  }));
 }

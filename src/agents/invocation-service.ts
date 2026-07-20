@@ -8,12 +8,13 @@ import type { CandidateAvailability } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
 import { assertProviderConversationSourceRows, ProviderTurnFailure, type BuiltCandidateRequest, type LlmCallFn, type ProviderConversationProjection, type ProviderTurnCompletion, type ToolDefinition } from './llm-contracts.js';
-import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
+import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { providerExchangeAppLogEntry } from '../persistence/provider-exchange-log.js';
 import { appendAppLogEntry, type AppLogContext } from '../persistence/app-log.js';
 import { buildCandidateRequest } from './candidate-request.js';
 import type { PreparedCompaction } from '../runtime/actors/llm-invocation.js';
+import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
@@ -216,7 +217,8 @@ export class InvocationService {
   projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void {
     for (const attempt of attempts) {
       if (attempt.attempt_index === undefined) throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
-      const payload = providerExchangePayloadSchema.parse(attempt.status === 'ok' ? { ...attempt, assistant_output_ids: assistantOutputIds } : attempt);
+      if (attempt.source_input_id !== sourceInputId) throw new Error(`Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`);
+      const payload = projectProviderExchangeForPublication(attempt as ProviderExchangeAttempt & { attempt_index: number }, assistantOutputIds);
       appendAppLogEntry(this.appLogs.projectRoot, providerExchangeAppLogEntry({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload }), this.appLogs.changes);
     }
   }

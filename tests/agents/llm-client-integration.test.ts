@@ -14,10 +14,7 @@
 import { describe, it, expect, beforeAll, afterEach } from '@jest/globals';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import type { EffectiveProviderCapabilities } from '../../src/agents/provider-capabilities.js';
 import { asMessage, makeCodexJwt, toolsOpts } from '../helpers/llm-test-helpers.js';
@@ -133,19 +130,6 @@ function createMultiCaptureMockServer(
 
 function closeServer(server: Server): Promise<void> {
   return new Promise((resolve) => server.close(() => resolve()));
-}
-
-function makeTempDir(): string {
-  const dir = join(
-    tmpdir(),
-    `saivage-llm-int-${Date.now()}-${randomBytes(4).toString('hex')}`,
-  );
-  mkdirSync(join(dir, '.saivage'), { recursive: true });
-  return dir;
-}
-
-function cleanupDir(dir: string): void {
-  if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
 }
 
 // ── Fixtures ───────────────────────────────────────────────────
@@ -491,10 +475,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     }
   }, 15000);
 
-  // TODO: Pre-existing issue — auth_permanent failure is masked by "No healthy candidates"
-  // when the sole candidate is marked unavailable. Error-chaining in
-  // InvocationRecoveryPolicy.decideNoCandidates would preserve the original failure.
-  it.skip('should redact secret-key JSON values from provider error bodies, persisted failures, and events', async () => {
+  it('should redact secret-key JSON values from provider error text from gateway', async () => {
     const syntheticSecrets = {
       token: 'synthetic-token-value-never-real',
       api_key: 'synthetic-api-key-value-never-real',
@@ -521,7 +502,6 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       res.end(JSON.stringify(providerBody));
     });
 
-    let adapterTempDir = '';
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       let clientError: unknown;
@@ -530,18 +510,17 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       } catch (err) {
         clientError = err;
       }
-      expect(clientError).toBeInstanceOf(LlmRequestError);
-      expect((clientError as InstanceType<typeof LlmRequestError>).failure.kind).toBe('auth_permanent');
+      expect(clientError).toBeInstanceOf(Error);
+      expect(clientError).toMatchObject({ failure: { kind: 'auth_permanent' } });
+      const originalFailure = (clientError as { originalFailure?: unknown }).originalFailure;
+      expect(originalFailure).toBeInstanceOf(LlmRequestError);
       const clientErrorMessage = clientError instanceof Error ? clientError.message : String(clientError);
       for (const secret of Object.values(syntheticSecrets)) {
         expect(clientErrorMessage).not.toContain(secret);
       }
       expect(clientErrorMessage).toContain('[REDACTED]');
-
-      void adapterTempDir;
     } finally {
       await closeServer(server);
-      if (adapterTempDir) cleanupDir(adapterTempDir);
     }
   }, 15000);
 
