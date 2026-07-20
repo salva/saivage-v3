@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { EventBus } from '../events/index.js';
 import {
   cardHistoryEntrySchema,
+  cardLifecycleStateSchema,
   cardRecordSchema,
   positiveSafeIntegerSchema,
   type AgentRole,
@@ -59,6 +60,7 @@ import {
   type CardPatch,
   type CardMutationContext,
   type NewCardInput,
+  type TerminalLifecyclePatch,
 } from './lifecycle.js';
 import { canCreateChildInStatus } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
@@ -80,7 +82,17 @@ export type CardHistoryDiffResult =
   | { readonly kind: 'invalid-pivots'; readonly from: number; readonly to: number }
   | { readonly kind: 'diff-source-not-found'; readonly from: number; readonly to: number; readonly missingVersionSeq: number };
 
-export type { CardMutationContext, CardPatch, NewCardInput, RecordProjection };
+export type { CardMutationContext, CardPatch, NewCardInput, RecordProjection, TerminalLifecyclePatch };
+
+type CardWriteIntent =
+  | { kind: 'ordinary' }
+  | { kind: 'set-status'; status: CardStatus }
+  | { kind: 'terminal-lifecycle-commit' }
+  | { kind: 'recovery-stop' }
+  | { kind: 'stopped-activation' };
+
+const LIFECYCLE_FIELDS = new Set(['status', 'lifecycle']);
+const TERMINAL_PATCH_FIELDS = new Set(['status', 'lifecycle', 'status_text', 'status_text_updated_at']);
 
 function clone<T>(value: T): T { return structuredClone(value); }
 
@@ -100,6 +112,60 @@ function historyEntry(prior: CardRecord, kind: CardHistoryEntry['kind'], ctx: Ca
 
 function assertChildParentAdmission(parent: CardRecord, message: string): void {
   if (isTerminalType(parent.type) || !canCreateChildInStatus(parent.status)) throw new Error(`${message} '${parent.id}'.`);
+}
+
+function assertExactPatchKeys(changes: CardPatch, expected: ReadonlySet<string>, operation: string): void {
+  const keys = Object.keys(changes);
+  if (keys.length !== expected.size || keys.some((key) => !expected.has(key))) {
+    throw new Error(`${operation} requires exactly fields ${[...expected].join(', ')}.`);
+  }
+}
+
+function unreachableIntent(intent: never): never {
+  throw new Error(`Unsupported card write intent: ${String(intent)}`);
+}
+
+function assertCardWriteIntent(existing: CardRecord, changes: CardPatch, intent: CardWriteIntent): void {
+  switch (intent.kind) {
+    case 'ordinary': {
+      const fields = Object.keys(changes).filter((key) => LIFECYCLE_FIELDS.has(key));
+      if (fields.length > 0) throw new Error(`Fields ${fields.join(', ')} are lifecycle-owned and require a dedicated lifecycle operation.`);
+      return;
+    }
+    case 'set-status': {
+      assertExactPatchKeys(changes, LIFECYCLE_FIELDS, 'setStatus');
+      if (changes.status !== intent.status || !valuesEqual(changes.lifecycle, buildSetStatusLifecycle(existing, intent.status))) {
+        throw new Error('setStatus patch does not match its target status and canonical lifecycle.');
+      }
+      validateTransition(existing.status, intent.status);
+      return;
+    }
+    case 'recovery-stop':
+      if (existing.status !== 'running') throw new Error(`Card '${existing.id}' must be running before recovery can stop it.`);
+      assertExactPatchKeys(changes, LIFECYCLE_FIELDS, 'Recovery stop');
+      if (changes.status !== 'stopped' || !valuesEqual(changes.lifecycle, buildStoppedLifecycle())) throw new Error('Recovery stop requires the canonical stopped lifecycle.');
+      return;
+    case 'stopped-activation':
+      if (existing.status !== 'stopped') throw new Error(`Card '${existing.id}' must be stopped before it can be activated through STOPPED.`);
+      assertExactPatchKeys(changes, LIFECYCLE_FIELDS, 'STOPPED activation');
+      if (changes.status !== 'running' || !valuesEqual(changes.lifecycle, buildActivatedStoppedLifecycle())) throw new Error('STOPPED activation requires the canonical running lifecycle.');
+      return;
+    case 'terminal-lifecycle-commit': {
+      if (existing.status !== 'running') throw new Error(`Card '${existing.id}' must be running before terminal lifecycle commit.`);
+      const keys = Object.keys(changes);
+      if (!Object.hasOwn(changes, 'status') || !Object.hasOwn(changes, 'lifecycle') || keys.some((key) => !TERMINAL_PATCH_FIELDS.has(key))) {
+        throw new Error('Terminal lifecycle commit requires status and lifecycle and permits only status-text companions.');
+      }
+      if (changes.status !== 'done' && changes.status !== 'failed' && changes.status !== 'blocked') {
+        throw new Error(`Terminal lifecycle commit does not support target '${String(changes.status)}'.`);
+      }
+      const lifecycle = cardLifecycleStateSchema.parse(changes.lifecycle);
+      if (lifecycle.status !== changes.status) throw new Error(`Terminal lifecycle status '${lifecycle.status}' does not match target '${changes.status}'.`);
+      return;
+    }
+    default:
+      return unreachableIntent(intent);
+  }
 }
 
 export class CardService {
@@ -232,37 +298,39 @@ export class CardService {
     return clone(card);
   }
 
-  update(id: string, changes: CardPatch): CardRecord { return this.applyPatch(id, changes, 'update', { actor: 'runtime', surface: 'runtime', reason: 'update' }); }
+  update(id: string, changes: CardPatch): CardRecord { return this.applyPatch(id, changes, 'update', { actor: 'runtime', surface: 'runtime', reason: 'update' }, { kind: 'ordinary' }); }
   mutateCard(id: string, changes: CardPatch, ctx: CardMutationContext): CardRecord {
     const card = this.read(id);
     if (!card) throw new Error(`Card '${id}' not found.`);
     if (changes.status !== undefined && ((card.status === 'running' && changes.status === 'stopped') || (card.status === 'stopped' && changes.status === 'running'))) {
       throw new Error(`Generic card mutation cannot transition '${card.status}' to '${changes.status}'.`);
     }
-    return this.applyPatch(id, changes, 'mutate', ctx);
+    return this.applyPatch(id, changes, 'mutate', ctx, { kind: 'ordinary' });
   }
-  commitTerminalLifecyclePatch(id: string, changes: CardPatch): CardRecord { return this.applyPatch(id, changes, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' }); }
-  setStatus(id: string, status: CardStatus): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); if (status === 'done' || status === 'failed') throw new Error(`setStatus does not support '${status}'.`); validateTransition(card.status, status); if (card.status === status) return card; return this.applyPatch(id, { status, lifecycle: buildSetStatusLifecycle(card, status) }, 'status', { actor: 'runtime', surface: 'runtime', reason: `status -> ${status}` }); }
+  commitTerminalLifecyclePatch(id: string, changes: TerminalLifecyclePatch): CardRecord { return this.applyPatch(id, changes, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' }, { kind: 'terminal-lifecycle-commit' }); }
+  setStatus(id: string, status: CardStatus): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); if (status === 'done' || status === 'failed') throw new Error(`setStatus does not support '${status}'.`); validateTransition(card.status, status); if (card.status === status) return card; return this.applyPatch(id, { status, lifecycle: buildSetStatusLifecycle(card, status) }, 'status', { actor: 'runtime', surface: 'runtime', reason: `status -> ${status}` }, { kind: 'set-status', status }); }
   stopRunningForRecovery(id: string): CardRecord {
     const card = this.read(id);
     if (!card) throw new Error(`Card '${id}' not found.`);
     if (card.status !== 'running') throw new Error(`Card '${id}' must be running before recovery can stop it.`);
-    return this.applyPatch(id, { status: 'stopped', lifecycle: buildStoppedLifecycle() }, 'status', { actor: 'runtime', surface: 'runtime', reason: 'recovery stopped lifecycle' });
+    return this.applyPatch(id, { status: 'stopped', lifecycle: buildStoppedLifecycle() }, 'status', { actor: 'runtime', surface: 'runtime', reason: 'recovery stopped lifecycle' }, { kind: 'recovery-stop' });
   }
   activateStopped(id: string): CardRecord {
     const card = this.read(id);
     if (!card) throw new Error(`Card '${id}' not found.`);
     if (card.status !== 'stopped') throw new Error(`Card '${id}' must be stopped before it can be activated through STOPPED.`);
-    return this.applyPatch(id, { status: 'running', lifecycle: buildActivatedStoppedLifecycle() }, 'status', { actor: 'runtime', surface: 'runtime', reason: 'STOPPED activation' });
+    return this.applyPatch(id, { status: 'running', lifecycle: buildActivatedStoppedLifecycle() }, 'status', { actor: 'runtime', surface: 'runtime', reason: 'STOPPED activation' }, { kind: 'stopped-activation' });
   }
-  enqueueNotification(id: string, notification: CardNotification): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = enqueueCardNotification(card, notification); return this.applyPatch(id, { pending_notifications: next.pending_notifications }, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'notification enqueued' }); }
-  removeNotifications(id: string, notificationIds: readonly string[]): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = removeCardNotifications(card, notificationIds); return this.applyPatch(id, { pending_notifications: next.pending_notifications }, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'notifications delivered' }); }
+  enqueueNotification(id: string, notification: CardNotification): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = enqueueCardNotification(card, notification); return this.applyPatch(id, { pending_notifications: next.pending_notifications }, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'notification enqueued' }, { kind: 'ordinary' }); }
+  removeNotifications(id: string, notificationIds: readonly string[]): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = removeCardNotifications(card, notificationIds); return this.applyPatch(id, { pending_notifications: next.pending_notifications }, 'mutate', { actor: 'runtime', surface: 'runtime', reason: 'notifications delivered' }, { kind: 'ordinary' }); }
 
-  private applyPatch(id: string, changes: CardPatch, kind: 'update' | 'status' | 'mutate' | 'depends', ctx: CardMutationContext): CardRecord {
+  private applyPatch(id: string, changes: CardPatch, kind: 'update' | 'status' | 'mutate' | 'depends', ctx: CardMutationContext, intent: CardWriteIntent): CardRecord {
     const existing = this.read(id); if (!existing) throw new Error(`Card '${id}' not found.`);
     assertGenericCardPatch(changes);
-    const real = prunePartialPatch(existing, changes); if (Object.keys(real).length === 0) return existing;
-    const candidate = cardRecordSchema.parse(buildUpdatedCard(existing, real, new Date().toISOString(), ctx));
+    const real = prunePartialPatch(existing, changes);
+    assertCardWriteIntent(existing, real, intent);
+    if (Object.keys(real).length === 0) return existing;
+    const candidate = cardRecordSchema.parse(buildUpdatedCard(existing, real, new Date().toISOString()));
     if (real.depends_on && this.detectCycles(id, candidate.depends_on).length > 0) throw new Error(`Dependency cycle detected for '${id}'.`);
     const fields = collectChangedFields(existing, candidate, real);
     const history = historyEntry(existing, kind, ctx, fields, summarizeChangedFields(fields));
@@ -271,7 +339,7 @@ export class CardService {
     return clone(candidate);
   }
 
-  updateDependsOn(id: string, dependsOn: string[], ctx: CardMutationContext = { actor: 'runtime', surface: 'runtime', reason: 'dependency update' }): CardRecord { return this.applyPatch(id, { depends_on: dependsOn }, 'depends', ctx); }
+  updateDependsOn(id: string, dependsOn: string[], ctx: CardMutationContext = { actor: 'runtime', surface: 'runtime', reason: 'dependency update' }): CardRecord { return this.applyPatch(id, { depends_on: dependsOn }, 'depends', ctx, { kind: 'ordinary' }); }
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): { ok: true; changed: number } | { ok: false; reason: string; missing: string[]; extra: string[] } {
     const { parent, activeChildren } = readLinkedChildrenProjection(this.projectRoot, parentId);
     const actual = activeChildren.map((card) => card.id);

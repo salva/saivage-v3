@@ -1,7 +1,7 @@
 import { BaseActor, compileActorDefinition } from '../micro-actor/index.js';
 import type { CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
-import type { CardPatch, NewCardInput } from '../../cards/card-api.js';
+import type { CardPatch, NewCardInput, TerminalLifecyclePatch } from '../../cards/card-api.js';
 import { canCancelCardStatus } from '../../cards/status-api.js';
 import type { CardMutationContext } from '../../cards/lifecycle.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
@@ -79,7 +79,7 @@ export interface CardActorStorePort {
   create?(input: NewCardInput): CardRecord;
   mutateCard?(cardId: string, changes: CardPatch, ctx: CardMutationContext): CardRecord;
   setStatus(cardId: string, status: CardStatus): CardRecord;
-  commitTerminalLifecyclePatch(cardId: string, changes: CardPatch): CardRecord;
+  commitTerminalLifecyclePatch(cardId: string, changes: TerminalLifecyclePatch): CardRecord;
   listChildren?(cardId: string): string[];
   readRecord(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection;
   closeRecord(cardId: string, filename: string, version: number, writer: import('../../schemas/index.js').AgentRole, cardVersionSeq: number): RecordProjection;
@@ -572,18 +572,15 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
   });
 }
 
-export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>, completedAt: string): CardPatch {
-  const lifecycle = outcome.status === 'done'
-    ? { status: 'done' as const, result: outcome.result, error: null, completed_at: completedAt }
-    : outcome.status === 'failed'
-      ? { status: 'failed' as const, result: outcome.result, error: outcome.summary, completed_at: completedAt }
-      : { status: 'blocked' as const, result: outcome.result, error: outcome.summary, completed_at: null };
-  return {
-    status: outcome.status,
-    lifecycle,
-    status_text: outcome.summary,
-    status_text_updated_at: completedAt,
-  };
+export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>, completedAt: string): TerminalLifecyclePatch {
+  switch (outcome.status) {
+    case 'done':
+      return { status: 'done', lifecycle: { status: 'done', result: outcome.result, error: null, completed_at: completedAt }, status_text: outcome.summary, status_text_updated_at: completedAt };
+    case 'failed':
+      return { status: 'failed', lifecycle: { status: 'failed', result: outcome.result, error: outcome.summary, completed_at: completedAt }, status_text: outcome.summary, status_text_updated_at: completedAt };
+    case 'blocked':
+      return { status: 'blocked', lifecycle: { status: 'blocked', result: outcome.result, error: outcome.summary, completed_at: null }, status_text: outcome.summary, status_text_updated_at: completedAt };
+  }
 }
 
 import { randomUUID } from 'node:crypto';

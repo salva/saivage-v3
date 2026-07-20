@@ -38,6 +38,26 @@ export interface NewCardInput {
 
 export type CardPatch = Partial<Omit<CardRecord, 'type' | 'children'>>;
 
+export type TerminalLifecyclePatch =
+  | {
+      status: 'done';
+      lifecycle: Extract<CardLifecycleState, { status: 'done' }>;
+      status_text?: string | null;
+      status_text_updated_at?: string | null;
+    }
+  | {
+      status: 'failed';
+      lifecycle: Extract<CardLifecycleState, { status: 'failed' }>;
+      status_text?: string | null;
+      status_text_updated_at?: string | null;
+    }
+  | {
+      status: 'blocked';
+      lifecycle: Extract<CardLifecycleState, { status: 'blocked' }>;
+      status_text?: string | null;
+      status_text_updated_at?: string | null;
+    };
+
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'parent',
   'depends_on',
@@ -68,10 +88,6 @@ const LIFECYCLE_LOCKED_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
 const TERMINAL_LIFECYCLE_FIELDS: ReadonlySet<string> = new Set([
   'status',
   'lifecycle',
-]);
-
-const EXPLICIT_LIFECYCLE_WRITE_REASONS: ReadonlySet<string> = new Set([
-  'terminal lifecycle commit',
 ]);
 
 const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
@@ -179,37 +195,12 @@ export function assertGenericCardPatch(changes: CardPatch): void {
 export function validateMutablePatch(
   existing: CardRecord,
   changes: CardPatch,
-  ctx?: CardMutationContext,
 ): number {
   const changedKeys = Object.keys(changes);
-  const changesLifecycleField = changedKeys.some((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
-  const reopensLifecycle = changes.status !== undefined && changes.status !== existing.status && !LIFECYCLE_LOCKED_STATES.has(changes.status);
-  const explicitLifecycleWrite = ctx?.surface === 'runtime' && ctx.actor === 'runtime' && !!ctx.reason && EXPLICIT_LIFECYCLE_WRITE_REASONS.has(ctx.reason);
-  const explicitStatusTransition =
-    (changedKeys.length === 1 || (changedKeys.length === 2 && changedKeys.includes('lifecycle'))) &&
-    changes.status !== undefined &&
-    ctx?.surface === 'runtime' &&
-    ctx.actor === 'runtime' &&
-    typeof ctx.reason === 'string' &&
-    (ctx.reason.startsWith('status -> ') || ctx.reason === 'recovery stopped lifecycle' || ctx.reason === 'STOPPED activation');
-
-  if (changesLifecycleField && !explicitLifecycleWrite && !explicitStatusTransition) {
-    const fields = changedKeys.filter((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
-    throw new Error(
-      `Fields ${fields.join(', ')} are lifecycle-owned and can only be changed by terminal commit or setStatus transition paths.`,
-    );
-  }
-
-  if (LIFECYCLE_LOCKED_STATES.has(existing.status) && changesLifecycleField && !reopensLifecycle && !explicitLifecycleWrite && !explicitStatusTransition) {
-    const fields = changedKeys.filter((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
-    throw new Error(
-      `Card '${existing.id}' is in status '${existing.status}'. Fields ${fields.join(', ')} are lifecycle-owned and can only be changed by terminal commit or setStatus reopening paths. Reopen the card before ordinary edits.`,
-    );
-  }
 
   if (LIFECYCLE_LOCKED_STATES.has(existing.status)) {
     for (const key of changedKeys) {
-      if ((explicitLifecycleWrite || explicitStatusTransition) && TERMINAL_LIFECYCLE_FIELDS.has(key)) continue;
+      if (TERMINAL_LIFECYCLE_FIELDS.has(key)) continue;
       if (existing.status === 'blocked' && key === 'pending_notifications') continue;
       if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
         throw new Error(
@@ -236,9 +227,8 @@ export function buildUpdatedCard(
   existing: CardRecord,
   changes: CardPatch,
   stamp: string,
-  ctx?: CardMutationContext,
 ): CardRecord {
-  const newDepth = validateMutablePatch(existing, changes, ctx);
+  const newDepth = validateMutablePatch(existing, changes);
   const newDependsOn =
     changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
   const status = changes.status ?? existing.status;

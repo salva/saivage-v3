@@ -28,6 +28,53 @@ function updatedRows(initialType: 'goal' | 'code'): { id: string; rows: CardStre
 }
 
 describe('two-kind card stream validation', () => {
+  it('accepts real stopped-transition rows with their exact v1 discriminant reasons', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-stream-validation-'));
+    roots.push(root);
+    initProjectTree(root);
+    const cards = new CardService(root);
+    const card = cards.create(input());
+    cards.setStatus(card.id, 'running');
+    cards.stopRunningForRecovery(card.id);
+    cards.activateStopped(card.id);
+
+    const rows = readCardArtifacts(root, card.id).artifacts;
+    expect(validateCardStream(rows, cardStreamFile(root, card.id), card.id).current.card.status).toBe('running');
+    expect(rows.filter((row) => row.kind === 'card-version').map((row) => row.history?.change_reason)).toEqual([
+      undefined,
+      'status -> running',
+      'recovery stopped lifecycle',
+      'STOPPED activation',
+    ]);
+  });
+
+  it.each(['intent', 'write_intent', 'reset'])('keeps the strict v1 row schema free of %s', (field) => {
+    const { rows } = updatedRows('code');
+    const invalid = structuredClone(rows[1]!);
+    (invalid as unknown as Record<string, unknown>)[field] = 'forbidden';
+    expect(() => cardStreamRowSchema.parse(invalid)).toThrow();
+  });
+
+  it('replays ordinary running terminal outcomes without a persisted write intent', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-stream-validation-'));
+    roots.push(root);
+    initProjectTree(root);
+    const cards = new CardService(root);
+    const done = cards.create(input());
+    const failed = cards.create(input());
+    const blocked = cards.create(input());
+    for (const card of [done, failed, blocked]) cards.setStatus(card.id, 'running');
+    cards.commitTerminalLifecyclePatch(done.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-19T00:00:00.000Z' } });
+    cards.commitTerminalLifecyclePatch(failed.id, { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-19T00:00:00.000Z' } });
+    cards.commitTerminalLifecyclePatch(blocked.id, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'blocked' }, error: 'blocked', completed_at: null } });
+
+    for (const card of [done, failed, blocked]) {
+      const rows = readCardArtifacts(root, card.id).artifacts;
+      expect(validateCardStream(rows, cardStreamFile(root, card.id), card.id).current.card.status).toBe(cards.read(card.id)?.status);
+      expect(JSON.stringify(rows)).not.toMatch(/write_intent|"intent"|"reset"/);
+    }
+  });
+
   it('accepts only contiguous card versions before an optional terminal tombstone', () => {
     const { id, rows } = updatedRows('code');
     expect(rows.map((row) => row.kind)).toEqual(['card-version', 'card-version']);
