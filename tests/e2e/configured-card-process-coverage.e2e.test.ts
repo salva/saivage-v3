@@ -10,7 +10,6 @@ import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.
 import { cardProcessesSchema } from '../../src/agents/config-schema.js';
 import { compileCardProcesses } from '../../src/runtime/card-process/card-process-config.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
-import { DefaultAnalystBriefRecordMutationService } from '../../src/application/analyst-mutation-services.js';
 import { startApp, type App } from '../../src/boot/app.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
@@ -22,7 +21,7 @@ import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { initProjectTree, testAnalystMutationServices } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
@@ -122,7 +121,7 @@ describe('configured card-process substantive E2E coverage', () => {
     cards.setStatus(child.id, 'running'); cards.stopRunningForRecovery(child.id);
     const staleStatus = cards.openRecord(child.id, 'status.md'); cards.editRecord(child.id, 'status.md', staleStatus.version, 'stale pre-activation evidence');
     const analystBrief = '# Goal\nEdited while stopped\n# Instructions\nPreserve identity\n# Acceptance Criteria\nComplete';
-    expect(new DefaultAnalystBriefRecordMutationService(root, cards, () => ({ ok: true, notificationId: 'analyst-edit' })).write(`record:///brief.md?card=${child.id}&v=next`, analystBrief)).toMatchObject({ success: true });
+    expect(testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'analyst-edit' })).briefRecords.write(`record:///brief.md?card=${child.id}&v=next`, analystBrief)).toMatchObject({ success: true });
     const calls = { planner: 0, reviewer: 0, executor: 0 };
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const role = input.role as keyof typeof calls; calls[role] += 1; const call = calls[role];

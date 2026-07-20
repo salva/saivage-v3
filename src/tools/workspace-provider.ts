@@ -8,7 +8,6 @@ import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext as AnalystToolContext } from './analyst-tool-types.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
-import { commitEditBrief, commitWriteBrief, recheckEditBrief, recheckWriteBrief } from '../application/analyst-mutation-operations.js';
 
 export interface WorkspaceProviderContext {
   readonly projectRoot: string;
@@ -98,10 +97,10 @@ export function createAnalystWorkspaceProvider(ctx: AnalystToolContext): ToolPro
     tools: [
       defineTool({ name: 'read', description: 'Read a project:///, record:///, tmp:///, system:///, or read-only work:/// file or directory through scoped URLs. Use work:/// to page through runtime process output and stash files. Text reads return at most 2000 lines, 2000 characters per line, and about 256KB total inline content; files larger than about 10MB are not read inline. Set metadata_only to inspect file size/mtime or visible directory entry counts without reading content.', inputSchema: readSchema, executor: (args) => runWorkspaceTool(() => readProject(workspace, args)) }),
       defineTool({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to role policy.', inputSchema: writeSchema, executor: (args, signal) => args.path.startsWith('record:///')
-        ? runAuditedAnalystTool(ctx, args, { action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: 'intervention_ready', recheck: recheckWriteBrief, commit: commitWriteBrief }, signal)
+        ? runAuditedAnalystTool(ctx, args, { action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: 'intervention_ready', mutate: (_prepared, input, mutation) => mutation.services.briefRecords.write(input.path, input.content) }, signal)
         : runWorkspaceTool(() => writeProject(workspace, args)) }),
       defineTool({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to role policy.', inputSchema: editSchema, executor: (args, signal) => args.path.startsWith('record:///')
-        ? runAuditedAnalystTool(ctx, args, { action: 'record.edit', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: 'intervention_ready', recheck: recheckEditBrief, commit: commitEditBrief }, signal)
+        ? runAuditedAnalystTool(ctx, args, { action: 'record.edit', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: 'intervention_ready', mutate: (_prepared, input, mutation) => mutation.services.briefRecords.edit(input.path, input.old_string, input.new_string, input.replace_all === true) }, signal)
         : runWorkspaceTool(() => editProject(workspace, args)) }),
       defineTool({ name: 'glob', description: 'Search files by glob pattern under a scoped directory, including read-only work:/// process-output and stash directories.', inputSchema: globSchema, executor: (args) => runWorkspaceTool(() => globProject(workspace, args)) }),
       defineTool({ name: 'grep', description: 'Stream-search text files, including files too large for inline read, with a JavaScript regular expression under project:///, record:///, tmp:///, read-only work:///, or system:/// paths. Search retains at most 2000 characters per line and reports content truncation when an overlong suffix was not searched. grep record:///<cardId> searches the latest closed versions of exposed record slots and returns record URLs as path. work:/// content is redacted before return.', inputSchema: grepSchema, executor: (args) => runWorkspaceTool(() => grepProject(workspace, args)) }),

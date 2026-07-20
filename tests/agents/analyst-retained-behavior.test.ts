@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,11 +7,25 @@ import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
 import { ANALYST_CAPABILITY_CLASSES, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
 import { EventBus } from '../../src/events/index.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
+import { listControlActions } from '../../src/persistence/index.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-describe('Analyst retained navigation, safety, and mutation admission', () => {
+function harness(options: { actor?: 'analyst'; surface?: 'web-chat' | 'rest'; ready?: boolean } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-audit-'));
+  roots.push(root);
+  const intervention = new RuntimeInterventionBinding();
+  if (options.ready !== false) intervention.markStoppedReady();
+  const eventBus = new EventBus();
+  const publications: unknown[] = [];
+  eventBus.subscribe({ allowedKinds: ['control_action_recorded'], handler: (event) => { publications.push(event); } });
+  const context = { projectRoot: root, actor: options.actor ?? 'analyst', surface: options.surface ?? 'web-chat', appLogs: { projectRoot: root }, eventBus, interventionReadiness: intervention, analystPreparation: {}, analystMutations: {} } as never;
+  const spec = (mutate: (...args: any[]) => any, extra: Record<string, unknown> = {}) => ({ action: 'card.test', safety_class: 'low' as const, target_kind: 'card' as const, getTargetId: () => 'project', lifecycle: 'intervention_ready' as const, mutate, ...extra });
+  return { root, context, publications, spec };
+}
+
+describe('Analyst retained navigation and capability behavior', () => {
   it('renders current workspace navigation without inventing focused state', () => {
     expect(buildWorkspaceContextNote()).toBe('[workspace-context] none — no entity is currently in focus');
     expect(buildWorkspaceContextNote({ view: 'cards', entityId: 'project', refinement: { tab: 'history', filter: 'failed' } })).toBe('[workspace-context]\nview: cards\nentity: project\nrefinement: tab=history;filter=failed');
@@ -22,41 +36,88 @@ describe('Analyst retained navigation, safety, and mutation admission', () => {
     expect(ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Navigate', ['open_card'])).toContain('Closest available capability: Navigate');
     expect(ANALYST_UNKNOWN_CAPABILITY_TEMPLATE('delete_everything')).toContain('it is not a registered capability');
   });
+});
 
-  it('checks cancellation after async preparation and before permission/commit/audit success', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-admission-'));
-    roots.push(root);
-    const intervention = new RuntimeInterventionBinding();
-    intervention.markStoppedReady();
-    const controller = new AbortController();
-    const commit = jest.fn(async () => ({ success: true as const, data: { ok: true } }));
-    const recheck = jest.fn(() => ({ allowed: true as const }));
-    const context = {
-      projectRoot: root, actor: 'analyst', surface: 'web-chat', appLogs: { projectRoot: root }, eventBus: new EventBus(), interventionReadiness: intervention,
-      analystPreparation: {}, analystMutations: {},
-    } as never;
-    const pending = runAuditedAnalystTool(context, { card_id: 'project' }, {
-      action: 'edit_card', safety_class: 'low', target_kind: 'card', getTargetId: (params) => params.card_id, lifecycle: 'intervention_ready',
-      prepare: async () => { controller.abort(new Error('turn cancelled')); return { current: true }; },
-      recheck, commit,
-    }, controller.signal);
-
-    await expect(pending).rejects.toThrow('turn cancelled');
-    expect(recheck).not.toHaveBeenCalled();
-    expect(commit).not.toHaveBeenCalled();
+describe('audited Analyst mutation settlement', () => {
+  it('audits authorization denial exactly once without mutation', async () => {
+    const test = harness({ surface: 'rest' });
+    const mutate = jest.fn();
+    const result = await runAuditedAnalystTool(test.context, {}, { ...test.spec(mutate), safety_class: 'destructive' });
+    expect(result.success).toBe(false);
+    expect(mutate).not.toHaveBeenCalled();
+    expect(listControlActions(test.root)).toHaveLength(1);
+    expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'denied' });
   });
 
-  it('rechecks permission immediately before commit and records no mutation when denied', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-admission-'));
-    roots.push(root);
-    const intervention = new RuntimeInterventionBinding();
-    intervention.markStoppedReady();
-    const commit = jest.fn(async () => ({ success: true as const }));
-    const result = await runAuditedAnalystTool({ projectRoot: root, actor: 'analyst', surface: 'web-chat', appLogs: { projectRoot: root }, eventBus: new EventBus(), interventionReadiness: intervention, analystPreparation: {}, analystMutations: {} } as never, { card_id: 'project' }, {
-      action: 'edit_card', safety_class: 'low', target_kind: 'card', getTargetId: (params) => params.card_id, lifecycle: 'intervention_ready',
-      prepare: async () => ({ current: true }), recheck: () => ({ allowed: false, reason: 'status changed' }), commit,
-    });
+  it('audits application denial after preparation exactly once', async () => {
+    const test = harness();
+    const result = await runAuditedAnalystTool(test.context, {}, test.spec(() => ({ kind: 'denied', reason: 'status changed' }), { prepare: async () => ({ current: true }) }));
     expect(result).toMatchObject({ success: false, error: expect.stringContaining('status changed') });
-    expect(commit).not.toHaveBeenCalled();
+    expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'denied' });
+  });
+
+  it('projects and audits a returned failure', async () => {
+    const test = harness();
+    const result = await runAuditedAnalystTool(test.context, {}, test.spec(() => ({ kind: 'returned', success: false, error: 'owner rejected' })));
+    expect(result).toEqual({ success: false, error: 'owner rejected' });
+    expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'error', error: 'owner rejected' });
+  });
+
+  it('audits preparation throws and rethrows the original error', async () => {
+    const test = harness();
+    const error = new Error('prepare failed');
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(jest.fn(), { prepare: async () => { throw error; } }))).rejects.toBe(error);
+    expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'error', error: 'prepare failed' });
+  });
+
+  it('audits cancellation after preparation without calling the application', async () => {
+    const test = harness();
+    const controller = new AbortController();
+    const mutate = jest.fn();
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate, { prepare: async () => { controller.abort(new Error('turn cancelled')); return {}; } }), controller.signal)).rejects.toThrow('turn cancelled');
+    expect(mutate).not.toHaveBeenCalled();
+    expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'error' });
+  });
+
+  it('audits readiness and application throws without calling twice', async () => {
+    const readiness = harness({ ready: false });
+    const mutate = jest.fn();
+    await expect(runAuditedAnalystTool(readiness.context, {}, readiness.spec(mutate))).rejects.toThrow();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(listControlActions(readiness.root)).toHaveLength(1);
+
+    const application = harness();
+    const error = new Error('owner threw');
+    const throwing = jest.fn(() => { throw error; });
+    await expect(runAuditedAnalystTool(application.context, {}, application.spec(throwing))).rejects.toBe(error);
+    expect(throwing).toHaveBeenCalledTimes(1);
+    expect(listControlActions(application.root)[0]).toMatchObject({ outcome: 'error', error: 'owner threw' });
+  });
+
+  it('audits returned success and publishes once', async () => {
+    const test = harness();
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(() => ({ kind: 'returned', success: true, data: { ok: true } })))).resolves.toEqual({ success: true, data: { ok: true } });
+    expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'ok' });
+    expect(test.publications).toHaveLength(1);
+  });
+
+  it('keeps a committed success ok when cancellation arrives before the application returns', async () => {
+    const test = harness();
+    const controller = new AbortController();
+    const mutate = jest.fn(async () => { controller.abort(new Error('late cancellation')); return { kind: 'returned' as const, success: true as const }; });
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate), controller.signal)).rejects.toThrow('late cancellation');
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(listControlActions(test.root)).toHaveLength(1);
+    expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'ok' });
+    expect(test.publications).toHaveLength(1);
+  });
+
+  it('propagates audit append failure without another append attempt', async () => {
+    const test = harness();
+    mkdirSync(join(test.root, '.saivage', 'logs', 'app.jsonl'), { recursive: true });
+    const mutate = jest.fn(() => ({ kind: 'returned' as const, success: true as const }));
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate))).rejects.toThrow();
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(test.publications).toHaveLength(0);
   });
 });

@@ -14,7 +14,6 @@ import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult 
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
-import { commitFetchedBrief, recheckFetchedBrief } from '../application/analyst-mutation-operations.js';
 import { prepareAnalystBriefWebfetch, type PreparedFetchedBrief } from '../application/analyst-prepare/webfetch.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -260,7 +259,13 @@ export function createWebProvider(ctx: WebProviderContext): ToolProvider {
           } } } };
           return runAuditedAnalystTool(preparedContext, { url: args.url, read_mode: args.read_mode, max_bytes: args.max_bytes, save_as: args.save_as }, {
             action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.save_as, lifecycle: 'intervention_ready',
-            prepare: prepareAnalystBriefWebfetch, recheck: recheckFetchedBrief, commit: commitFetchedBrief,
+            prepare: prepareAnalystBriefWebfetch,
+            mutate: (prepared, input, mutation) => {
+              const outcome = mutation.services.briefRecords.write(input.save_as, prepared.content);
+              if (outcome.kind === 'denied' || !outcome.success) return outcome;
+              const data = outcome.data as Record<string, unknown>;
+              return { kind: 'returned', success: true, data: { ...prepared.metadata, saved_as: data['record_url'], write: data, bytes: Buffer.byteLength(prepared.content, 'utf8') } };
+            },
           }, signal);
         },
       }),

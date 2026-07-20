@@ -35,7 +35,7 @@ import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prom
 import type { RestartPort } from '../boot/restart-port.js';
 import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from '../runtime/actors/invocation-lifecycle.js';
-import { DefaultAnalystBriefRecordMutationService, DefaultAnalystCardMutationService, DefaultAnalystConfigMutationService, DefaultAnalystNotificationMutationService } from '../application/analyst-mutation-services.js';
+import { createAnalystMutationServices } from '../application/analyst-mutation-services.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
@@ -163,12 +163,8 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: AnalystCon
 
 function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; store: CardService; processScope: ManagedProcessScope; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; restartServerAvailable: boolean }): ToolContext {
   const notifyCard = args.runtimeDeps.runtime.notifyCard.bind(args.runtimeDeps.runtime);
-  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs, captureExecutingLlmSnapshots: args.runtimeDeps.captureExecutingLlmSnapshots, analystMutations: {
-    cards: new DefaultAnalystCardMutationService(args.store, args.surface, notifyCard, args.runtimeDeps.runtime.cancelCard.bind(args.runtimeDeps.runtime)),
-    config: new DefaultAnalystConfigMutationService(args.runtimeDeps.configAuthority),
-    notifications: new DefaultAnalystNotificationMutationService(args.projectRoot, args.store, args.surface, notifyCard),
-    briefRecords: new DefaultAnalystBriefRecordMutationService(args.projectRoot, args.store, notifyCard),
-  } };
+  const analystMutations = createAnalystMutationServices({ projectRoot: args.projectRoot, store: args.store, configAuthority: args.runtimeDeps.configAuthority, surface: args.surface, notifyCard, cancelCard: args.runtimeDeps.runtime.cancelCard.bind(args.runtimeDeps.runtime) });
+  return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpManager: args.runtimeDeps.mcpManager, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs, captureExecutingLlmSnapshots: args.runtimeDeps.captureExecutingLlmSnapshots, analystMutations };
 }
 
 type PendingAnalystTurn = {

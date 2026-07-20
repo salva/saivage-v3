@@ -3,8 +3,8 @@ import type { SafetyClass } from './authz.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
+import type { AnalystMutationOutcome } from '../application/analyst-mutation-services.js';
 
-export type MutationAdmission = { allowed: true } | { allowed: false; reason: string };
 export interface AnalystMutationReadContext {
   readonly projectRoot: string;
   readonly actor: ToolContext['actor'];
@@ -26,8 +26,7 @@ export interface MutatingSpec<P, Prepared = undefined> {
   readonly getTargetId: (params: P) => string | null;
   readonly lifecycle: 'intervention_ready' | 'runtime_cancellation';
   readonly prepare?: (params: P, ctx: AnalystMutationReadContext) => Promise<Prepared>;
-  readonly recheck: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => MutationAdmission;
-  readonly commit: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => ToolResult | Promise<ToolResult>;
+  readonly mutate: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => AnalystMutationOutcome | Promise<AnalystMutationOutcome>;
   readonly successSummary?: string;
 }
 
@@ -38,33 +37,50 @@ function paramsSummary(params: unknown): string {
 }
 
 export async function runAuditedAnalystTool<P extends object, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>, signal?: AbortSignal): Promise<ToolResult> {
-  const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });
   const auditBase = { actor: ctx.actor, surface: ctx.surface, action: spec.action, target_kind: spec.target_kind, target_id: spec.getTargetId(params), params_summary: paramsSummary(params), safety_class: spec.safety_class };
-  if (verdict === 'deny') {
-    recordControlAction(ctx.appLogs, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' }, ctx.eventBus);
-    return toolFailure(`Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.`, { action: spec.action, safety_class: spec.safety_class });
+  let settled = false;
+  const settle = (entry: { outcome: 'denied' | 'error' | 'ok'; outcome_summary: string; error?: string }): void => {
+    if (settled) throw new Error(`Analyst control action '${spec.action}' was settled more than once.`);
+    settled = true;
+    recordControlAction(ctx.appLogs, { ...auditBase, ...entry }, ctx.eventBus);
+  };
+  let result: ToolResult;
+  try {
+    const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });
+    if (verdict === 'deny') {
+      settle({ outcome: 'denied', outcome_summary: 'authz denied' });
+      result = toolFailure(`Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.`, { action: spec.action, safety_class: spec.safety_class });
+    } else {
+      const readServices = ctx.analystPreparation;
+      if (spec.prepare && !readServices) throw new Error('Analyst preparation services are required for prepared mutations.');
+      const readContext: AnalystMutationReadContext = { projectRoot: ctx.projectRoot, actor: ctx.actor, surface: ctx.surface, services: readServices!, ...(ctx.sessionId === undefined ? {} : { sessionId: ctx.sessionId }) };
+      const prepared = spec.prepare ? await spec.prepare(params, readContext) : undefined as Prepared;
+      signal?.throwIfAborted();
+      if (spec.lifecycle === 'intervention_ready') ctx.interventionReadiness.assertInterventionReady();
+      if (!ctx.analystMutations) throw new Error('Analyst mutation services are required for mutating tools.');
+      const mutationContext: AnalystMutationContext = { actor: ctx.actor, surface: ctx.surface, services: ctx.analystMutations };
+      const outcome = await spec.mutate(prepared, params, mutationContext);
+      if (outcome.kind === 'denied') {
+        settle({ outcome: 'denied', outcome_summary: `permission denied: ${outcome.reason}` });
+        result = toolFailure(`Denied by permission policy for ${spec.action}: ${outcome.reason}.`, { action: spec.action, reason: outcome.reason });
+      } else {
+        result = outcome.success
+          ? { success: true, ...(outcome.data === undefined ? {} : { data: outcome.data }) }
+          : { success: false, error: outcome.error, ...(outcome.data === undefined ? {} : { data: outcome.data }) };
+        settle({
+          outcome: result.success ? 'ok' : 'error',
+          outcome_summary: result.success ? spec.successSummary ?? 'mutation applied' : result.error,
+          ...(result.success ? {} : { error: result.error }),
+        });
+      }
+    }
+  } catch (error) {
+    if (settled) throw error;
+    const summary = error instanceof Error ? error.message : String(error);
+    settle({ outcome: 'error', outcome_summary: summary, error: summary });
+    throw error;
   }
-  const readServices = ctx.analystPreparation;
-  if (spec.prepare && !readServices) throw new Error('Analyst preparation services are required for prepared mutations.');
-  const readContext: AnalystMutationReadContext = { projectRoot: ctx.projectRoot, actor: ctx.actor, surface: ctx.surface, services: readServices!, ...(ctx.sessionId === undefined ? {} : { sessionId: ctx.sessionId }) };
-  const prepared = spec.prepare ? await spec.prepare(params, readContext) : undefined as Prepared;
   signal?.throwIfAborted();
-  if (spec.lifecycle === 'intervention_ready') ctx.interventionReadiness.assertInterventionReady();
-  if (!ctx.analystMutations) throw new Error('Analyst mutation services are required for mutating tools.');
-  const mutationContext: AnalystMutationContext = { actor: ctx.actor, surface: ctx.surface, services: ctx.analystMutations };
-  const permission = spec.recheck(prepared, params, mutationContext);
-  if (permission && !permission.allowed) {
-    recordControlAction(ctx.appLogs, { ...auditBase, outcome: 'denied', outcome_summary: `permission denied: ${permission.reason}` }, ctx.eventBus);
-    return toolFailure(`Denied by permission policy for ${spec.action}: ${permission.reason}.`, { action: spec.action, reason: permission.reason });
-  }
-  const result = await spec.commit(prepared, params, mutationContext);
-  signal?.throwIfAborted();
-  recordControlAction(ctx.appLogs, {
-    ...auditBase,
-    outcome: result.success ? 'ok' : 'error',
-    outcome_summary: result.success ? spec.successSummary ?? 'mutation applied' : result.error,
-    ...(result.success ? {} : { error: result.error }),
-  }, ctx.eventBus);
   return result;
 }
 

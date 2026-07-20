@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createWebProvider } from '../../src/tools/web-tools.js';
 import { createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
+import { EventBus } from '../../src/events/index.js';
+import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 
 describe('WebProvider', () => {
   it('waits only around public fetch and resumes before result publication/finalization', async () => {
@@ -74,6 +76,25 @@ describe('WebProvider', () => {
       const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'fetched.txt' });
       expect(result).toEqual({ success: false, error: 'reviewer cannot write project files.' });
       expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('routes prepared record fetch content through the same brief write operation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
+    const content = '# Goal\nFetched\n# Instructions\nUse it\n# Acceptance Criteria\nSaved';
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(content, { status: 200, headers: { 'content-type': 'text/plain' } }));
+    const write = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { record_url: 'record:///brief.md?card=project&v=2' } }));
+    const readiness = new RuntimeInterventionBinding(); readiness.markStoppedReady();
+    try {
+      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', appLogs: { projectRoot: root }, eventBus: new EventBus(), interventionReadiness: readiness, analystMutations: { briefRecords: { write } } } as never;
+      const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', analystToolContext })]);
+      const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'record:///brief.md?card=project&v=next' });
+      expect(result).toMatchObject({ success: true, data: { saved_as: 'record:///brief.md?card=project&v=2' } });
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(write).toHaveBeenCalledWith('record:///brief.md?card=project&v=next', content);
     } finally {
       fetchSpy.mockRestore();
       rmSync(root, { recursive: true, force: true });

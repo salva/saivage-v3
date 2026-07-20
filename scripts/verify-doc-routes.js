@@ -303,12 +303,12 @@ function toolNamesFromProvider(projectRoot, functionName, relPath) {
   const { ast } = sourceAst(projectRoot, relPath);
   if (functionName === 'createAnalystControlProvider') {
     const fn = findFunction(ast, functionName);
-    if (!fn.getText(ast).includes('ANALYST_CONTROL_TOOLS')) throw new Error('Analyst control provider no longer consumes ANALYST_CONTROL_TOOLS');
+    if (!fn.getText(ast).includes('createAnalystControlTools')) throw new Error('Analyst control provider no longer consumes the executable Analyst catalog');
     const registry = sourceAst(projectRoot, 'src/tools/analyst-tool-registry.ts');
     const initializers = constInitializers(registry.ast);
-    const control = requiredInitializer(initializers, 'ANALYST_CONTROL_TOOLS', registry.ast.fileName);
-    if (!ts.isCallExpression(control) || !ts.isPropertyAccessExpression(control.expression) || control.expression.name.text !== 'map' || !ts.isIdentifier(control.expression.expression)) throw new Error('Unable to resolve live ANALYST_CONTROL_TOOLS input');
-    return stringArray(requiredInitializer(initializers, control.expression.expression.text, registry.ast.fileName), 'Analyst control order');
+    const catalog = findFunction(registry.ast, 'createAnalystControlTools');
+    if (!catalog.getText(registry.ast).includes('analystToolOrder.map')) throw new Error('Unable to resolve executable Analyst catalog order');
+    return stringArray(requiredInitializer(initializers, 'analystToolOrder', registry.ast.fileName), 'Analyst control order');
   }
   const objects = directReturnObjects(findFunction(ast, functionName));
   if (objects.length !== 1) throw new Error(`${functionName} must return one direct provider object`);

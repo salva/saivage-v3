@@ -305,6 +305,10 @@ This appendix is maintained as source-derived reference data for documentation d
 
 The inventory lists every tool that each runtime role can potentially be offered by its composed providers and, for autonomous roles, terminal contract. Conditional gates still apply: in particular, Analyst `restart_server` is offered only when restart is available and destructive authorization allows it.
 
+The Analyst control registry is one ordered, context-bound catalog of executable `ToolDefinition` entries. It is distinct from the Planner control provider, the LLM wire-tool projection, and MCP discovery/wire contracts; those surfaces do not contribute metadata to the Analyst catalog. Analyst mutation composition creates one application service bundle for a turn. Each application operation performs its fresh admission/currentness reads and immediately invokes its card, runtime, configuration, notification, or record owner through that single call.
+
+An audited prepared mutation orders work as authorization, optional read-only preparation, invocation signal, intervention readiness when applicable, one fresh application mutation, control-action settlement, then a late signal check. There is no reservation between preparation and mutation. A returned committed success settles `ok` before late cancellation is honored; cancellation cannot replay or undo the owner effect.
+
 <!-- saivage:agent-tools:start -->
 | Role | Tools | Source |
 |---|---|---|

@@ -7,8 +7,12 @@ import type { CardRecord, CardStatus, CardType, ControlActionSurface } from '../
 import { propagateAnalystBriefEdit, propagateChange } from '../runtime/changed-propagation.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import { toCardView } from './read-models/card-view.js';
-import type { ToolResult } from '../tools/analyst-tool-types.js';
 import { resolveRecordWriteTarget } from '../workspace/index.js';
+
+export type AnalystMutationOutcome =
+  | { kind: 'denied'; reason: string }
+  | { kind: 'returned'; success: true; data?: unknown }
+  | { kind: 'returned'; success: false; error: string; data?: unknown };
 
 export interface CreateAnalystCardInput {
   type: CardType;
@@ -24,31 +28,23 @@ export interface CreateAnalystCardInput {
 }
 
 export interface AnalystCardMutationService {
-  validateCreate(input: CreateAnalystCardInput): { allowed: true } | { allowed: false; reason: string };
-  validateDelete(ids: readonly string[]): { allowed: true } | { allowed: false; reason: string };
-  validateCancel(cardId: string): { allowed: true } | { allowed: false; reason: string };
-  validateReorder(parentId: string, orderedChildIds: readonly string[]): { allowed: true } | { allowed: false; reason: string };
-  create(input: CreateAnalystCardInput): ToolResult;
-  delete(ids: readonly string[]): ToolResult;
-  cancel(cardId: string, reason?: string): Promise<ToolResult>;
-  reorder(parentId: string, orderedChildIds: readonly string[]): ToolResult;
+  create(input: CreateAnalystCardInput): AnalystMutationOutcome;
+  delete(ids: readonly string[]): AnalystMutationOutcome;
+  cancel(cardId: string, reason?: string): Promise<AnalystMutationOutcome>;
+  reorder(parentId: string, orderedChildIds: readonly string[]): AnalystMutationOutcome;
 }
 
 export interface AnalystConfigMutationService {
-  validate(mutation: ConfigMutation): { allowed: true } | { allowed: false; reason: string };
-  apply(mutation: ConfigMutation): ToolResult;
+  apply(mutation: ConfigMutation): AnalystMutationOutcome;
 }
 
 export interface AnalystNotificationMutationService {
-  validate(cardId: string): { allowed: true } | { allowed: false; reason: string };
-  queue(cardId: string, kind: string, body: string): ToolResult;
+  queue(cardId: string, kind: string, body: string): AnalystMutationOutcome;
 }
 
 export interface AnalystBriefRecordMutationService {
-  validateWrite(path: string, content: string): { allowed: true } | { allowed: false; reason: string };
-  validateEdit(path: string, oldString: string, replaceAll: boolean): { allowed: true } | { allowed: false; reason: string };
-  write(path: string, content: string): ToolResult;
-  edit(path: string, oldString: string, newString: string, replaceAll: boolean): ToolResult;
+  write(path: string, content: string): AnalystMutationOutcome;
+  edit(path: string, oldString: string, newString: string, replaceAll: boolean): AnalystMutationOutcome;
 }
 
 export interface AnalystMutationServices {
@@ -61,202 +57,169 @@ export interface AnalystMutationServices {
 export function createAnalystMutationServices(input: { projectRoot: string; store: CardService; configAuthority: ResolvedConfigAuthority; surface: ControlActionSurface; notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
   const notifyCard = input.notifyCard ?? ((_cardId, notification) => ({ ok: true, notificationId: notification.id }));
   return {
-    cards: new DefaultAnalystCardMutationService(input.store, input.surface, notifyCard, input.cancelCard),
-    config: new DefaultAnalystConfigMutationService(input.configAuthority),
-    notifications: new DefaultAnalystNotificationMutationService(input.projectRoot, input.store, input.surface, notifyCard),
-    briefRecords: new DefaultAnalystBriefRecordMutationService(input.projectRoot, input.store, notifyCard),
+    cards: new AnalystCardMutationImplementation(input.store, input.surface, notifyCard, input.cancelCard),
+    config: new AnalystConfigMutationImplementation(input.configAuthority),
+    notifications: new AnalystNotificationMutationImplementation(input.projectRoot, input.store, input.surface, notifyCard),
+    briefRecords: new AnalystBriefRecordMutationImplementation(input.projectRoot, input.store, notifyCard),
   };
 }
 
-function failure(error: string, data?: Record<string, unknown>): ToolResult {
-  return { success: false, error, ...(data ? { data } : {}) };
+function failure(error: string, data?: Record<string, unknown>): AnalystMutationOutcome {
+  return { kind: 'returned', success: false, error, ...(data ? { data } : {}) };
+}
+
+function success(data?: unknown): AnalystMutationOutcome {
+  return { kind: 'returned', success: true, ...(data === undefined ? {} : { data }) };
+}
+
+function denied(reason: string): AnalystMutationOutcome { return { kind: 'denied', reason }; }
+
+class AnalystMutationDeniedError extends Error {}
+
+function denialFrom(error: unknown): AnalystMutationOutcome {
+  if (error instanceof AnalystMutationDeniedError) return denied(error.message);
+  throw error;
 }
 
 function subtree(store: CardService, rootId: string): CardRecord[] {
   return [rootId, ...store.getDescendantIds(rootId)].map((id) => store.read(id)).filter((card): card is CardRecord => card !== null);
 }
 
-export class DefaultAnalystCardMutationService implements AnalystCardMutationService {
+class AnalystCardMutationImplementation implements AnalystCardMutationService {
   constructor(private readonly store: CardService, private readonly surface: ControlActionSurface, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard'], private readonly cancelCardPort?: Pick<RuntimeApi, 'cancelCard'>['cancelCard']) {}
 
-  validateCreate(input: CreateAnalystCardInput): { allowed: true } | { allowed: false; reason: string } {
-    if (input.type === 'project' && input.parent === null) return { allowed: false, reason: 'Root project card already exists' };
-    if (input.parent === null) return { allowed: false, reason: 'non-project card requires a parent' };
-    const parent = this.store.read(input.parent);
-    if (!parent) return { allowed: false, reason: `parent '${input.parent}' does not exist` };
-    if (!canCreateChildInStatus(parent.status) || parent.status === 'running') return { allowed: false, reason: 'wrong_state' };
-    if (input.status !== undefined && input.status !== 'backlog') return { allowed: false, reason: 'Analyst-created cards must start in backlog' };
-    return { allowed: true };
-  }
-
-  validateDelete(ids: readonly string[]): { allowed: true } | { allowed: false; reason: string } {
-    if (ids.length > 1) return { allowed: true };
-    for (const id of ids) {
-      const card = this.store.read(id);
-      if (!card) continue;
-      if (card.id === PROJECT_CARD_ID) return { allowed: false, reason: 'root project card cannot be deleted' };
-      for (const candidate of subtree(this.store, id)) {
-        if (candidate.status === 'running') return { allowed: false, reason: 'wrong_state' };
-      }
-    }
-    return { allowed: true };
-  }
-
-  validateCancel(cardId: string): { allowed: true } | { allowed: false; reason: string } {
-    const card = this.store.read(cardId);
-    if (!card) return { allowed: false, reason: `card '${cardId}' does not exist` };
-    if (card.id === PROJECT_CARD_ID) return { allowed: false, reason: 'root project card cannot be cancelled' };
-    const denied = subtree(this.store, cardId).find((candidate) => !canCancelCardStatus(candidate.status));
-    if (denied) return { allowed: false, reason: `card '${denied.id}' is ${denied.status}` };
-    return { allowed: true };
-  }
-
-  validateReorder(parentId: string, orderedChildIds: readonly string[]): { allowed: true } | { allowed: false; reason: string } {
-    const parent = this.store.read(parentId);
-    if (!parent) return { allowed: false, reason: `parent '${parentId}' does not exist` };
-    if (parent.status === 'running') return { allowed: false, reason: `parent '${parentId}' is ${parent.status}` };
-    const current = this.store.listChildren(parentId);
-    if (current.length !== orderedChildIds.length || current.some((id) => !orderedChildIds.includes(id))) return { allowed: false, reason: 'reorder_set_mismatch' };
-    for (const id of orderedChildIds) for (const candidate of subtree(this.store, id)) {
-      if (candidate.status === 'running') return { allowed: false, reason: `child subtree '${id}' contains '${candidate.id}' in status ${candidate.status}` };
-    }
-    return { allowed: true };
-  }
-
-  create(input: CreateAnalystCardInput): ToolResult {
+  create(input: CreateAnalystCardInput): AnalystMutationOutcome {
     const parent = input.parent;
-    if (input.type === 'project' && parent === null) return failure('Root project card already exists. Use card-management tools or record writes to update project objectives.', { id: PROJECT_CARD_ID });
-    if (parent === null) return failure(`Cannot create ${input.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
+    if (input.type === 'project' && parent === null) return denied('Root project card already exists');
+    if (parent === null) return denied('non-project card requires a parent');
     const parentCard = this.store.read(parent);
-    if (!parentCard) return failure(`Parent card '${parent}' does not exist.`, { parent });
-    if (!canCreateChildInStatus(parentCard.status) || parentCard.status === 'running') return failure(`create_card denied for parent '${parentCard.id}' in status '${parentCard.status}' (wrong_state).`, { parent: parentCard.id, status: parentCard.status });
-    if (input.status !== undefined && input.status !== 'backlog') return failure('Analyst create_card can only create backlog child cards. Card creation does not dispatch work or set lifecycle state.', { status: input.status });
+    if (!parentCard) return denied(`parent '${parent}' does not exist`);
+    if (!canCreateChildInStatus(parentCard.status) || parentCard.status === 'running') return denied('wrong_state');
+    if (input.status !== undefined && input.status !== 'backlog') return denied('Analyst-created cards must start in backlog');
     const card = this.store.create({ type: input.type, parent, title: input.title, brief: input.brief, status: input.status ?? 'backlog', tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: 'analyst', depends_on: input.depends_on ?? [], related: input.related ?? [] });
     try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch { /* notification is best effort */ }
-    return { success: true, data: toCardView(this.store, card) };
+    return success(toCardView(this.store, card));
   }
 
-  delete(ids: readonly string[]): ToolResult {
-    try {
-      const result = this.store.deleteSubtrees(ids, { actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' }, (card) => card.status !== 'running');
-      return { success: true, data: { deleted: result.deleted, top_level_deleted: result.requested } };
-    } catch (error) { return failure((error as Error).message); }
+  delete(ids: readonly string[]): AnalystMutationOutcome {
+    const result = this.store.deleteSubtrees(ids, { actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' }, (card) => card.status !== 'running');
+    return success({ deleted: result.deleted, top_level_deleted: result.requested });
   }
 
-  async cancel(cardId: string, reason?: string): Promise<ToolResult> {
+  async cancel(cardId: string, reason?: string): Promise<AnalystMutationOutcome> {
     const card = this.store.read(cardId);
-    if (!card) return failure(`Card '${cardId}' not found.`, { cardId });
-    if (card.id === PROJECT_CARD_ID) return failure('cancel_card cannot cancel the root project card.', { cardId });
+    if (!card) return denied(`card '${cardId}' does not exist`);
+    if (card.id === PROJECT_CARD_ID) return denied('root project card cannot be cancelled');
+    const blocked = subtree(this.store, cardId).find((candidate) => !canCancelCardStatus(candidate.status));
+    if (blocked) return denied(`card '${blocked.id}' is ${blocked.status}`);
     if (!this.cancelCardPort) throw new Error('Analyst cancellation requires the runtime cancellation application port.');
     const result = await this.cancelCardPort(cardId, reason ?? 'analyst_cancel_card');
     const anchor = card.parent ?? cardId;
     try { propagateChange(this.store, anchor, { kind: 'analyst_edit', summary: reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card' }, this.notifyCard); } catch { /* notification is best effort */ }
-    return { success: true, data: result };
+    return success(result);
   }
 
-  reorder(parentId: string, orderedChildIds: readonly string[]): ToolResult {
+  reorder(parentId: string, orderedChildIds: readonly string[]): AnalystMutationOutcome {
     const parent = this.store.read(parentId);
-    if (!parent) return failure(`Parent card '${parentId}' not found.`, { parentId });
-    if (parent.status === 'running') return failure(`reorder_child denied for parent '${parent.id}' in status '${parent.status}' (wrong_state).`, { parentId, status: parent.status });
+    if (!parent) return denied(`parent '${parentId}' does not exist`);
+    if (parent.status === 'running') return denied(`parent '${parentId}' is ${parent.status}`);
+    const current = this.store.listChildren(parentId);
+    if (current.length !== orderedChildIds.length || current.some((id) => !orderedChildIds.includes(id))) return denied('reorder_set_mismatch');
     for (const childId of orderedChildIds) {
       const child = this.store.read(childId);
       if (!child) continue;
       const blocked = subtree(this.store, child.id).find((candidate) => candidate.status === 'running');
-      if (blocked) return failure(`reorder_child denied for child subtree '${child.id}' because '${blocked.id}' is in status '${blocked.status}'.`, { childId, blockedCardId: blocked.id, status: blocked.status });
+      if (blocked) return denied(`child subtree '${child.id}' contains '${blocked.id}' in status ${blocked.status}`);
     }
     const result = this.store.reorderChildren(parentId, [...orderedChildIds], { actor: 'analyst', surface: this.surface, reason: 'analyst reorder_child' });
     if (!result.ok) return failure('reorder_set_mismatch', { reason: 'reorder_set_mismatch', missing: result.missing, extra: result.extra, parent_id: parentId });
     if (result.changed > 0) {
       try { propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard); } catch { /* notification is best effort */ }
     }
-    return { success: true, data: { parent_id: parentId, changed: result.changed } };
+    return success({ parent_id: parentId, changed: result.changed });
   }
 }
 
-export class DefaultAnalystConfigMutationService implements AnalystConfigMutationService {
+class AnalystConfigMutationImplementation implements AnalystConfigMutationService {
   constructor(private readonly authority: ResolvedConfigAuthority) {}
-  validate(mutation: ConfigMutation): { allowed: true } | { allowed: false; reason: string } {
-    const result = this.authority.validateChange(mutation);
-    return result.success ? { allowed: true } : { allowed: false, reason: result.message };
-  }
-  apply(mutation: ConfigMutation): ToolResult {
+  apply(mutation: ConfigMutation): AnalystMutationOutcome {
     const result = this.authority.applyChange(mutation);
-    if (!result.success) return failure(result.message, { reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message });
-    if (mutation.kind === 'set_server_setting' && result.requires_restart) return { success: true, data: { applied: true, requires_restart: true, key: mutation.key } };
-    return { success: true, data: { applied: true, action: mutation.kind } };
+    if (!result.success) return denied(result.message);
+    if (mutation.kind === 'set_server_setting' && result.requires_restart) return success({ applied: true, requires_restart: true, key: mutation.key });
+    return success({ applied: true, action: mutation.kind });
   }
 }
 
-export class DefaultAnalystNotificationMutationService implements AnalystNotificationMutationService {
+class AnalystNotificationMutationImplementation implements AnalystNotificationMutationService {
   constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly surface: ControlActionSurface, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
-  validate(cardId: string): { allowed: true } | { allowed: false; reason: string } {
-    return this.store.read(cardId) === null ? { allowed: false, reason: `unknown card '${cardId}'` } : { allowed: true };
-  }
-  queue(cardId: string, kind: string, body: string): ToolResult {
+  queue(cardId: string, kind: string, body: string): AnalystMutationOutcome {
     if (!this.notifyCard) throw new Error('Analyst queue_notification requires the runtime card notification port.');
     const queued = queueNotification(cardId, kind, body, { actor: 'analyst', surface: this.surface }, this.notifyCard);
     if (!queued.ok && queued.reason === 'terminal_card') return failure(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
     if (!queued.ok) return failure(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
-    return { success: true, data: { queued: true, card_id: cardId, notification_id: queued.notificationId } };
+    return success({ queued: true, card_id: cardId, notification_id: queued.notificationId });
   }
 }
 
-export class DefaultAnalystBriefRecordMutationService implements AnalystBriefRecordMutationService {
+class AnalystBriefRecordMutationImplementation implements AnalystBriefRecordMutationService {
   constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
 
-  validateWrite(path: string, content: string): { allowed: true } | { allowed: false; reason: string } {
-    try { this.resolve(path, content); return { allowed: true }; } catch (error) { return { allowed: false, reason: error instanceof Error ? error.message : String(error) }; }
-  }
-
-  validateEdit(path: string, oldString: string, replaceAll: boolean): { allowed: true } | { allowed: false; reason: string } {
+  write(path: string, content: string): AnalystMutationOutcome {
+    let target;
+    try { target = this.resolve(path); this.validateBriefContent(content); }
+    catch (error) { return denialFrom(error); }
+    const open = this.store.openRecord(target.cardId, 'brief.md');
+    this.store.editRecord(target.cardId, 'brief.md', open.version, content);
+    const closed = this.store.closeRecord(target.cardId, 'brief.md', open.version, 'analyst', target.card.version_seq);
     try {
-      const target = this.resolve(path);
-      const content = this.store.readRecord(target.cardId, 'brief.md', 'latest').artifact.content;
-      const occurrences = content.split(oldString).length - 1;
-      if (occurrences === 0) throw new Error('old_string was not found.');
-      if (occurrences > 1 && !replaceAll) throw new Error('old_string appears multiple times; set replace_all to true.');
-      return { allowed: true };
-    } catch (error) { return { allowed: false, reason: error instanceof Error ? error.message : String(error) }; }
-  }
-
-  write(path: string, content: string): ToolResult {
-    const target = this.resolve(path, content);
-    return this.commit(target.cardId, content);
-  }
-
-  edit(path: string, oldString: string, newString: string, replaceAll: boolean): ToolResult {
-    const target = this.resolve(path);
-    const content = this.store.readRecord(target.cardId, 'brief.md', 'latest').artifact.content;
-    const next = replaceAll ? content.split(oldString).join(newString) : content.replace(oldString, newString);
-    this.resolve(path, next);
-    return this.commit(target.cardId, next);
-  }
-
-  private resolve(path: string, content?: string): { cardId: string; recordUrl: string } {
-    const target = resolveRecordWriteTarget({ projectRoot: this.projectRoot, records: this.store.recordReader, agent: { agentRole: 'analyst' }, fail: (message) => { throw new Error(message); } }, path);
-    if (target.filename !== 'brief.md') throw new Error('Analyst write only supports record:///brief.md document writes.');
-    if (target.version !== 'next') throw new Error('Analyst record writes must use v=next.');
-    if (content !== undefined) {
-      if (content.length === 0) throw new Error('brief.md content must not be empty.');
-      for (const heading of ['# Goal', '# Instructions', '# Acceptance Criteria']) if (!content.includes(heading)) throw new Error(`brief.md must include '${heading}'.`);
-    }
-    const card = this.store.read(target.cardId);
-    if (!card) throw new Error(`Card '${target.cardId}' not found.`);
-    if (analystBriefEditEffect(card.status) === null) throw new Error(`Analyst brief edits do not support target card status ${card.status}.`);
-    try { this.store.readRecord(target.cardId, 'brief.md', 'open'); throw new Error(`Cannot write '${target.recordUrl}': latest brief.md version is open.`); } catch (error) { if (error instanceof Error && error.message.startsWith('Cannot write')) throw error; }
-    return { cardId: target.cardId, recordUrl: target.recordUrl };
-  }
-
-  private commit(cardId: string, content: string): ToolResult {
-    const card = this.store.read(cardId)!;
-    const open = this.store.openRecord(cardId, 'brief.md');
-    this.store.editRecord(cardId, 'brief.md', open.version, content);
-    const closed = this.store.closeRecord(cardId, 'brief.md', open.version, 'analyst', card.version_seq);
-    try {
-      propagateAnalystBriefEdit(this.store, cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, this.notifyCard);
-      return { success: true, data: { card_id: cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: true } } };
+      propagateAnalystBriefEdit(this.store, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, this.notifyCard);
+      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: true } });
     } catch (error) {
-      return { success: true, data: { card_id: cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } } };
+      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } });
     }
+  }
+
+  edit(path: string, oldString: string, newString: string, replaceAll: boolean): AnalystMutationOutcome {
+    let target;
+    try { target = this.resolve(path); }
+    catch (error) { return denialFrom(error); }
+    const content = this.store.readRecord(target.cardId, 'brief.md', 'latest').artifact.content;
+    const occurrences = content.split(oldString).length - 1;
+    if (occurrences === 0) return denied('old_string was not found.');
+    if (occurrences > 1 && !replaceAll) return denied('old_string appears multiple times; set replace_all to true.');
+    const next = replaceAll ? content.split(oldString).join(newString) : content.replace(oldString, newString);
+    try { this.validateBriefContent(next); }
+    catch (error) { return denialFrom(error); }
+    const open = this.store.openRecord(target.cardId, 'brief.md');
+    this.store.editRecord(target.cardId, 'brief.md', open.version, next);
+    const closed = this.store.closeRecord(target.cardId, 'brief.md', open.version, 'analyst', target.card.version_seq);
+    try {
+      propagateAnalystBriefEdit(this.store, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, this.notifyCard);
+      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(next), written: true, propagation: { ok: true } });
+    } catch (error) {
+      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(next), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } });
+    }
+  }
+
+  private resolve(path: string): { cardId: string; recordUrl: string; card: CardRecord } {
+    const target = resolveRecordWriteTarget({ projectRoot: this.projectRoot, records: this.store.recordReader, agent: { agentRole: 'analyst' }, fail: (message) => { throw new AnalystMutationDeniedError(message); } }, path);
+    if (target.filename !== 'brief.md') throw new AnalystMutationDeniedError('Analyst write only supports record:///brief.md document writes.');
+    if (target.version !== 'next') throw new AnalystMutationDeniedError('Analyst record writes must use v=next.');
+    const card = this.store.read(target.cardId);
+    if (!card) throw new AnalystMutationDeniedError(`Card '${target.cardId}' not found.`);
+    if (analystBriefEditEffect(card.status) === null) throw new AnalystMutationDeniedError(`Analyst brief edits do not support target card status ${card.status}.`);
+    try {
+      this.store.readRecord(target.cardId, 'brief.md', 'open');
+      throw new AnalystMutationDeniedError(`Cannot write '${target.recordUrl}': latest brief.md version is open.`);
+    } catch (error) {
+      if (error instanceof AnalystMutationDeniedError) throw error;
+      if (!(error instanceof Error) || !/Record '.+' does not exist\./.test(error.message)) throw error;
+    }
+    return { cardId: target.cardId, recordUrl: target.recordUrl, card };
+  }
+
+  private validateBriefContent(content: string): void {
+    if (content.length === 0) throw new AnalystMutationDeniedError('brief.md content must not be empty.');
+    for (const heading of ['# Goal', '# Instructions', '# Acceptance Criteria']) if (!content.includes(heading)) throw new AnalystMutationDeniedError(`brief.md must include '${heading}'.`);
   }
 }

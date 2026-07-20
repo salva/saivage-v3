@@ -2,7 +2,8 @@ import { analystCardTools } from './analyst-card-tools.js';
 import { analystMiscTools } from './analyst-misc-tools.js';
 import { analystRuntimeTools } from './analyst-runtime-tools.js';
 import { analystWorkspaceTools } from './analyst-workspace-tools.js';
-import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
+import type { ToolContext } from './analyst-tool-types.js';
+import type { ToolDefinition } from './invocation.js';
 
 const analystToolOrder = [
   'create_card',
@@ -29,18 +30,21 @@ const analystToolOrder = [
   'delete_card',
 ] as const;
 
-const analystDefinitions = [
-  ...analystCardTools,
-  ...analystRuntimeTools,
-  ...analystWorkspaceTools,
-  ...analystMiscTools,
-] as const;
-
-const analystByName = new Map<string, UnifiedToolDefinition>(analystDefinitions.map((tool) => [tool.name, tool]));
-
-export const ANALYST_CONTROL_TOOLS: readonly UnifiedToolDefinition[] = analystToolOrder.map((name) => {
-  const tool = analystByName.get(name);
-  if (!tool) throw new Error(`Missing Analyst tool definition for ${name}`);
-  if (!tool.roles.includes('analyst')) throw new Error(`Analyst tool '${name}' is not marked for the analyst role.`);
-  return tool;
-});
+export function createAnalystControlTools(ctx: ToolContext): readonly ToolDefinition<any>[] {
+  const definitions = [
+    ...analystCardTools(ctx),
+    ...analystRuntimeTools(ctx),
+    ...analystWorkspaceTools(ctx),
+    ...analystMiscTools(ctx),
+  ];
+  const byName = new Map<string, ToolDefinition<any>>();
+  for (const tool of definitions) {
+    if (byName.has(tool.name)) throw new Error(`Duplicate Analyst tool definition for ${tool.name}`);
+    byName.set(tool.name, tool);
+  }
+  return analystToolOrder.map((name) => {
+    const tool = byName.get(name);
+    if (!tool) throw new Error(`Missing Analyst tool definition for ${name}`);
+    return tool;
+  });
+}

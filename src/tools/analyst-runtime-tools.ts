@@ -5,10 +5,10 @@ import { listControlActions } from '../persistence/index.js';
 import { readAppLogEntries } from '../persistence/app-log.js';
 import type { ProcessRecord } from '../schemas/index.js';
 import { redactCommandForOperator, toContainedRelativePath, workUrlFromAbsolutePath } from '../workspace/index.js';
-import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
+import { defineTool, type ToolDefinition } from './invocation.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
@@ -86,14 +86,14 @@ export async function list_processes_tool(ctx: ToolContext, params: { status?: s
   catch (err) { return toolFailureFromError(err); }
 }
 
-export const analystRuntimeTools: readonly UnifiedToolDefinition<string, any>[] = [
-  { name: 'start_project', description: 'Start root project execution.', input: emptyInput, roles: ['analyst'], executor: start_project },
-  { name: 'pause_runtime', description: 'Globally pause the runtime.', input: emptyInput, roles: ['analyst'], executor: pause_runtime },
-  { name: 'resume_runtime', description: 'Resume the runtime after a pause.', input: emptyInput, roles: ['analyst'], executor: resume_runtime },
-  { name: 'stop_project', description: 'Stop project execution without disposing or restarting the server.', input: emptyInput, roles: ['analyst'], executor: stop_project },
-  { name: 'restart_server', description: 'Request confirmed supervised server shutdown.', input: emptyInput, roles: ['analyst'], executor: restart_server },
-  { name: 'read_runtime_events', description: 'Tail app-log-backed runtime event entries (.saivage/logs/app.jsonl, type=event). Optionally filter by event kind.', input: z.object({ limit: z.number().int().optional(), kind: z.string().optional() }).strict(), roles: ['analyst'], executor: read_runtime_events },
-  { name: 'read_runtime_errors', description: 'Tail app-log-backed runtime error entries (.saivage/logs/app.jsonl, type=error).', input: z.object({ limit: z.number().int().optional() }).strict(), roles: ['analyst'], executor: read_runtime_errors },
-  { name: 'read_control_actions', description: 'Tail app-log-backed control-action entries (.saivage/logs/app.jsonl, type=control_action). Shows mutating actions performed by analyst/planner/operator.', input: z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict(), roles: ['analyst'], executor: read_control_actions },
-  { name: 'list_processes_tool', description: 'List runtime processes. Processes may be card-owned or non-card; card_id is null for Analyst/operator/runtime processes, and owner_kind/owner_id identify the owner. Optionally filter by status (running, finished, failed, killed) or cardId.', input: z.object({ status: z.string().optional(), cardId: z.string().optional() }).strict(), roles: ['analyst'], executor: list_processes_tool },
-] as const;
+export function analystRuntimeTools(ctx: ToolContext): readonly ToolDefinition<any>[] { return [
+  defineTool({ name: 'start_project', description: 'Start root project execution.', inputSchema: emptyInput, executor: (args) => start_project(ctx, args) }),
+  defineTool({ name: 'pause_runtime', description: 'Globally pause the runtime.', inputSchema: emptyInput, executor: (args) => pause_runtime(ctx, args) }),
+  defineTool({ name: 'resume_runtime', description: 'Resume the runtime after a pause.', inputSchema: emptyInput, executor: (args) => resume_runtime(ctx, args) }),
+  defineTool({ name: 'stop_project', description: 'Stop project execution without disposing or restarting the server.', inputSchema: emptyInput, executor: (args) => stop_project(ctx, args) }),
+  defineTool({ name: 'restart_server', description: 'Request confirmed supervised server shutdown.', inputSchema: emptyInput, executor: (args) => restart_server(ctx, args) }),
+  defineTool({ name: 'read_runtime_events', description: 'Tail app-log-backed runtime event entries (.saivage/logs/app.jsonl, type=event). Optionally filter by event kind.', inputSchema: z.object({ limit: z.number().int().optional(), kind: z.string().optional() }).strict(), executor: (args) => read_runtime_events(ctx, args) }),
+  defineTool({ name: 'read_runtime_errors', description: 'Tail app-log-backed runtime error entries (.saivage/logs/app.jsonl, type=error).', inputSchema: z.object({ limit: z.number().int().optional() }).strict(), executor: (args) => read_runtime_errors(ctx, args) }),
+  defineTool({ name: 'read_control_actions', description: 'Tail app-log-backed control-action entries (.saivage/logs/app.jsonl, type=control_action). Shows mutating actions performed by analyst/planner/operator.', inputSchema: z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict(), executor: (args) => read_control_actions(ctx, args) }),
+  defineTool({ name: 'list_processes_tool', description: 'List runtime processes. Processes may be card-owned or non-card; card_id is null for Analyst/operator/runtime processes, and owner_kind/owner_id identify the owner. Optionally filter by status (running, finished, failed, killed) or cardId.', inputSchema: z.object({ status: z.string().optional(), cardId: z.string().optional() }).strict(), executor: (args) => list_processes_tool(ctx, args) }),
+]; }
