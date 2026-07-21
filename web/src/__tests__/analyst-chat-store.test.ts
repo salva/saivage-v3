@@ -5,13 +5,11 @@ import { useFeedbackStore } from '../stores/feedback';
 import type { AgentConversationEntry, ChatEntriesResponse } from '../api/types';
 
 const apiMocks = vi.hoisted(() => ({
-  listChatSessions: vi.fn(),
   getChatEntries: vi.fn(),
   sendChatMessage: vi.fn(),
 }));
 
 vi.mock('../api/client', () => ({
-  listChatSessions: apiMocks.listChatSessions,
   getChatEntries: apiMocks.getChatEntries,
   sendChatMessage: apiMocks.sendChatMessage,
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
@@ -49,10 +47,8 @@ describe('analyst chat store', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     setActivePinia(createPinia());
-    apiMocks.listChatSessions.mockReset();
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
-    apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     apiMocks.getChatEntries.mockResolvedValue(chat());
     apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
   });
@@ -67,7 +63,7 @@ describe('analyst chat store', () => {
 
   it('does not refresh transcript from analyst tool activity frames', async () => {
     const store = useAnalystChat();
-    await store.selectSession();
+    await store.fetchMessages();
     apiMocks.getChatEntries.mockClear();
 
     store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst:global', tool: 'list_cards', summary: 'listed cards', success: true });
@@ -89,12 +85,10 @@ describe('analyst chat store', () => {
     { status: 'inactive' as const, pending_calls: [] },
     { status: 'active' as const, pending_calls: [] },
     { status: 'waiting' as const, pending_calls: [{ id: 'call-1', tool: 'webfetch', started_at: '2025-01-01T00:00:01Z' }] },
-  ])('retains the exact $status detail session/activity independently of list inventory', async (activity_status) => {
-    apiMocks.listChatSessions.mockResolvedValueOnce({ sessions: [] });
+  ])('retains the exact $status detail session/activity from the exact detail tuple', async (activity_status) => {
     apiMocks.getChatEntries.mockResolvedValueOnce({ session: { id: 'analyst:global', role: 'analyst', status: activity_status.status, started_at: '2025-01-01T00:00:00Z' }, entries: [], activity_status });
     const store = useAnalystChat();
-    await Promise.all([store.fetchSessions(), store.fetchMessages()]);
-    expect(store.sessions).toEqual([]);
+    await store.fetchMessages();
     expect(store.activeSession?.status).toBe(activity_status.status);
     expect(store.activityStatus).toEqual(activity_status);
   });
@@ -134,7 +128,7 @@ describe('analyst chat store', () => {
 
   it('does not refresh transcript from card or control activity frames', async () => {
     const store = useAnalystChat();
-    await store.selectSession();
+    await store.fetchMessages();
     apiMocks.getChatEntries.mockClear();
 
     store.ingestWsEvent({ event: 'card_history_appended', sessionId: 'analyst:global' });
@@ -247,15 +241,9 @@ describe('analyst chat store', () => {
     expect(store.messages).toEqual([accepted]);
   });
 
-  it('aborts superseded session and message requests', () => {
-    apiMocks.listChatSessions.mockReturnValue(new Promise(() => {}));
+  it('aborts superseded exact message requests', () => {
     apiMocks.getChatEntries.mockReturnValue(new Promise(() => {}));
     const store = useAnalystChat();
-    void store.fetchSessions();
-    const firstSessionSignal = apiMocks.listChatSessions.mock.calls[0][0] as AbortSignal;
-    void store.fetchSessions();
-    expect(firstSessionSignal.aborted).toBe(true);
-
     void store.fetchMessages();
     const firstMessageSignal = apiMocks.getChatEntries.mock.calls[0][0] as AbortSignal;
     void store.fetchMessages();

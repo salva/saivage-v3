@@ -38,14 +38,13 @@ export type {
 } from './operator-api-agents.js';
 export {
   ChatEntriesResponseSchema,
-  ChatListResponseSchema,
   ChatSendRequestSchema,
   ChatSendResponseSchema,
   RestartChatAcknowledgementSchema,
   ChatSessionParamsSchema,
   ChatWorkspaceContextSchema,
 } from './operator-api-chats.js';
-export type { ChatEntriesResponse, ChatListResponse, ChatSendRequest, ChatSendResponse, ChatSession, ChatWorkspaceContext, RestartChatAcknowledgement } from './operator-api-chats.js';
+export type { ChatEntriesResponse, ChatSendRequest, ChatSendResponse, ChatWorkspaceContext, RestartChatAcknowledgement } from './operator-api-chats.js';
 export {
   DebugErrorsResponseSchema,
   DebugTimelineResponseSchema,

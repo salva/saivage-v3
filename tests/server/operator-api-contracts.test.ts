@@ -43,6 +43,19 @@ describe('operator API runtime contract without runtime ledgers', () => {
     }
   });
 
+  it('exposes only exact chat operations and no aggregate chat contract', () => {
+    expect(operatorApiContracts).not.toHaveProperty('chats.list');
+    expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operationId: 'chats.get', method: 'GET', path: '/api/chats/:sessionId' }),
+      expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chats/:sessionId' }),
+    ]));
+    expect(operatorRouteInventory()).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ method: 'GET', path: '/api/chats' }),
+    ]));
+    expect(operatorApiModule).not.toHaveProperty('ChatListResponseSchema');
+    expect(contractsModule).not.toHaveProperty('ChatListResponseSchema');
+  });
+
   it('uses one strict unexpected-500 schema for every mounted operation', () => {
     const body = { error: 'InternalServerError', message: 'Internal server error' };
     expect(contractsModule.UNEXPECTED_INTERNAL_SERVER_ERROR).toEqual(body);

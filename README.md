@@ -253,6 +253,8 @@ npm run validate:release
 
 The same Cards browser authority covers obsolete/missing detail recovery, one responsive **Back to Cards** action with ordinary browser history, complete selected-card teardown and invalidation/reconnect suppression, independent hierarchy refresh, and retained tree identity after detail 404.
 
+`tests/playwright/cards-bootstrap-request-order.spec.ts` is the operator-smoke authority for first-load ordering: it holds the Cards root response, proves exact Analyst detail and its current-lease acknowledgement remain independent while no global Agent request starts, then proves root settlement renders Cards and releases exactly one Agent inventory used by both Agents and Card Conversations.
+
 `web:test:operator-smoke`, and therefore `validate:ui-smoke`, `validate:ui`, and `validate:release`, also includes a real non-loopback plain-HTTP live-sync conversation scenario. Its validation host must expose a non-internal IPv4 interface that local Chromium can reach. If none is available, the gate fails with a clear prerequisite error rather than skipping or substituting localhost; this is validation-host guidance, not a production HTTPS or network requirement.
 
 The backend build gate and `validate:release` run a post-build compiled prompt-composition smoke after copying `src/prompts` to `dist/prompts`. Run `npm run test:compiled-prompt-composition` to repeat that focused packaged-layout check against existing build output.

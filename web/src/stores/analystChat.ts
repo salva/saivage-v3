@@ -1,10 +1,9 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { ActivityStatus, AgentConversationEntry, ChatSession, DetailErrorState, RestartChatAcknowledgement } from '../api/types';
+import type { ActivityStatus, AgentConversationEntry, AnalystSession, DetailErrorState, RestartChatAcknowledgement } from '../api/types';
 import {
   ApiError,
   getChatEntries,
-  listChatSessions,
   sendChatMessage,
 } from '../api/client';
 import { useWorkspaceRouteStore } from './workspaceRoute';
@@ -17,7 +16,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function isWritableSession(session: ChatSession | null): boolean {
+function isWritableSession(session: AnalystSession | null): boolean {
   if (!session) return true;
   return session.id === ANALYST_SESSION_ID && session.role === 'analyst';
 }
@@ -72,12 +71,9 @@ function authoritativeContainsPending(entries: AgentConversationEntry[], pending
 }
 
 export const useAnalystChat = defineStore('analyst-chat', () => {
-  let sessionsRequestSeq = 0;
   let messagesRequestSeq = 0;
-  let sessionsAbort: AbortController | null = null;
   let messagesAbort: AbortController | null = null;
-  const sessions = ref<ChatSession[]>([]);
-  const detailSession = ref<ChatSession | null>(null);
+  const detailSession = ref<AnalystSession | null>(null);
   const activityStatus = ref<ActivityStatus>({ status: 'inactive', pending_calls: [] });
   const activeSessionId = ref<typeof ANALYST_SESSION_ID | null>(ANALYST_SESSION_ID);
   const authoritativeMessages = ref<AgentConversationEntry[]>([]);
@@ -87,8 +83,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     ...pendingMessages.value.map((pending) => pending.entry),
   ]);
   const draft = ref('');
-  const sessionsLoading = ref(false);
-  const sessionsError = ref<DetailErrorState | null>(null);
   const messagesLoading = ref(false);
   const messagesError = ref<DetailErrorState | null>(null);
   const sending = ref(false);
@@ -110,35 +104,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         message: 'The server is shutting down. This does not confirm that a replacement is running.',
       });
     }
-  }
-
-  async function fetchSessions(): Promise<void> {
-    const requestSeq = ++sessionsRequestSeq;
-    sessionsAbort?.abort();
-    const abort = new AbortController();
-    sessionsAbort = abort;
-    sessionsLoading.value = true;
-    sessionsError.value = null;
-    try {
-      const response = await listChatSessions(abort.signal);
-      if (requestSeq !== sessionsRequestSeq) return;
-      sessions.value = response.sessions.filter((session) => session.id === ANALYST_SESSION_ID);
-      activeSessionId.value = ANALYST_SESSION_ID;
-    } catch (err) {
-      if (requestSeq !== sessionsRequestSeq) return;
-      sessionsError.value = buildErrorState(err, 'Failed to load analyst chat sessions.');
-      throw err;
-    } finally {
-      if (requestSeq === sessionsRequestSeq) {
-        sessionsLoading.value = false;
-        sessionsAbort = null;
-      }
-    }
-  }
-
-  async function selectSession(): Promise<void> {
-    activeSessionId.value = ANALYST_SESSION_ID;
-    await fetchMessages();
   }
 
   async function fetchMessages(): Promise<void> {
@@ -254,15 +219,12 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   }
 
   return {
-    sessions,
     activeSessionId,
     activeSession,
     detailSession,
     activityStatus,
     messages,
     draft,
-    sessionsLoading,
-    sessionsError,
     messagesLoading,
     messagesError,
     sending,
@@ -270,8 +232,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     restartAcknowledgement,
     activeSessionWritable: computed(() => isWritableSession(activeSession.value)),
     setDraft,
-    fetchSessions,
-    selectSession,
     fetchMessages,
     createNewChat,
     sendMessage,

@@ -15,8 +15,10 @@ function isAbortError(error: unknown): boolean { return error instanceof DOMExce
 
 declare const conversationSelectionBrand: unique symbol;
 declare const llmExchangeSelectionBrand: unique symbol;
+declare const sessionsBootstrapBrand: unique symbol;
 export type ConversationSelectionToken = object & { readonly [conversationSelectionBrand]: true };
 export type LlmExchangeSelectionToken = object & { readonly [llmExchangeSelectionBrand]: true };
+export type AgentSessionsBootstrapToken = object & { readonly [sessionsBootstrapBrand]: true };
 
 export const useAgentStore = defineStore('agents', () => {
   const sessions = ref<AgentSession[]>([]);
@@ -51,6 +53,8 @@ export const useAgentStore = defineStore('agents', () => {
 
   let sessionsRequestSeq = 0;
   let sessionsController: AbortController | null = null;
+  let sessionsBootstrapGateOpen = true;
+  let activeSessionsBootstrapToken: AgentSessionsBootstrapToken | null = null;
   let conversationEpoch = 0;
   let conversationController: AbortController | null = null;
   let activeConversationToken: ConversationSelectionToken | null = null;
@@ -79,7 +83,31 @@ export const useAgentStore = defineStore('agents', () => {
   function markRestSync(): void { lastFetchedAt.value = nowIso(); lastUpdatedBy.value = 'rest'; }
   function markWsSync(timestamp = nowIso()): void { lastWsEventAt.value = timestamp; lastUpdatedBy.value = 'ws'; }
 
-  async function fetchSessions(): Promise<void> {
+  function beginSessionsBootstrap(): AgentSessionsBootstrapToken {
+    const token = Object.freeze({}) as AgentSessionsBootstrapToken;
+    activeSessionsBootstrapToken = token;
+    sessionsBootstrapGateOpen = false;
+    ++sessionsRequestSeq;
+    sessionsController?.abort();
+    sessionsController = null;
+    sessionsLoading.value = false;
+    sessionsRefreshing.value = false;
+    return token;
+  }
+
+  async function finishSessionsBootstrap(token: AgentSessionsBootstrapToken): Promise<void> {
+    if (activeSessionsBootstrapToken !== token) return;
+    activeSessionsBootstrapToken = null;
+    sessionsBootstrapGateOpen = true;
+    await requestSessions();
+  }
+
+  async function fetchSessions(): Promise<boolean> {
+    if (!sessionsBootstrapGateOpen) return false;
+    return requestSessions();
+  }
+
+  async function requestSessions(): Promise<boolean> {
     const requestSeq = ++sessionsRequestSeq;
     sessionsController?.abort();
     const controller = new AbortController();
@@ -92,7 +120,7 @@ export const useAgentStore = defineStore('agents', () => {
     sessionsUnauthorized.value = false;
     try {
       const response = await listAgentSessions(controller.signal);
-      if (requestSeq !== sessionsRequestSeq) return;
+      if (requestSeq !== sessionsRequestSeq) return false;
       const existing = new Map(sessions.value.map((session) => [session.id, session]));
       sessions.value = response.sessions.map((next) => {
         const current = existing.get(next.id);
@@ -104,8 +132,9 @@ export const useAgentStore = defineStore('agents', () => {
       sessionsError.value = null;
       sessionsRefreshError.value = null;
       markRestSync();
+      return true;
     } catch (error) {
-      if (requestSeq !== sessionsRequestSeq || isAbortError(error)) return;
+      if (requestSeq !== sessionsRequestSeq || isAbortError(error)) return false;
       const message = error instanceof ApiError ? error.message : 'Failed to fetch agent sessions';
       if (initial) sessionsError.value = message;
       else sessionsRefreshError.value = message;
@@ -307,14 +336,6 @@ export const useAgentStore = defineStore('agents', () => {
     llmExchangeRefreshError.value = null;
   }
 
-  async function refetch(): Promise<void> {
-    const token = activeConversationToken;
-    await Promise.all([
-      fetchSessions(),
-      token ? refetchConversation(token) : Promise.resolve(),
-    ]);
-  }
-
   return {
     sessions,
     sessionsLoaded,
@@ -348,6 +369,8 @@ export const useAgentStore = defineStore('agents', () => {
     inactiveSessions,
     isStale,
     fetchSessions,
+    beginSessionsBootstrap,
+    finishSessionsBootstrap,
     beginConversationSelection,
     fetchConversation,
     refetchConversation,
@@ -355,7 +378,6 @@ export const useAgentStore = defineStore('agents', () => {
     beginLlmExchangeSelection,
     fetchLlmExchange,
     clearLlmExchange,
-    refetch,
     markWsSync,
   };
 });

@@ -21,10 +21,6 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
   };
 
   return defineOperatorContractHandlers({
-    'chats.list': () => {
-      const sessions = agentReadModel().listSessions().sessions.filter((session) => session.id === GLOBAL_ANALYST_SESSION_ID);
-      return { body: { sessions } };
-    },
     'chats.get': () => {
       const response = agentReadModel().getConversation(GLOBAL_ANALYST_SESSION_ID);
       if (response.statusCode === 404) return { body: { session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } } };

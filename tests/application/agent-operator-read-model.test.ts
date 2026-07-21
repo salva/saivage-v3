@@ -64,6 +64,19 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     expect(conversationBody(service.getConversation('planner:project'))).toMatchObject({ session: { status: 'inactive' } });
   });
 
+  it('returns every conversation from a large active-card aggregate in stable ID order', () => {
+    const root = project();
+    const cards = new CardService(root);
+    const sessionIds: ConversationSessionId[] = [];
+    for (let index = 0; index < 30; index += 1) {
+      const child = cards.create({ type: 'code', parent: 'project', title: `child-${index}`, brief: 'brief', tags: [], priority: index, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const sessionId = `executor:${child.id}` as ConversationSessionId;
+      sessionIds.push(sessionId);
+      publishConversationFirstBatch({ projectRoot: root }, [text(sessionId)]);
+    }
+    expect(new AgentOperatorReadModelService(root, () => []).listSessions().sessions.map(({ id }) => id)).toEqual([...sessionIds].sort());
+  });
+
   it('freezes one captured activity and rejects exact call identity mismatches', () => {
     const root = project();
     publishConversationFirstBatch({ projectRoot: root }, [call('planner:project')]);

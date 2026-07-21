@@ -6,10 +6,10 @@ import { SyncClient, type SyncResourceRegistration } from '../sync/client';
 import { useAnalystChat } from '../stores/analystChat';
 import { useFeedbackStore } from '../stores/feedback';
 
-function deferred(): { promise: Promise<void>; resolve: () => void; reject: (reason: unknown) => void } {
-  let resolve!: () => void;
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason: unknown) => void } {
+  let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
-  const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
   return { promise, resolve, reject };
 }
 
@@ -127,7 +127,7 @@ describe('SyncClient', () => {
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
     const onRefetch = vi.fn();
-    client.register({ resource: 'runtime', scope: 'core', refetch, onRefetch });
+    client.register({ resource: 'runtime', scope: 'core', requestOwnership: 'sync-client', refetch, onRefetch });
     client.start();
 
     emitSync({ t: 'invalidate', resource: 'runtime' });
@@ -136,13 +136,13 @@ describe('SyncClient', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
     expect(onRefetch).not.toHaveBeenCalled();
 
-    first.resolve();
+    first.resolve(undefined);
     await flush();
     expect(refetch).toHaveBeenCalledTimes(2);
     expect(onRefetch).toHaveBeenCalledTimes(1);
     expect(onRefetch).toHaveBeenCalledWith(expect.any(String));
 
-    second.resolve();
+    second.resolve(undefined);
     await flush();
     expect(onRefetch).toHaveBeenCalledTimes(1);
   });
@@ -158,6 +158,7 @@ describe('SyncClient', () => {
     const runtimeRegistration = {
       resource: 'runtime',
       scope: 'core',
+      requestOwnership: 'sync-client',
       refetch: async () => undefined,
       onRefetch: (_timestamp: string) => undefined,
     } satisfies SyncResourceRegistration;
@@ -169,12 +170,85 @@ describe('SyncClient', () => {
     const { conn, emitSync } = createConn();
     const client = new SyncClient(conn);
     const refetch = vi.fn(async () => undefined);
-    client.register({ resource: 'files', scope: 'active', refetch })();
+    client.register({ resource: 'files', scope: 'active', requestOwnership: 'sync-client', refetch })();
 
     emitSync({ t: 'invalidate', resource: 'files' });
     await flush();
 
     expect(refetch).not.toHaveBeenCalled();
+  });
+
+  it('does not refetch a resource-store registration merely because the socket is already connected', async () => {
+    const { conn } = createConn('connected');
+    const client = new SyncClient(conn);
+    const refetch = vi.fn(async () => true);
+
+    client.register({ resource: 'agents', scope: 'core', requestOwnership: 'resource-store', refetch });
+    client.start();
+    await flush();
+
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
+  it('suppresses an offline resource-store baseline open and refetches on the next reconnect', async () => {
+    const { conn, emitOpen } = createConn();
+    const client = new SyncClient(conn);
+    const refetch = vi.fn(async () => true);
+    client.register({ resource: 'agents', scope: 'core', requestOwnership: 'resource-store', refetch });
+    client.start();
+
+    emitOpen();
+    await flush();
+    expect(refetch).not.toHaveBeenCalled();
+
+    emitOpen();
+    await flush();
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets resource-store baseline suppression on reconfigure', async () => {
+    const { conn, emitOpen } = createConn('connected');
+    const client = new SyncClient(conn);
+    const refetch = vi.fn(async () => true);
+    client.register({ resource: 'agents', scope: 'core', requestOwnership: 'resource-store', refetch });
+    client.start();
+
+    client.reconfigure();
+    emitOpen();
+    await flush();
+    expect(conn.reconfigure).toHaveBeenCalledOnce();
+    expect(refetch).not.toHaveBeenCalled();
+
+    emitOpen();
+    await flush();
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('delivers every resource-store invalidation while baseline-pending without flight or trailing ownership', async () => {
+    const { conn, emitSync, emitOpen } = createConn();
+    const client = new SyncClient(conn);
+    const first = deferred<boolean>();
+    const second = deferred<boolean>();
+    const refetch = vi.fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const onRefetch = vi.fn();
+    client.register({ resource: 'agents', scope: 'core', requestOwnership: 'resource-store', refetch, onRefetch });
+    client.start();
+
+    emitSync({ t: 'invalidate', resource: 'agents' });
+    emitSync({ t: 'invalidate', resource: 'agents' });
+    await flush();
+    expect(refetch).toHaveBeenCalledTimes(2);
+
+    first.resolve(false);
+    second.resolve(true);
+    await flush();
+    expect(onRefetch).toHaveBeenCalledTimes(1);
+
+    emitOpen();
+    await flush();
+    expect(refetch).toHaveBeenCalledTimes(2);
   });
 
   it('subscribes without randomUUID, refetches on acknowledgement, and unsubscribes with the current opaque lease', async () => {

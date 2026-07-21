@@ -1,5 +1,5 @@
 import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
-import { listConversationSessionIds, probeConversation, readConversation } from '../../persistence/conversation-file.js';
+import { probeConversation, readConversation, readConversationInventory } from '../../persistence/conversation-file.js';
 import {
   conversationSessionIdentity,
   parseConversationSessionId,
@@ -35,7 +35,7 @@ export class AgentOperatorReadModelService {
 
   listSessions(): AgentListResponse {
     const live = captureExecutingLlmSnapshotMap(this.snapshots());
-    const sessions = listConversationSessionIds(this.projectRoot).map((id) => this.project(id, readConversation(this.projectRoot, id).physicalRows, live.get(id)).session);
+    const sessions = readConversationInventory(this.projectRoot).map(({ sessionId, conversation }) => this.project(sessionId, conversation.physicalRows, live.get(sessionId)).session);
     for (const id of live.keys()) if (!sessions.some((session) => session.id === id)) throw new Error(`Executing agent snapshot '${id}' has no aggregate conversation row.`);
     sessions.sort((a, b) => b.started_at.localeCompare(a.started_at) || a.id.localeCompare(b.id));
     return { sessions };

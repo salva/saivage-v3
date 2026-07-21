@@ -98,6 +98,64 @@ describe('useAgentStore singular agent resource ownership', () => {
     expect(store.sessionsLoading).toBe(false);
   });
 
+  it('gates aggregate triggers, ignores stale bootstrap tokens, and finishes the current token exactly once', async () => {
+    vi.mocked(listAgentSessions).mockResolvedValue({ sessions: [session] });
+    const store = useAgentStore();
+    const stale = store.beginSessionsBootstrap();
+
+    await expect(store.fetchSessions()).resolves.toBe(false);
+    expect(listAgentSessions).not.toHaveBeenCalled();
+
+    const current = store.beginSessionsBootstrap();
+    await store.finishSessionsBootstrap(stale);
+    expect(listAgentSessions).not.toHaveBeenCalled();
+
+    await store.finishSessionsBootstrap(current);
+    await store.finishSessionsBootstrap(current);
+    expect(listAgentSessions).toHaveBeenCalledTimes(1);
+    expect(store.sessions).toEqual([session]);
+  });
+
+  it('synchronously aborts and sequence-supersedes a pending aggregate while preserving accepted stale data', async () => {
+    const pending = deferred<{ sessions: AgentSession[] }>();
+    let signal: AbortSignal | undefined;
+    vi.mocked(listAgentSessions)
+      .mockResolvedValueOnce({ sessions: [session] })
+      .mockImplementationOnce((requestSignal) => { signal = requestSignal; return pending.promise; });
+    const store = useAgentStore();
+    await expect(store.fetchSessions()).resolves.toBe(true);
+    const old = store.fetchSessions();
+    expect(store.sessionsRefreshing).toBe(true);
+
+    store.beginSessionsBootstrap();
+    expect(signal?.aborted).toBe(true);
+    expect(store.sessionsLoading).toBe(false);
+    expect(store.sessionsRefreshing).toBe(false);
+    expect(store.sessions).toEqual([session]);
+
+    pending.resolve({ sessions: [{ id: S2, role: 'reviewer', status: 'active', started_at: session.started_at }] });
+    await expect(old).resolves.toBe(false);
+    expect(store.sessions).toEqual([session]);
+  });
+
+  it('makes a superseded late aggregate failure inert and returns true for a normal post-gate refresh', async () => {
+    const pending = deferred<{ sessions: AgentSession[] }>();
+    vi.mocked(listAgentSessions)
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue({ sessions: [session] });
+    const store = useAgentStore();
+    const old = store.fetchSessions();
+    const token = store.beginSessionsBootstrap();
+    pending.reject(new Error('late failure'));
+    await expect(old).resolves.toBe(false);
+    expect(store.sessionsError).toBeNull();
+
+    await store.finishSessionsBootstrap(token);
+    expect(store.sessions).toEqual([session]);
+    await expect(store.fetchSessions()).resolves.toBe(true);
+    expect(listAgentSessions).toHaveBeenCalledTimes(3);
+  });
+
   it('retains accepted conversation data and records only a same-session refresh error', async () => {
     vi.mocked(getAgentConversation)
       .mockResolvedValueOnce({ session, entries: [entry], activity_status: activityStatus })
@@ -171,21 +229,6 @@ describe('useAgentStore singular agent resource ownership', () => {
     expect(store.selectedConversationSessionId).toBeNull();
     expect(store.currentSession).toBeNull();
     expect(store.conversationLoading).toBe(false);
-  });
-
-  it('domain refetch refreshes sessions and the active conversation but never the exchange', async () => {
-    vi.mocked(listAgentSessions).mockResolvedValue({ sessions: [session] });
-    vi.mocked(getAgentConversation).mockResolvedValue({ session, entries: [entry], activity_status: activityStatus });
-    const store = useAgentStore();
-    store.beginLlmExchangeSelection(S1);
-    const conversationToken = store.beginConversationSelection(S1);
-    await store.refetch();
-    expect(listAgentSessions).toHaveBeenCalledOnce();
-    expect(getAgentConversation).toHaveBeenCalledOnce();
-    expect(getAgentLlmExchange).not.toHaveBeenCalled();
-    expect(store.selectedConversationSessionId).toBe(S1);
-    await store.refetchConversation(conversationToken);
-    expect(getAgentConversation).toHaveBeenCalledTimes(2);
   });
 
   it('accepts an initial exchange 404 as loaded empty without errors', async () => {

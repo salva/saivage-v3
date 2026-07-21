@@ -10,6 +10,7 @@ import { cardView } from './card-view-fixtures';
 import { useCardStore } from '../stores/cards';
 
 const originalFetch = globalThis.fetch;
+let requestedPaths: string[] = [];
 
 const routeSmokeCases = [
   { path: '/dashboard', root: '[data-testid="route-dashboard"]', bodyText: /Runtime Console/i },
@@ -29,7 +30,7 @@ function jsonResponse(body: unknown): Response {
 function installOperatorApiFetch(): void {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin);
-    const timestamp = '2026-07-08T00:00:00.000Z';
+    requestedPaths.push(url.pathname);
     switch (url.pathname) {
       case '/api/state':
         return jsonResponse({
@@ -54,8 +55,6 @@ function installOperatorApiFetch(): void {
         return jsonResponse({ events: [], total: 0 });
       case '/api/mcp/tools':
         return jsonResponse({ tools: [], servers: [], invocationStats: {}, serverDetails: [] });
-      case '/api/chats':
-        return jsonResponse({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: timestamp }] });
       case '/api/chats/analyst%3Aglobal':
       case '/api/chats/analyst:global':
         return jsonResponse({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
@@ -94,6 +93,7 @@ describe('operator dashboard S06 smoke contract', () => {
     document.body.innerHTML = '';
     localStorage.clear();
     installOperatorApiFetch();
+    requestedPaths = [];
     consoleErrors = [];
     renderErrors = [];
     unhandledErrors = [];
@@ -139,6 +139,8 @@ describe('operator dashboard S06 smoke contract', () => {
     expect(consoleErrors, `${path} console.error output`).toEqual([]);
     expect(unhandledErrors, `${path} window error events`).toEqual([]);
     expect(unhandledRejections, `${path} unhandled promise rejections`).toEqual([]);
+    expect(requestedPaths).not.toContain('/api/chats');
+    expect(requestedPaths.filter((requestedPath) => requestedPath === '/api/chats/analyst%3Aglobal' || requestedPath === '/api/chats/analyst:global')).toHaveLength(1);
     wrapper.unmount();
   });
 

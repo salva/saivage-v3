@@ -58,6 +58,12 @@ describe('operator chat route request contracts', () => {
     expect(response.json()).toEqual({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
   });
 
+  it('leaves the removed aggregate chat URL to ordinary Fastify not-found handling', async () => {
+    const response = await fastify.inject({ method: 'GET', url: '/api/chats', headers: authHeaders });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ error: 'Not Found', statusCode: 404 });
+  });
+
   it('admits canonical POST and submits the Analyst turn', async () => {
     const response = await fastify.inject({
       method: 'POST',

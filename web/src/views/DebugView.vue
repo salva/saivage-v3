@@ -430,8 +430,8 @@ function timelineKey(event: DebugTimelineItem): string { return event.id; }
 let unregisterTimeline: (() => void) | null = null;
 let unregisterProcesses: (() => void) | null = null;
 onMounted(async () => {
-  unregisterTimeline = liveSyncStore.registerResource({ resource: 'timeline', scope: 'active', refetch: debugStore.refetchTimeline });
-  unregisterProcesses = liveSyncStore.registerResource({ resource: 'processes', scope: 'active', refetch: debugStore.refetchProcesses });
+  unregisterTimeline = liveSyncStore.registerResource({ resource: 'timeline', scope: 'active', requestOwnership: 'sync-client', refetch: debugStore.refetchTimeline });
+  unregisterProcesses = liveSyncStore.registerResource({ resource: 'processes', scope: 'active', requestOwnership: 'sync-client', refetch: debugStore.refetchProcesses });
   await debugStore.fetchAll();
   mcpStore.fetchMcpData().catch(() => {});
   mcpStore.startPolling(15000);

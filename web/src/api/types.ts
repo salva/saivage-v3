@@ -6,7 +6,6 @@ import type {
   CardHistoryEntry,
   CardHistoryHeader,
   OperatorCard,
-  ChatSession,
   ChatWorkspaceContext,
   ControlActionSurface,
   DoctorResponse,
@@ -28,7 +27,6 @@ export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
 export type {
   AgentConversationEntry,
   AgentRole,
-  ChatSession,
   ChatWorkspaceContext,
   CardAction,
   CardHistoryEntry,
@@ -151,8 +149,8 @@ export type AgentConversationResponse = Omit<OperatorApiSuccess<'agents.conversa
 export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;
 export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & { sessions: AgentSession[]; };
 export type ControlActionsListResponse = OperatorApiSuccess<'controlActions.list'>;
-export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'>;
+export type AnalystSession = NonNullable<ChatEntriesResponse['session']>;
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
 export type DebugErrorsResponse = OperatorApiSuccess<'debug.errors'>;

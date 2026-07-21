@@ -13,7 +13,6 @@ import type {
   AgentConversationResponse,
   AgentLlmExchangeResponse,
   AgentSessionsResponse,
-  ChatSessionsResponse,
   ChatEntriesResponse,
   ChatResponse,
   ChatWorkspaceContext,
@@ -232,10 +231,6 @@ export function getAgentLlmExchange(sessionId: ConversationSessionId, signal?: A
 
 export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {
   return operatorRequest('controlActions.list', { query });
-}
-
-export function listChatSessions(signal?: AbortSignal): Promise<ChatSessionsResponse> {
-  return operatorRequest('chats.list', { signal });
 }
 
 export function getChatEntries(signal?: AbortSignal): Promise<ChatEntriesResponse> {

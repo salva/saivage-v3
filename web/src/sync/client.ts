@@ -17,7 +17,8 @@ export type SyncResourceRegistration =
   | {
       resource: Exclude<SyncResourceKey, 'cards'>;
       scope: SyncResourceScope;
-      refetch: () => Promise<void>;
+      requestOwnership: 'sync-client' | 'resource-store';
+      refetch: () => Promise<void | boolean>;
       onRefetch?: (timestamp: string) => void;
     };
 
@@ -39,6 +40,7 @@ export class SyncClient {
   private readonly resources = new Map<SyncResourceKey, SyncResourceRegistration>();
   private readonly conversations = new Map<ConversationSessionId, { callbacks: Set<() => Promise<void>>; lease: string | null }>();
   private readonly flights = new Map<string, FlightState>();
+  private readonly resourceStoreBaselineOpenPending = new Set<Exclude<SyncResourceKey, 'cards'>>();
   private started = false;
   private cardsBaselineOpenPending = true;
 
@@ -68,7 +70,7 @@ export class SyncClient {
     });
     this.conn.onOpen(() => {
       this.lastConnectedAtRef.value = new Date().toISOString();
-      this.refetchRegisteredNonCards();
+      this.handleResourceOpen();
       const cards = this.resources.get('cards');
       if (this.cardsBaselineOpenPending) this.cardsBaselineOpenPending = false;
       else if (cards?.resource === 'cards') cards.onReconnect();
@@ -95,15 +97,27 @@ export class SyncClient {
 
   reconfigure(): void {
     this.cardsBaselineOpenPending = true;
+    for (const registration of this.resources.values()) {
+      if (registration.resource !== 'cards' && registration.requestOwnership === 'resource-store') {
+        this.resourceStoreBaselineOpenPending.add(registration.resource);
+      }
+    }
     this.conn.reconfigure();
   }
 
   register(registration: SyncResourceRegistration): () => void {
     this.resources.set(registration.resource, registration);
-    if (registration.resource !== 'cards' && this.conn.state.value === 'connected') this.refetchResource(registration.resource);
+    if (registration.resource !== 'cards') {
+      this.resourceStoreBaselineOpenPending.delete(registration.resource);
+      if (registration.requestOwnership === 'sync-client' && this.conn.state.value === 'connected') this.refetchResource(registration.resource);
+      if (registration.requestOwnership === 'resource-store' && this.conn.state.value !== 'connected') this.resourceStoreBaselineOpenPending.add(registration.resource);
+    }
     return () => {
       const current = this.resources.get(registration.resource);
-      if (current === registration) this.resources.delete(registration.resource);
+      if (current === registration) {
+        this.resources.delete(registration.resource);
+        if (registration.resource !== 'cards') this.resourceStoreBaselineOpenPending.delete(registration.resource);
+      }
     };
   }
 
@@ -148,8 +162,12 @@ export class SyncClient {
     this.refetchResource(frame.resource, timestamp);
   }
 
-  private refetchRegisteredNonCards(): void {
-    for (const key of this.resources.keys()) if (key !== 'cards') this.refetchResource(key);
+  private handleResourceOpen(): void {
+    for (const registration of this.resources.values()) {
+      if (registration.resource === 'cards') continue;
+      if (registration.requestOwnership === 'resource-store' && this.resourceStoreBaselineOpenPending.delete(registration.resource)) continue;
+      this.refetchResource(registration.resource);
+    }
   }
 
   private resubscribeConversations(): void {
@@ -160,7 +178,15 @@ export class SyncClient {
     const registration = this.resources.get(resource);
     if (!registration) return;
     if (registration.resource === 'cards') return;
-    this.runSingleFlight(resource, registration.refetch, invalidatedAt, registration.onRefetch);
+    if (registration.requestOwnership === 'sync-client') {
+      this.runSingleFlight(resource, registration.refetch, invalidatedAt, registration.onRefetch);
+      return;
+    }
+    void registration.refetch()
+      .then((completed) => {
+        if (invalidatedAt && completed !== false) registration.onRefetch?.(invalidatedAt);
+      })
+      .catch((error) => log.warn(`Sync refetch failed for ${resource}`, error));
   }
 
   private refetchConversation(sessionId: ConversationSessionId): void {
@@ -178,7 +204,7 @@ export class SyncClient {
     this.conn.sendRaw({ t: 'subscribe', resource: 'conversation', id, lease: entry.lease });
   }
 
-  private runSingleFlight(key: string, refetch: () => Promise<void>, refetchedAt?: string, onRefetch?: (timestamp: string) => void): void {
+  private runSingleFlight(key: string, refetch: () => Promise<void | boolean>, refetchedAt?: string, onRefetch?: (timestamp: string) => void): void {
     const state = this.flights.get(key) ?? { inFlight: false, trailing: false };
     this.flights.set(key, state);
     if (state.inFlight) {

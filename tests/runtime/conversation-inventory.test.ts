@@ -3,7 +3,7 @@ import { closeSync, fstatSync, fsyncSync, mkdirSync, mkdtempSync, openSync, rmSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
-import { appendConversationBatch, listConversationSessionIds, readConversation } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation, readConversationInventory } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
@@ -24,7 +24,10 @@ describe('domain-derived conversation inventory', () => {
     appendConversationBatch({ projectRoot: root }, [message('planner:project', 'planner')]);
     appendConversationBatch({ projectRoot: root }, [message(parseConversationSessionId(`executor:${child.id}`), 'executor')]);
     appendAnalystIngressBatch({ projectRoot: root }, '11111111-1111-4111-8111-111111111111', 'workspace', 'global');
-    expect(listConversationSessionIds(root)).toEqual(['analyst:global', `executor:${child.id}`, 'planner:project']);
+    const inventory = readConversationInventory(root);
+    expect(inventory.map(({ sessionId }) => sessionId)).toEqual(['analyst:global', `executor:${child.id}`, 'planner:project']);
+    expect(Object.isFrozen(inventory)).toBe(true);
+    expect(inventory.every(Object.isFrozen)).toBe(true);
     for (const invalid of ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other']) expect(() => parseConversationSessionId(invalid)).toThrow();
   });
 
@@ -33,7 +36,7 @@ describe('domain-derived conversation inventory', () => {
     writeFileSync(join(root, '.saivage', 'agents', 'conversations', 'unrelated.jsonl'), '{malformed}\n');
     const orphan = join(root, '.saivage', 'cards', 'project', 'children', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'conversations');
     mkdirSync(orphan, { recursive: true }); writeFileSync(join(orphan, 'executor.jsonl'), '{malformed}\n');
-    expect(listConversationSessionIds(root)).toEqual([]);
+    expect(readConversationInventory(root)).toEqual([]);
     expect(() => readConversation(root, 'executor:card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb')).toThrow(/malformed/);
   });
 
@@ -45,8 +48,16 @@ describe('domain-derived conversation inventory', () => {
     appendConversationBatch({ projectRoot: root }, [message(plannerSession, 'planner-goal')]);
     writeFileSync(cardConversationFile(root, goal.id, 'executor'), '{complete-malformed}\n');
 
-    expect(listConversationSessionIds(root)).toEqual([plannerSession]);
+    const inventory = readConversationInventory(root);
+    expect(inventory.map(({ sessionId }) => sessionId)).toEqual([plannerSession]);
+    expect(inventory[0]!.conversation.physicalRows.map(({ id }) => id)).toEqual(['planner-goal']);
     expect(readConversation(root, plannerSession).physicalRows.map(({ id }) => id)).toEqual(['planner-goal']);
+  });
+
+  it('fails strictly on a complete malformed eligible candidate', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-inventory-')); roots.push(root); initProjectTree(root);
+    writeFileSync(cardConversationFile(root, 'project', 'reviewer'), '{"version":1,"type":"rows","rows":[{"invalid":true}]}\n');
+    expect(() => readConversationInventory(root)).toThrow(/Growing file '.*reviewer\.jsonl' envelope 1 is malformed/);
   });
 
   it('emits no effects for a complete outcome-unknown conversation append', () => {

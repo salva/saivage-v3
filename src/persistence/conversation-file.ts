@@ -29,6 +29,11 @@ export interface ConversationAppendOptions {
   readonly io?: GrowingFileIo;
 }
 
+export interface ConversationInventoryEntry {
+  readonly sessionId: ConversationSessionId;
+  readonly conversation: ValidatedConversation;
+}
+
 export class ConversationPostPublicationObservationError extends Error {
   constructor(readonly entry: ConversationEntryObservation, options: ErrorOptions) {
     super(`Conversation entry '${entry.id}' was published but post-publication observation failed.`, options);
@@ -46,21 +51,30 @@ export function probeConversation(projectRoot: string, sessionId: ConversationSe
 }
 
 export function readConversation(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation {
+  return readValidatedConversation(projectRoot, sessionId) ?? validateConversationRows(sessionId, []);
+}
+
+function readValidatedConversation(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation | null {
   const path = conversationFile(projectRoot, sessionId);
   let rows: AgentMessage[];
   try { rows = readCanonicalGrowingFile(path, agentMessageSchema); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return validateConversationRows(sessionId, []); throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
   try { return validateConversationRows(sessionId, rows); }
   catch (error) { throw new Error(`Conversation '${sessionId}' is invalid: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
-export function listConversationSessionIds(projectRoot: string): ConversationSessionId[] {
+export function readConversationInventory(projectRoot: string): readonly ConversationInventoryEntry[] {
   const candidates: ConversationSessionId[] = ['analyst:global'];
   for (const card of listCards(projectRoot)) {
     if (card.type === 'project' || card.type === 'goal') candidates.push(parseConversationSessionId(`planner:${card.id}`), parseConversationSessionId(`reviewer:${card.id}`));
     else candidates.push(parseConversationSessionId(`executor:${card.id}`));
   }
-  return candidates.filter((sessionId) => { if (!probeConversation(projectRoot, sessionId)) return false; readConversation(projectRoot, sessionId); return true; }).sort();
+  const inventory = candidates.flatMap((sessionId) => {
+    const conversation = readValidatedConversation(projectRoot, sessionId);
+    return conversation ? [Object.freeze({ sessionId, conversation })] : [];
+  });
+  inventory.sort((a, b) => a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0);
+  return Object.freeze(inventory);
 }
 
 function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] {

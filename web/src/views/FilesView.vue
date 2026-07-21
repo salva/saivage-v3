@@ -270,7 +270,7 @@ function applyQueryPath(): void {
 
 let unregisterFiles: (() => void) | null = null;
 onMounted(() => {
-  unregisterFiles = liveSyncStore.registerResource({ resource: 'files', scope: 'active', refetch: fileStore.refetch, onRefetch: fileStore.markWsSync });
+  unregisterFiles = liveSyncStore.registerResource({ resource: 'files', scope: 'active', requestOwnership: 'sync-client', refetch: fileStore.refetch, onRefetch: fileStore.markWsSync });
 });
 
 onUnmounted(() => {

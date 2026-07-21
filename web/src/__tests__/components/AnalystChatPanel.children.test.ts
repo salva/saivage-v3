@@ -7,12 +7,10 @@ import { useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { cardView } from '../card-view-fixtures';
 
-const listChatSessions = vi.fn();
 const getChatEntries = vi.fn();
 const sendChatMessage = vi.fn();
 
 vi.mock('../../api/client', () => ({
-  listChatSessions: (...args: any[]) => listChatSessions(...args),
   getChatEntries: (...args: any[]) => getChatEntries(...args),
   sendChatMessage: (...args: any[]) => sendChatMessage(...args),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
@@ -25,10 +23,8 @@ const CHILD_TWO_ID = 'card-cccccccccccccccccccccccccccc';
 describe('AnalystChatPanel on-screen children', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-    listChatSessions.mockReset();
     getChatEntries.mockReset();
     sendChatMessage.mockReset();
-    listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     getChatEntries.mockResolvedValue({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
     sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
   });

@@ -2,7 +2,6 @@ import { describe, expect, it } from '@jest/globals';
 
 import {
   ChatEntriesResponseSchema,
-  ChatListResponseSchema,
   ChatSessionParamsSchema,
   ChatSendResponseSchema,
   chatOperatorApiContracts,
@@ -30,7 +29,6 @@ describe('singleton Analyst contracts', () => {
   });
 
   it('encodes literal analyst:global in chat and WebSocket success contracts', () => {
-    expect(ChatListResponseSchema.parse({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: timestamp }] }).sessions[0]!.id).toBe('analyst:global');
     expect(ChatEntriesResponseSchema.parse({ session: { id: 'analyst:global', role: 'analyst', status: 'inactive', started_at: timestamp }, entries: [entry()], activity_status: { status: 'inactive', pending_calls: [] } }).session?.id).toBe('analyst:global');
     expect(ChatSendResponseSchema.parse({ sessionId: 'analyst:global', toolInvocations: [], restart: null }).sessionId).toBe('analyst:global');
     expect(buildConnectedEnvelope().content.sessionId).toBe('analyst:global');
@@ -40,8 +38,7 @@ describe('singleton Analyst contracts', () => {
   });
 
   it.each(invalid)('rejects noncanonical Analyst identity %s at every success/event boundary', (sessionId) => {
-    expect(ChatListResponseSchema.safeParse({ sessions: [{ id: sessionId, role: 'analyst', status: 'active', started_at: timestamp }] }).success).toBe(false);
-    expect(ChatEntriesResponseSchema.safeParse({ sessionId, entries: [] }).success).toBe(false);
+    expect(ChatEntriesResponseSchema.safeParse({ session: { id: sessionId, role: 'analyst', status: 'inactive', started_at: timestamp }, entries: [], activity_status: { status: 'inactive', pending_calls: [] } }).success).toBe(false);
     expect(ChatSendResponseSchema.safeParse({ sessionId, toolInvocations: [], restart: null }).success).toBe(false);
     expect(ConnectedStatusContentSchema.safeParse({ event: 'connected', sessionId, timestamp, clientCount: 1 }).success).toBe(false);
     expect(AnalystTurnAcknowledgedStatusContentSchema.safeParse({ event: 'analyst_turn_acknowledged', sessionId, restart: null }).success).toBe(false);

@@ -5,13 +5,11 @@ import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import type { AgentConversationEntry } from '../../api/types';
 
 const apiMocks = vi.hoisted(() => ({
-  listChatSessions: vi.fn(),
   getChatEntries: vi.fn(),
   sendChatMessage: vi.fn(),
 }));
 
 vi.mock('../../api/client', () => ({
-  listChatSessions: apiMocks.listChatSessions,
   getChatEntries: apiMocks.getChatEntries,
   sendChatMessage: apiMocks.sendChatMessage,
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
@@ -22,10 +20,8 @@ describe('analyst chat workspace context', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     setActivePinia(createPinia());
-    apiMocks.listChatSessions.mockReset();
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
-    apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     apiMocks.getChatEntries.mockResolvedValue({ session: null, entries: [] as AgentConversationEntry[], activity_status: { status: 'inactive', pending_calls: [] } });
     apiMocks.sendChatMessage.mockResolvedValue({
       sessionId: 'analyst:global',

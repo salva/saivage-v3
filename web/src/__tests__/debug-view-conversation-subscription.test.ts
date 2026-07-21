@@ -99,8 +99,8 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
   it('keeps timeline and process live-sync registrations on their focused refetch functions', async () => {
     const { wrapper } = await mountDebug();
     const debugStore = useDebugStore();
-    expect(live.registerResource).toHaveBeenCalledWith({ resource: 'timeline', scope: 'active', refetch: debugStore.refetchTimeline });
-    expect(live.registerResource).toHaveBeenCalledWith({ resource: 'processes', scope: 'active', refetch: debugStore.refetchProcesses });
+    expect(live.registerResource).toHaveBeenCalledWith({ resource: 'timeline', scope: 'active', requestOwnership: 'sync-client', refetch: debugStore.refetchTimeline });
+    expect(live.registerResource).toHaveBeenCalledWith({ resource: 'processes', scope: 'active', requestOwnership: 'sync-client', refetch: debugStore.refetchProcesses });
     wrapper.unmount();
   });
 

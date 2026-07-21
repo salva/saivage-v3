@@ -6,9 +6,6 @@
     aria-label="Analyst chat"
   >
     <div :ref="setTimelineScrollArea" class="chat-scroll-area" data-testid="chat-scroll-container" @scroll="timelineControls.handleTimelineScroll">
-      <div v-if="sessionsLoading" class="chat-status-card" role="status">Loading analyst sessions…</div>
-      <div v-else-if="sessionsError" class="chat-status-card chat-status-error" role="alert">{{ sessionsError.message }}</div>
-
       <section v-if="childrenOnScreen.length" class="chat-context-card" aria-labelledby="on-screen-title">
         <h3 id="on-screen-title">On screen</h3>
         <ul class="on-screen-children">
@@ -84,8 +81,6 @@ const {
   activeSessionId,
   messages,
   draft,
-  sessionsLoading,
-  sessionsError,
   messagesLoading,
   messagesError,
   sending,
@@ -151,7 +146,6 @@ onMounted(() => {
     await nextTick();
     timelineControls.scrollToLatest();
   });
-  void chat.fetchSessions().catch(() => {});
   void chat.fetchMessages().catch(() => {});
 });
 

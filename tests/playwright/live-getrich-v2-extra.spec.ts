@@ -25,20 +25,13 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     expect(body.children.every((child: { parent: string }) => child.parent === 'project')).toBe(true);
   });
 
-  test('chats.list returns sessions including the analyst session', async ({ request }) => {
-    const res = await request.get('/api/chats');
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(Array.isArray(body.sessions)).toBe(true);
-    expect(body.sessions.some((s: { id: string }) => s.id === analystSessionId)).toBe(true);
-  });
-
-  test('chats.get for analyst returns entries array', async ({ request }) => {
+  test('chats.get for analyst returns the canonical detail tuple', async ({ request }) => {
     const res = await request.get(`/api/chats/${analystSessionPath}`);
     expect(res.status(), `GET /api/chats/${analystSessionPath} — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
     const body = await res.json();
-    expect(body.sessionId).toBe(analystSessionId);
+    expect(body.session === null || body.session.id === analystSessionId).toBe(true);
     expect(Array.isArray(body.entries)).toBe(true);
+    expect(body.activity_status).toEqual(expect.objectContaining({ status: expect.any(String), pending_calls: expect.any(Array) }));
   });
 
   test('files.list returns a directory listing for the project root', async ({ request }) => {

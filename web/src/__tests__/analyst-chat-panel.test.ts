@@ -3,14 +3,12 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
 
-const listChatSessions = vi.fn();
 const getChatEntries = vi.fn();
 const sendChatMessage = vi.fn();
 const openConversation = vi.fn();
 const closeConversation = vi.fn();
 
 vi.mock('../api/client', () => ({
-  listChatSessions: (...args: any[]) => listChatSessions(...args),
   getChatEntries: (...args: any[]) => getChatEntries(...args),
   sendChatMessage: (...args: any[]) => sendChatMessage(...args),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
@@ -25,7 +23,6 @@ describe('AnalystChatPanel', () => {
     document.body.innerHTML = '';
     window.localStorage.clear();
     vi.useRealTimers();
-    listChatSessions.mockReset();
     getChatEntries.mockReset();
     sendChatMessage.mockReset();
     openConversation.mockReset();
@@ -34,7 +31,6 @@ describe('AnalystChatPanel', () => {
       void refetch();
       return closeConversation;
     });
-    listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     getChatEntries.mockResolvedValue({
       session: { id: 'analyst:global', role: 'analyst', status: 'inactive', started_at: '2025-01-01T00:00:00Z' },
       entries: [
@@ -62,26 +58,23 @@ describe('AnalystChatPanel', () => {
     expect(closeConversation).toHaveBeenCalledTimes(1);
   });
 
-  it('initializes one direct detail read while disconnected even when the independent list fails', async () => {
+  it('initializes exactly one direct detail read while disconnected before any acknowledgement', async () => {
     openConversation.mockImplementation(() => closeConversation);
-    listChatSessions.mockRejectedValueOnce(new Error('disconnected list'));
     getChatEntries.mockResolvedValueOnce({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();
     expect(openConversation).toHaveBeenCalledTimes(1);
-    expect(listChatSessions).toHaveBeenCalledTimes(1);
     expect(getChatEntries).toHaveBeenCalledTimes(1);
     wrapper.unmount();
     expect(closeConversation).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps subscription and list acquisition when independent detail initialization fails', async () => {
+  it('keeps the subscription when detail initialization fails', async () => {
     openConversation.mockImplementation(() => closeConversation);
     getChatEntries.mockRejectedValueOnce(new Error('detail failed'));
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();
     expect(openConversation).toHaveBeenCalledTimes(1);
-    expect(listChatSessions).toHaveBeenCalledTimes(1);
     expect(wrapper.text()).toContain('detail failed');
     wrapper.unmount();
     expect(closeConversation).toHaveBeenCalledTimes(1);

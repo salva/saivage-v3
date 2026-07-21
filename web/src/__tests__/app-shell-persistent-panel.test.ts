@@ -7,7 +7,6 @@ import AppShell from '../components/layout/AppShell.vue';
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
 
 vi.mock('../api/client', () => ({
-  listChatSessions: vi.fn(async () => ({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2026-01-01T00:00:00Z' }] })),
   getChatEntries: vi.fn(async () => ({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } })),
   sendChatMessage: vi.fn(async (sessionId: string) => ({ sessionId, toolInvocations: [], restart: null })),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
@@ -23,7 +22,6 @@ vi.mock('../stores/sync', () => ({
   }),
 }));
 vi.mock('../stores/cards', () => ({ useCardStore: () => ({ refetch: vi.fn(async () => undefined) }) }));
-vi.mock('../stores/agents', () => ({ useAgentStore: () => ({ refetch: vi.fn(async () => undefined) }) }));
 
 const router = createRouter({
   history: createMemoryHistory(),
