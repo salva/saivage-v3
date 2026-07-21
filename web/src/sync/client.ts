@@ -28,6 +28,12 @@ interface FlightState {
 
 const log = createLogger('sync');
 
+function createConversationLease(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export class SyncClient {
   private readonly conn: WsConnectionManager;
   private readonly resources = new Map<SyncResourceKey, SyncResourceRegistration>();
@@ -168,7 +174,7 @@ export class SyncClient {
   }
 
   private subscribeConversation(id: string, entry: { callbacks: Set<() => Promise<void>>; lease: string | null }): void {
-    entry.lease = crypto.randomUUID();
+    entry.lease = createConversationLease();
     this.conn.sendRaw({ t: 'subscribe', resource: 'conversation', id, lease: entry.lease });
   }
 
