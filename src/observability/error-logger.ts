@@ -56,7 +56,7 @@ export function createErrorLog(projectRoot: string, appLogs: AppLogContext): Err
       cardId: error.cardId,
       goalId: error.goalId,
       phase: error.phase,
-    }, 'error.log', { source: 'error-logger' }));
+    }));
 
     appendAppLogEntry(appLogs.projectRoot, { id: record.id, timestamp: record.timestamp, type: 'error', data: record });
     return record;

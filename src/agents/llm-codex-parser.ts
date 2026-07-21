@@ -150,7 +150,7 @@ function createCodexStreamError(prefix: string, payload: Record<string, unknown>
   const type = typeof error['type'] === 'string' ? error['type'] : '';
   const rawMessage = String(error['message'] ?? payload['message'] ?? JSON.stringify(payload));
   const codePrefix = code ? `${code}: ` : '';
-  const message = `${prefix}: ${codePrefix}${redactProviderErrorText(rawMessage, 'llm-codex-parser')}`;
+  const message = `${prefix}: ${codePrefix}${redactProviderErrorText(rawMessage)}`;
   const embeddedStatus = statusFromCodexPayload(payload, error);
   const retryAfterMs = retryAfterMsFromCodexPayload(payload, error);
   const evidence = [code, type, rawMessage].join(' ');

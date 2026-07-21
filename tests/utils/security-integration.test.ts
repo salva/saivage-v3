@@ -279,26 +279,26 @@ describe('integration edge cases', () => {
     expect(() => readProjectFileAtomic(root, '.saivage/locks/runtime.lock')).toThrow(/blocked for security reasons/);
   });
 
-  it('redaction port does not modify non-secret keys', () => {
+  it('redaction does not modify non-secret keys', () => {
     const json = JSON.stringify({
       name: 'my-project',
       description: 'a test project',
       card_count: 5,
     });
 
-    const result = redactTextForOutbound(json, 'operator.api', { source: 'security-integration-test' });
+    const result = redactTextForOutbound(json);
     expect(result).toContain('my-project');
     expect(result).toContain('a test project');
     expect(result).not.toContain('[REDACTED]');
   });
 
-  it('redaction port preserves env var references', () => {
+  it('redaction preserves env var references', () => {
     const json = JSON.stringify({
       apiKey: '${GITHUB_TOKEN}',
       name: 'test',
     });
 
-    const result = redactTextForOutbound(json, 'operator.api', { source: 'security-integration-test' });
+    const result = redactTextForOutbound(json);
     // Env var references should NOT be redacted
     expect(result).toContain('${GITHUB_TOKEN}');
     expect(result).not.toContain('[REDACTED]');

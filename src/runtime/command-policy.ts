@@ -33,7 +33,7 @@ export function sanitizedCommandEnv(): NodeJS.ProcessEnv {
 }
 
 export function redactCommandForPolicy(command: string): string {
-  return redactTextForOutbound(command, 'operator.api', { source: 'command-policy.command' });
+  return redactTextForOutbound(command);
 }
 
 export function truncateCommandOutput(value: string, maxBytes: number = DEFAULT_MAX_OUTPUT_BYTES): string {

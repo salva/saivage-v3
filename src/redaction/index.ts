@@ -1,47 +1,6 @@
 export const SECRET_REDACTION_PLACEHOLDER = '[REDACTED]';
 
-declare const redactedBrand: unique symbol;
-declare const secretBrand: unique symbol;
-
-export type Redacted<T> = T & { readonly [redactedBrand]: true };
-export type Secret<T> = T & { readonly [secretBrand]: true } & { reveal(): T; toJSON(): '[redacted]' };
-
-export type RedactionPolicyName =
-  | 'observability.log'
-  | 'error.log'
-  | 'provider.diagnostic'
-  | 'provider.message'
-  | 'operator.websocket'
-  | 'operator.api'
-  | 'notification.transport'
-  | 'model.issue'
-  | `event:${string}`;
-
-export interface RedactionContext {
-  policy: RedactionPolicyName;
-  source: string;
-  maxLength?: number;
-  maxDepth?: number;
-  maxEntries?: number;
-}
-
-export interface RedactionPolicy {
-  readonly name: RedactionPolicyName;
-  readonly maxDepth?: number;
-  readonly maxEntries?: number;
-}
-
-export interface RedactionPort {
-  policies(): RedactionPolicyName[];
-  policy(name: RedactionPolicyName): RedactionPolicy;
-  redact<T>(value: T, policy: RedactionPolicyName, options?: RedactionOptions): Redacted<T>;
-  redactText(value: unknown, policy: RedactionPolicyName, options?: RedactionOptions): Redacted<string>;
-  snippet(value: unknown, policy: RedactionPolicyName, maxLength: number, options?: RedactionOptions): Redacted<string>;
-  forKind<K extends string>(kind: K): <T>(payload: T) => Redacted<T>;
-}
-
-export interface RedactionOptions {
-  source?: string;
+export interface StructuredRedactionOptions {
   maxDepth?: number;
   maxEntries?: number;
 }
@@ -60,35 +19,8 @@ const URL_SECRET_QUERY_PARAM_RE =
   /([?&][^=&#\s]*(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[^=&#\s]*=)([^&#\s]+)/gi;
 
 const CONVERSION_FAILURE = '[unserializable dynamic value]';
-const DEFAULT_SNIPPET_LENGTH = 500;
 const DEFAULT_MAX_DEPTH = 8;
 const DEFAULT_MAX_ENTRIES = 100;
-
-const POLICIES: ReadonlyMap<RedactionPolicyName, RedactionPolicy> = new Map<RedactionPolicyName, RedactionPolicy>([
-  ['observability.log', { name: 'observability.log' }],
-  ['error.log', { name: 'error.log' }],
-  ['provider.diagnostic', { name: 'provider.diagnostic' }],
-  ['provider.message', { name: 'provider.message' }],
-  ['operator.websocket', { name: 'operator.websocket' }],
-  ['operator.api', { name: 'operator.api' }],
-  ['notification.transport', { name: 'notification.transport' }],
-  ['model.issue', { name: 'model.issue' }],
-]);
-
-function brandRedacted<T>(value: T): Redacted<T> {
-  return value as Redacted<T>;
-}
-
-export function makeSecret<T>(value: T): Secret<T> {
-  return {
-    reveal: () => value,
-    toJSON: () => '[redacted]' as const,
-  } as Secret<T>;
-}
-
-export function revealSecret<T>(secret: Secret<T>): T {
-  return secret.reveal();
-}
 
 function isSecretKey(key: string): boolean {
   return SECRET_KEY_PATTERN.test(key);
@@ -202,7 +134,7 @@ function shouldRedactKey(key: string): boolean {
   return isSecretKey(key);
 }
 
-function redactObjectValue(value: unknown, policy: RedactionPolicy, keyHint: string | undefined, depth: number, seen: WeakSet<object>, options: RedactionOptions): unknown {
+function redactObjectValue(value: unknown, keyHint: string | undefined, depth: number, seen: WeakSet<object>, options: StructuredRedactionOptions): unknown {
   if (typeof value === 'string') {
     return keyHint && shouldRedactKey(keyHint) ? SECRET_REDACTION_PLACEHOLDER : redactProviderLikeText(value);
   }
@@ -214,14 +146,14 @@ function redactObjectValue(value: unknown, policy: RedactionPolicy, keyHint: str
   if (value === null || typeof value !== 'object') return value;
   if (seen.has(value)) return '[Circular]';
 
-  const maxDepth = options.maxDepth ?? policy.maxDepth ?? DEFAULT_MAX_DEPTH;
+  const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
   if (depth >= maxDepth) return '[MaxDepth]';
 
   seen.add(value);
-  const maxEntries = options.maxEntries ?? policy.maxEntries ?? DEFAULT_MAX_ENTRIES;
+  const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
 
   if (Array.isArray(value)) {
-    const output = value.slice(0, maxEntries).map((entry) => redactObjectValue(entry, policy, undefined, depth + 1, seen, options));
+    const output = value.slice(0, maxEntries).map((entry) => redactObjectValue(entry, undefined, depth + 1, seen, options));
     if (value.length > maxEntries) output.push(`[${value.length - maxEntries} entries truncated]`);
     seen.delete(value);
     return output;
@@ -236,60 +168,21 @@ function redactObjectValue(value: unknown, policy: RedactionPolicy, keyHint: str
     }
     output[key] = shouldRedactKey(key)
       ? SECRET_REDACTION_PLACEHOLDER
-      : redactObjectValue(entryValue, policy, key, depth + 1, seen, options);
+      : redactObjectValue(entryValue, key, depth + 1, seen, options);
     count += 1;
   }
   seen.delete(value);
   return output;
 }
 
-function requirePolicy(name: RedactionPolicyName): RedactionPolicy {
-  const eventPolicy = name.startsWith('event:') ? { name } : undefined;
-  const policy = POLICIES.get(name) ?? eventPolicy;
-  if (!policy) {
-    throw new Error(`Unknown redaction policy '${name}'`);
-  }
-  return policy;
+export function redactForOutbound<T>(value: T, options: StructuredRedactionOptions = {}): T {
+  return redactObjectValue(value, undefined, 0, new WeakSet<object>(), options) as T;
 }
 
-export const redactionPort: RedactionPort = {
-  policies(): RedactionPolicyName[] {
-    return [...POLICIES.keys()];
-  },
-
-  policy(name: RedactionPolicyName): RedactionPolicy {
-    return requirePolicy(name);
-  },
-
-  redact<T>(value: T, policyName: RedactionPolicyName, options: RedactionOptions = {}): Redacted<T> {
-    const policy = requirePolicy(policyName);
-    return brandRedacted(redactObjectValue(value, policy, undefined, 0, new WeakSet<object>(), options) as T);
-  },
-
-  redactText(value: unknown, policyName: RedactionPolicyName): Redacted<string> {
-    requirePolicy(policyName);
-    return brandRedacted(redactProviderLikeText(rawDynamicText(value)));
-  },
-
-  snippet(value: unknown, policyName: RedactionPolicyName, maxLength = DEFAULT_SNIPPET_LENGTH): Redacted<string> {
-    return brandRedacted(redactionPort.redactText(value, policyName).slice(0, maxLength));
-  },
-
-  forKind<K extends string>(kind: K): <T>(payload: T) => Redacted<T> {
-    return <T>(payload: T) => redactionPort.redact(payload, `event:${kind}`);
-  },
-};
-
-export function redactForOutbound<T>(value: T, policy: RedactionPolicyName, options?: RedactionOptions): Redacted<T> {
-  return redactionPort.redact(value, policy, options);
+export function redactTextForOutbound(value: unknown): string {
+  return redactProviderLikeText(rawDynamicText(value));
 }
 
-export function redactTextForOutbound(value: unknown, policy: RedactionPolicyName, options?: RedactionOptions): Redacted<string> {
-  void options;
-  return redactionPort.redactText(value, policy);
-}
-
-export function redactSnippetForOutbound(value: unknown, policy: RedactionPolicyName, maxLength: number, options?: RedactionOptions): Redacted<string> {
-  void options;
-  return redactionPort.snippet(value, policy, maxLength);
+export function redactSnippetForOutbound(value: unknown, maxLength: number): string {
+  return redactTextForOutbound(value).slice(0, maxLength);
 }

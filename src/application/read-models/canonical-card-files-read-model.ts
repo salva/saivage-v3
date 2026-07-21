@@ -146,7 +146,7 @@ export class CanonicalCardFilesReadModel {
         path,
         size: result.value.snapshot.size,
         contentType: 'text/plain',
-        content: redacted ? redactTextForOutbound(content, 'operator.api', { source: 'workspace-file-read-model' }) : content,
+        content: redacted ? redactTextForOutbound(content) : content,
         redacted,
         sensitivity: redacted ? 'sensitive-redacted' : 'normal',
         modifiedAt: result.value.snapshot.modifiedAt,

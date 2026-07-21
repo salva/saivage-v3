@@ -9,8 +9,6 @@ export function buildConfigOperatorContractHandlers(options: OperatorProjectCont
       const effective = options.configAuthority.loadEffective();
       const config: OperatorApiSuccess<'config.get'>['config'] = redactForOutbound(
         { ...effective.config },
-        'operator.api',
-        { source: 'runtime-config-notes.config' },
       );
       return { body: { config, warnings: [...effective.warnings] } };
     },
@@ -21,7 +19,7 @@ export function buildConfigOperatorContractHandlers(options: OperatorProjectCont
       const actions: OperatorApiSuccess<'controlActions.list'>['control_actions'] = listControlActions(
         options.projectRoot,
         { card_id: query.card_id, since: query.since },
-      ).map((entry) => redactForOutbound(entry, 'operator.api', { source: 'runtime-config-notes.route' }));
+      ).map((entry) => redactForOutbound(entry));
       return { body: { control_actions: actions, total: actions.length } };
     },
   });

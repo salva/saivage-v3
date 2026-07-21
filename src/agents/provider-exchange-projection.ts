@@ -20,9 +20,7 @@ export function projectProviderExchangeForPublication(
     ...(attempt.account !== undefined ? { account: redactText(attempt.account) } : {}),
     source_input_id: attempt.source_input_id,
     attempt_index: attempt.attempt_index,
-    request_params: redactForOutbound(attempt.request_params, 'provider.diagnostic', {
-      source: 'provider-exchange.request-params',
-    }),
+    request_params: redactForOutbound(attempt.request_params),
     started_at: attempt.started_at,
     completed_at: attempt.completed_at,
     ...(attempt.response_status !== undefined ? { response_status: attempt.response_status } : {}),
@@ -56,7 +54,5 @@ export function projectProviderExchangeForPublication(
 }
 
 function redactText(value: string): string {
-  return redactTextForOutbound(value, 'provider.diagnostic', {
-    source: 'provider-exchange.publication',
-  });
+  return redactTextForOutbound(value);
 }

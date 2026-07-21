@@ -251,7 +251,7 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
     return cappedLine.content;
   });
   const capped = truncateUtf8(window.join('\n'), MAX_READ_OUTPUT_BYTES);
-  const redactedContent = resolved.kind === 'work' ? redactTextForOutbound(capped.content, 'operator.api', { source: 'project-file-tools.read.work' }) : capped.content;
+  const redactedContent = resolved.kind === 'work' ? redactTextForOutbound(capped.content) : capped.content;
   const returned = truncateUtf8(redactedContent, MAX_READ_OUTPUT_BYTES);
   const contentTruncated = capped.truncated || returned.truncated;
   const truncated = offset + limit < lines.length || linesTruncated || contentTruncated;
@@ -478,7 +478,7 @@ async function scanFile(absolutePath: string, displayPath: string, regex: RegExp
     regex.lastIndex = 0;
     if (regex.test(linePrefix)) {
       const preview = linePrefix.slice(0, 500);
-      matches.push({ path: displayPath, line: lineNumber, preview: redact ? redactTextForOutbound(preview, 'operator.api', { source: 'project-file-tools.grep.work' }) : preview });
+      matches.push({ path: displayPath, line: lineNumber, preview: redact ? redactTextForOutbound(preview) : preview });
     }
     if (matches.length >= limit) stop = true;
     linePrefix = '';

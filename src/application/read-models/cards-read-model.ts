@@ -28,8 +28,8 @@ export function toOperatorCard(card: CardRecord): OperatorCard {
   };
 }
 
-function redactValue<T>(value: T, source = 'cards-read-model'): T {
-  return redactForOutbound(value, 'operator.api', { source });
+function redactValue<T>(value: T): T {
+  return redactForOutbound(value);
 }
 
 function invalidNumberBody(path: 'seq' | 'from' | 'to'): OperatorApiResponse<'cards.history.get', 400> {

@@ -77,7 +77,7 @@ export function createEventLog(projectRoot: string, appLogs: AppLogContext): Eve
       ...event,
       id: event.id ?? nextEventId(),
       timestamp: event.timestamp ?? new Date().toISOString(),
-    }, 'observability.log', { source: 'event-logger' }) as unknown as LoggedEvent;
+    }) as unknown as LoggedEvent;
 
     const parsed = loggedEventSchema.safeParse(fullEvent);
     if (!parsed.success) {

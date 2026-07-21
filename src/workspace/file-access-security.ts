@@ -94,7 +94,7 @@ export function looksLikeSecretPath(filePath: string): boolean {
 
 
 export function redactOperatorErrorMessage(message: string, projectRoot?: string): string {
-  let redacted: string = redactTextForOutbound(message, 'operator.api', { source: 'file-access-security.error-message' });
+  let redacted: string = redactTextForOutbound(message);
   if (projectRoot) {
     const resolvedRoot = resolve(projectRoot);
     redacted = redacted.split(resolvedRoot).join('[PROJECT_ROOT]');

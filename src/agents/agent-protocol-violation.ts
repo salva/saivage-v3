@@ -20,7 +20,7 @@ export interface AgentProtocolViolation {
 const RAW_PREVIEW_LIMIT = 500;
 
 export function rawProtocolPreview(raw: string): string {
-  const redacted = String(redactTextForOutbound(raw, 'model.issue', { source: 'agent-protocol-violation' }));
+  const redacted = redactTextForOutbound(raw);
   return redacted.length <= RAW_PREVIEW_LIMIT
     ? redacted
     : `${redacted.slice(0, RAW_PREVIEW_LIMIT)}...[truncated ${redacted.length - RAW_PREVIEW_LIMIT} chars]`;

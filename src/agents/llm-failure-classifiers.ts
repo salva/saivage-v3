@@ -9,9 +9,9 @@ export interface ClassifierContext {
 export type KnownProvider = 'openai-codex' | 'opencode-go' | 'openai-chat' | 'opencode' | 'github-copilot' | 'nvidia-nim';
 export type LlmHttpTransport = 'chat' | 'responses' | 'codex';
 
-function detail(bodyText: string, source: string): string {
+function detail(bodyText: string): string {
   if (!bodyText) return '';
-  return `: ${redactProviderErrorText(bodyText.slice(0, 500), source)}`;
+  return `: ${redactProviderErrorText(bodyText.slice(0, 500))}`;
 }
 
 function parseRetryAfterMs(headers: Headers): number | undefined {
@@ -46,8 +46,7 @@ export function classifyHttpFailure(
 ): LlmTransportFailure {
   const status = response.status;
   const provider = ctx.provider;
-  const source = `llm-${provider}`;
-  const d = detail(bodyText, source);
+  const d = detail(bodyText);
 
   if (status === 400) {
     const body = parseJsonObject(bodyText);

@@ -32,7 +32,5 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
 }
 
 function projectProviderExchangeForOperator(exchange: ProviderExchangePayload): OperatorApiSuccess<'agents.llmExchange'>['exchange'] {
-  return providerExchangePayloadSchema.parse(redactForOutbound(exchange, 'operator.api', {
-    source: 'agents.llm-exchange',
-  }));
+  return providerExchangePayloadSchema.parse(redactForOutbound(exchange));
 }

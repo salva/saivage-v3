@@ -15,7 +15,7 @@ export function stableStringify(value: unknown): string {
 }
 
 function sanitizeAuditText(text: string): string {
-  return redactTextForOutbound(text, 'operator.api', { source: 'control-action-audit' }).replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
+  return redactTextForOutbound(text).replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
 }
 
 export function listControlActions(projectRoot: string, filters?: { card_id?: string; since?: string }): ControlActionAuditEntry[] {

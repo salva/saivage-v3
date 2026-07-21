@@ -24,7 +24,7 @@ function clamp(value: string, max = MAX_ACTIVITY_TEXT): string {
 
 export function sanitizeAnalystText(value: string, max = MAX_ACTIVITY_TEXT): string {
   if (!value) return '';
-  let sanitized: string = redactTextForOutbound(value, 'model.issue', { source: 'analyst.sanitization' });
+  let sanitized: string = redactTextForOutbound(value);
   sanitized = sanitized.replace(SECRET_ASSIGNMENT_RE, (match, rawValue) => {
     const replacement = looksLikeSecretPath(rawValue) ? SECRET_PATH_TOKEN : '[REDACTED]';
     return match.replace(rawValue, replacement);

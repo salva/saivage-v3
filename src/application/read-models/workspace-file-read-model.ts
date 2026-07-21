@@ -315,7 +315,7 @@ export class WorkspaceFileReadModelService {
     if (isBinaryBuffer(rawBuffer)) return { statusCode: 415, body: { error: 'Binary or non-text file cannot be previewed.', path: responsePath } };
     const redacted = this.isRedactedPath(resolvedPath);
     const content = rawBuffer.toString('utf-8');
-    return { body: { path: responsePath, size: fileStat.size, contentType: 'text/plain', content: redacted ? redactTextForOutbound(content, 'operator.api', { source: 'workspace-file-read-model' }) : content, redacted, sensitivity: redacted ? 'sensitive-redacted' : 'normal' } };
+    return { body: { path: responsePath, size: fileStat.size, contentType: 'text/plain', content: redacted ? redactTextForOutbound(content) : content, redacted, sensitivity: redacted ? 'sensitive-redacted' : 'normal' } };
   }
 
 }

@@ -23,7 +23,7 @@ function boundedSummary(error: unknown, projectRoot: string): string {
 }
 
 function boundedValue(value: string, projectRoot: string, limit = 240): string {
-  return redactSnippetForOutbound(redactOperatorErrorMessage(value, projectRoot), 'operator.api', limit, { source: 'availability.diagnostic' }).replace(/\s+/g, ' ').trim().slice(0, limit);
+  return redactSnippetForOutbound(redactOperatorErrorMessage(value, projectRoot), limit).replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
 function diagnostic(code: string, error: unknown, projectRoot: string) {

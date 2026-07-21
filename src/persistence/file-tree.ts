@@ -14,7 +14,7 @@ export function readProjectFileAtomic(projectRoot: string, relativePath: string,
   if (isReadBlocked(projectRelativePath)) throw new Error(`Access to "${projectRelativePath}" is blocked for security reasons. This file contains sensitive authentication data and cannot be read by agents.`);
   let content: string;
   try { content = readFileSync(absPath, 'utf-8'); } catch (error) { throw new Error(`Failed to read "${cleanPath}": ${(error as Error).message}`); }
-  if (opts?.redactSecrets && projectRelativePath === '.saivage/saivage.yaml') content = redactTextForOutbound(content, 'operator.api', { source: 'file-tree.read-project-file' });
+  if (opts?.redactSecrets && projectRelativePath === '.saivage/saivage.yaml') content = redactTextForOutbound(content);
   return content;
 }
 

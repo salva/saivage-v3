@@ -15,7 +15,7 @@ import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/index.js';
 import type { WsEnvelope, WsEventType } from '../contracts/index.js';
 import type { AuthPolicy } from './auth-policy.js';
-import { redactForOutbound, type Redacted } from '../redaction/index.js';
+import { redactForOutbound } from '../redaction/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { AnalystWsHandler } from './analyst-ws-handler.js';
 import type { RestartPort } from '../boot/restart-port.js';
@@ -23,7 +23,7 @@ import type { RestartPort } from '../boot/restart-port.js';
 export type { WsEnvelope, WsEventType };
 
 function serializeOutboundEnvelope(event: WsEnvelope): string {
-  const envelope: Redacted<WsEnvelope> = redactForOutbound(validateKnownWsEnvelope(event) as WsEnvelope, 'operator.websocket', { source: 'websocket' });
+  const envelope = redactForOutbound(validateKnownWsEnvelope(event) as WsEnvelope);
   return JSON.stringify(envelope);
 }
 
