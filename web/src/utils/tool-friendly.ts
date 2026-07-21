@@ -1,57 +1,17 @@
 import type { InlinePart } from './tool-presenters';
 import type { ToolPair, ToolGroup, ToolListItem } from './agent-timeline/types';
 import { presentToolCall, presentToolResult } from './tool-presenters';
+import { getToolPresenter } from './tool-presenters/presenters';
 
 export type ToolTone = 'neutral' | 'ok' | 'warn' | 'error' | 'pending';
 
-const FRIENDLY_ACTIONS: Record<string, string> = {
-  read: 'Read',
-  glob: 'Glob',
-  grep: 'Grep',
-  write: 'Write',
-  edit: 'Edit',
-  apply_patch: 'Patch',
-  run_command: 'Shell',
-  wait_process: 'Wait',
-  kill_process: 'Kill',
-  websearch: 'Search',
-  webfetch: 'Fetch',
-  activate_card: 'Activate',
-  cancel_card: 'Cancel',
-  delete_card: 'Delete',
-  create_card: 'Create',
-  edit_card: 'Edit card',
-  emit_result: 'Complete',
-  get_card: 'Inspect',
-  get_card_output: 'Output',
-  get_status: 'Status',
-  get_tree: 'Tree',
-  list_cards: 'List cards',
-  list_processes_tool: 'List processes',
-  list_agent_sessions: 'List sessions',
-  list_card_history: 'History',
-  get_card_history_entry: 'History',
-  diff_card: 'Diff',
-  read_agent_session: 'Session',
-  read_runtime_events: 'Events',
-  read_runtime_errors: 'Errors',
-  read_control_actions: 'Audit',
-  pause_runtime: 'Pause',
-  resume_runtime: 'Resume',
-  stop_project: 'Stop project',
-  skill: 'Skill',
-  mcp_tool_call: 'MCP',
-};
-
-const KNOWN_TOOLS = new Set<string>(Object.keys(FRIENDLY_ACTIONS));
-
 export function isKnownTool(name: string): boolean {
-  return KNOWN_TOOLS.has(name);
+  return getToolPresenter(name) !== undefined;
 }
 
 export function friendlyAction(name: string): string {
-  const mapped = FRIENDLY_ACTIONS[name];
-  if (mapped) return mapped;
+  const descriptor = getToolPresenter(name);
+  if (descriptor) return descriptor.action;
   if (name.startsWith('mcp__') || name.startsWith('mcp_tool_call')) return 'MCP';
   const last = name.split(/[._/]/).filter(Boolean).pop() ?? name;
   const head = last.charAt(0).toUpperCase();
@@ -155,26 +115,15 @@ export function buildToolDisplay(pair: ToolPair): ToolDisplayModel {
   return { action, toolName: callPres.name, target, links, status: statusParts, statusTone, known };
 }
 
-const GROUPABLE_TOOLS = new Set<string>([
-  'read', 'glob', 'grep',
-  'websearch', 'webfetch',
-  'get_card', 'get_tree', 'get_status', 'get_card_output',
-  'list_cards', 'list_agent_sessions', 'list_card_history',
-  'read_agent_session', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions',
-  'get_card_history_entry', 'diff_card', 'skill',
-]);
-
-const WEB_TOOLS = new Set<string>(['websearch', 'webfetch']);
-
 export function isGroupable(pair: ToolPair): boolean {
   if (pair.status !== 'ok') return false;
   const name = pair.call.tool ?? '';
-  return GROUPABLE_TOOLS.has(name);
+  return getToolPresenter(name)?.group !== undefined;
 }
 
 function groupKeyFor(pair: ToolPair): string | null {
   if (!isGroupable(pair)) return null;
-  return WEB_TOOLS.has(pair.call.tool ?? '') ? 'web' : 'context';
+  return getToolPresenter(pair.call.tool ?? '')?.group ?? null;
 }
 
 function groupLabel(key: string): string {

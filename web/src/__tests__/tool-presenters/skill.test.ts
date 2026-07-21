@@ -33,7 +33,7 @@ describe('skill result presenter', () => {
     expect(inlineText(view.headline)).toBe(JSON.stringify(envelope));
   });
 
-  it('keeps failed envelopes on the registry generic error path', () => {
+  it('keeps failed envelopes on the generic error path', () => {
     const view = present({ success: false, error: 'unavailable' });
 
     expect(view).toMatchObject({

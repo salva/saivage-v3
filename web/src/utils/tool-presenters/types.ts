@@ -39,9 +39,9 @@ export interface CallPresenterResult {
 
 export interface ResultPresenterContext {
   name: string;
-  status: ToolStatus;
-  parsed: unknown;
-  record: Record<string, unknown> | null;
+  envelope: { success: true; data?: unknown };
+  data: unknown;
+  dataRecord: Record<string, unknown> | null;
   rawContent: string;
 }
 
@@ -53,8 +53,9 @@ export interface ResultPresenterResult {
 export type CallPresenter = (args: Record<string, unknown>) => CallPresenterResult;
 export type ResultPresenter = (ctx: ResultPresenterContext) => ResultPresenterResult;
 
-export interface ToolPresenterRegistration {
-  name: string;
-  call?: CallPresenter;
-  result?: ResultPresenter;
+export interface ToolPresenter {
+  readonly action: string;
+  readonly group?: 'context' | 'web';
+  readonly call: CallPresenter;
+  readonly result?: ResultPresenter;
 }

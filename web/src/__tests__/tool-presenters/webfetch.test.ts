@@ -3,11 +3,10 @@ import { presentToolResult } from '../../utils/tool-presenters';
 import { inlineText } from './_helpers';
 
 describe('webfetch presenter', () => {
-  it('renders stash_url and ignores removed stash_path', () => {
-    const view = presentToolResult(JSON.stringify({ stash_url: 'work:///tmp/stash/webfetch.txt', stash_path: '.saivage/work/tmp/stash/webfetch.txt' }), { tool: 'webfetch' });
+  it('renders wrapped stash_url as a Files link without stash_path', () => {
+    const view = presentToolResult(JSON.stringify({ success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt' } }), { tool: 'webfetch' });
 
     expect(inlineText(view.headline)).toContain('work:///tmp/stash/webfetch.txt');
-    expect(inlineText(view.headline)).not.toContain('stash_path');
-    expect(inlineText(view.headline)).not.toContain('.saivage/work');
+    expect(view.headline).toEqual([{ kind: 'file', root: 'output', path: '.saivage/work/tmp/stash/webfetch.txt', label: 'work:///tmp/stash/webfetch.txt' }]);
   });
 });

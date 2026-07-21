@@ -59,6 +59,15 @@ export function filePart(pathValue: unknown, label?: string): InlinePart | null 
   return null;
 }
 
+export function webfetchStashPart(value: unknown): InlinePart | null {
+  const url = str(value);
+  const prefix = 'work:///tmp/stash/';
+  if (!url.startsWith(prefix) || url.length === prefix.length) return null;
+  const file = url.slice(prefix.length);
+  if (file.includes('/')) return null;
+  return { kind: 'file', root: 'output', path: `.saivage/work/tmp/stash/${file}`, label: url };
+}
+
 export function pathParts(pathValue: unknown): InlinePart[] {
   const path = str(pathValue);
   if (!path) return [];
@@ -72,19 +81,8 @@ export function readToolCallMessage(rawContent: string): ToolCallMessage {
   return { name: call.name, args: call.args };
 }
 
-export function describeCardOutcome(ctx: ResultPresenterContext, defaultVerb: string): { headline: InlinePart[]; detail?: InlinePart[] } {
-  const record = ctx.record;
-  const card = asRecord(record?.card);
-  const id = str(card?.id ?? record?.cardId ?? record?.id);
-  const status = str(card?.status ?? record?.status);
-  const summary = str(record?.summary ?? record?.message);
-  if (summary) return { headline: textPart(summary, 96), detail: status || id ? (status ? textPart(status) : cardPart(id)) : undefined };
-  if (id) return { headline: [{ kind: 'text', text: `${defaultVerb} ` }, ...cardPart(id)], detail: status ? textPart(status) : undefined };
-  return { headline: textPart(defaultVerb) };
-}
-
-export function describeJsonlTail(ctx: ResultPresenterContext, label: string): { headline: InlinePart[] } {
-  const entries = Array.isArray(ctx.record?.entries) ? ctx.record!.entries : Array.isArray(ctx.parsed) ? ctx.parsed as unknown[] : null;
+export function describeJsonlTail(ctx: ResultPresenterContext, key: string, label: string): { headline: InlinePart[] } {
+  const entries = Array.isArray(ctx.dataRecord?.[key]) ? ctx.dataRecord[key] as unknown[] : null;
   return { headline: entries ? textPart(`${entries.length} ${label}`) : textPart(ctx.rawContent, 96) };
 }
 

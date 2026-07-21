@@ -36,7 +36,6 @@
     "vue-tsc": "^2.2.12"
   },
   "sideEffects": [
-    "src/utils/tool-presenters/**/*.ts",
     "src/styles/**/*.css"
   ]
 }

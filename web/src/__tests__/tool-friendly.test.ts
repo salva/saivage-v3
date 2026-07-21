@@ -23,7 +23,7 @@ function entry(id: string, kind: AgentConversationEntry['kind'], content: string
   } as AgentConversationEntry;
 }
 
-function pair(id: string, tool: string, status: ToolPair['status'], args: Record<string, unknown> = {}, resultBody: unknown = {}): ToolPair {
+function pair(id: string, tool: string, status: ToolPair['status'], args: Record<string, unknown> = {}, resultBody: unknown = { success: true }): ToolPair {
   const call = entry(id, 'tool_call', callContent(tool, args), tool);
   const result = status === 'pending' ? null : entry(`${id}-r`, 'tool_result', JSON.stringify(resultBody), tool);
   return { call, result, status };
@@ -61,7 +61,7 @@ describe('buildToolDisplay', () => {
   });
 
   it('keeps non-interactive targets inline and surfaces an ok outcome status', () => {
-    const display = buildToolDisplay(pair('c1', 'run_command', 'ok', { command: 'npm test' }, { exit_code: 0 }));
+    const display = buildToolDisplay(pair('c1', 'run_command', 'ok', { command: 'npm test' }, { success: true, data: { process_id: 'proc-1', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 0, stderr_bytes: 0 } }));
     expect(display.action).toBe('Shell');
     expect(display.statusTone).toBe('ok');
   });
@@ -73,14 +73,14 @@ describe('buildToolDisplay', () => {
   });
 
   it('derives a meaningful error status from the raw response', () => {
-    const display = buildToolDisplay(pair('c1', 'run_command', 'error', { command: 'boom' }, { error: 'permission denied' }));
+    const display = buildToolDisplay(pair('c1', 'run_command', 'error', { command: 'boom' }, { success: false, error: 'permission denied' }));
     expect(display.statusTone).toBe('error');
     expect(display.status.map((p) => (p as { text?: string }).text)).toContain('permission denied');
   });
 });
 
 function groupPair(id: string, tool: string, status: ToolPair['status']): ToolPair {
-  return { call: entry(id, 'tool_call', callContent(tool, {}), tool), result: status === 'pending' ? null : entry(`${id}-r`, 'tool_result', '{}', tool), status };
+  return { call: entry(id, 'tool_call', callContent(tool, {}), tool), result: status === 'pending' ? null : entry(`${id}-r`, 'tool_result', JSON.stringify(status === 'error' ? { success: false, error: 'boom' } : { success: true }), tool), status };
 }
 
 describe('groupToolPairs', () => {

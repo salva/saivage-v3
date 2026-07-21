@@ -271,7 +271,9 @@ The Debug supervision panel shows content-review stats and recent sanitized revi
 
 Tool-activity websocket projections use the unified metadata-only process result fields: `process_id`, `exit_code`, `status`, `stdout_url`, `stderr_url`, `stdout_bytes`, and `stderr_bytes`. Legacy inline-output fields such as `stdout`, `stderr`, `stdout_tail`, `stderr_tail`, `tail_truncated`, `truncated`, `log_path`, `running`, `terminated`, and `still_running` are not projected.
 
-Oversized `webfetch` text returns `stash_url: work:///tmp/stash/<file>`. The websocket projection forwards `stash_url`, and the webfetch result presenter displays that URL; `stash_path` is not part of the UI contract.
+All three shared conversation surfaces present current built-in tools through one static descriptor per tool, which owns the action, knownness, grouping classification, call formatting, and optional successful-result formatting. A tool name without a descriptor remains visibly generic and retains raw request and response access.
+
+Oversized `webfetch` text returns `stash_url: work:///tmp/stash/<file>`. The websocket projection forwards `stash_url`, and the shared conversation presenter renders that canonical URL as a browsable Files link to `.saivage/work/tmp/stash/<file>`; `stash_path` is not part of the UI contract. This applies in the Analyst panel, Agents conversation detail, and Debug agents conversation detail.
 
 ## 11. Acceptance Criteria
 
@@ -286,5 +288,5 @@ The UI satisfies this specification when:
 - no direct UI control performs an Analyst-only mutation;
 - the Analyst receives active workspace context for deictic requests;
 - the Analyst can navigate the workspace on the user's behalf;
-- agent conversations in the Analyst panel, Agents conversation detail, and Debug agents conversation detail use rounds, tool rows, grouping, human-readable details, raw-payload access, activity-backed pending-call states, compaction bounding, live-update stability, and Debug as the transcript entry point;
+- agent conversations in the Analyst panel, Agents conversation detail, and Debug agents conversation detail use rounds, tool rows, grouping, human-readable details, raw-payload access, activity-backed pending-call states, compaction bounding, live-update stability, and Debug as the transcript entry point; current built-in tools use their single static presentation descriptor, while absent names remain visibly generic and retain raw request and response access;
 - all three conversation surfaces auto-tail while near the bottom and not paused for new visible content, including entries, within-round entry growth, and activity footer rows; the Debug agents conversation live-updates without manual Refresh; and each surface's `Pause auto-scroll` checkbox routes new content to the `Jump to latest · N new` unseen counter.

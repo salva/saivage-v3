@@ -375,6 +375,10 @@ An audited prepared mutation orders work as authorization, optional read-only pr
 | `analyst` | `apply_patch,cancel_card,create_card,delete_card,diff_card,edit,get_card,get_card_history_entry,get_status,get_tree,glob,grep,kill_process,list_agent_sessions,list_card_history,list_cards,list_processes_tool,mcp_reconcile,mcp_tool_call,navigate_back,navigate_workspace,pause_runtime,queue_notification,read,read_agent_session,read_control_actions,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_server,resume_runtime,run_command,show_config,skill,start_project,stop_project,wait_process,webfetch,websearch,write` | `src/tools/role-invocation-surfaces.ts:87` |
 <!-- saivage:agent-tools:end -->
 
+Built-in conversation tool-chip presentation is owned by one immutable static descriptor record in the web application. Each descriptor supplies the action, read-only grouping classification when applicable, call formatting, and optional successful-result formatting; knownness is the presence of that same descriptor. The UI reads the record directly, while names absent from it use one explicit generic presentation with raw payload access.
+
+This record is presentation policy only. It does not replace `buildRoleSurface`, provider implementations, conditional tool exposure, or autonomous terminal-contract composition as the authority for executable tool inventories.
+
 ### Config schema
 
 Each row is one reachable fixed-field object occurrence rooted at `saivageConfigSchema`. Record value occurrences use `.entry`; reused schemas appear at every occurrence path.
