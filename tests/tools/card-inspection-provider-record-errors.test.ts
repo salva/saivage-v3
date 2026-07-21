@@ -18,7 +18,11 @@ describe('card inspection authored-record summaries', () => {
     initProjectTree(root);
     const cards = new CardService(root);
     const normalSurface = buildInvocationSurface('analyst', [createCardInspectionProvider({ store: cards })]);
-    await expect(invokeTool(normalSurface, 'get_card', { id: 'project' })).resolves.toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ records_by_filename: expect.objectContaining({ 'status.md': expect.objectContaining({ latest: null }), 'review.md': expect.objectContaining({ latest: null }) }) }) }));
+    const result = await invokeTool(normalSurface, 'get_card', { id: 'project' });
+    expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ records_by_filename: expect.objectContaining({ 'status.md': expect.objectContaining({ latest: null }), 'review.md': expect.objectContaining({ latest: null }) }) }) }));
+    const data = result.data as { records: Array<{ filename: string }>; records_by_filename: Record<string, unknown> };
+    expect(data.records.map(({ filename }) => filename)).toEqual(['brief.md', 'status.md', 'review.md']);
+    expect(Object.keys(data.records_by_filename)).toEqual(['brief.md', 'status.md', 'review.md']);
 
     const hostile = new Error('HOSTILE_CARD_INSPECTION_READ');
     cards.readRecord = (() => { throw hostile; }) as CardService['readRecord'];

@@ -32,11 +32,19 @@ const envelopeSchema = z.object({
 }).strict();
 
 export type GrowingEnvelope<Row> = Readonly<{ version: 1; type: 'rows'; rows: readonly Row[] }>;
+export type PreparedGrowingEnvelope<Row> = Readonly<{ rows: readonly Row[]; bytes: Buffer }>;
 
-export function serializeGrowingEnvelope<Row>(rows: readonly Row[], rowSchema: z.ZodType<Row>): Buffer {
+export function prepareGrowingEnvelope<Row>(rows: readonly unknown[], rowSchema: z.ZodType<Row>): PreparedGrowingEnvelope<Row> {
   const parsedRows = rows.map((row) => rowSchema.parse(row));
   const envelope = envelopeSchema.parse({ version: 1, type: 'rows', rows: parsedRows });
-  return Buffer.from(`${JSON.stringify(envelope)}\n`);
+  return Object.freeze({
+    rows: Object.freeze(parsedRows),
+    bytes: Buffer.from(`${JSON.stringify(envelope)}\n`),
+  });
+}
+
+export function serializeGrowingEnvelope<Row>(rows: readonly unknown[], rowSchema: z.ZodType<Row>): Buffer {
+  return prepareGrowingEnvelope(rows, rowSchema).bytes;
 }
 
 export function parseGrowingFile<Row>(path: string, content: string, rowSchema: z.ZodType<Row>): Row[] {

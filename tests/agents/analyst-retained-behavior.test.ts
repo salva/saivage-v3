@@ -101,6 +101,17 @@ describe('audited Analyst mutation settlement', () => {
     expect(test.publications).toHaveLength(1);
   });
 
+  it.each([
+    { action: 'card.reorder_child', result: { kind: 'returned' as const, success: true as const, data: { changed: 1 } }, outcome: 'ok' },
+    { action: 'notification.queue', result: { kind: 'returned' as const, success: false as const, error: 'terminal_card' }, outcome: 'error' },
+  ])('settles Analyst $action exactly once', async ({ action, result, outcome }) => {
+    const test = harness();
+    await runAuditedAnalystTool(test.context, {}, test.spec(() => result, { action }));
+    expect(listControlActions(test.root)).toHaveLength(1);
+    expect(listControlActions(test.root)[0]).toMatchObject({ actor: 'analyst', action, outcome });
+    expect(test.publications).toHaveLength(1);
+  });
+
   it('keeps a committed success ok when cancellation arrives before the application returns', async () => {
     const test = harness();
     const controller = new AbortController();

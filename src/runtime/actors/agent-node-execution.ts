@@ -21,7 +21,6 @@ import { stabilizeRoleSession } from './conversation-recovery.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface } from '../../tools/invocation.js';
-import type { AppLogContext } from '../../persistence/app-log.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import type { StructuralChildRelationship } from './executing-llm-snapshot.js';
@@ -60,7 +59,6 @@ export interface AgentNodeExecutionDeps {
   ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void };
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
   notifyCard: (cardId: string, notification: import('../../schemas/index.js').CardNotification) => import('../runtime-api.js').NotifyCardResult;
-  appLogs: AppLogContext;
   processRunner: ProcessRunner;
   mcpToolInvocation: McpToolInvocationPort;
   promptTemplates: PromptTemplateRegistry;
@@ -191,7 +189,7 @@ export class AgentNodeExecution {
   }
 
   private buildSurface(role: ProcessRole, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {
-    if (role === 'planner') return buildRoleSurface({ role: 'planner', projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId, store: this.deps.store, children: this.deps.children, cancelCard: this.deps.cancelCard, notifyCard: this.deps.notifyCard, appLogs: this.deps.appLogs, beginStructuralWait: (relationship) => this.deps.ownerStructuralWait.begin(relationship), endStructuralWait: (relationship) => this.deps.ownerStructuralWait.end(relationship) });
+    if (role === 'planner') return buildRoleSurface({ role: 'planner', projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId, store: this.deps.store, children: this.deps.children, cancelCard: this.deps.cancelCard, notifyCard: this.deps.notifyCard, beginStructuralWait: (relationship) => this.deps.ownerStructuralWait.begin(relationship), endStructuralWait: (relationship) => this.deps.ownerStructuralWait.end(relationship) });
     if (role === 'reviewer') return buildRoleSurface({ role: 'reviewer', projectRoot: this.deps.projectRoot, cardId: input.card.id, store: this.deps.store, mcpToolInvocation: this.deps.mcpToolInvocation });
     if (!scope) throw new Error(`Executor node for '${this.deps.cardId}' requires a node-local process scope.`);
     const ownerId = `${input.activationId}:node:${nodeOrdinal}`;

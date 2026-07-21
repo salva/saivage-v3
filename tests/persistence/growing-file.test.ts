@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { z } from 'zod';
-import { appendEnvelope, parseGrowingFile, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { appendEnvelope, parseGrowingFile, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from '../../src/persistence/growing-file.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 
 const roots: string[] = [];
@@ -14,6 +14,20 @@ function target(): string { const root = mkdtempSync(join(tmpdir(), 'saivage-gro
 function bytes(value = 2): Buffer { return serializeGrowingEnvelope([{ value }], row); }
 
 describe('strict growing-file boundaries', () => {
+  it('prepares parsed rows and their exact envelope bytes with one row-schema parse', () => {
+    let parses = 0;
+    const transformingRow = z.object({ value: z.number().int() }).strict().transform(({ value }) => {
+      parses += 1;
+      return { value: value * 2 };
+    });
+
+    const prepared = prepareGrowingEnvelope([{ value: 3 }], transformingRow);
+
+    expect(parses).toBe(1);
+    expect(prepared.rows).toEqual([{ value: 6 }]);
+    expect(JSON.parse(prepared.bytes.toString('utf8'))).toEqual({ version: 1, type: 'rows', rows: [{ value: 6 }] });
+  });
+
   it('returns missing only when the initial exact-path open reports ENOENT', () => {
     const operations: string[] = [];
     const io: GrowingFileIo = {

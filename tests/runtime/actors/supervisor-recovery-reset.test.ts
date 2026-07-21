@@ -29,7 +29,7 @@ function pendingSession(root: string, sessionId: ConversationSessionId, role: 'p
 
 function supervisor(root: string, cards: CardService, options: { changes?: ReadModelChangeBroadcaster; provider?: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<never> } } = {}) {
   const changes = options.changes ?? new ReadModelChangeBroadcaster();
-  return new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: options.provider ?? { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }, conversations: { projectRoot: root, changes }, appLogs: { projectRoot: root }, readModelChanges: changes, processRunner: new ProcessRunner(root, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' } });
+  return new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: options.provider ?? { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }, conversations: { projectRoot: root, changes }, readModelChanges: changes, processRunner: new ProcessRunner(root, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' } });
 }
 
 describe('Supervisor full-chain stopped recovery', () => {

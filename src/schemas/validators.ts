@@ -45,13 +45,12 @@ function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.Refin
   if ((card.lifecycle.status === 'done' || card.lifecycle.status === 'failed' || card.lifecycle.status === 'cancelled') && card.pending_notifications.length !== 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Cards in status '${card.lifecycle.status}' require empty pending_notifications.`, path: ['pending_notifications'] });
 }
 export const cardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.lazy(() => z.object(cardRecordShape).strict().superRefine(refineCardLifecycle));
-export const persistedCardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.lazy(() => z.object(cardRecordShape).strict().superRefine(refineCardLifecycle));
 export const cardOperatorSummarySchema: z.ZodType<import('./types.js').CardOperatorSummary> = z.object({ blocked: z.boolean(), hasError: z.boolean(), error: z.string().nullable(), completedAt: z.string().nullable(), stale: z.boolean() }).strict();
 export const operatorCardSchema = z.object({ ...cardRecordShape, allowedActions: z.array(cardActionSchema), operator_summary: cardOperatorSummarySchema }).strict().superRefine(refineCardLifecycle);
 export const cardViewSchema: z.ZodType<import('./types.js').CardView> = z.object({ card: cardRecordSchema, logical_path: z.string().nullable(), status: cardStatusSchema, parent: cardIdSchema.nullable(), operator_summary: cardOperatorSummarySchema }).strict();
 export const cardRefViewSchema: z.ZodType<import('./types.js').CardRefView> = z.object({ id: z.string().min(1), logical_path: z.string().nullable(), title: z.string().nullable(), missing: z.boolean().optional() });
 export const cardHistoryKindSchema = z.enum(['update', 'status', 'mutate', 'depends', 'delete', 'archive', 'child_link']);
-const cardHistoryEntryBaseSchema = z.object({ entry_id: z.string().uuid(), kind: cardHistoryKindSchema, card_id: cardIdSchema, version_seq: positiveSafeIntegerSchema, snapshot: persistedCardRecordSchema, changed_at: z.string().datetime(), changed_by_actor: noteAuthorSchema, changed_by_surface: controlActionSurfaceSchema, change_reason: z.string().nullable(), changed_fields: z.array(z.string()), change_summary: z.string() });
+const cardHistoryEntryBaseSchema = z.object({ entry_id: z.string().uuid(), kind: cardHistoryKindSchema, card_id: cardIdSchema, version_seq: positiveSafeIntegerSchema, snapshot: cardRecordSchema, changed_at: z.string().datetime(), changed_by_actor: noteAuthorSchema, changed_by_surface: controlActionSurfaceSchema, change_reason: z.string().nullable(), changed_fields: z.array(z.string()), change_summary: z.string() });
 export const cardHistoryHeaderSchema: z.ZodType<import('./types.js').CardHistoryHeader> = cardHistoryEntryBaseSchema.omit({ snapshot: true });
 export const cardHistoryEntrySchema: z.ZodType<import('./types.js').CardHistoryEntry> = cardHistoryEntryBaseSchema;
 export const controlActionAuditEntrySchema: z.ZodType<import('./types.js').ControlActionAuditEntry> = z.object({ id: z.string().min(1), actor: noteAuthorSchema, surface: controlActionSurfaceSchema, action: z.string().min(1), target_kind: z.enum(['card', 'note', 'process', 'runtime', 'config', 'session']).nullable(), target_id: z.string().nullable(), params_summary: z.string(), safety_class: z.enum(['read_only', 'low', 'high', 'destructive', 'deployment']).optional(), outcome: z.enum(['ok', 'error', 'denied']), outcome_summary: z.string(), error: z.string().optional(), created_at: z.string().datetime() }).strict();
@@ -98,33 +97,11 @@ export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: 
   }
 });
 
-export const activationCompletionOutcomeSchema = z.enum(['done', 'failed', 'blocked', 'cancelled', 'timed_out']);
-export const activationCompletionEnvelopeV1Schema: z.ZodType<import('./types.js').ActivationCompletionEnvelopeV1> = z.object({ kind: z.literal('activate_card_completion'), version: z.literal(1), child_card_id: cardIdSchema, outcome: activationCompletionOutcomeSchema, summary: z.string(), result: z.record(z.string(), z.unknown()).nullable().optional(), evidence_card_ids: z.array(cardIdSchema).optional(), error: z.string().nullable().optional(), completed_by_session_id: z.string().nullable().optional(), success: z.boolean(), cardId: cardIdSchema, failure_kind: z.string().optional() }).strict();
-
-export function createActivationCompletionEnvelope(input: { child_card_id: string; outcome: import('./types.js').ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; failure_kind?: string }): import('./types.js').ActivationCompletionEnvelopeV1 {
-  const payload: import('./types.js').ActivationCompletionEnvelopeV1 = { kind: 'activate_card_completion', version: 1, child_card_id: input.child_card_id, outcome: input.outcome, summary: input.summary, result: input.result ?? null, evidence_card_ids: input.evidence_card_ids ?? [input.child_card_id], error: input.error ?? null, completed_by_session_id: input.completed_by_session_id ?? null, success: input.outcome !== 'failed', cardId: input.child_card_id };
-  if (input.failure_kind) payload.failure_kind = input.failure_kind;
-  return activationCompletionEnvelopeV1Schema.parse(payload);
-}
-
-export function parseActivationCompletionEnvelope(value: unknown): import('./types.js').ActivationCompletionEnvelopeV1 | null {
-  const raw = typeof value === 'string' ? safeParseJson(value) : value;
-  const parsed = activationCompletionEnvelopeV1Schema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
-}
-
-function safeParseJson(value: string): unknown { try { return JSON.parse(value); } catch { return null; } }
 export const runtimeStatusSchema = z.enum(['stopped', 'starting', 'running', 'pausing', 'paused', 'closing', 'error']);
-export const runtimeRunStatusSchema = z.enum(['stopped', 'running', 'paused', 'error', 'cancelled']);
-export const runtimeDispatchOwnershipSchema: z.ZodType<import('./types.js').RuntimeDispatchOwnership> = z.union([
-  z.object({ kind: z.literal('direct'), source: z.enum(['project_root', 'operator', 'startup_repair']) }).strict(),
-  z.object({ kind: z.literal('activation'), parent_card_id: cardIdSchema, parent_tool_call: z.object({ session_id: ConversationSessionIdSchema, source_input_id: z.string().min(1), tool_call_id: z.string().min(1) }).strict() }).strict(),
-]);
 export const actionableErrorEnvelopeSchema: z.ZodType<import('./types.js').ActionableErrorEnvelope> = z.object({ code: z.string().min(1), message: z.string().min(1), acceptedValues: z.array(z.string()).optional(), currentState: z.record(z.string(), z.unknown()).optional(), nextAction: z.string().min(1), docsRef: z.string().optional(), runId: z.string().nullable().optional(), sessionId: z.string().nullable().optional(), cardId: cardIdSchema.nullable().optional(), parentCardId: cardIdSchema.nullable().optional(), childCardId: cardIdSchema.nullable().optional() }).strict();
 export function createActionableErrorEnvelope(input: import('./types.js').ActionableErrorEnvelope): import('./types.js').ActionableErrorEnvelope { return actionableErrorEnvelopeSchema.parse(input); }
 export function actionableEnumError(field: string, value: unknown, acceptedValues: readonly string[], docsRef = 'docs/v3-planner-control-mcp-contract.md'): import('./types.js').ActionableErrorEnvelope { return createActionableErrorEnvelope({ code: 'invalid_enum_value', message: `Invalid ${field} '${String(value)}'. Accepted values: ${acceptedValues.join(', ')}.`, acceptedValues: [...acceptedValues], currentState: { field, value }, nextAction: `Retry with one of: ${acceptedValues.join(', ')}.`, docsRef }); }
 export const runtimeStateSchema = z.object({ status: runtimeStatusSchema, project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), current_card_id: cardIdSchema, updated_at: z.string().datetime() }).strict();
-export const handoffSummarySchema = z.object({ session_id: ConversationSessionIdSchema, role: agentRoleSchema, last_action: z.string(), next_action: z.string(), context_summary: z.string() });
 export const sourceKindSchema = z.enum(['command_output', 'file', 'download', 'web', 'api', 'tool']);
 export const reviewStatusSchema = z.enum(['passed', 'blocked', 'sanitized']);
 export const riskLevelSchema = z.enum(['low', 'medium', 'high']);

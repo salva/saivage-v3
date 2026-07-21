@@ -1,7 +1,7 @@
 import { BaseActor, compileActorDefinition } from '../micro-actor/index.js';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
-import { parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
+import { parseConversationSessionId, type ConversationSessionId } from '../../schemas/index.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
 import { appendUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
@@ -137,12 +137,20 @@ export class ConversationLLMActor extends BaseActor {
       if (this.#executingActivity.mode !== 'active') throw new Error(`LLMActor '${this.agentId}' already owns a wait barrier.`);
       this.#executingActivity = Object.freeze({ mode: 'waiting', barrier: Object.freeze(barrier) });
       this.publishExecutingActivityChange();
-      try { return await promise; }
-      finally {
-        if (this.#executingActivity.mode !== 'waiting' || this.#executingActivity.barrier !== barrier) throw new Error(`LLMActor '${this.agentId}' wait barrier changed before settlement.`);
-        this.#executingActivity = Object.freeze({ mode: 'active', barrier: null });
-        this.publishExecutingActivityChange();
+      let value!: T;
+      let rejection: unknown;
+      let rejected = false;
+      try {
+        value = await promise;
+      } catch (error) {
+        rejected = true;
+        rejection = error;
       }
+      if (this.#executingActivity.mode !== 'waiting' || this.#executingActivity.barrier !== barrier) throw new Error(`LLMActor '${this.agentId}' wait barrier changed before settlement.`);
+      this.#executingActivity = Object.freeze({ mode: 'active', barrier: null });
+      this.publishExecutingActivityChange();
+      if (rejected) throw rejection;
+      return value;
     };
     return {
       waitExternal: (promise) => { const barrier = { kind: 'external' as const, ...identity }; return wait(barrier, promise); },

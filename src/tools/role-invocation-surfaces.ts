@@ -1,6 +1,5 @@
 import type { CardService } from '../cards/card-service.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
-import type { AppLogContext } from '../persistence/app-log.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
@@ -25,7 +24,6 @@ type PlannerRoleSurfaceContext = {
   readonly children: PlannerControlProviderContext['children'];
   readonly cancelCard: PlannerControlProviderContext['cancelCard'];
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
-  readonly appLogs: AppLogContext;
   readonly beginStructuralWait: PlannerControlProviderContext['beginStructuralWait'];
   readonly endStructuralWait: PlannerControlProviderContext['endStructuralWait'];
 };
@@ -60,7 +58,7 @@ export function buildRoleSurface(context: RoleSurfaceContext): InvocationSurface
   switch (context.role) {
     case 'planner':
       return buildInvocationSurface(context.role, [
-        createPlannerControlProvider({ projectRoot: context.projectRoot, parentCardId: context.cardId, sessionId: context.sessionId, store: context.store, children: context.children, cancelCard: context.cancelCard, notifyCard: context.notifyCard, appLogs: context.appLogs, beginStructuralWait: context.beginStructuralWait, endStructuralWait: context.endStructuralWait }),
+        createPlannerControlProvider({ projectRoot: context.projectRoot, parentCardId: context.cardId, sessionId: context.sessionId, store: context.store, children: context.children, cancelCard: context.cancelCard, notifyCard: context.notifyCard, beginStructuralWait: context.beginStructuralWait, endStructuralWait: context.endStructuralWait }),
         createCardInspectionProvider({ store: context.store }),
         createWorkspaceProvider({ projectRoot: context.projectRoot, cardId: context.cardId, agentRole: context.role, store: context.store, notifyCard: undefined }),
         createCardHistoryProvider({ store: context.store }),

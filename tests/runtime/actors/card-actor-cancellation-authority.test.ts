@@ -93,7 +93,7 @@ describe('CardActor authoritative cancellation', () => {
         const live = liveLookup.get(id);
         if (!live) throw new Error(`No live owner for ${id}`);
         return live.cancel({ reason });
-      }, conversations: { projectRoot: root }, appLogs: { projectRoot: root }, isRuntimeClosing: () => runtimeClosing,
+      }, conversations: { projectRoot: root }, isRuntimeClosing: () => runtimeClosing,
     } as unknown as CardActorDeps;
     const value = new CardActor({ card: cards.read(cardId)!, deps, deferProcessorStart: true });
     const processor = new ControlledProcessor();
@@ -572,7 +572,7 @@ describe('CardActor authoritative cancellation', () => {
       provider: {}, processRunner: {}, promptTemplates: {}, notifyCard: () => ({ ok: true, notificationId: 'n' }),
       lookup: retained, liveLookup: live, runtimeProjectionChanged: () => snapshot('actor'),
       releaseSettledActor: (settled: CardActor) => { live.delete(settled.cardId); retained.delete(settled.cardId); snapshot('actor'); },
-      cancelCard: async () => { throw new Error('unused'); }, conversations: { projectRoot: root }, appLogs: { projectRoot: root }, isRuntimeClosing: () => false,
+      cancelCard: async () => { throw new Error('unused'); }, conversations: { projectRoot: root }, isRuntimeClosing: () => false,
     } as unknown as CardActorDeps;
     const makeActor = (cardId: string) => {
       const value = new CardActor({ card: store.read(cardId)!, deps, deferProcessorStart: true });
@@ -617,7 +617,7 @@ describe('CardActor authoritative cancellation', () => {
       provider: {}, processRunner: {}, promptTemplates: {}, notifyCard: () => ({ ok: true, notificationId: 'n' }),
       lookup: retained, liveLookup: live, runtimeProjectionChanged: () => undefined,
       releaseSettledActor: (settled: CardActor) => { live.delete(settled.cardId); retained.delete(settled.cardId); },
-      cancelCard: async () => { throw new Error('unused'); }, conversations: { projectRoot: root }, appLogs: { projectRoot: root }, isRuntimeClosing: () => false,
+      cancelCard: async () => { throw new Error('unused'); }, conversations: { projectRoot: root }, isRuntimeClosing: () => false,
     } as unknown as CardActorDeps;
     const makeActor = (cardId: string) => {
       const value = new CardActor({ card: cards.read(cardId)!, deps, deferProcessorStart: true });

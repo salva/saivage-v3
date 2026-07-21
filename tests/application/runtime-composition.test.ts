@@ -100,6 +100,8 @@ describe('runtime compaction composition', () => {
     expect(app.analystDeps.compactor).toEqual({ shouldCompact: expect.any(Function), compact: expect.any(Function) });
     expect(deps).not.toHaveProperty('config');
     expect(deps).not.toHaveProperty('summarizer_candidate');
+    expect(deps).not.toHaveProperty('appLogs');
+    expect(app.analystDeps.appLogs).toBe(selected.appLogs);
     await app.analystRuntime.submit({ userContent: 'route through the ordinary analyst role' });
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ role: 'analyst', sessionId: 'analyst:global', preparedCompaction: expect.any(Object) }));
     expect(invoke.mock.calls[0]![0]).not.toHaveProperty('candidateChain');

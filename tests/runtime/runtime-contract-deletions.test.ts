@@ -21,4 +21,29 @@ describe('runtime ledger contract deletions', () => {
     expect('RuntimeActivationRecordSchema' in contracts).toBe(false);
     expect('RuntimeActivationLedgerPort' in contracts).toBe(false);
   });
+
+  it('removes obsolete schema values while retaining current runtime and logged-event values', async () => {
+    const schemas = await import('../../src/schemas/index.js');
+
+    for (const removed of [
+      'runtimeDispatchOwnershipSchema',
+      'activationCompletionOutcomeSchema',
+      'activationCompletionEnvelopeV1Schema',
+      'createActivationCompletionEnvelope',
+      'parseActivationCompletionEnvelope',
+      'runtimeRunStatusSchema',
+      'handoffSummarySchema',
+    ]) {
+      expect(removed in schemas).toBe(false);
+    }
+
+    expect(schemas.activationOutcomeSchema).toBeDefined();
+    expect(schemas.runtimeStatusSchema).toBeDefined();
+    expect(schemas.runtimeRunOutcomeSchema).toBeDefined();
+    expect(schemas.eventKindValues).toEqual(expect.arrayContaining([
+      'control_action_record_appended',
+      'event_log_record_appended',
+      'error_log_record_appended',
+    ]));
+  });
 });

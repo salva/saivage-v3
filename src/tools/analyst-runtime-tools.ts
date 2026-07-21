@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-import { PROJECT_CARD_ID } from '../cards/card-api.js';
 import { listControlActions } from '../persistence/index.js';
 import { readAppLogEntries } from '../persistence/app-log.js';
 import type { ProcessRecord } from '../schemas/index.js';
@@ -61,7 +60,7 @@ export async function stop_project(ctx: ToolContext, _params: Record<string, nev
   return { success: true, data: await ctx.runtimeControl.stopProject() };
 }
 
-export async function restart_server(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
+export async function restart_server(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
   if (!ctx.restartServerAvailable) return toolFailure('restart unavailable: operator authentication disabled');
   return { success: true, data: { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } };
 }

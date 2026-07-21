@@ -57,7 +57,7 @@ export async function readOpenAIResponsesStream(stream: ReadableStream<Uint8Arra
   let buffer = '';
   let finalResponse: Record<string, unknown> | null = null;
   const assembled = new ResponsesStreamAssembly(ctx.provider);
-  while (true) {
+  for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });

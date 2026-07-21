@@ -13,7 +13,6 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { testAppLogs } from '../helpers/app-logs.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
@@ -42,7 +41,6 @@ function runtime(projectRoot: string, cards: CardService, processRunner: Process
     interventionBinding: new RuntimeInterventionBinding(),
     provider,
     conversations: { projectRoot },
-    appLogs: testAppLogs(projectRoot),
     readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
     processRunner,
     promptTemplates: { render: () => 'test prompt' },

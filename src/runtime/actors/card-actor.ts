@@ -1,9 +1,8 @@
 import { BaseActor, compileActorDefinition } from '../micro-actor/index.js';
 import type { CardNotification, CardRecord } from '../../schemas/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
-import type { CardPatch, NewCardInput, SetStatusTarget, TerminalLifecycleCommit } from '../../cards/card-api.js';
+import type { SetStatusTarget, TerminalLifecycleCommit } from '../../cards/card-api.js';
 import { canCancelCardStatus } from '../../cards/status-api.js';
-import type { CardMutationContext } from '../../cards/lifecycle.js';
 import type { CompactorPort, LLMProviderPort } from './llm-actor.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { NotifyCardResult } from '../runtime-api.js';
@@ -14,8 +13,6 @@ import { deferred, type Deferred } from './deferred.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
-import type { AppLogContext } from '../../persistence/app-log.js';
-import type { RecordProjection } from '../../persistence/authored-record-files.js';
 import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 import type { CardService } from '../../cards/card-service.js';
 import type { ActiveCardLeaf } from '../active-card-leaf.js';
@@ -74,18 +71,6 @@ export type ActorJoinOutcome =
   | { status: 'external_dependency_abandoned'; abandonedCount: number }
   | { status: 'timed_out'; pendingTaskCount: number };
 
-export interface CardActorStorePort {
-  read(cardId: string): CardRecord | null;
-  create?(input: NewCardInput): CardRecord;
-  mutateCard?(cardId: string, changes: CardPatch, ctx: CardMutationContext): CardRecord;
-  setStatus(cardId: string, status: SetStatusTarget): CardRecord;
-  commitTerminalLifecycle(cardId: string, terminalCommit: TerminalLifecycleCommit): CardRecord;
-  listChildren?(cardId: string): string[];
-  readRecord(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection;
-  closeRecord(cardId: string, filename: string, version: number, writer: import('../../schemas/index.js').AgentRole, cardVersionSeq: number): RecordProjection;
-  discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection;
-}
-
 export interface CardActorDeps {
   projectRoot: string;
   storeForCard(cardId: string): CardService;
@@ -107,7 +92,6 @@ export interface CardActorDeps {
   releaseSettledActor(actor: CardActor): void;
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
   conversations: ConversationFileContext;
-  appLogs: AppLogContext;
   isRuntimeClosing(): boolean;
 }
 
@@ -521,7 +505,6 @@ export function createProcessor(card: CardRecord, owner: CardActor): CardProcess
       cancelCard: owner.deps.cancelCard,
       provider: owner.deps.provider,
       conversations: owner.deps.conversations,
-      appLogs: owner.deps.appLogs,
       processRunner: owner.deps.processRunner,
       gate: owner.deps.gate,
       notifyCard: owner.deps.notifyCard,

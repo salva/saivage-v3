@@ -1,4 +1,4 @@
-import { cardOperatorSummarySchema, cardRecordSchema, persistedCardRecordSchema, type CardStatus } from '../../src/schemas/index.js';
+import { cardOperatorSummarySchema, cardRecordSchema, type CardStatus } from '../../src/schemas/index.js';
 import { enqueueCardNotification, removeCardNotifications } from '../../src/cards/lifecycle.js';
 
 const base = {
@@ -22,8 +22,8 @@ describe('card workflow contract', () => {
     const parsed = cardRecordSchema.parse(base);
     expect(parsed.pending_notifications).toHaveLength(1);
     expect(parsed).not.toHaveProperty('position');
-    expect(persistedCardRecordSchema.safeParse({ ...base, position: 0 }).success).toBe(false);
-    for (const forbidden of ['status', 'parent', 'depth', 'allowedActions']) expect(persistedCardRecordSchema.safeParse({ ...base, [forbidden]: null }).success).toBe(false);
+    expect(cardRecordSchema.safeParse({ ...base, position: 0 }).success).toBe(false);
+    for (const forbidden of ['status', 'parent', 'depth', 'allowedActions']) expect(cardRecordSchema.safeParse({ ...base, [forbidden]: null }).success).toBe(false);
     expect(cardRecordSchema.safeParse({ ...base, id: 'card-1' }).success).toBe(false);
     const { pending_notifications: _pending, ...missing } = base;
     expect(cardRecordSchema.safeParse(missing).success).toBe(false);
@@ -48,9 +48,9 @@ describe('card workflow contract', () => {
 
   test('accepts only the exact stopped lifecycle shape', () => {
     const stopped = { ...base, lifecycle: { status: 'stopped', result: null, error: null, completed_at: null } };
-    expect(persistedCardRecordSchema.parse(stopped)).toMatchObject({ lifecycle: { status: 'stopped' } });
-    expect(persistedCardRecordSchema.safeParse({ ...stopped, lifecycle: { ...stopped.lifecycle, error: 'old failure' } }).success).toBe(false);
-    expect(persistedCardRecordSchema.safeParse({ ...stopped, lifecycle: { status: 'running', result: null, error: null, completed_at: null } }).success).toBe(true);
+    expect(cardRecordSchema.parse(stopped)).toMatchObject({ lifecycle: { status: 'stopped' } });
+    expect(cardRecordSchema.safeParse({ ...stopped, lifecycle: { ...stopped.lifecycle, error: 'old failure' } }).success).toBe(false);
+    expect(cardRecordSchema.safeParse({ ...stopped, lifecycle: { status: 'running', result: null, error: null, completed_at: null } }).success).toBe(true);
   });
 
   test('enqueue and exact removal preserve order and unrelated notifications', () => {

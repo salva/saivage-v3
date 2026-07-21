@@ -105,6 +105,7 @@ describe('WorkspaceFileReadModelService record URLs', () => {
     const service = new WorkspaceFileReadModelService(root, () => ({ ...records(), record }));
     for (const path of [
       'record:///bogus.md?card=project&v=latest',
+      'record:///card.json?card=project&v=latest',
       'record:///brief.md?card=project&v=latest&extra=x',
       'record:///brief.md?card=project&card=project&v=latest',
       'record:///brief.md?card=INVALID&v=latest',
@@ -327,7 +328,11 @@ describe('WorkspaceFileReadModelService canonical card files', () => {
     writeFileSync(reviewPath, 'unterminated optional suffix', 'utf8');
     const service = new WorkspaceFileReadModelService(root, () => cardFilesReader(cards));
 
-    expect(listedNames(service.listFiles('.saivage/cards/project').body)).toEqual(['children', 'card.jsonl', 'brief.jsonl', 'status.jsonl', 'review.jsonl']);
+    const cardFiles = service.listFiles('.saivage/cards/project');
+    expect(listedNames(cardFiles.body)).toEqual(['children', 'card.jsonl', 'brief.jsonl', 'status.jsonl', 'review.jsonl']);
+    expect(cardFiles.body).toEqual(expect.objectContaining({ files: expect.arrayContaining([
+      expect.objectContaining({ name: 'card.jsonl', path: '.saivage/cards/project/card.jsonl', type: 'file', size: expect.any(Number), modifiedAt: expect.any(String) }),
+    ]) }));
     expect(readFileSync(reviewPath, 'utf8')).toBe('unterminated optional suffix');
     expect(() => service.readFileContent('.saivage/cards/project/status.jsonl')).toThrow(/malformed/);
     expect(service.readFileContent('.saivage/cards/project/card.jsonl')).toEqual(expect.objectContaining({ body: expect.objectContaining({

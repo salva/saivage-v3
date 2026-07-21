@@ -68,7 +68,7 @@ async function startRunningRoot(projectRoot: string) {
   const changes = new ReadModelChangeBroadcaster();
   const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
     projectRoot, actorStore: cards, interventionBinding: intervention, provider,
-    conversations: { projectRoot }, appLogs: { projectRoot },
+    conversations: { projectRoot },
     readModelChanges: changes,
     processRunner, promptTemplates: { render: () => 'test prompt' },
   });
@@ -107,7 +107,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(),
       provider: { completeTurn: async () => { throw new Error('not launched'); } },
-      conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: new ReadModelChangeBroadcaster(),
+      conversations: { projectRoot }, readModelChanges: new ReadModelChangeBroadcaster(),
       processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
     });
 
@@ -138,7 +138,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention,
       provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
-      conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
+      conversations: { projectRoot }, readModelChanges: changes,
       processRunner, promptTemplates: { render: () => 'test prompt' },
     });
     const prepared = await supervisor.beginStartProject();
@@ -191,7 +191,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     });
     supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention,
-      provider: { completeTurn: async () => { throw new Error('not reached'); } }, conversations: { projectRoot }, appLogs: { projectRoot },
+      provider: { completeTurn: async () => { throw new Error('not reached'); } }, conversations: { projectRoot },
       readModelChanges: changes, processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
     });
 
@@ -277,7 +277,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-currentness-mismatch-'));
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: async () => { throw new Error('unused'); } }, conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: new ReadModelChangeBroadcaster(), processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' } });
+    const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: async () => { throw new Error('unused'); } }, conversations: { projectRoot }, readModelChanges: new ReadModelChangeBroadcaster(), processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' } });
     await supervisor.start();
     (supervisor as unknown as SupervisorInternals).currentness.setChain(['project']);
     expect(() => supervisor.getRuntimeState()).toThrow('Runtime identity and active leaf presence disagree.');
@@ -301,7 +301,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(supervisor, intervention)), cardProjectionChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention, provider,
-      conversations: { projectRoot }, appLogs: { projectRoot },
+      conversations: { projectRoot },
       readModelChanges: changes,
       processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
     });
@@ -348,7 +348,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     changes.subscribe({ runtimeChanged: () => snapshots.push(projectionSnapshot(supervisor, intervention)), cardProjectionChanged: () => undefined, agentsChanged: () => undefined, conversationChanged: () => undefined });
     supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: intervention, provider,
-      conversations: { projectRoot }, appLogs: { projectRoot }, readModelChanges: changes,
+      conversations: { projectRoot }, readModelChanges: changes,
       processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
     });
     const prepared = await supervisor.beginStartProject();
@@ -418,7 +418,6 @@ describe('Supervisor running-chain and non-domain Stop', () => {
       interventionBinding: new RuntimeInterventionBinding(),
       provider,
       conversations: { projectRoot },
-      appLogs: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
       processRunner,
       promptTemplates: { render: () => 'test prompt' },
@@ -495,7 +494,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const provider = { completeTurn: jest.fn(async () => { throw new Error('must not install a processor'); }) };
     const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
-      conversations: { projectRoot }, appLogs: { projectRoot },
+      conversations: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
       processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), promptTemplates: { render: () => 'test prompt' },
     });
@@ -522,7 +521,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     jest.spyOn(processRunner, 'terminateScopeTree').mockResolvedValue({ selected: ['p'], stopped: [], failed: [{ groupId: 'p', state: 'unconfirmed', diagnostic: 'private' }] });
     const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
-      conversations: { projectRoot }, appLogs: { projectRoot },
+      conversations: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
       processRunner, promptTemplates: { render: () => 'test prompt' },
     });
@@ -547,7 +546,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(),
       provider: { completeTurn: async () => { throw new Error('not called'); } },
-      conversations: { projectRoot }, appLogs: { projectRoot },
+      conversations: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
       processRunner, promptTemplates: { render: () => 'test prompt' },
     });
@@ -601,7 +600,7 @@ describe('Supervisor running-chain and non-domain Stop', () => {
     const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction,
       projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(),
       provider: { completeTurn: async () => { throw new Error('not called'); } },
-      conversations: { projectRoot }, appLogs: { projectRoot },
+      conversations: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
       processRunner, promptTemplates: { render: () => 'test prompt' },
     });

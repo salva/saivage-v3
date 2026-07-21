@@ -3,13 +3,14 @@ import { readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
-import { exposedRecordSlotDefinitionForFilename, recordSlotDefinitions, type RecordSlotDefinition, type RecordSlotFormat } from '../runtime/records/record-slots.js';
+import { recordSlotDefinitionForFilename, recordSlotDefinitions, type RecordSlotDefinition, type RecordSlotFormat } from '../runtime/records/record-slots.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
 type AuthoredRecordReader = { record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection };
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, validRecordSegment, workUrlFromAbsolutePath, type ScopedPathScheme } from './scoped-path-schemes.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
+import { cardIdSchema } from '../schemas/card-id.js';
 
 export type VfsMode = 'read' | 'write' | 'search';
 
@@ -180,13 +181,16 @@ function parseRecordCardDirectory(ctx: VfsContext, raw: string): RecordDirectory
   }
   if (parsed.query !== null || parsed.hadFragment) throw ctx.fail(`Invalid record search URL '${raw}'.`);
   if (parsed.segments.length !== 1) throw ctx.fail(`Invalid record search URL '${raw}'.`);
-  const cardId = validRecordSegment(parsed.segments[0]!, 'card id', raw, ctx.fail);
+  const segment = validRecordSegment(parsed.segments[0]!, 'card id', raw, ctx.fail);
+  const parsedCardId = cardIdSchema.safeParse(segment);
+  if (!parsedCardId.success) throw ctx.fail(`Invalid card id in record URL '${raw}'.`);
+  const cardId = parsedCardId.data;
   return { kind: 'record', recordKind: 'directory', cardId, isRoot: false };
 }
 
-function isExposedRecordFilename(filename: string): boolean {
+function isAuthoredRecordFilename(filename: string): boolean {
   try {
-    exposedRecordSlotDefinitionForFilename(filename);
+    recordSlotDefinitionForFilename(filename);
     return true;
   } catch {
     return false;
@@ -198,7 +202,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
   if (mode === 'search') return parseRecordCardDirectory(ctx, raw);
   if (mode === 'write') {
     const target = resolveRecordWriteTarget(ctx, raw);
-    const definition = exposedRecordSlotDefinitionForFilename(target.filename);
+    const definition = recordSlotDefinitionForFilename(target.filename);
     return { kind: 'record', recordKind: 'document', cardId: target.cardId, filename: target.filename, slot: definition.slot, version: 0, content: '', committedAt: null, size: 0, recordUrl: target.recordUrl, isRoot: false };
   }
 
@@ -208,7 +212,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
   } catch (error) {
     throw ctx.fail(toolFacingErrorMessage(error));
   }
-  const isDocument = parsed.query !== null || (parsed.segments.length === 1 && isExposedRecordFilename(parsed.segments[0]!));
+  const isDocument = parsed.query !== null || (parsed.segments.length === 1 && isAuthoredRecordFilename(parsed.segments[0]!));
   if (!isDocument) return parseRecordCardDirectory(ctx, raw);
   const target = resolveRecordReadTarget(ctx, raw);
   return { kind: 'record', recordKind: 'document', cardId: target.cardId, filename: target.filename, slot: target.slot, version: target.version, content: target.artifact.content, committedAt: target.artifact.committed_at, size: Buffer.byteLength(target.artifact.content), recordUrl: target.recordUrl, isRoot: false };
@@ -223,7 +227,6 @@ export function resolveScopedPath(ctx: VfsContext, raw: string, mode: VfsMode): 
 
 function recordSummaries(reader: AuthoredRecordReader, cardId: string): RecordSummary[] {
   return recordSlotDefinitions()
-    .filter((definition) => definition.exposed)
     .map((definition) => {
       const latest = latestClosedRecordEntry(reader, cardId, definition);
       if (latest === null) return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
@@ -257,7 +260,7 @@ export async function visitScopedFiles(ctx: VfsContext, raw: string, visitor: (e
   if (resolved === null) throw ctx.fail(`Expected a scoped path, got '${raw}'.`);
 
   if (resolved.kind === 'record') {
-    for (const definition of recordSlotDefinitions().filter((candidate) => candidate.exposed)) {
+    for (const definition of recordSlotDefinitions()) {
       const latest = latestClosedRecordEntry(ctx.records!, resolved.cardId, definition);
       if (latest === null) continue;
       if (await visitor({ content: latest.artifact.content, displayPath: latest.recordUrl, matchPath: latest.filename }) === false) return;

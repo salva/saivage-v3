@@ -39,9 +39,6 @@ export type CardStatus = typeof cardStatusValues[number];
 
 export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.reorder_child'] as const;
 export type CardAction = typeof cardActionValues[number];
-export type RuntimeDispatchOwnership =
-  | { kind: 'direct'; source: 'project_root' | 'operator' | 'startup_repair' }
-  | { kind: 'activation'; parent_card_id: string; parent_tool_call: { session_id: ConversationSessionId; source_input_id: string; tool_call_id: string } };
 export interface ActionableErrorEnvelope { code: string; message: string; acceptedValues?: string[]; currentState?: Record<string, unknown>; nextAction: string; docsRef?: string; runId?: string | null; sessionId?: string | null; cardId?: string | null; parentCardId?: string | null; childCardId?: string | null; }
 
 export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
@@ -102,12 +99,7 @@ export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'm
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
 export interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; source_input_id: string; private_message_id: string; projection_kind: 'assistant_message' | 'assistant_tool_call'; }
 export interface AgentMessage { id: string; session_id: ConversationSessionId; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
-export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
-export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
 export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
-export type RuntimeRunStatus = RuntimeStatus | 'stopped' | 'cancelled';
-export interface ProjectRunCompletedPayload { project_card_id: string; result: 'done' | 'failed' | 'blocked'; summary: string; failure_kind?: string; blocked_reason?: string; }
-export interface HandoffSummary { session_id: ConversationSessionId; role: AgentRole; last_action: string; next_action: string; context_summary: string; }
 export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id: string; updated_at: string; }
 export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
 export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';

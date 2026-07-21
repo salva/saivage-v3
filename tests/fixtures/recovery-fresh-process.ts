@@ -15,7 +15,7 @@ const runtime = new SupervisorRuntimeApi({
   actorStore: cards,
   interventionBinding: new RuntimeInterventionBinding(),
   provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
-  conversations: { projectRoot }, appLogs: { projectRoot },
+  conversations: { projectRoot },
   readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
   processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()),
   promptTemplates: { render: () => 'test prompt' },

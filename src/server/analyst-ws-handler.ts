@@ -25,7 +25,7 @@ export class AnalystWsHandler {
 
   constructor(private readonly options: AnalystWsHandlerOptions) {}
 
-  initialize(ws: WebSocket): string {
+  initialize(_ws: WebSocket): string {
     return GLOBAL_ANALYST_SESSION_ID;
   }
 

@@ -79,7 +79,7 @@ function fixture(role: RoleSurfaceContext['role'], mcpToolInvocation: McpToolInv
   initProjectTree(projectRoot);
   const store = new CardService(projectRoot);
   const processRunner = createTestProcessRunner(projectRoot);
-  if (role === 'planner') return { role, projectRoot, cardId: 'project', sessionId: 'planner:project', store, children: { get: () => null }, cancelCard: async (cardId) => ({ card_id: cardId, status: 'cancelled', cancelled_card_ids: [cardId] }), notifyCard: () => ({ ok: true, notificationId: 'test-notification' }), appLogs: { projectRoot }, beginStructuralWait: (relationship) => relationship, endStructuralWait: () => undefined };
+  if (role === 'planner') return { role, projectRoot, cardId: 'project', sessionId: 'planner:project', store, children: { get: () => null }, cancelCard: async (cardId) => ({ card_id: cardId, status: 'cancelled', cancelled_card_ids: [cardId] }), notifyCard: () => ({ ok: true, notificationId: 'test-notification' }), beginStructuralWait: (relationship) => relationship, endStructuralWait: () => undefined };
   if (role === 'reviewer') return { role, projectRoot, cardId: 'project', store, mcpToolInvocation };
   if (role === 'executor') return { role, projectRoot, cardId: 'project', ownerId: 'activation:test:node:0', store, processRunner, processScope: createTestDirectProcessScope(processRunner, 'runtime_card'), mcpToolInvocation };
   const toolContext: ToolContext = {

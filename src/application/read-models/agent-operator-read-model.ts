@@ -131,8 +131,7 @@ function barrierToolIdentity(barrier: ExactWaitBarrier) { return barrier.kind ==
 function freezeBarrier(barrier: ExactWaitBarrier): ExactWaitBarrier { return barrier.kind === 'child' ? Object.freeze({ kind: 'child', relationship: Object.freeze({ ...barrier.relationship }) }) : Object.freeze({ ...barrier }); }
 function stripPrivateProjectionMarker(message: AgentMessage): AgentMessage { if (!message.provider_projection) return message; const result = { ...message }; delete result.provider_projection; return result; }
 function immutableReadonlyMap<K, V>(source: Map<K, V>): ReadonlyMap<K, V> {
-  let readonlyMap!: ReadonlyMap<K, V>;
-  readonlyMap = Object.freeze({
+  const readonlyMap: ReadonlyMap<K, V> = Object.freeze({
     get size() { return source.size; },
     get: (key: K) => source.get(key),
     has: (key: K) => source.has(key),

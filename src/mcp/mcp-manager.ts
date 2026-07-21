@@ -4,7 +4,7 @@ import type { EventLog } from '../observability/index.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import { ServerNotRunningError } from './errors.js';
 import { McpInvocationStatsRecorder } from './invocation-stats.js';
-import { MCP_INVOKE_TIMEOUT_MS, type McpServerStatus, type McpToolDefinition } from './protocol.js';
+import { type McpServerStatus, type McpToolDefinition } from './protocol.js';
 import { loadMcpServersFromConfig, type McpServerConfig } from './server-registry.js';
 import { McpServerRuntime } from './server-runtime.js';
 import { buildMcpToolsReadModel } from './status-projection.js';

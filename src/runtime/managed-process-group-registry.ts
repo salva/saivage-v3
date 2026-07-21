@@ -263,7 +263,7 @@ export class ManagedProcessGroupRegistry {
 
   private async waitForAbsence(record: GroupRecord, timeoutMs: number): Promise<'absent' | 'live' | 'ambiguous'> {
     const deadline = Date.now() + timeoutMs;
-    while (true) {
+    for (;;) {
       const result = this.probe(record);
       if (result !== 'live') return result;
       if (Date.now() >= deadline) return 'live';

@@ -109,7 +109,7 @@ async function fetchPublic(url: URL, maxBytes: number, signal: AbortSignal, redi
   if (!reader) return { url, response, body: new Uint8Array() };
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     total += value.byteLength;

@@ -29,7 +29,7 @@ export function quarantineContent(params: {
   risk: RiskLevel;
   appLogs: AppLogContext;
 }): BlockedContentReviewResult {
-  const { projectRoot, sourceKind, sourceRef, reason, risk } = params;
+  const { sourceKind, sourceRef, reason, risk } = params;
   const now = new Date().toISOString();
   const review: ContentReview = {
     id: `blocked-${generateId()}`,

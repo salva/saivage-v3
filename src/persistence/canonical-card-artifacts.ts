@@ -1,16 +1,16 @@
 import { z } from 'zod';
-import { cardHistoryEntrySchema, persistedCardRecordSchema, validatePersistedCardLifecycle, type CardHistoryEntry, type CardRecord } from '../schemas/index.js';
+import { cardHistoryEntrySchema, cardRecordSchema, type CardRecord } from '../schemas/index.js';
 import { cardIdSchema } from '../schemas/card-id.js';
 import { validateTransition } from '../cards/lifecycle.js';
 
 export const cardVersionArtifactSchema = z.object({
   kind: z.literal('card-version'), format_version: z.literal(2), card_id: cardIdSchema,
   version: z.number().int().safe().positive(), committed_at: z.string().datetime(),
-  card: persistedCardRecordSchema, history: cardHistoryEntrySchema.nullable(),
+  card: cardRecordSchema, history: cardHistoryEntrySchema.nullable(),
 }).strict();
 export const cardTombstoneSchema = z.object({
   kind: z.literal('card-tombstone'), format_version: z.literal(2), card_id: cardIdSchema,
-  deleted_at: z.string().datetime(), final_card: persistedCardRecordSchema, deletion_history: cardHistoryEntrySchema,
+  deleted_at: z.string().datetime(), final_card: cardRecordSchema, deletion_history: cardHistoryEntrySchema,
 }).strict();
 export const cardStreamRowSchema = z.discriminatedUnion('kind', [cardVersionArtifactSchema, cardTombstoneSchema]);
 export type CardVersionArtifact = z.infer<typeof cardVersionArtifactSchema>;
@@ -28,32 +28,27 @@ function assertOnlyCardFieldsChanged(path: string, prior: CardRecord, next: Card
   }
 }
 
-export function parseCardVersionArtifact(raw: unknown, path: string, expected?: { cardId: string; version: number }): CardVersionArtifact {
-  const parsed = cardVersionArtifactSchema.safeParse(raw);
-  if (!parsed.success) throw new Error(`Card version row at '${path}' is invalid: ${parsed.error.message}`);
-  const row = parsed.data;
-  validatePersistedCardLifecycle(row.card);
+function assertCardVersionArtifact(row: CardVersionArtifact, path: string, expected?: { cardId: string; version: number }): void {
   if (row.card_id !== row.card.id || row.version !== row.card.version_seq) throw new Error(`Card version row at '${path}' has inconsistent identity.`);
   if (expected && (row.card_id !== expected.cardId || row.version !== expected.version)) throw new Error(`Card version row at '${path}' does not match its stream.`);
   if ((row.version === 1) !== (row.history === null)) throw new Error(`Card version row at '${path}' has invalid history presence.`);
   if (row.history && (row.history.card_id !== row.card_id || row.history.version_seq !== row.version - 1)) throw new Error(`Card version row at '${path}' has inconsistent history.`);
-  return row;
 }
 
 export function validateCardStream(rows: readonly CardStreamRow[], path: string, cardId: string): { artifacts: CardVersionArtifact[]; tombstone: CardTombstone | null; current: CardVersionArtifact } {
   if (rows.length === 0) throw new Error(`Card stream '${path}' is empty.`);
   const artifacts: CardVersionArtifact[] = [];
   let tombstone: CardTombstone | null = null;
-  for (const [index, raw] of rows.entries()) {
-    if (raw.kind === 'card-tombstone') {
+  for (const [index, row] of rows.entries()) {
+    if (row.kind === 'card-tombstone') {
       if (cardId === 'project' || index !== rows.length - 1 || artifacts.length === 0) throw new Error(`Card stream '${path}' has an invalid tombstone position.`);
       const prior = artifacts.at(-1)!.card;
-      if (raw.card_id !== cardId || JSON.stringify(raw.final_card) !== JSON.stringify(prior) || raw.deletion_history.kind !== 'delete' || JSON.stringify(raw.deletion_history.snapshot) !== JSON.stringify(prior)
-        || raw.deletion_history.card_id !== raw.card_id || raw.deletion_history.changed_at !== raw.deleted_at || raw.deletion_history.version_seq !== raw.final_card.version_seq) throw new Error(`Card stream '${path}' has an invalid tombstone.`);
-      tombstone = raw;
+      if (row.card_id !== cardId || JSON.stringify(row.final_card) !== JSON.stringify(prior) || row.deletion_history.kind !== 'delete' || JSON.stringify(row.deletion_history.snapshot) !== JSON.stringify(prior)
+        || row.deletion_history.card_id !== row.card_id || row.deletion_history.changed_at !== row.deleted_at || row.deletion_history.version_seq !== row.final_card.version_seq) throw new Error(`Card stream '${path}' has an invalid tombstone.`);
+      tombstone = row;
       continue;
     }
-    const row = parseCardVersionArtifact(raw, path, { cardId, version: artifacts.length + 1 });
+    assertCardVersionArtifact(row, path, { cardId, version: artifacts.length + 1 });
     if (tombstone) throw new Error(`Card stream '${path}' has a row after its tombstone.`);
     const prior = artifacts.at(-1)?.card;
     if (!prior) {

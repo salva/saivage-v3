@@ -185,7 +185,7 @@ export class InvocationService {
     }));
     const plans: Array<{ candidate: Candidate; plan: CandidateRequestPlan }> = [];
 
-    while (true) {
+    for (;;) {
       throwIfAborted(request.abortSignal);
       updateReadyStates(states);
       const next = this.nextCandidateState(states, deadlineMs);
@@ -454,19 +454,15 @@ function delayWithAbort(delayMs: number, signal?: AbortSignal): Promise<void> {
   throwIfAborted(signal);
   if (delayMs <= 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const cleanup = () => {
-      if (timeout) clearTimeout(timeout);
+    const timeout = setTimeout(() => {
       signal?.removeEventListener('abort', onAbort);
-    };
-    const onAbort = () => {
-      cleanup();
-      reject(abortReason(signal));
-    };
-    timeout = setTimeout(() => {
-      cleanup();
       resolve();
     }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
+      reject(abortReason(signal));
+    };
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 }

@@ -4,7 +4,6 @@ import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardActivationInput, CardActor, CardCancellationResult, CardProcessorActor } from './card-actor.js';
 import { ConversationLLMActor, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from './llm-actor.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
-import type { AppLogContext } from '../../persistence/app-log.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import type { CardService } from '../../cards/card-service.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
@@ -49,7 +48,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #stagedFailure: Error | null = null;
   #activationSettled = false;
 
-  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; children: { get(cardId: string): CardActor | null }; ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void }; cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; appLogs: AppLogContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
+  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; children: { get(cardId: string): CardActor | null }; ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void }; cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.definition, {
       enter: (context) => this.#enterProcessState(context),
       transition: (context) => this.#processTransitioned(context),
@@ -63,7 +62,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#compactor = args.compactor;
     this.#summarizerProvider = args.summarizerProvider;
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;
-    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, children: args.children, ownerStructuralWait: args.ownerStructuralWait, cancelCard: args.cancelCard, notifyCard: args.notifyCard, appLogs: args.appLogs, processRunner: args.processRunner, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
+    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, children: args.children, ownerStructuralWait: args.ownerStructuralWait, cancelCard: args.cancelCard, notifyCard: args.notifyCard, processRunner: args.processRunner, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
       createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), toolContext: (llm, outcome) => this.#toolInvocationContext(llm, outcome),
     });
   }

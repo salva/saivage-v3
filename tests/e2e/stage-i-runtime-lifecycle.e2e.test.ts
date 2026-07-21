@@ -29,7 +29,6 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
     interventionBinding: new RuntimeInterventionBinding(),
     provider,
     conversations: { projectRoot },
-    appLogs: { projectRoot },
     readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
     processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()),
     promptTemplates: { render: () => 'test prompt' },

@@ -11,12 +11,10 @@ import {
 } from '../contracts/tool-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
 import { queueNotification } from '../notifications/index.js';
-import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
 import { cardIdSchema, cardTypeValues, urgencyValues, type CardRecord, type CardType, type Urgency } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
-import type { AppLogContext } from '../persistence/app-log.js';
 import type { LlmToolInvocationContext, StructuralChildRelationship } from '../runtime/actors/executing-llm-snapshot.js';
 import { cardProcessEntryForStatus } from '../runtime/card-process/card-process-config.js';
 import { cardParentId } from '../schemas/card-id.js';
@@ -44,7 +42,6 @@ export interface PlannerControlProviderContext {
   readonly children: { get(cardId: string): PlannerChildActor | null };
   readonly cancelCard: (cardId: string, reason: string) => Promise<{ card_id: string; status: 'cancelled'; cancelled_card_ids: string[] }>;
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
-  readonly appLogs: AppLogContext;
   readonly beginStructuralWait: (relationship: StructuralChildRelationship) => StructuralChildRelationship;
   readonly endStructuralWait: (relationship: StructuralChildRelationship) => void;
 }
@@ -128,34 +125,12 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof edi
 function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof reorderChildSchema>): ToolResult {
   if (!ctx.store.reorderChildren) throw new Error('Planner reorder_child requires a mutable card store.');
   const result = ctx.store.reorderChildren(ctx.parentCardId, record.orderedChildIds, { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
-  recordControlAction(ctx.appLogs, {
-    actor: 'planner',
-    surface: 'runtime',
-    action: 'card.reorder_child',
-    target_kind: 'card',
-    target_id: ctx.parentCardId,
-    params_summary: stableStringify({ orderedChildIds: record.orderedChildIds, sessionId: ctx.sessionId }),
-    outcome: result.ok ? 'ok' : 'error',
-    outcome_summary: result.ok ? 'mutation applied' : 'reorder_set_mismatch',
-    ...(result.ok ? {} : { error: 'reorder_set_mismatch' }),
-  });
   if (!result.ok) return { success: false, error: `reorder_child set mismatch: missing=${result.missing.join(',') || '(none)'} extra=${result.extra.join(',') || '(none)'}` };
   return { success: true, data: { parent_id: ctx.parentCardId, changed: result.changed } };
 }
 
 function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof queueNotificationSchema>): ToolResult {
   const queued = queueNotification(record.card_id, record.kind, record.body, { actor: 'planner', surface: 'runtime' }, ctx.notifyCard);
-  recordControlAction(ctx.appLogs, {
-    actor: 'planner',
-    surface: 'runtime',
-    action: 'notification.queue',
-    target_kind: 'card',
-    target_id: record.card_id,
-    params_summary: stableStringify({ card_id: record.card_id, kind: record.kind, sessionId: ctx.sessionId }),
-    outcome: queued.ok ? 'ok' : 'error',
-    outcome_summary: queued.ok ? record.kind : queued.reason,
-    ...(queued.ok ? {} : { error: queued.reason }),
-  });
   if (!queued.ok && queued.reason === 'terminal_card') return { success: false, error: `Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status } };
   if (!queued.ok) return { success: false, error: `Card '${queued.cardId}' not found.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId } };
   return { success: true, data: { queued: true, card_id: record.card_id, notification_id: queued.notificationId } };

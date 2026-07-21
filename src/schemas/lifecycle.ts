@@ -123,7 +123,3 @@ export const runtimeRunOutcomeSchema: z.ZodType<RuntimeRunOutcome> = z.discrimin
   z.object({ outcome: z.literal('cancelled'), completed_at: timestampSchema.nullable() }).strict(),
   z.object({ outcome: z.literal('stopped'), stopped_at: timestampSchema, reason: z.string().nullable() }).strict(),
 ]);
-
-export function validatePersistedCardLifecycle(card: { lifecycle: unknown }): CardLifecycleState {
-  return cardLifecycleStateSchema.parse(card.lifecycle);
-}

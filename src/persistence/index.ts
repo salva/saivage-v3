@@ -5,7 +5,6 @@ export {
 export { findProjectRoot } from './discovery.js';
 export {
   cardVersionArtifactSchema,
-  parseCardVersionArtifact,
 } from './canonical-card-artifacts.js';
 export type { CardVersionArtifact } from './canonical-card-artifacts.js';
 export {

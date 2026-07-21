@@ -87,7 +87,6 @@ describe('reviewer rework completion E2E', () => {
       interventionBinding: new RuntimeInterventionBinding(),
       provider,
       conversations: { projectRoot },
-      appLogs: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
       processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()),
       promptTemplates: { render: () => 'test prompt' },

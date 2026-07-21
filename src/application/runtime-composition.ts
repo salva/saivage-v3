@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import type { SaivageConfig } from '../agents/config-api.js';
 import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
 import { MemoryCandidateAvailability } from '../agents/candidate-availability.js';
-import type { CandidateAvailability } from '../agents/candidate-availability.js';
 import { AnalystRuntime, type AnalystRuntimeDeps } from '../agents/analyst-api.js';
 import { ProviderRegistry } from '../agents/provider.js';
 import { ModelRouter } from '../agents/model-router.js';
@@ -51,7 +50,6 @@ export interface RuntimeApiFactoryDeps {
   runtimeGate: RuntimeGate;
   mcpToolInvocation: McpToolInvocationPort;
   conversations: ConversationFileContext;
-  appLogs: AppLogContext;
   readModelChanges: ReadModelChanges;
 }
 
@@ -169,7 +167,16 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal, [summarizerCandidate])),
     projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
   };
-  const { enabled: _enabled, summarizer_candidate: _summarizerCandidate, ...compactionPolicy } = config.compaction;
+  const compactionPolicy: AutonomousCompactionPolicy = {
+    input_budget_tokens: config.compaction.input_budget_tokens,
+    trigger_fraction: config.compaction.trigger_fraction,
+    completion_reserve_fraction: config.compaction.completion_reserve_fraction,
+    merge_line_fraction: config.compaction.merge_line_fraction,
+    summary_line_fraction: config.compaction.summary_line_fraction,
+    escalate_merge_line_fraction: config.compaction.escalate_merge_line_fraction,
+    escalate_summary_line_fraction: config.compaction.escalate_summary_line_fraction,
+    snap: config.compaction.snap,
+  };
   const compactor: CompactorPort = { shouldCompact, compact };
   const processRunner = services.processRunner;
   const runtimeGate = new RuntimeGate();
@@ -199,7 +206,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   }
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
-  const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, appLogs: services.appLogs, readModelChanges: services.readModelChanges });
+  const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, readModelChanges: services.readModelChanges });
   const runtimeControl = new RuntimeControlService({ interventionBinding, mechanics: runtimeMechanics });
   const runtimeApi: RuntimeApi = runtimeControl;
   cardStore.setNotifyCard((cardId, notification) => runtimeApi.notifyCard(cardId, notification));

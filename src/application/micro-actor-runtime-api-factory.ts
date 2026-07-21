@@ -1,7 +1,7 @@
 import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
 import type { EventBus } from '../events/index.js';
 import type { RuntimeControlMechanics } from './runtime-control-service.js';
-import type { LLMProviderPort, ProjectRootCardReader } from '../runtime/actors/index.js';
+import type { LLMProviderPort } from '../runtime/actors/index.js';
 import type { CardService } from '../cards/card-service.js';
 import type { InvocationService } from '../agents/invocation-service.js';
 import type { AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
@@ -10,7 +10,6 @@ import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
-import type { AppLogContext } from '../persistence/app-log.js';
 import type { ReadModelChanges } from './read-model-changes.js';
 import type { RuntimeInterventionBinding } from './intervention-readiness.js';
 import type { InvocationRequest } from '../agents/invocation-service.js';
@@ -25,7 +24,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
   processIdentity: RuntimeProcessIdentity;
   eventBus: EventBus;
-  cardStore: CardService & ProjectRootCardReader;
+  cardStore: CardService;
   interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
@@ -39,7 +38,6 @@ export interface MicroActorRuntimeApiFactoryDeps {
   mcpToolInvocation: McpToolInvocationPort;
   now?: () => string;
   conversations: ConversationFileContext;
-  appLogs: AppLogContext;
   readModelChanges: ReadModelChanges;
 }
 
@@ -48,7 +46,6 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     projectRoot: deps.projectRoot,
     processIdentity: deps.processIdentity,
     eventBus: deps.eventBus,
-    rootCards: deps.cardStore,
     actorStore: deps.cardStore,
     interventionBinding: deps.interventionBinding,
     provider: createInvocationServiceProvider(deps.invocationService),
@@ -63,7 +60,6 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     mcpToolInvocation: deps.mcpToolInvocation,
     now: deps.now,
     conversations: deps.conversations,
-    appLogs: deps.appLogs,
     readModelChanges: deps.readModelChanges,
   });
 }

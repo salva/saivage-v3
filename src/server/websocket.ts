@@ -96,7 +96,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
 
       liveSyncSocket.add(ws);
 
-      const sessionId = analystWsHandler.initialize(ws);
+      analystWsHandler.initialize(ws);
 
       sendToClient(ws, buildConnectedEnvelope({
         timestamp: new Date().toISOString(),

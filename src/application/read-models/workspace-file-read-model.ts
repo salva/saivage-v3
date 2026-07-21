@@ -7,7 +7,7 @@ import { redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
 import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
 import { AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
-import { exposedRecordSlotDefinitionForFilename } from '../../runtime/records/record-slots.js';
+import { recordSlotDefinitionForFilename } from '../../runtime/records/record-slots.js';
 import { cardIdSchema } from '../../schemas/index.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
@@ -69,7 +69,7 @@ function parseRecordContentRequest(requestedPath: string): RecordContentRequest 
   for (const key of parsed.query.keys()) if (key !== 'card' && key !== 'v') return { kind: 'invalid', error: 'Invalid record URL.' };
   if (parsed.query.getAll('card').length !== 1 || parsed.query.getAll('v').length > 1) return { kind: 'invalid', error: 'Invalid record URL.' };
   const filename = parsed.segments[0]!;
-  try { exposedRecordSlotDefinitionForFilename(filename); }
+  try { recordSlotDefinitionForFilename(filename); }
   catch { return { kind: 'invalid', error: 'Invalid record URL.' }; }
   const rawCardId = parsed.query.get('card');
   if (!rawCardId) return { kind: 'invalid', error: 'Record URL requires card.' };

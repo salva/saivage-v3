@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import Fastify from 'fastify';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,6 +18,8 @@ import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { EventBus } from '../../src/events/index.js';
 import { appLogFile } from '../../src/persistence/layout.js';
+import { createPlannerControlProvider } from '../../src/tools/planner-control-provider.js';
+import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 
 function testConfig(): SaivageConfig {
   return saivageConfigSchema.parse({
@@ -167,6 +169,50 @@ describe('contract-backed config/providers/control-actions routes', () => {
         control_actions: [expect.objectContaining({ id: 'newer-action', target_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' })],
         total: 1,
       });
+    } finally {
+      await fastify.close();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('returns a retained Planner row unchanged while a new Planner mutation appends no row', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-retained-planner-action-route-'));
+    initProjectTree(projectRoot);
+    const fastify = Fastify({ logger: false });
+    try {
+      const retained = recordControlAction(testAppLogs(projectRoot), {
+        id: 'retained-planner-action',
+        created_at: '2026-01-04T00:00:00.000Z',
+        actor: 'planner',
+        surface: 'runtime',
+        action: 'card.reorder_child',
+        target_kind: 'card',
+        target_id: 'project',
+        params_summary: '{"orderedChildIds":[]}',
+        outcome: 'ok',
+        outcome_summary: 'mutation applied',
+      });
+      const reorderChildren = jest.fn(() => ({ ok: true as const, changed: 0 }));
+      const planner = createPlannerControlProvider({
+        projectRoot,
+        parentCardId: 'project',
+        sessionId: 'planner:project',
+        store: { read: () => null, readActivationAdmission: () => null, setStatus: () => { throw new Error('unused'); }, activateStopped: () => { throw new Error('unused'); }, reorderChildren },
+        children: { get: () => null },
+        cancelCard: async () => { throw new Error('unused'); },
+        notifyCard: () => ({ ok: true, notificationId: 'unused' }),
+        beginStructuralWait: (relationship) => relationship,
+        endStructuralWait: () => undefined,
+      });
+      await expect(invokeTool(buildInvocationSurface('planner', [planner]), 'reorder_child', { orderedChildIds: [] }))
+        .resolves.toEqual({ success: true, data: { parent_id: 'project', changed: 0 } });
+      expect(reorderChildren).toHaveBeenCalledWith('project', [], { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
+
+      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), ...routeCompositionDependencies(), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
+      const response = await fastify.inject({ method: 'GET', url: '/api/control-actions' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ control_actions: [retained], total: 1 });
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });

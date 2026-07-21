@@ -6,7 +6,6 @@ import type {
 import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/manager-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { ProviderRoutingReadModel } from '../../agents/provider-routing-read-model.js';
-import type { RuntimeApi } from '../../runtime/control-api.js';
 import type { CardService } from '../../cards/card-api.js';
 import type { buildServerAvailability } from '../availability.js';
 import type { ContractRequestContext } from '../contract-runtime.js';

@@ -10,27 +10,22 @@ export type RecordSlotFormat = RecordVersionArtifact['format'];
 
 export interface RecordSlotDefinition {
   filename: string;
-  slot: AuthoredRecordSlot | 'card';
+  slot: AuthoredRecordSlot;
   writers: readonly AgentRole[];
-  format: RecordSlotFormat | 'json';
+  format: RecordSlotFormat;
   schema: string;
-  exposed: boolean;
 }
 
 const RECORD_SLOT_DEFINITIONS: readonly RecordSlotDefinition[] = [
-  { filename: 'brief.md', slot: 'brief', writers: ['analyst', 'planner'], format: 'markdown', schema: 'record.brief.markdown.v1', exposed: true },
-  { filename: 'status.md', slot: 'status', writers: ['planner', 'executor'], format: 'markdown', schema: 'record.status.markdown.v1', exposed: true },
-  { filename: 'review.md', slot: 'review', writers: ['reviewer'], format: 'markdown', schema: 'record.review.markdown.v1', exposed: true },
-  { filename: 'card.json', slot: 'card', writers: [], format: 'json', schema: 'record.card.json.v1', exposed: false },
+  { filename: 'brief.md', slot: 'brief', writers: ['analyst', 'planner'], format: 'markdown', schema: 'record.brief.markdown.v1' },
+  { filename: 'status.md', slot: 'status', writers: ['planner', 'executor'], format: 'markdown', schema: 'record.status.markdown.v1' },
+  { filename: 'review.md', slot: 'review', writers: ['reviewer'], format: 'markdown', schema: 'record.review.markdown.v1' },
 ] as const;
 
 const byFilename = new Map(RECORD_SLOT_DEFINITIONS.map((definition) => [definition.filename, definition]));
 
 export function recordSlotDefinitionForFilename(filename: string): RecordSlotDefinition {
-  const clean = basename(filename); const definition = byFilename.get(clean); if (!definition) throw new Error(`Unsupported record slot '${clean}'.`); return definition;
-}
-export function exposedRecordSlotDefinitionForFilename(filename: string): RecordSlotDefinition {
-  const definition = recordSlotDefinitionForFilename(filename); if (!definition.exposed) throw new Error(`Record slot '${definition.filename}' is internal and cannot be read through record:/// URLs.`); return definition;
+  const definition = byFilename.get(filename); if (!definition) throw new Error(`Unsupported record slot '${filename}'.`); return definition;
 }
 export function recordSlotDefinitions(): readonly RecordSlotDefinition[] { return RECORD_SLOT_DEFINITIONS; }
 export function normalizeRecordUrl(input: { filename: string; cardId: string; version: number }): string {

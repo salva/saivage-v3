@@ -17,7 +17,6 @@ import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { testAppLogs } from '../helpers/app-logs.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
@@ -38,7 +37,7 @@ function runtime(projectRoot: string, cards: CardService, provider: { completeTu
   return new SupervisorRuntimeApi({
     ...testAutonomousCompaction,
     projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
-    conversations: { projectRoot }, appLogs: testAppLogs(projectRoot),
+    conversations: { projectRoot },
     readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
     processRunner, promptTemplates: { render: () => 'test prompt' },
   });

@@ -19,7 +19,6 @@ import type { RuntimeInterventionBinding } from '../../application/intervention-
 import type { ProcessRunner } from '../process-runner.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
-import type { AppLogContext } from '../../persistence/app-log.js';
 import type { ReadModelChanges } from '../../application/read-model-changes.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { RuntimeContainmentError, RuntimeStoppedInterruption, isRuntimeStoppedInterruption, type RuntimeStopOperation } from './runtime-stopped-interruption.js';
@@ -31,12 +30,10 @@ import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { executorActorId, plannerActorId, reviewerActorId } from './ids.js';
 import type { ProcessRole } from '../card-process/card-process-config.js';
 
-export interface ProjectRootCardReader { read(cardId: string): { id: string; type: string } | null }
-
 export interface SupervisorRuntimeApiOptions {
-  projectRoot: string; eventBus?: EventBus; now?: () => string; rootCards?: ProjectRootCardReader;
+  projectRoot: string; eventBus?: EventBus; now?: () => string;
   actorStore: CardService; interventionBinding: RuntimeInterventionBinding; provider: LLMProviderPort;
-  conversations: ConversationFileContext; appLogs: AppLogContext; readModelChanges: ReadModelChanges;
+  conversations: ConversationFileContext; readModelChanges: ReadModelChanges;
   compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry;
   cardProcesses: CompiledCardProcesses; processPrompts: ProcessPromptRegistry;
@@ -309,7 +306,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     this.cardActors.delete(actor.cardId);
     this.runtimeProjectionChanged();
   }
-  private cardActorDeps(): CardActorDeps { return { projectRoot: this.options.projectRoot, storeForCard: () => this.options.actorStore, currentness: this.currentness, provider: this.options.provider, compactor: this.options.compactor, compactionConfig: this.options.compactionConfig, summarizerProvider: this.options.summarizerProvider, gate: this.runtimeGate, processRunner: this.options.processRunner, promptTemplates: this.options.promptTemplates, cardProcesses: this.options.cardProcesses, processPrompts: this.options.processPrompts, mcpToolInvocation: this.options.mcpToolInvocation, notifyCard: (cardId, notification) => this.notifyCard(cardId, notification), cancelCard: (cardId, reason) => this.cancelCard(cardId, reason), lookup: this.cardActors, liveLookup: this.liveCardActors, runtimeProjectionChanged: () => this.runtimeProjectionChanged(), releaseSettledActor: (actor) => this.releaseSettledActor(actor), conversations: this.options.conversations, appLogs: this.options.appLogs, isRuntimeClosing: () => this.status === 'closing' }; }
+  private cardActorDeps(): CardActorDeps { return { projectRoot: this.options.projectRoot, storeForCard: () => this.options.actorStore, currentness: this.currentness, provider: this.options.provider, compactor: this.options.compactor, compactionConfig: this.options.compactionConfig, summarizerProvider: this.options.summarizerProvider, gate: this.runtimeGate, processRunner: this.options.processRunner, promptTemplates: this.options.promptTemplates, cardProcesses: this.options.cardProcesses, processPrompts: this.options.processPrompts, mcpToolInvocation: this.options.mcpToolInvocation, notifyCard: (cardId, notification) => this.notifyCard(cardId, notification), cancelCard: (cardId, reason) => this.cancelCard(cardId, reason), lookup: this.cardActors, liveLookup: this.liveCardActors, runtimeProjectionChanged: () => this.runtimeProjectionChanged(), releaseSettledActor: (actor) => this.releaseSettledActor(actor), conversations: this.options.conversations, isRuntimeClosing: () => this.status === 'closing' }; }
 
   private runtimeProjectionChanged(): void { this.options.readModelChanges.runtimeChanged(); this.options.readModelChanges.agentsChanged(); }
 

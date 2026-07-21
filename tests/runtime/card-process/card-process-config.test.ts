@@ -72,6 +72,11 @@ describe('card process source and compilation', () => {
       if (parsed.success) expect(() => compileCardProcesses(parsed.data)).toThrow();
       else expect(parsed.success).toBe(false);
     }
+    for (const name of ['card.json', 'unknown.md']) {
+      const candidate = structuredClone(valid);
+      candidate.planning.nodes.plan.records = [{ name, updated: false }];
+      expect(cardProcessesSchema.safeParse(candidate).success).toBe(false);
+    }
   });
 
   it('rejects duplicate YAML node and outcome keys at configuration parsing', () => {

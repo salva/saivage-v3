@@ -82,7 +82,7 @@ export class CredentialSourceResolver {
   }
 
   async resolve(provider: Provider, account: Account, abortSignal?: AbortSignal): Promise<ResolvedCredentialSources> {
-    const { baseUrl, source: baseUrlSource } = this.resolveBaseUrl(provider, account);
+    const { baseUrl } = this.resolveBaseUrl(provider, account);
     const credential = await this.resolveCredential(provider, account, abortSignal);
     if (provider.name === 'openai-codex') {
       if (!credential.apiKey) throw localSetupFailure({ provider: provider.name, account: account.name, reason: 'missing_required_credential', message: `Provider '${provider.name}' requires a resolved credential before provider I/O.` });

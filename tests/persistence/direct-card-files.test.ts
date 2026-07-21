@@ -3,13 +3,30 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
-import { readCanonicalCardHierarchy, readCard, readLinkedChildren } from '../../src/persistence/card-files.js';
+import { publishCardTombstone, publishCardVersion, readCanonicalCardHierarchy, readCard, readLinkedChildren } from '../../src/persistence/card-files.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
+import type { CardHistoryEntry, CardRecord } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+
+function historyFor(card: CardRecord, kind: CardHistoryEntry['kind'] = 'update'): CardHistoryEntry {
+  return {
+    entry_id: '11111111-1111-4111-8111-111111111111',
+    kind,
+    card_id: card.id,
+    version_seq: card.version_seq,
+    snapshot: structuredClone(card),
+    changed_at: '2026-07-21T00:00:01.000Z',
+    changed_by_actor: 'analyst',
+    changed_by_surface: 'runtime',
+    change_reason: 'boundary regression',
+    changed_fields: kind === 'delete' ? [] : ['title'],
+    change_summary: kind === 'delete' ? 'card deleted' : 'title changed',
+  };
+}
 
 describe('exact hierarchical card files', () => {
   it('publishes exact streams and cumulative parent membership', () => {
@@ -43,6 +60,60 @@ describe('exact hierarchical card files', () => {
     writeFileSync(path, `${readFileSync(path, 'utf8')}${JSON.stringify(malformed)}\n`);
 
     expect(() => readCard(root, 'project')).toThrow(/malformed/);
+  });
+
+  it('rejects malformed nested card structure at the read boundary', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    const path = cardStreamFile(root, 'project');
+    const envelope = JSON.parse(readFileSync(path, 'utf8')) as { rows: Array<{ card: Record<string, unknown> }> };
+    envelope.rows[0]!.card.removed_field = true;
+    writeFileSync(path, `${JSON.stringify(envelope)}\n`);
+
+    expect(() => readCard(root, 'project')).toThrow(/malformed/);
+  });
+
+  it('rejects structurally valid stream identity and history failures after read parsing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    const path = cardStreamFile(root, 'project');
+    const initial = JSON.parse(readFileSync(path, 'utf8')) as { version: 1; type: 'rows'; rows: Array<Record<string, unknown>> };
+    const later = structuredClone(initial.rows[0]!) as { version: number; card: { version_seq: number }; history: null };
+    later.version = 2;
+    later.card.version_seq = 2;
+    writeFileSync(path, `${readFileSync(path, 'utf8')}${JSON.stringify({ version: 1, type: 'rows', rows: [later] })}\n`);
+
+    expect(() => readCard(root, 'project')).toThrow(/invalid history presence/);
+  });
+
+  it('rejects malformed and semantically invalid card-version writes before append', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const current = cards.create({ type: 'code', parent: 'project', title: 'Before', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const path = cardStreamFile(root, current.id);
+    const before = readFileSync(path);
+    const next: CardRecord = { ...current, title: 'After', version_seq: 2, updated_at: '2026-07-21T00:00:01.000Z' };
+    const history = historyFor(current);
+
+    expect(() => publishCardVersion(root, { ...next, removed_field: true } as CardRecord, history)).toThrow();
+    expect(readFileSync(path)).toEqual(before);
+
+    const wrongSnapshot = { ...history, snapshot: { ...history.snapshot, title: 'Not the prior card' } };
+    expect(() => publishCardVersion(root, next, wrongSnapshot)).toThrow(/history does not snapshot the prior card/);
+    expect(readFileSync(path)).toEqual(before);
+  });
+
+  it('rejects malformed and semantically invalid tombstone writes before append', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const current = cards.create({ type: 'code', parent: 'project', title: 'Before', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const path = cardStreamFile(root, current.id);
+    const before = readFileSync(path);
+    const deletion = historyFor(current, 'delete');
+
+    expect(() => publishCardTombstone(root, current.id, { ...current, removed_field: true } as CardRecord, deletion)).toThrow();
+    expect(readFileSync(path)).toEqual(before);
+
+    expect(() => publishCardTombstone(root, current.id, { ...current, title: 'Not the final card' }, deletion)).toThrow(/invalid tombstone/);
+    expect(readFileSync(path)).toEqual(before);
   });
 
   it('does not touch unlinked malformed or symlink child namespaces', () => {
