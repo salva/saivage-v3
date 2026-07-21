@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { parseOperatorResponse } from '../../src/contracts/operator-api.js';
+import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { installOperatorRestRoutes, smokeCardId } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 

@@ -3,7 +3,7 @@ import {
   buildConnectedEnvelope,
   wsContractFixtures,
   type LiveSyncInvalidateFrame,
-} from '../../../src/contracts/operator-events.js';
+} from '../../../../src/contracts/operator-events.js';
 
 const connectedEnvelope = buildConnectedEnvelope({
   timestamp: '2026-05-19T12:00:00.000Z',

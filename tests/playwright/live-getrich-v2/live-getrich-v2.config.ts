@@ -12,7 +12,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: 'list',
-  outputDir: '../../tmp/playwright-live-results',
+  outputDir: '../../../tmp/playwright-live-results',
   use: {
     baseURL,
     trace: 'retain-on-failure',

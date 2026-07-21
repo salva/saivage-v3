@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
+import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenBeforeNavigation, waitForRuntimePair } from './fixtures/operator-preview-sync.js';
 
 const syntheticToken = 'synthetic-direct-load-token';
 
@@ -38,26 +39,22 @@ async function routerState(page: Page): Promise<BrowserRouterState> {
   });
 }
 
-test('production browser direct loads initialize router and render route-owned bodies', async ({ page }) => {
+test('production browser direct loads initialize router and render route-owned bodies', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('baseURL required'); const failures=observePreviewRequestFailures(page,baseURL);
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
-  const failedRequests: string[] = [];
 
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => {
-    const errorText = request.failure()?.errorText ?? '';
-    if (errorText !== 'net::ERR_ABORTED') failedRequests.push(`${request.method()} ${request.url()} ${errorText}`);
-  });
 
-  await page.addInitScript((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
+  await seedTokenBeforeNavigation(page, syntheticToken);
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
 
   for (const routeCase of directRouteCases) {
-    await page.goto(routeCase.path, { waitUntil: 'networkidle' });
+    await failures.during('full-document-navigation',()=>waitForRuntimePair(page,()=>page.goto(routeCase.path,{waitUntil:'networkidle'})));
 
     const routeRoot = page.locator(routeCase.root);
     await expect(routeRoot, `${routeCase.path} route root`).toHaveCount(1);
@@ -73,7 +70,7 @@ test('production browser direct loads initialize router and render route-owned b
   expect(rest.unknown).toEqual([]);
   expect(rest.counts.get('GET /api/debug/errors')).toBeGreaterThan(0);
   expect(rest.counts.get('GET /api/events')).toBeGreaterThan(0);
-  expect(failedRequests).toEqual([]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { installOperatorRestRoutes, smokeCardId } from './fixtures/operator-rest-fixtures.js';
+import { expectedProcessList, installOperatorRestRoutes, processId, processListResponse, processOwnerId, smokeCardId } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
+import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenBeforeNavigation, waitForRuntimePair } from './fixtures/operator-preview-sync.js';
 
 const syntheticToken = 'synthetic-playwright-token';
 
@@ -12,10 +13,8 @@ test('operator control room supports analyst chat send and migrated debug panels
 
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-
-  await page.goto('/dashboard');
-  await page.evaluate((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
-  await page.reload();
+  await seedTokenBeforeNavigation(page, syntheticToken);
+  await waitForRuntimePair(page, () => page.goto('/dashboard'));
 
   await expect(page.getByRole('region', { name: 'Analyst chat' })).toBeVisible();
   await expect(page.getByText('Synthetic agent transcript.').first()).toBeVisible();
@@ -40,10 +39,10 @@ test('operator control room supports analyst chat send and migrated debug panels
   await expect(page).toHaveURL(/\/debug$/);
 
   await page.getByRole('button', { name: 'Processes' }).click();
-  await expect(page.getByText('proc-smoke', { exact: true })).toBeVisible();
-  await expect(page.getByText('npm run synthetic-smoke')).toBeVisible();
-  await expect(page.getByText('Control: Ended')).toBeVisible();
-  await expect(page.getByText('.saivage/tmp/processes/proc-smoke.stdout.log')).toBeVisible();
+  expect(processListResponse).toEqual(expectedProcessList);
+  const processCard = page.locator('.process-card').filter({ hasText: processId });
+  await expect(processCard).toHaveCount(1); await expect(processCard.locator('.process-id')).toHaveText(processId); await expect(processCard.locator('.process-status-badge')).toHaveText('exited'); await expect(processCard).toContainText('Command:npm run synthetic-smoke'); await expect(processCard).toContainText(`Session:${processOwnerId}`); await expect(processCard).toContainText(`Owner id:${processOwnerId}`); await expect(processCard).toContainText('Owner kind:agent'); await expect(processCard).toContainText('Working directory:.'); await expect(processCard).toContainText(`Card:${smokeCardId}`); await expect(processCard).toContainText(`work:///cards/${smokeCardId}/processes/${processId}/stdout.log`); await expect(processCard).toContainText(`work:///cards/${smokeCardId}/processes/${processId}/stderr.log`);
+  const endedAt = await page.evaluate((v) => new Date(v).toLocaleString([], { year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit' }), '2026-05-19T12:00:00.000Z'); await expect(processCard.locator('.pd-row').filter({hasText:'Ended:'}).locator('.pd-value')).toHaveText(endedAt);
   expect(rest.counts.get('GET /api/processes')).toBeGreaterThanOrEqual(1);
 
   await page.getByRole('button', { name: 'MCP' }).click();
@@ -67,10 +66,7 @@ test('card detail view forwards workspace context to analyst chat on send', asyn
 
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-
-  await page.goto(`/cards/${smokeCardId}`);
-  await page.evaluate((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
-  await page.reload();
+  await seedTokenBeforeNavigation(page, syntheticToken); await waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}`));
 
   await expect(page).toHaveURL(new RegExp(`/cards/${smokeCardId}$`));
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
@@ -107,17 +103,11 @@ test('Files view previews output files and renders preview safety states without
 
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-
-  await page.goto('/files');
-  await page.evaluate((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
-  await page.reload();
+  await seedTokenBeforeNavigation(page, syntheticToken); await waitForRuntimePair(page, () => page.goto('/files'));
 
   await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
   await expect(page.getByTestId('files-breadcrumbs').getByRole('button', { name: '.saivage' })).toBeVisible();
-  await page.getByRole('button', { name: 'runtime' }).click();
-  await expect(page).toHaveURL(/root=meta.*path=\.saivage\/runtime|path=\.saivage\/runtime.*root=meta/);
-  await expect(page.getByTestId('files-breadcrumbs').getByRole('button', { name: 'runtime' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'events.jsonl' })).toBeVisible();
+  await page.getByRole('button', { name: 'logs' }).click(); await expect(page).toHaveURL(/root=meta.*path=\.saivage\/logs|path=\.saivage\/logs.*root=meta/); await page.getByRole('button',{name:'app.jsonl'}).click(); await expect(page.getByTestId('files-viewer')).toContainText('.saivage/logs/app.jsonl'); await expect(page.getByTestId('files-viewer')).toContainText('operator-playwright-smoke');
 
   await page.getByRole('button', { name: 'Output' }).click();
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
@@ -149,25 +139,27 @@ test('Files view previews output files and renders preview safety states without
 
   await expect(page.getByText(syntheticToken)).toHaveCount(0);
   expect(rest.counts.get('GET /api/files')).toBeGreaterThanOrEqual(3);
-  expect(rest.counts.get('GET /api/files/content')).toBe(6);
+  expect(rest.counts.get('GET /api/files/content')).toBe(7);
   expect(rest.unknown).toEqual([]);
   expect(failedRequests).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
 
 
-test('Files view restores direct query deep links, fallback previews, root switches, and history without token leaks', async ({ page }) => {
+test('Files view restores direct query deep links, fallback previews, root switches, and history without token leaks', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('baseURL required');
+  const failures = observePreviewRequestFailures(page, baseURL);
   const pageErrors: string[] = [];
-  const failedRequests: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ""}`));
 
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-
-  await page.goto('/files?root=output&path=.saivage/work/smoke-result.json');
-  await page.evaluate((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
-  await page.reload();
+  await seedTokenBeforeNavigation(page, syntheticToken);
+  const navigate = <T>(action: () => Promise<T>) => failures.during(
+    'full-document-navigation',
+    () => waitForRuntimePair(page, action),
+  );
+  await navigate(() => page.goto('/files?root=output&path=.saivage/work/smoke-result.json'));
 
   await expect(page).toHaveURL(/root=output.*path=\.saivage\/work\/smoke-result\.json|path=\.saivage\/work\/smoke-result\.json.*root=output/);
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
@@ -176,20 +168,20 @@ test('Files view restores direct query deep links, fallback previews, root switc
   await expect(page.getByTestId('files-viewer')).toContainText('.saivage/work/smoke-result.json');
   await expect(page.getByText('synthetic output preview')).toBeVisible();
 
-  await page.goto('/files?root=output&path=.saivage/work/LICENSE');
+  await navigate(() => page.goto('/files?root=output&path=.saivage/work/LICENSE'));
   await expect(page).toHaveURL(/root=output.*path=\.saivage\/work\/LICENSE|path=\.saivage\/work\/LICENSE.*root=output/);
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'LICENSE' })).toBeVisible();
   await expect(page.getByTestId('files-viewer')).toContainText('.saivage/work/LICENSE');
   await expect(page.getByText('synthetic extensionless output preview')).toBeVisible();
 
-  await page.goto('/files?root=output&path=.saivage/work/reports');
+  await navigate(() => page.goto('/files?root=output&path=.saivage/work/reports'));
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
   await expect(page.getByTestId('files-breadcrumbs').getByRole('button', { name: 'reports' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'summary.md' })).toBeVisible();
   await expect(page.getByTestId('files-viewer')).toHaveCount(0);
 
-  await page.goto('/files?root=output&path=.saivage/work/stale/missing-log.txt');
+  await navigate(() => page.goto('/files?root=output&path=.saivage/work/stale/missing-log.txt'));
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'smoke-result.json' })).toBeVisible();
   await expect(page.getByTestId('files-viewer').locator('strong', { hasText: 'File not found' })).toBeVisible();
@@ -200,15 +192,15 @@ test('Files view restores direct query deep links, fallback previews, root switc
   await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
   await expect(page.getByTestId('files-viewer')).toHaveCount(0);
 
-  await page.goto('/files?root=meta&path=.saivage/logs');
+  await navigate(() => page.goto('/files?root=meta&path=.saivage/logs'));
   await expect(page.getByRole('button', { name: 'app.jsonl' })).toBeVisible();
   await page.getByRole('button', { name: 'Output' }).click();
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
-  await page.goBack();
+  await failures.during('full-document-navigation', () => page.goBack());
   await expect(page).toHaveURL(/root=meta.*path=\.saivage\/logs|path=\.saivage\/logs.*root=meta/);
   await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'app.jsonl' })).toBeVisible();
-  await page.goForward();
+  await failures.during('full-document-navigation', () => page.goForward());
   await expect(page).toHaveURL(/root=output.*path=\.saivage\/work|path=\.saivage\/work.*root=output/);
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
 
@@ -216,6 +208,6 @@ test('Files view restores direct query deep links, fallback previews, root switc
   expect(rest.counts.get('GET /api/files')).toBeGreaterThanOrEqual(8);
   expect(rest.counts.get('GET /api/files/content')).toBeGreaterThanOrEqual(2);
   expect(rest.unknown).toEqual([]);
-  expect(failedRequests).toEqual([]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(pageErrors).toEqual([]);
 });

@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test';
-import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
+import { parseOperatorResponse } from '../../../../src/contracts/operator-api.js';
 
 const now = '2026-05-19T12:00:00.000Z';
 export const smokeCardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -102,6 +102,10 @@ const outputRoot = {
     { name: 'huge.log', path: '.saivage/work/huge.log', type: 'file', size: 5242880, modifiedAt: now },
   ],
 };
+export const processOwnerId = '11111111-1111-4111-8111-111111111111:node:0';
+export const processId = 'proc-111111111111';
+export const expectedProcessList = { processes: [{ id: processId, status: 'exited', command: 'npm run synthetic-smoke', cwd: '.', card_id: smokeCardId, session_id: processOwnerId, owner_id: processOwnerId, owner_kind: 'agent' as const, started_at: now, ended_at: now, exit_code: 0, timed_out: false, logs: { stdout: `work:///cards/${smokeCardId}/processes/${processId}/stdout.log`, stderr: `work:///cards/${smokeCardId}/processes/${processId}/stderr.log` } }] };
+export const processListResponse = parseOperatorResponse('processes.list', expectedProcessList);
 
 function stampedText(sessionId: string, id: string, content: string) {
   return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
@@ -265,21 +269,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/processes') {
-      return json(route, { processes: [{
-        id: 'proc-smoke',
-        status: 'completed',
-        command: 'npm run synthetic-smoke',
-        cwd: '/work/saivage-e2e-checkers',
-        card_id: smokeCardId,
-        session_id: 'planner-smoke',
-        owner_id: 'planner-smoke',
-        owner_kind: 'agent',
-        started_at: now,
-        ended_at: now,
-        exit_code: 0,
-        timed_out: false,
-        logs: { stdout: 'work:///processes/proc-smoke/stdout.log', stderr: 'work:///processes/proc-smoke/stderr.log' },
-      }] });
+      return json(route, processListResponse);
     }
     if (request.method() === 'GET' && url.pathname === '/api/notifications') return json(route, { notifications: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/control-actions') return json(route, { control_actions: [], total: 0 });
@@ -312,13 +302,12 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         message_index: 1,
         block_index: 0,
         timestamp: now,
-        toolInvocations: [],
       };
       chatEntries.set(sessionId, [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.'), message]);
       return json(route, parseOperatorResponse('chats.send', {
         sessionId,
-        message,
         toolInvocations: [],
+        restart: null,
       }));
     }
 

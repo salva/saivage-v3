@@ -11,8 +11,8 @@ export default defineConfig({
   workers: 1,
   timeout: 60_000,
   expect: { timeout: 10_000 },
-  reporter: process.env.CI ? [['list'], ['html', { open: 'never', outputFolder: '../../tmp/playwright-report' }]] : 'list',
-  outputDir: '../../tmp/playwright-results',
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never', outputFolder: '../../../tmp/playwright-report/preview' }]] : 'list',
+  outputDir: '../../../tmp/playwright-results/preview',
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     trace: 'retain-on-failure',
@@ -20,7 +20,7 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: `VITE_SAIVAGE_API_TOKEN= sh -c 'cd ../../web && npm run build && npm run preview -- --host 0.0.0.0 --port ${port}'`,
+    command: `VITE_SAIVAGE_API_TOKEN= sh -c 'cd ../../../web && npm run build && npm run preview -- --host 0.0.0.0 --port ${port}'`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 120_000,
