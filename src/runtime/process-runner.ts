@@ -75,17 +75,11 @@ function delay(ms: number): Promise<void> {
 
 export class ProcessRunner {
   private readonly presentations = new Map<string, ProcessPresentation>();
-  private readonly bindings = new Map<string, { directScope: ManagedProcessScope; category: ProcessCategory }>();
   private readonly commandHashSalt = randomBytes(32);
+  readonly #registry: ManagedProcessGroupRegistry;
 
-  readonly runtimeRootScope: ManagedProcessScope;
-  readonly analystRootScope: ManagedProcessScope;
-  readonly mcpRootScope: ManagedProcessScope;
-
-  constructor(readonly projectRoot: string, readonly registry: ManagedProcessGroupRegistry) {
-    this.runtimeRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
-    this.analystRootScope = registry.createContainerScope(registry.rootScope, 'analyst-sessions');
-    this.mcpRootScope = registry.createContainerScope(registry.rootScope, 'mcp-servers');
+  constructor(readonly projectRoot: string, registry: ManagedProcessGroupRegistry) {
+    this.#registry = registry;
   }
 
   spawn(spec: ProcessSpawnSpec): ProcessRecord {
@@ -101,14 +95,14 @@ export class ProcessRunner {
     const started = Date.now();
     const presentation = this.presentations.get(procId);
     if (!presentation) return { id: procId, status: 'failed', exitCode: null, timedOut: false, waitDurationMs: Date.now() - started };
-    const settlement = this.registry.wait(procId);
+    const settlement = this.#registry.wait(procId);
     if (!settlement) {
       await presentation.streamClose;
       return this.waitResult(procId, false, started);
     }
     if (timeoutMs === 0) return this.waitResult(procId, false, started);
     const result = await Promise.race([settlement.then(() => 'settled' as const), delay(timeoutMs).then(() => 'timeout' as const)]);
-    if (result === 'timeout' && this.registry.isLive(procId)) return this.waitResult(procId, true, started);
+    if (result === 'timeout' && this.#registry.isLive(procId)) return this.waitResult(procId, true, started);
     await presentation.streamClose;
     return this.waitResult(procId, false, started);
   }
@@ -117,7 +111,7 @@ export class ProcessRunner {
     const started = Date.now();
     const presentation = this.presentations.get(procId);
     if (!presentation) return { id: procId, status: 'failed', exitCode: null, timedOut: false, waitDurationMs: 0 };
-    await this.registry.wait(procId);
+    await this.#registry.wait(procId);
     await presentation.streamClose;
     return this.waitResult(procId, false, started);
   }
@@ -125,10 +119,7 @@ export class ProcessRunner {
   async kill(procId: string, authority: { directScope: ManagedProcessScope; category: ProcessCategory; reason?: string; graceMs?: number }): Promise<ProcessRecord | null> {
     const record = this.get(procId);
     if (!record) return null;
-    if (!this.bindingMatches(procId, authority.directScope, authority.category)) {
-      throw new Error(`Managed process '${procId}' is not bound to the invoking direct scope and category.`);
-    }
-    const report = await this.registry.terminateGroup({
+    const report = await this.#registry.terminateGroup({
       groupId: procId,
       directScope: authority.directScope,
       category: authority.category,
@@ -140,28 +131,25 @@ export class ProcessRunner {
   }
 
   terminateScopeTree(input: { rootScope: ManagedProcessScope; categories: readonly ProcessCategory[]; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
-    return this.registry.terminateScopeTree(input);
+    return this.#registry.terminateScopeTree(input);
   }
 
-  terminateOwnedRoot(owner: 'runtime' | 'analyst' | 'mcp', rootScope: ManagedProcessScope, reason: string): Promise<ProcessStopReport> {
-    const expected = owner === 'runtime' ? this.runtimeRootScope : owner === 'analyst' ? this.analystRootScope : this.mcpRootScope;
-    if (rootScope !== expected) throw new Error(`Managed process root does not belong to component '${owner}'.`);
-    const category: ProcessCategory = owner === 'runtime' ? 'runtime_card' : owner === 'analyst' ? 'operator_session' : 'service_infrastructure';
-    return this.registry.terminateScopeTree({ rootScope, categories: [category], reason, graceMs: 5_000 });
+  closeAndTerminateDirectScope(input: { directScope: ManagedProcessScope; category: ProcessCategory; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
+    return this.#registry.closeAndTerminateDirectScope(input);
   }
 
-  closeLaunchAdmission(): void { this.registry.closeLaunchAdmission(); }
+  closeLaunchAdmission(): void { this.#registry.closeLaunchAdmission(); }
 
   closeScope(scope: ManagedProcessScope): void {
-    this.registry.closeScope(scope);
+    this.#registry.closeScope(scope);
   }
 
   createContainerScope(parent: ManagedProcessScope, label: string): ManagedProcessScope {
-    return this.registry.createContainerScope(parent, label);
+    return this.#registry.createContainerScope(parent, label);
   }
 
   createDirectScope(parent: ManagedProcessScope, label: string, category: ProcessCategory): ManagedProcessScope {
-    return this.registry.createDirectScope(parent, label, category);
+    return this.#registry.createDirectScope(parent, label, category);
   }
 
   list(filter?: ProcessListFilter): ProcessRecord[] {
@@ -177,11 +165,6 @@ export class ProcessRunner {
   get(procId: string): ProcessRecord | null {
     const record = this.presentations.get(procId)?.record;
     return record ? { ...record } : null;
-  }
-
-  bindingMatches(procId: string, directScope: ManagedProcessScope, category: ProcessCategory): boolean {
-    const binding = this.bindings.get(procId);
-    return binding?.directScope === directScope && binding.category === category;
   }
 
   private launch(spec: ProcessSpawnSpec, file: string, args: readonly string[], stdio: SpawnOptions['stdio'], captureOutput: boolean, childEnv: NodeJS.ProcessEnv): InteractiveProcessLaunch {
@@ -232,10 +215,9 @@ export class ProcessRunner {
     };
     const presentation: ProcessPresentation = { record, leaderOutcome: null, streams, streamClose: null };
     this.presentations.set(id, presentation);
-    this.bindings.set(id, { directScope: spec.directScope, category: spec.category });
     let child: ChildProcess;
     try {
-      child = this.registry.launch({
+      child = this.#registry.launch({
         groupId: id,
         directScope: spec.directScope,
         category: spec.category,
@@ -250,7 +232,6 @@ export class ProcessRunner {
       });
     } catch (error) {
       this.presentations.delete(id);
-      this.bindings.delete(id);
       void this.closeStreams(streams);
       throw error;
     }

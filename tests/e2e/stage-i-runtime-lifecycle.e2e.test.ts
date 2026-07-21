@@ -22,6 +22,8 @@ function tool(id: string, name: string, args: object): LlmCompleteResult { retur
 async function waitUntil(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error('condition not reached'); }
 
 function supervisor(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> }): SupervisorRuntimeApi {
+  const registry = new ManagedProcessGroupRegistry();
+  const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
   return new SupervisorRuntimeApi({
     ...testAutonomousCompaction,
     projectRoot,
@@ -30,7 +32,8 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
     provider,
     conversations: { projectRoot },
     readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
-    processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()),
+    processRunner: new ProcessRunner(projectRoot, registry),
+    runtimeProcessRootScope,
     promptTemplates: { render: () => 'test prompt' },
   });
 }

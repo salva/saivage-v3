@@ -5,17 +5,16 @@ import { join } from 'node:path';
 
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createProcessProvider } from '../../src/tools/process-provider.js';
-import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
-function executorProvider(root: string, processRunner: ProcessRunner, ownerId = 'activation-1') {
-  return createProcessProvider({ projectRoot: root, processRunner, directScope: processRunner.createDirectScope(processRunner.runtimeRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentRole: 'executor', ownerKind: 'agent' });
+function executorProvider(root: string, processes: TestProcessRunnerComposition, ownerId = 'activation-1') {
+  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentRole: 'executor', ownerKind: 'agent' });
 }
 
-function analystProvider(root: string, processRunner: ProcessRunner) {
-  return createProcessProvider({ projectRoot: root, processRunner, directScope: processRunner.createDirectScope(processRunner.analystRootScope, 'test:analyst', 'operator_session'), category: 'operator_session', ownerId: 'analyst:global', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' });
+function analystProvider(root: string, processes: TestProcessRunnerComposition) {
+  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.analystProcessRootScope, 'test:analyst', 'operator_session'), category: 'operator_session', ownerId: 'analyst:global', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' });
 }
 
 function expectUnifiedProcessResult(data: unknown, processId?: string): void {
@@ -45,7 +44,7 @@ describe('process provider', () => {
     const waitProcessCalls: string[] = [];
     const waitProcess = async <T>(processId: string, promise: Promise<T>): Promise<T> => {
       waitProcessCalls.push(processId);
-      expect(processRunner.get(processId)?.status).toBe('running');
+      expect(processRunner.processRunner.get(processId)?.status).toBe('running');
       return promise;
     };
     const context: LlmToolInvocationContext = {
@@ -106,7 +105,7 @@ describe('process provider', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         const processId = (result.data as { process_id: string }).process_id;
-        expect(processRunner.get(processId)?.cwd).toBe(expected);
+        expect(processRunner.processRunner.get(processId)?.cwd).toBe(expected);
       }
     }
   }));
@@ -130,7 +129,7 @@ describe('process provider', () => {
       const result = await invokeTool(surface, 'run_command', { command: 'exit 0', cwd });
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error).toContain(message);
-      expect(processRunner.list()).toEqual([]);
+      expect(processRunner.processRunner.list()).toEqual([]);
     }
   }));
 
@@ -202,7 +201,7 @@ describe('process provider', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     const processId = (result.data as { process_id: string }).process_id;
-    expect(processRunner.get(processId)).toEqual(expect.objectContaining({
+    expect(processRunner.processRunner.get(processId)).toEqual(expect.objectContaining({
       card_id: null,
       owner_id: 'analyst:global',
       agent_session_id: 'analyst:global',
@@ -221,7 +220,7 @@ describe('process provider', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     const processId = (result.data as { process_id: string }).process_id;
-    expect(processRunner.get(processId)).toEqual(expect.objectContaining({
+    expect(processRunner.processRunner.get(processId)).toEqual(expect.objectContaining({
       card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       owner_id: 'activation-1',
       agent_session_id: 'activation-1',
@@ -237,7 +236,7 @@ describe('process provider', () => {
     const result = await invokeTool(surface, 'run_command', { command: 'printf gated', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
-    expect(processRunner.list()).toHaveLength(1);
+    expect(processRunner.processRunner.list()).toHaveLength(1);
   }));
 
   it('does not gate operator-owned Analyst command spawn', async () => withRoot(async (root) => {
@@ -247,6 +246,6 @@ describe('process provider', () => {
     const result = await invokeTool(surface, 'run_command', { command: 'printf operator', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
-    expect(processRunner.list()).toHaveLength(1);
+    expect(processRunner.processRunner.list()).toHaveLength(1);
   }));
 });

@@ -30,12 +30,13 @@ describe('CardProcessActor configured graph execution', () => {
     const cardId = options.cardType === 'code'
       ? store.create({ type: 'code', parent: 'project', title: 'code', brief: 'code', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] }).id
       : 'project';
-    const processRunner = createTestProcessRunner(projectRoot);
+    const processes = createTestProcessRunner(projectRoot);
+    const processRunner = processes.processRunner;
     const actor = new CardProcessActor({
       projectRoot, cardId, process: options.process ?? (options.cardType === 'code' ? testAutonomousCompaction.cardProcesses.terminal : testAutonomousCompaction.cardProcesses.planning),
       store, parentControl: { activateChild: async () => { throw new Error('unused'); }, cancelChild: async () => { throw new Error('unused'); } },
       notifyCard: () => ({ ok: true, notificationId: 'unused' }), provider: { completeTurn }, conversations: { projectRoot, observeEntry: options.observeEntry },
-      processRunner, promptTemplates: { render: (_type, _role, values) => options.renderPrompt ? options.renderPrompt(values.toolList) : String(values.contractDescription) },
+      processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: { render: (_type, _role, values) => options.renderPrompt ? options.renderPrompt(values.toolList) : String(values.contractDescription) },
       runtimeProjectionChanged: options.runtimeProjectionChanged ?? (() => undefined), ...testAutonomousCompaction,
     });
     actor.start();
@@ -316,7 +317,7 @@ describe('CardProcessActor configured graph execution', () => {
       return tool(`node-${calls}`, calls === 1 ? 'implementation_ready' : 'verified');
     }, { cardType: 'code', process });
     const createScope = jest.spyOn(h.processRunner, 'createDirectScope');
-    const cleanup = jest.spyOn(h.processRunner, 'terminateScopeTree');
+    const cleanup = jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope');
     await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'done' });
     const rows = readConversation(h.projectRoot, `executor:${h.cardId}`).sourceRows;
     expect(rows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open'))).toHaveLength(2);
@@ -493,7 +494,7 @@ describe('CardProcessActor configured graph execution', () => {
       const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
       return tool('accepted', 'done');
     }, { cardType: 'code', observeEntry });
-    if (point === 'cleanup') jest.spyOn(h.processRunner, 'terminateScopeTree').mockRejectedValue(injected);
+    if (point === 'cleanup') jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope').mockRejectedValue(injected);
     const outcome = await h.actor.activate(h.input(), new AbortController().signal);
     expect(outcome).toMatchObject({ status: 'failed', summary: expect.stringContaining(point === 'accepted settlement' ? 'post-publication observation failed' : injected.message) });
     expect(h.claimResult).toHaveBeenCalledTimes(1);
@@ -520,8 +521,8 @@ describe('CardProcessActor configured graph execution', () => {
       const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'verification'); return tool('verified', 'verified');
     }, { cardType: 'code', process: compileCardProcesses(source).terminal });
     const createScope = jest.spyOn(h.processRunner, 'createDirectScope');
-    const terminate = h.processRunner.terminateScopeTree.bind(h.processRunner);
-    jest.spyOn(h.processRunner, 'terminateScopeTree').mockImplementation(async (args) => { events.push(`cleanup:${events.length}`); return terminate(args); });
+    const terminate = h.processRunner.closeAndTerminateDirectScope.bind(h.processRunner);
+    jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope').mockImplementation(async (args) => { events.push(`cleanup:${events.length}`); return terminate(args); });
     const outcome = await h.actor.activate(h.input(), new AbortController().signal);
     expect(outcome).toMatchObject({ status: 'done' });
     expect(calls).toBe(3);
@@ -548,8 +549,8 @@ describe('CardProcessActor configured graph execution', () => {
     }, { cardType: 'code', process: compileCardProcesses(source).terminal, observeEntry, onClaim: () => events.push('claim') });
     const close = h.store.closeRecord.bind(h.store);
     jest.spyOn(h.store, 'closeRecord').mockImplementation((...args) => { events.push(`close:${calls}`); return close(...args); });
-    const terminate = h.processRunner.terminateScopeTree.bind(h.processRunner);
-    jest.spyOn(h.processRunner, 'terminateScopeTree').mockImplementation(async (args) => { events.push(`cleanup:${calls}`); return terminate(args); });
+    const terminate = h.processRunner.closeAndTerminateDirectScope.bind(h.processRunner);
+    jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope').mockImplementation(async (args) => { events.push(`cleanup:${calls}`); return terminate(args); });
     const outcome = await h.actor.activate(h.input(), new AbortController().signal);
     events.push(`publication:${outcome.status}`);
     expect(events).toEqual(['close:1', 'settle:1', 'cleanup:1', 'claim', 'close:2', 'settle:2', 'cleanup:2', 'publication:done']);

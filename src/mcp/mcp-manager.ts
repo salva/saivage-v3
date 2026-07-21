@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { EventLog } from '../observability/index.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
+import type { ManagedProcessScope, ProcessStopReport } from '../runtime/managed-process-group-registry.js';
 import { ServerNotRunningError } from './errors.js';
 import { McpInvocationStatsRecorder } from './invocation-stats.js';
 import { type McpServerStatus, type McpToolDefinition } from './protocol.js';
@@ -26,7 +27,7 @@ export interface McpReconciliationReport {
   pending: Array<{ name: string; operation: 'add' | 'remove' | 'replace' | 'start' | 'stop'; diagnostic: string }>;
 }
 export interface McpReconciliationPort { reconcilePersistedConfig(): Promise<McpReconciliationReport> }
-export interface McpManagerOptions { configAuthority: ResolvedConfigAuthority; processRunner: ProcessRunner; eventLogger: EventLog }
+export interface McpManagerOptions { configAuthority: ResolvedConfigAuthority; processRunner: ProcessRunner; mcpProcessRootScope: ManagedProcessScope; eventLogger: EventLog }
 
 interface DesiredServer { name: string; config: McpServerConfig; revision: string; shouldRun: boolean }
 
@@ -41,15 +42,21 @@ function revisionOf(config: McpServerConfig): string {
 }
 
 export class McpManager implements McpReconciliationPort {
-  private readonly runtimes = new Map<string, McpServerRuntime>();
+  readonly #processRunner: ProcessRunner;
+  readonly #mcpProcessRootScope: ManagedProcessScope;
+  readonly #runtimes = new Map<string, McpServerRuntime>();
+  private readonly configAuthority: ResolvedConfigAuthority;
   private nextMsgId = 1;
   private readonly invocationStats: McpInvocationStatsRecorder;
   private reconciliationTail: Promise<void> = Promise.resolve();
   private currentReconciliation: Promise<McpReconciliationReport> | null = null;
   private admissionOpen = true;
 
-  constructor(private readonly options: McpManagerOptions) {
-    this.invocationStats = new McpInvocationStatsRecorder(options.eventLogger);
+  constructor({ configAuthority, processRunner, mcpProcessRootScope, eventLogger }: McpManagerOptions) {
+    this.configAuthority = configAuthority;
+    this.#processRunner = processRunner;
+    this.#mcpProcessRootScope = mcpProcessRootScope;
+    this.invocationStats = new McpInvocationStatsRecorder(eventLogger);
   }
 
   next(): number { return this.nextMsgId++; }
@@ -64,35 +71,42 @@ export class McpManager implements McpReconciliationPort {
     return run;
   }
 
-  closeAdmission(): void { this.admissionOpen = false; }
+  closeAdmission(): void {
+    if (!this.admissionOpen) return;
+    this.admissionOpen = false;
+    const runtimes = [...this.#runtimes.values()];
+    for (const runtime of runtimes) runtime.closeAdmission();
+  }
 
   async cleanupForApplicationStop(): Promise<void> {
     this.closeAdmission();
-    for (const runtime of this.runtimes.values()) runtime.closeAdmission();
+    const runtimes = [...this.#runtimes.values()];
+    const directContainments = runtimes.map((runtime) => runtime.closeAdmission());
     let termination: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
-    try { termination = this.options.processRunner.terminateOwnedRoot('mcp', this.options.processRunner.mcpRootScope, 'application stopping'); }
+    try { termination = this.#processRunner.terminateScopeTree({ rootScope: this.#mcpProcessRootScope, categories: ['service_infrastructure'], reason: 'application stopping', graceMs: 5000 }); }
     catch (error) { termination = Promise.reject(error); }
     const reconciliation = this.currentReconciliation ?? Promise.resolve();
-    const settlements = await Promise.allSettled([termination, reconciliation]);
-    const terminationSettlement = settlements[0]!;
+    const settlements = await Promise.allSettled([...directContainments, termination, reconciliation]);
+    const terminationSettlement = settlements[directContainments.length]! as PromiseSettledResult<ProcessStopReport>;
     if (terminationSettlement.status === 'rejected') throw terminationSettlement.reason;
     if (settlements.some((settlement) => settlement.status === 'rejected') || terminationSettlement.value.failed.length !== 0) throw new Error('MCP application cleanup failed.');
-    this.runtimes.clear();
+    this.#runtimes.clear();
   }
 
-  getStatus(): McpServerStatus[] { return [...this.runtimes.values()].map((runtime) => runtime.getStatus()); }
-  getServerStatus(name: string): McpServerStatus | undefined { return this.runtimes.get(name)?.getStatus(); }
-  getTools(): McpToolDefinition[] { return [...this.runtimes.values()].flatMap((runtime) => runtime.getTools() ?? []); }
-  getServerTools(name: string): McpToolDefinition[] | undefined { return this.runtimes.get(name)?.getTools(); }
-  getToolServers(): string[] { return [...this.runtimes.values()].filter((runtime) => runtime.getTools() !== undefined).map((runtime) => runtime.name); }
+  getStatus(): McpServerStatus[] { return [...this.#runtimes.values()].map((runtime) => runtime.getStatus()); }
+  getServerStatus(name: string): McpServerStatus | undefined { return this.#runtimes.get(name)?.getStatus(); }
+  getTools(): McpToolDefinition[] { return [...this.#runtimes.values()].flatMap((runtime) => runtime.getTools() ?? []); }
+  getServerTools(name: string): McpToolDefinition[] | undefined { return this.#runtimes.get(name)?.getTools(); }
+  getToolServers(): string[] { return [...this.#runtimes.values()].filter((runtime) => runtime.getTools() !== undefined).map((runtime) => runtime.name); }
 
   async invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> {
-    const runtime = this.runtimes.get(serverName);
+    if (!this.admissionOpen) throw new ServerNotRunningError(serverName);
+    const runtime = this.#runtimes.get(serverName);
     if (!runtime) throw new ServerNotRunningError(serverName);
     return runtime.invokeTool(toolName, args, options);
   }
 
-  async healthCheck(name: string): Promise<boolean> { return this.runtimes.get(name)?.healthCheck() ?? false; }
+  async healthCheck(name: string): Promise<boolean> { return this.#runtimes.get(name)?.healthCheck() ?? false; }
 
   getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel> {
     return buildMcpToolsReadModel({ tools: this.getTools(), servers: this.getToolServers(), statuses: this.getStatus(), getServerTools: (name) => this.getServerTools(name), invocationStats: this.getInvocationStats() });
@@ -105,10 +119,10 @@ export class McpManager implements McpReconciliationPort {
 
   private async reconcileTurn(): Promise<McpReconciliationReport> {
     if (!this.admissionOpen) throw new Error('MCP reconciliation admission is closed.');
-    const configs = loadMcpServersFromConfig(this.options.configAuthority.loadEffective().config);
+    const configs = loadMcpServersFromConfig(this.configAuthority.loadEffective().config);
     const desired = Object.entries(configs).map(([name, config]): DesiredServer => ({ name, config, revision: revisionOf(config), shouldRun: !config.disabled && config.autostart })).sort((a, b) => a.name.localeCompare(b.name));
     const desiredByName = new Map(desired.map((entry) => [entry.name, entry]));
-    const destructive = [...this.runtimes.values()].filter((runtime) => {
+    const destructive = [...this.#runtimes.values()].filter((runtime) => {
       const target = desiredByName.get(runtime.name);
       return !target || target.revision !== runtime.revision;
     });
@@ -116,7 +130,7 @@ export class McpManager implements McpReconciliationPort {
       return {
         converged: false,
         desired: desired.map(({ name, revision, shouldRun }) => ({ name, revision, shouldRun })),
-        active: [...this.runtimes.values()].sort((a, b) => a.name.localeCompare(b.name)).map((runtime) => ({ name: runtime.name, revision: runtime.revision, state: runtime.isRunning() ? 'running' : 'stopped' })),
+        active: [...this.#runtimes.values()].sort((a, b) => a.name.localeCompare(b.name)).map((runtime) => ({ name: runtime.name, revision: runtime.revision, state: runtime.isRunning() ? 'running' : 'stopped' })),
         pending: destructive.sort((a, b) => a.name.localeCompare(b.name)).map((runtime) => ({
           name: runtime.name,
           operation: desiredByName.has(runtime.name) ? 'replace' as const : 'remove' as const,
@@ -132,18 +146,18 @@ export class McpManager implements McpReconciliationPort {
       const operation = target ? 'replace' : 'remove';
       try { await runtime.stop(); }
       catch { pending.push({ name: runtime.name, operation, diagnostic: `MCP server '${runtime.name}' could not be contained.` }); continue; }
-      this.runtimes.delete(runtime.name);
+      this.#runtimes.delete(runtime.name);
       if (target) replacedNames.add(runtime.name);
     }
 
     for (const target of desired) {
-      let runtime = this.runtimes.get(target.name);
+      let runtime = this.#runtimes.get(target.name);
       if (runtime && runtime.revision !== target.revision) continue;
       let startOperation: 'add' | 'replace' | 'start' = 'start';
       if (!runtime) {
         this.assertAdmission();
         runtime = this.createRuntime(target);
-        this.runtimes.set(target.name, runtime);
+        this.#runtimes.set(target.name, runtime);
         startOperation = replacedNames.has(target.name) ? 'replace' : 'add';
       }
       if (!target.shouldRun) {
@@ -157,7 +171,7 @@ export class McpManager implements McpReconciliationPort {
       if (runtime.isContained()) {
         this.assertAdmission();
         runtime = this.createRuntime(target);
-        this.runtimes.set(target.name, runtime);
+        this.#runtimes.set(target.name, runtime);
       } else if (runtime.isRunning()) {
         pending.push({ name: target.name, operation: 'start', diagnostic: `MCP server '${target.name}' has not completed startup.` });
         continue;
@@ -172,11 +186,11 @@ export class McpManager implements McpReconciliationPort {
     const report: McpReconciliationReport = {
       converged: false,
       desired: desired.map(({ name, revision, shouldRun }) => ({ name, revision, shouldRun })),
-      active: [...this.runtimes.values()].sort((a, b) => a.name.localeCompare(b.name)).map((runtime) => ({ name: runtime.name, revision: runtime.revision, state: runtime.isRunning() ? 'running' : 'stopped' })),
+      active: [...this.#runtimes.values()].sort((a, b) => a.name.localeCompare(b.name)).map((runtime) => ({ name: runtime.name, revision: runtime.revision, state: runtime.isRunning() ? 'running' : 'stopped' })),
       pending,
     };
     report.converged = pending.length === 0 && report.desired.every((target) => {
-      const runtime = this.runtimes.get(target.name);
+      const runtime = this.#runtimes.get(target.name);
       return runtime?.revision === target.revision && (target.shouldRun ? runtime.isReady() : !runtime.isRunning());
     }) && report.active.every((runtime) => desiredByName.has(runtime.name));
     return report;
@@ -187,8 +201,8 @@ export class McpManager implements McpReconciliationPort {
       name: target.name,
       config: target.config,
       revision: target.revision,
-      processRunner: this.options.processRunner,
-      processScope: this.options.processRunner.createDirectScope(this.options.processRunner.mcpRootScope, `mcp-server:${target.name}:${target.revision}`, 'service_infrastructure'),
+      processRunner: this.#processRunner,
+      processScope: this.#processRunner.createDirectScope(this.#mcpProcessRootScope, `mcp-server:${target.name}:${target.revision}`, 'service_infrastructure'),
       ids: this,
       invocationStats: this.invocationStats,
     });

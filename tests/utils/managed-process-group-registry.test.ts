@@ -6,6 +6,7 @@ import {
   type ManagedProcessPlatform,
   type ManagedProcessScope,
   type ProcessCategory,
+  type ProcessStopReport,
 } from '../../src/runtime/managed-process-group-registry.js';
 
 function errno(code: string): NodeJS.ErrnoException {
@@ -37,7 +38,7 @@ function launch(registry: ManagedProcessGroupRegistry, directScope: ManagedProce
 }
 
 describe('ManagedProcessGroupRegistry capabilities and process-group truth', () => {
-  it('rejects forged, sibling, container-as-direct, closed, and category-mismatched capabilities before spawn', async () => {
+  it('rejects forged, sibling, container-as-direct, retired, and category-mismatched capabilities before spawn', async () => {
     const { registry, spawnCount } = harness();
     const container = registry.createContainerScope(registry.rootScope, 'same-label');
     const first = registry.createDirectScope(container, 'duplicate', 'runtime_card');
@@ -47,7 +48,7 @@ describe('ManagedProcessGroupRegistry capabilities and process-group truth', () 
     expect(() => launch(registry, container)).toThrow('not a direct');
     expect(() => launch(registry, first, 'operator_session')).toThrow('does not authorize');
     registry.closeScope(first);
-    expect(() => launch(registry, first)).toThrow('closed');
+    expect(() => launch(registry, first)).toThrow('not allocated');
     expect(spawnCount()).toBe(0);
 
     launch(registry, sibling);
@@ -62,6 +63,16 @@ describe('ManagedProcessGroupRegistry capabilities and process-group truth', () 
     const report = await registry.terminateScopeTree({ rootScope: registry.rootScope, categories: ['runtime_card'], reason: 'done', graceMs: 1 });
     expect(report).toEqual({ selected: ['group-1'], stopped: ['group-1'], failed: [] });
     expect(registry.isLive('group-1')).toBe(false);
+  });
+
+  it('retires an empty direct scope synchronously when close-and-contain begins', async () => {
+    const { registry } = harness();
+    const scope = registry.createDirectScope(registry.rootScope, 'direct', 'runtime_card');
+
+    const report = registry.closeAndTerminateDirectScope({ directScope: scope, category: 'runtime_card', reason: 'done' });
+
+    expect(() => registry.closeScope(scope)).toThrow('not allocated');
+    await expect(report).resolves.toEqual({ selected: [], stopped: [], failed: [] });
   });
 
   it('an ambiguous pre-TERM probe permanently forbids later probes and signals', async () => {
@@ -146,11 +157,52 @@ describe('ManagedProcessGroupRegistry capabilities and process-group truth', () 
     expect(projectReport.failed).toEqual([]);
     expect(appReport.failed).toEqual([]);
     expect(operations.filter((entry) => entry.includes('5000:SIGTERM'))).toHaveLength(2);
-    expect(operations.filter((entry) => entry.includes('5000:SIGKILL'))).toHaveLength(2);
+    expect(operations.filter((entry) => entry.includes('5000:SIGKILL'))).toHaveLength(1);
     expect(operations.filter((entry) => entry === 'removed:runtime-group')).toHaveLength(1);
     expect(registry.isLive('runtime-group')).toBe(false);
     expect(registry.isLive('analyst-group')).toBe(true);
     expect(registry.isLive('mcp-group')).toBe(true);
     expect(operations.some((entry) => entry.startsWith('signal:5001:') || entry.startsWith('signal:5002:'))).toBe(false);
+  });
+
+  it('settles overlapping direct and root containment after same-record repeated ESRCH and retires only the closed direct scope', async () => {
+    const operations: string[] = [];
+    const onAbsent = jest.fn();
+    const child = Object.assign(new EventEmitter(), { pid: 7000, kill: jest.fn() }) as unknown as ChildProcess;
+    let registry!: ManagedProcessGroupRegistry;
+    let runtimeRoot!: ManagedProcessScope;
+    let rootContainment: Promise<ProcessStopReport> | undefined;
+    let probeCount = 0;
+    const platform: ManagedProcessPlatform = {
+      spawn: () => child,
+      probe: () => {
+        probeCount += 1;
+        operations.push(`probe:${probeCount}`);
+        if (probeCount > 1) throw errno('ESRCH');
+      },
+      signal: (_pgid, signal) => {
+        operations.push(`signal:${signal}`);
+        rootContainment = registry.terminateScopeTree({ rootScope: runtimeRoot, categories: ['runtime_card'], reason: 'root stop', graceMs: 1 });
+        throw errno('ESRCH');
+      },
+    };
+    registry = new ManagedProcessGroupRegistry(platform);
+    runtimeRoot = registry.createContainerScope(registry.rootScope, 'runtime');
+    const directScope = registry.createDirectScope(runtimeRoot, 'card', 'runtime_card');
+    const siblingScope = registry.createDirectScope(runtimeRoot, 'sibling', 'runtime_card');
+    registry.launch({ groupId: 'group-1', directScope, category: 'runtime_card', file: 'ignored', args: [], options: {}, onAbsent });
+    const settlement = registry.wait('group-1')!;
+
+    const directContainment = registry.closeAndTerminateDirectScope({ directScope, category: 'runtime_card', reason: 'direct stop', graceMs: 1 });
+    const [directReport, rootReport] = await Promise.all([directContainment, rootContainment!]);
+    await expect(settlement).resolves.toBeUndefined();
+
+    expect(directReport).toEqual({ selected: ['group-1'], stopped: ['group-1'], failed: [] });
+    expect(rootReport).toEqual({ selected: ['group-1'], stopped: ['group-1'], failed: [] });
+    expect(onAbsent).toHaveBeenCalledTimes(1);
+    expect(registry.isLive('group-1')).toBe(false);
+    expect(() => registry.closeScope(directScope)).toThrow('not allocated');
+    expect(() => registry.closeScope(siblingScope)).not.toThrow();
+    expect(operations).toEqual(['probe:1', 'signal:SIGTERM', 'probe:2']);
   });
 });

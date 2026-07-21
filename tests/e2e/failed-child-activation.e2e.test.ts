@@ -32,13 +32,16 @@ type RuntimeOwnership = {
   activationOwners: Map<string, { readonly cardId: string }>;
 };
 
-function runtime(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>; projectProviderExchanges?: (sessionId: string, inputId: string, attempts: ProviderExchangeAttempt[], outputIds: string[]) => void }, processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry())): SupervisorRuntimeApi {
+function runtime(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>; projectProviderExchanges?: (sessionId: string, inputId: string, attempts: ProviderExchangeAttempt[], outputIds: string[]) => void }, processes?: { processRunner: ProcessRunner; runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope }): SupervisorRuntimeApi {
+  const registry = processes ? null : new ManagedProcessGroupRegistry();
+  const processRunner = processes?.processRunner ?? new ProcessRunner(projectRoot, registry!);
+  const runtimeProcessRootScope = processes?.runtimeProcessRootScope ?? registry!.createContainerScope(registry!.rootScope, 'runtime-cards');
   return new SupervisorRuntimeApi({
     ...testAutonomousCompaction,
     projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
     conversations: { projectRoot },
     readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
-    processRunner, promptTemplates: { render: () => 'test prompt' },
+    processRunner, runtimeProcessRootScope, promptTemplates: { render: () => 'test prompt' },
   });
 }
 
@@ -234,10 +237,10 @@ describe('failed child activation lifecycle E2E', () => {
     const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', brief: 'Fail cleanup', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     const initialVersion = cards.read(child.id)!.version_seq;
-    const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
-    jest.spyOn(processRunner, 'terminateScopeTree').mockImplementation(async ({ rootScope }) => rootScope === processRunner.runtimeRootScope
-      ? { selected: [], stopped: [], failed: [] }
-      : { selected: ['cleanup'], stopped: [], failed: [{ groupId: 'cleanup', state: 'unconfirmed', diagnostic: 'cleanup exploded' }] });
+    const registry = new ManagedProcessGroupRegistry();
+    const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
+    const processRunner = new ProcessRunner(projectRoot, registry);
+    jest.spyOn(processRunner, 'closeAndTerminateDirectScope').mockResolvedValue({ selected: ['cleanup'], stopped: [], failed: [{ groupId: 'cleanup', state: 'unconfirmed', diagnostic: 'cleanup exploded' }] });
     let executorCalls = 0;
     let plannerCalls = 0;
     const provider = { completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
@@ -252,7 +255,7 @@ describe('failed child activation lifecycle E2E', () => {
         : tool('accepted', 'emit_result', { outcome: 'done', summary: 'Accepted before cleanup.' }));
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     }) };
-    const supervisor = runtime(projectRoot, cards, provider, processRunner);
+    const supervisor = runtime(projectRoot, cards, provider, { processRunner, runtimeProcessRootScope });
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');
     supervisor.launchStartedProject(prepared.launch);

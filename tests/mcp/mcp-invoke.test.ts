@@ -26,7 +26,9 @@ function writeConfig(projectRoot: string, mcpServers: Record<string, unknown>): 
 }
 
 function manager(projectRoot: string): McpManager {
-  const value = new McpManager({ configAuthority: testConfigAuthority(projectRoot), processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), eventLogger: { appendEvent() {} } as any });
+  const registry = new ManagedProcessGroupRegistry();
+  const mcpProcessRootScope = registry.createContainerScope(registry.rootScope, 'mcp-servers');
+  const value = new McpManager({ configAuthority: testConfigAuthority(projectRoot), processRunner: new ProcessRunner(projectRoot, registry), mcpProcessRootScope, eventLogger: { appendEvent() {} } as any });
   managers.push(value);
   return value;
 }

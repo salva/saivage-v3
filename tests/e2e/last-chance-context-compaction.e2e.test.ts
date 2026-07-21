@@ -81,7 +81,10 @@ describe('ordinary-runtime last-chance context compaction E2E', () => {
     const readModelChanges = new ReadModelChangeBroadcaster();
     const appLogs = { projectRoot };
     const cards = new CardService(projectRoot, eventBus, readModelChanges);
-    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs), appLogs, cardStore: cards, readModelChanges, processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), mcpToolInvocation: testAutonomousCompaction.mcpToolInvocation });
+    const processRegistry = new ManagedProcessGroupRegistry();
+    const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
+    const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst-sessions');
+    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs), appLogs, cardStore: cards, readModelChanges, processRunner: new ProcessRunner(projectRoot, processRegistry), runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: testAutonomousCompaction.mcpToolInvocation });
 
     await application.runtimeApi.start();
     await application.runtimeApi.startProject();

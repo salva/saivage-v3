@@ -7,6 +7,7 @@ import type { InvocationService } from '../agents/invocation-service.js';
 import type { AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
+import type { ManagedProcessScope } from '../runtime/managed-process-group-registry.js';
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
@@ -34,6 +35,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   compactor: CompactorPort;
   summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner;
+  runtimeProcessRootScope: ManagedProcessScope;
   runtimeGate?: RuntimeGate;
   mcpToolInvocation: McpToolInvocationPort;
   now?: () => string;
@@ -53,6 +55,7 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     compactionConfig: deps.compactionPolicy,
     summarizerProvider: deps.summarizerProvider,
     processRunner: deps.processRunner,
+    runtimeProcessRootScope: deps.runtimeProcessRootScope,
     promptTemplates: deps.promptTemplates,
     cardProcesses: deps.cardProcesses,
     processPrompts: deps.processPrompts,

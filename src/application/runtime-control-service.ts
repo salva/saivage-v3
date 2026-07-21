@@ -30,48 +30,45 @@ export interface RuntimeControlMechanics extends Omit<RuntimeApi, 'pause' | 'res
 }
 
 export class RuntimeControlService implements RuntimeApi {
-  constructor(private readonly options: {
-    mechanics?: RuntimeControlMechanics;
-  }) {}
+  readonly #mechanics: RuntimeControlMechanics;
 
-  start(): Promise<void> {
-    return this.requireMechanics().start();
+  constructor(mechanics: RuntimeControlMechanics) {
+    this.#mechanics = mechanics;
   }
 
-  closeApplicationAdmission(): void { this.requireMechanics().closeApplicationAdmission(); }
-  cleanupForApplicationStop(): Promise<void> { return this.requireMechanics().cleanupForApplicationStop(); }
+  start(): Promise<void> {
+    return this.#mechanics.start();
+  }
+
+  closeApplicationAdmission(): void { this.#mechanics.closeApplicationAdmission(); }
+  cleanupForApplicationStop(): Promise<void> { return this.#mechanics.cleanupForApplicationStop(); }
 
   async startProject(): Promise<StartProjectResult> {
-    const prepared = await this.requireMechanics().beginStartProject();
+    const prepared = await this.#mechanics.beginStartProject();
     if (!prepared.accepted) {
       return prepared.result;
     }
-    const runtime = this.requireMechanics().launchStartedProject(prepared.launch);
+    const runtime = this.#mechanics.launchStartedProject(prepared.launch);
     const result: StartProjectResult = { runtime, status: runtime.status, started: true, stopped: false };
     return result;
   }
 
   pause(): void {
-    this.requireMechanics().pause();
+    this.#mechanics.pause();
   }
 
   resume(): void {
-    this.requireMechanics().resume();
+    this.#mechanics.resume();
   }
 
   async stopProject(): Promise<StopProjectResult> {
-    return this.requireMechanics().stopProject();
+    return this.#mechanics.stopProject();
   }
 
-  notifyCard(cardId: string, notification: CardNotification) { return this.requireMechanics().notifyCard(cardId, notification); }
-  cancelCard(cardId: string, reason: string) { return this.requireMechanics().cancelCard(cardId, reason); }
-  subscribe(options: Parameters<RuntimeApi['subscribe']>[0]) { return this.requireMechanics().subscribe(options); }
-  getStatus() { return this.requireMechanics().getStatus(); }
-  getRuntimeState() { return this.requireMechanics().getRuntimeState(); }
-  getActorRuntimeReadModel() { return this.requireMechanics().getActorRuntimeReadModel(); }
-
-  private requireMechanics(): RuntimeControlMechanics {
-    if (!this.options.mechanics) throw new Error('Serving runtime mechanics are unavailable.');
-    return this.options.mechanics;
-  }
+  notifyCard(cardId: string, notification: CardNotification) { return this.#mechanics.notifyCard(cardId, notification); }
+  cancelCard(cardId: string, reason: string) { return this.#mechanics.cancelCard(cardId, reason); }
+  subscribe(options: Parameters<RuntimeApi['subscribe']>[0]) { return this.#mechanics.subscribe(options); }
+  getStatus() { return this.#mechanics.getStatus(); }
+  getRuntimeState() { return this.#mechanics.getRuntimeState(); }
+  getActorRuntimeReadModel() { return this.#mechanics.getActorRuntimeReadModel(); }
 }

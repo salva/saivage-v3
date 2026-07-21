@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
+import type { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { CardService } from '../../src/cards/card-service.js';
@@ -25,6 +25,7 @@ import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import type { ConversationEntryObservation } from '../../src/persistence/conversation-file.js';
 import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-adapter.js';
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
+import { createTestAnalystRuntime } from '../helpers/test-analyst-runtime.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -475,19 +476,34 @@ function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Pr
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-compaction-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
-  const runner = createTestProcessRunner(projectRoot);
+  const processes = createTestProcessRunner(projectRoot);
   const eventBus = new EventBus();
   const config = saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 20480, summarizer_candidate: { provider: 'test', account: null, model: 'model' } }, card_processes: DEFAULT_CARD_PROCESSES });
   const { enabled: _enabled, summarizer_candidate: _candidate, ...compactionPolicy } = config.compaction;
   const summarizerProvider = { completeTurn: summary, projectProviderExchanges: jest.fn() };
   const scheduleRestart = jest.fn();
-  const runtime = new AnalystRuntime({ projectRoot, config, runtimeDeps: {
-    configAuthority: {}, cardStore: new CardService(projectRoot), runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard: jest.fn(), notifyCard: jest.fn(), getStatus: jest.fn() },
-    eventBus, provider: { completeTurn: primary, projectProviderExchanges }, processRunner: runner, analystProcessRootScope: runner.analystRootScope, mcpToolInvocation: unusedMcpToolInvocation,
-    compactionPolicy, compactor: { shouldCompact: preventive ? (compactImplementation === compact ? shouldCompact : () => true) : () => false, compact: compactImplementation }, summarizerProvider,
-    conversations: { projectRoot, observeEntry }, appLogs: testAppLogs(projectRoot), interventionReadiness: new RuntimeInterventionBinding(),
-    runtimeProjectionChanged: jest.fn(), captureExecutingLlmSnapshots: () => [],
-  } as never, promptTemplates, restartServerAvailable, restartPort: restartServerAvailable ? { schedule: scheduleRestart, acknowledge: jest.fn(async () => undefined) } : undefined });
+  const { runtime } = createTestAnalystRuntime({
+    projectRoot,
+    config,
+    promptTemplates,
+    processes,
+    configAuthority: {} as never,
+    cardStore: new CardService(projectRoot),
+    runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard: jest.fn(), notifyCard: jest.fn(), getStatus: jest.fn() },
+    eventBus,
+    provider: { completeTurn: primary, projectProviderExchanges },
+    mcpToolInvocation: unusedMcpToolInvocation,
+    compactionPolicy,
+    compactor: { shouldCompact: preventive ? (compactImplementation === compact ? shouldCompact : () => true) : () => false, compact: compactImplementation },
+    summarizerProvider,
+    conversations: { projectRoot, observeEntry },
+    appLogs: testAppLogs(projectRoot),
+    interventionReadiness: new RuntimeInterventionBinding(),
+    runtimeProjectionChanged: jest.fn(),
+    captureExecutingLlmSnapshots: () => [],
+    restartServerAvailable,
+    ...(restartServerAvailable ? { restartPort: { schedule: scheduleRestart, acknowledge: jest.fn(async () => undefined) } } : {}),
+  });
   return { runtime, projectRoot, summarizerProvider, scheduleRestart };
 }
 

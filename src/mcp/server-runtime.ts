@@ -23,6 +23,14 @@ export interface McpServerRuntimeOptions {
 function abortError(): Error { return new DOMException('MCP runtime operation was aborted', 'AbortError'); }
 
 export class McpServerRuntime {
+  readonly #processRunner: ProcessRunner;
+  readonly #processScope: ManagedProcessScope;
+  readonly #ids: McpJsonRpcIdProvider;
+  readonly #invocationStats: McpInvocationStatsRecorder;
+  readonly #name: string;
+  readonly #config: McpServerConfig;
+  readonly #revision: string;
+  #directContainment?: Promise<void>;
   private handle?: McpServerHandle;
   private statusOverride?: { status: McpStatus; error?: string };
   private startedAt?: string;
@@ -36,11 +44,19 @@ export class McpServerRuntime {
   private readonly controllers = new Set<AbortController>();
   private readonly operations = new Set<Promise<void>>();
 
-  constructor(private readonly options: McpServerRuntimeOptions) {}
+  constructor({ name, config, revision, processRunner, processScope, ids, invocationStats }: McpServerRuntimeOptions) {
+    this.#name = name;
+    this.#config = config;
+    this.#revision = revision;
+    this.#processRunner = processRunner;
+    this.#processScope = processScope;
+    this.#ids = ids;
+    this.#invocationStats = invocationStats;
+  }
 
-  get name(): string { return this.options.name; }
-  get config(): McpServerConfig { return this.options.config; }
-  get revision(): string { return this.options.revision; }
+  get name(): string { return this.#name; }
+  get config(): McpServerConfig { return this.#config; }
+  get revision(): string { return this.#revision; }
   isReady(): boolean { return this.ready; }
   isContained(): boolean { return this.contained; }
 
@@ -60,26 +76,36 @@ export class McpServerRuntime {
     });
   }
 
-  closeAdmission(): void {
-    if (!this.admissionOpen) return;
+  closeAdmission(): Promise<void> {
+    if (this.#directContainment) return this.#directContainment;
     this.admissionOpen = false;
     this.generation += 1;
-    this.options.processRunner.closeScope(this.options.processScope);
+    let containment: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
+    try {
+      containment = this.#processRunner.closeAndTerminateDirectScope({
+        directScope: this.#processScope,
+        category: 'service_infrastructure',
+        reason: `MCP server '${this.name}' stopped`,
+      });
+    } catch (error) {
+      containment = Promise.reject(error);
+    }
+    const directContainment = containment.then((report) => {
+      if (report.failed.length > 0) throw new Error(`MCP server '${this.name}' process containment failed.`);
+    });
+    this.#directContainment = directContainment;
+    void directContainment.catch(() => undefined);
     for (const controller of this.controllers) controller.abort();
+    return directContainment;
   }
 
   async stop(): Promise<void> {
     if (this.contained) return;
-    this.closeAdmission();
-    await Promise.allSettled([...this.operations]);
-    const report = await this.options.processRunner.terminateScopeTree({
-      rootScope: this.options.processScope,
-      categories: ['service_infrastructure'],
-      reason: `MCP server '${this.name}' stopped`,
-    });
-    if (report.failed.length > 0) {
-      throw new Error(`MCP server '${this.name}' process containment failed.`);
-    }
+    const directContainment = this.closeAdmission();
+    const operations = [...this.operations];
+    const settlements = await Promise.allSettled([...operations, directContainment]);
+    const directSettlement = settlements[settlements.length - 1]!;
+    if (directSettlement.status === 'rejected') throw directSettlement.reason;
     this.handle?.abortController?.abort();
     this.handle = undefined;
     this.statusOverride = { status: 'stopped' };
@@ -96,7 +122,7 @@ export class McpServerRuntime {
       const handle = this.handle;
       if (!handle || !this.ready) throw new ServerNotRunningError(this.name);
       if (cfg.transport === 'stdio') {
-        if (!handle.process || !handle.processId || this.options.processRunner.get(handle.processId)?.status !== 'running') throw new ServerNotRunningError(this.name);
+        if (!handle.process || !handle.processId || this.#processRunner.get(handle.processId)?.status !== 'running') throw new ServerNotRunningError(this.name);
       } else if (!handle.abortController || handle.abortController.signal.aborted) throw new ServerNotRunningError(this.name);
 
       const toolDefinition = this.tools?.find((tool) => tool.name === toolName);
@@ -106,19 +132,19 @@ export class McpServerRuntime {
       const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
       try {
         const result = cfg.transport === 'stdio'
-          ? await this.enqueueStdioInvocation(() => { this.assertCurrent(generation, signal); return invokeStdioTool({ serverName: this.name, toolName, args, config: cfg, handle, timeoutMs, ids: this.options.ids, signal }); })
-          : await invokeStreamableHttpTool({ serverName: this.name, toolName, args, config: cfg, handle, timeoutMs, ids: this.options.ids, signal });
+          ? await this.enqueueStdioInvocation(() => { this.assertCurrent(generation, signal); return invokeStdioTool({ serverName: this.name, toolName, args, config: cfg, handle, timeoutMs, ids: this.#ids, signal }); })
+          : await invokeStreamableHttpTool({ serverName: this.name, toolName, args, config: cfg, handle, timeoutMs, ids: this.#ids, signal });
         this.assertCurrent(generation, signal);
         const durationMs = Date.now() - startTime;
-        this.options.invocationStats.record(this.name, toolName, true);
-        this.options.invocationStats.log(this.name, toolName, true, durationMs);
+        this.#invocationStats.record(this.name, toolName, true);
+        this.#invocationStats.log(this.name, toolName, true, durationMs);
         return result;
       } catch (err) {
         if (generation === this.generation) {
           const durationMs = Date.now() - startTime;
           const errorMsg = err instanceof Error ? err.message : String(err);
-          this.options.invocationStats.record(this.name, toolName, false);
-          this.options.invocationStats.log(this.name, toolName, false, durationMs, errorMsg);
+          this.#invocationStats.record(this.name, toolName, false);
+          this.#invocationStats.log(this.name, toolName, false, durationMs, errorMsg);
         }
         throw err;
       }
@@ -129,7 +155,7 @@ export class McpServerRuntime {
     return this.admit(async (_generation, signal) => {
       const cfg = this.config;
       if (cfg.disabled || !this.ready) return false;
-      if (cfg.transport === 'stdio') return Boolean(this.handle?.processId && this.options.processRunner.get(this.handle.processId)?.status === 'running');
+      if (cfg.transport === 'stdio') return Boolean(this.handle?.processId && this.#processRunner.get(this.handle.processId)?.status === 'running');
       return healthStreamableHttpServer({ serverName: this.name, config: cfg, handle: this.handle, signal });
     });
   }
@@ -161,8 +187,8 @@ export class McpServerRuntime {
   private startStdio(cfg: McpServerConfig, generation: number, signal: AbortSignal): void {
     if (!cfg.command) throw new Error(`stdio MCP server '${this.name}' has no 'command' configured.`);
     this.assertCurrent(generation, signal);
-    const launch = this.options.processRunner.spawnInteractive({
-      file: cfg.command, args: cfg.args ?? [], directScope: this.options.processScope, category: 'service_infrastructure',
+    const launch = this.#processRunner.spawnInteractive({
+      file: cfg.command, args: cfg.args ?? [], directScope: this.#processScope, category: 'service_infrastructure',
       ownerId: `mcp:${this.name}`, ownerKind: 'runtime', launchReason: `MCP stdio server ${this.name}`,
       env: { ...process.env, ...(cfg.env ?? {}) }, stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -175,11 +201,11 @@ export class McpServerRuntime {
     const observerController = new AbortController();
     this.controllers.add(observerController);
     const settlement = Promise.race([
-      this.options.processRunner.waitForSettlement(launch.record.id),
+      this.#processRunner.waitForSettlement(launch.record.id),
       new Promise<null>((resolve) => observerController.signal.addEventListener('abort', () => resolve(null), { once: true })),
     ]).then((result) => {
       if (!result || generation !== this.generation || !this.admissionOpen) return;
-      const record = this.options.processRunner.get(launch.record.id);
+      const record = this.#processRunner.get(launch.record.id);
       if (record?.status === 'exited') this.statusOverride = { status: 'stopped' };
       else this.statusOverride = { status: 'error', error: record?.signal ? 'Process exited with a signal' : 'Process exited unsuccessfully' };
       this.handle = undefined;
@@ -206,8 +232,8 @@ export class McpServerRuntime {
 
   private discoverTools(signal: AbortSignal): Promise<McpToolDefinition[]> {
     return this.config.transport === 'stdio'
-      ? discoverStdioTools({ serverName: this.name, handle: this.handle, ids: this.options.ids, signal })
-      : discoverStreamableHttpTools({ serverName: this.name, config: this.config, handle: this.handle, ids: this.options.ids, signal });
+      ? discoverStdioTools({ serverName: this.name, handle: this.handle, ids: this.#ids, signal })
+      : discoverStreamableHttpTools({ serverName: this.name, config: this.config, handle: this.handle, ids: this.#ids, signal });
   }
 
   private clearCaches(): void {

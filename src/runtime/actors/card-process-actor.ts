@@ -8,6 +8,7 @@ import { RuntimeGate } from '../runtime-gate.js';
 import type { CardService } from '../../cards/card-service.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../process-runner.js';
+import type { ManagedProcessScope } from '../managed-process-group-registry.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
@@ -48,7 +49,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #stagedFailure: Error | null = null;
   #activationSettled = false;
 
-  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
+  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.definition, {
       enter: (context) => this.#enterProcessState(context),
       transition: (context) => this.#processTransitioned(context),
@@ -62,7 +63,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#compactor = args.compactor;
     this.#summarizerProvider = args.summarizerProvider;
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;
-    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, parentControl: args.parentControl, notifyCard: args.notifyCard, processRunner: args.processRunner, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
+    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, parentControl: args.parentControl, notifyCard: args.notifyCard, processRunner: args.processRunner, runtimeProcessRootScope: args.runtimeProcessRootScope, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
       createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), assertCurrentActivation: (input) => this.#assertCurrentActivation(input),
     });
   }

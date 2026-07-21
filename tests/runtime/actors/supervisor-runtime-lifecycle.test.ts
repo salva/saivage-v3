@@ -7,6 +7,7 @@ import { RuntimeInterventionBinding } from '../../../src/application/interventio
 import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 import { RuntimeControlService } from '../../../src/application/runtime-control-service.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
+import { dataPropertyGraphContains } from '../../helpers/data-property-graph.js';
 import { SupervisorRuntimeApi, RuntimeControlConflictError } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
@@ -19,10 +20,11 @@ afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop(
 
 function harness(provider: LLMProviderPort = blockingProvider()) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-supervisor-owner-')); roots.push(root); initProjectTree(root);
-  const cards = new CardService(root); const binding = new RuntimeInterventionBinding(); const gate = new RuntimeGate(); const changes = new ReadModelChangeBroadcaster(); const runner = createTestProcessRunner(root);
-  const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, processIdentity: { pid: 1, startedAt: '2026-01-01T00:00:00.000Z' }, actorStore: cards, interventionBinding: binding, provider, conversations: { projectRoot: root }, readModelChanges: changes, processRunner: runner, runtimeGate: gate, promptTemplates: createTestPromptTemplateRegistry() });
-  const service = new RuntimeControlService({ mechanics: supervisor });
-  return { root, cards, binding, gate, changes, runner, supervisor, service };
+  const cards = new CardService(root); const binding = new RuntimeInterventionBinding(); const gate = new RuntimeGate(); const changes = new ReadModelChangeBroadcaster(); const processes = createTestProcessRunner(root); const runner = processes.processRunner;
+  const supervisorOptions = { ...testAutonomousCompaction, projectRoot: root, processIdentity: { pid: 1, startedAt: '2026-01-01T00:00:00.000Z' }, actorStore: cards, interventionBinding: binding, provider, conversations: { projectRoot: root }, readModelChanges: changes, processRunner: runner, runtimeProcessRootScope: processes.runtimeProcessRootScope, runtimeGate: gate, promptTemplates: createTestPromptTemplateRegistry() };
+  const supervisor = new SupervisorRuntimeApi(supervisorOptions);
+  const service = new RuntimeControlService(supervisor);
+  return { root, cards, binding, gate, changes, runner, runtimeProcessRootScope: processes.runtimeProcessRootScope, supervisorOptions, supervisor, service };
 }
 
 function blockingProvider() { return { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })), projectProviderExchanges: jest.fn() }; }
@@ -33,6 +35,11 @@ async function waitUntil(predicate: () => boolean) { for (let i = 0; i < 200; i 
 const reentrantCases: Array<[string, 'stop' | 'close', boolean]> = [['stop-return', 'stop', false], ['stop-then-throw', 'stop', true], ['close-return', 'close', false], ['close-then-throw', 'close', true]];
 
 describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
+  it('retains runner and exact runtime root only in native-private fields', () => {
+    const h = harness();
+    expect(dataPropertyGraphContains(h.supervisor, new Set([h.supervisorOptions, h.runner, h.runtimeProcessRootScope]))).toBe(false);
+  });
+
   it('installs a prepared root owner before launch and clears it only after successful Stop containment', async () => {
     const h = harness(); await h.supervisor.start(); expect(h.binding.interventionReadiness()).toBe('stopped');
     const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('not accepted');
@@ -97,7 +104,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
 
   it('keeps a child invocation suspended after outcome-unknown running publication until Stop clears it without stream access', async () => {
     const seed = harness(); const child = seed.cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const provider = childActivationProvider(child.id); const h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: seed.root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: seed.cards, interventionBinding: seed.binding, provider, conversations: { projectRoot: seed.root }, readModelChanges: seed.changes, processRunner: seed.runner, runtimeGate: seed.gate, promptTemplates: createTestPromptTemplateRegistry() }) };
+    const provider = childActivationProvider(child.id); const h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: seed.root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: seed.cards, interventionBinding: seed.binding, provider, conversations: { projectRoot: seed.root }, readModelChanges: seed.changes, processRunner: seed.runner, runtimeProcessRootScope: seed.runtimeProcessRootScope, runtimeGate: seed.gate, promptTemplates: createTestPromptTemplateRegistry() }) };
     const original = h.cards.setStatus.bind(h.cards); const set = jest.spyOn(h.cards, 'setStatus').mockImplementation((id, status) => { if (id === child.id && status === 'running') throw new Error('child running unknown'); return original(id, status); });
     const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); h.supervisor.launchStartedProject(prepared.launch); await waitUntil(() => h.supervisor.getStatus().status === 'error');
     const owner = (h.supervisor as unknown as { activationOwners: Map<string, { phase: string }> }).activationOwners.get(child.id); expect(owner?.phase).toBe('publication_unknown'); set.mockClear(); await h.supervisor.stopProject(); expect(set).not.toHaveBeenCalled();
@@ -105,7 +112,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
 
   it('lets Stop claim child admission from the running append callback before currentness or provider continuation', async () => {
     const seed = harness(); const child = seed.cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: seed.root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: seed.cards, interventionBinding: seed.binding, provider: childActivationProvider(child.id), conversations: { projectRoot: seed.root }, readModelChanges: seed.changes, processRunner: seed.runner, runtimeGate: seed.gate, promptTemplates: createTestPromptTemplateRegistry() }) };
+    const h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: seed.root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: seed.cards, interventionBinding: seed.binding, provider: childActivationProvider(child.id), conversations: { projectRoot: seed.root }, readModelChanges: seed.changes, processRunner: seed.runner, runtimeProcessRootScope: seed.runtimeProcessRootScope, runtimeGate: seed.gate, promptTemplates: createTestPromptTemplateRegistry() }) };
     const original = h.cards.setStatus.bind(h.cards); let stop: Promise<unknown> | undefined;
     jest.spyOn(h.cards, 'setStatus').mockImplementation((id, status) => { if (id === child.id && status === 'running') { stop = h.supervisor.stopProject(); expect(h.supervisor.getStatus()).toMatchObject({ status: 'closing', currentCardId: 'project' }); } return original(id, status); });
     const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); h.supervisor.launchStartedProject(prepared.launch); await waitUntil(() => stop !== undefined); await expect(stop).resolves.toEqual({ status: 'stopped', contained: true });
@@ -156,10 +163,11 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
 
   it('makes Stop-first own termination while later application cleanup only joins it and permanently closes Run', async () => {
     const h = harness(); await h.service.startProject(); await waitUntil(() => h.supervisor.captureAutonomousExecutingLlmSnapshots().length === 1);
-    const terminate = jest.spyOn(h.runner, 'terminateScopeTree'); const owned = jest.spyOn(h.runner, 'terminateOwnedRoot');
+    const terminate = jest.spyOn(h.runner, 'terminateScopeTree');
     const stop = h.supervisor.stopProject(); h.supervisor.closeApplicationAdmission(); const cleanup = h.supervisor.cleanupForApplicationStop();
     await expect(stop).resolves.toEqual({ status: 'stopped', contained: true }); await expect(cleanup).resolves.toBeUndefined();
-    expect(terminate).toHaveBeenCalledTimes(1); expect(owned).not.toHaveBeenCalled();
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(terminate).toHaveBeenCalledWith({ rootScope: h.runtimeProcessRootScope, categories: ['runtime_card'], reason: 'runtime stop', graceMs: 5000 });
     await expect(h.supervisor.beginStartProject()).resolves.toMatchObject({ accepted: false, result: { error: 'Application is closing.' } });
   });
 

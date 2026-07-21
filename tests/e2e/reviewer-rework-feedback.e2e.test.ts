@@ -80,6 +80,8 @@ describe('reviewer rework completion E2E', () => {
         throw new Error(`Unexpected reviewer provider call ${reviewerCalls}.`);
       }),
     };
+    const processRegistry = new ManagedProcessGroupRegistry();
+    const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
     const runtime = new SupervisorRuntimeApi({
       ...testAutonomousCompaction,
       projectRoot,
@@ -88,7 +90,8 @@ describe('reviewer rework completion E2E', () => {
       provider,
       conversations: { projectRoot },
       readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
-      processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()),
+      processRunner: new ProcessRunner(projectRoot, processRegistry),
+      runtimeProcessRootScope,
       promptTemplates: { render: () => 'test prompt' },
     });
 

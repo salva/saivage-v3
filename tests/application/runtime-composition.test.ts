@@ -18,6 +18,7 @@ import { agentMessageSchema } from '../../src/schemas/index.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
+import { dataPropertyGraphContains } from '../helpers/data-property-graph.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -38,11 +39,14 @@ function services(runtimeApiFactory: (deps: RuntimeApiFactoryDeps) => any, selec
   const eventBus = new EventBus();
   const readModelChanges = new ReadModelChangeBroadcaster();
   const appLogs = { projectRoot };
+  const processRegistry = new ManagedProcessGroupRegistry();
+  const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
+  const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst-sessions');
   return {
     projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config: selectedConfig, configAuthority: testConfigAuthority(projectRoot), eventBus,
     eventLogger: createEventLog(projectRoot, appLogs), appLogs,
     cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges, runtimeApiFactory,
-    processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()), mcpToolInvocation: unusedMcpToolInvocation,
+    processRegistry, processRunner: new ProcessRunner(projectRoot, processRegistry), runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: unusedMcpToolInvocation,
   };
 }
 
@@ -82,27 +86,33 @@ describe('runtime compaction composition', () => {
     const invoke = jest.spyOn(InvocationService.prototype, 'invokeWithRecovery').mockResolvedValue({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] });
     const project = jest.spyOn(InvocationService.prototype, 'projectProviderExchanges').mockImplementation(() => undefined);
     const selected = services(runtimeApiFactory);
+    const createDirectScope = jest.spyOn(selected.processRunner, 'createDirectScope');
+    const closeScope = jest.spyOn(selected.processRunner, 'closeScope');
     const app = createRuntimeApplication(selected);
 
     expect(runtimeApiFactory).toHaveBeenCalledTimes(1);
     expect(app.runtimeApi).toBe(app.runtimeControl);
     expect(app.runtimeApi).not.toBe(runtimeApiFactory.mock.results[0]!.value);
+    const mechanicsValue = runtimeApiFactory.mock.results[0]!.value;
+    const runtimeAuthority = new Set<unknown>([mechanicsValue, deps, selected.processRunner, selected.runtimeProcessRootScope]);
+    expect(dataPropertyGraphContains(app.runtimeApi, runtimeAuthority)).toBe(false);
+    expect(dataPropertyGraphContains(app.runtimeControl, runtimeAuthority)).toBe(false);
     expect([...deps.cardProcesses.planning.definition.states.get('node:plan')!.on.keys()].filter((event) => event.startsWith('result:'))).toEqual(['result:complete_direct', 'result:admit_review', 'result:blocked', 'result:failed']);
     expect(deps.processPrompts.get('goal', 'plan' as any)).toContain('current planning step');
     expect(deps.compactionPolicy).toEqual({ input_budget_tokens: 10000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim' });
-    expect(app.analystDeps.compactionPolicy).toBe(deps.compactionPolicy);
-    expect(app.analystDeps.compactor).toBe(deps.compactor);
-    expect(app.analystDeps.summarizerProvider).toBe(deps.summarizerProvider);
     expect(app.processRunner).toBe(selected.processRunner);
     expect(deps.processRunner).toBe(selected.processRunner);
     expect(deps.mcpToolInvocation).toBe(selected.mcpToolInvocation);
-    expect(app.analystDeps.mcpToolInvocation).toBe(selected.mcpToolInvocation);
-    expect(app.analystDeps.compactor).toEqual({ shouldCompact: expect.any(Function), compact: expect.any(Function) });
     expect(deps).not.toHaveProperty('config');
     expect(deps).not.toHaveProperty('summarizer_candidate');
     expect(deps).not.toHaveProperty('appLogs');
-    expect(app.analystDeps.appLogs).toBe(selected.appLogs);
+    expect(app.analystRuntime.getAvailableToolNames()).toContain('run_command');
+    const catalogScope = createDirectScope.mock.results.at(-1)!.value;
+    expect(createDirectScope).toHaveBeenLastCalledWith(selected.analystProcessRootScope, 'analyst-tool-catalog', 'operator_session');
+    expect(closeScope).toHaveBeenCalledWith(catalogScope);
     await app.analystRuntime.submit({ userContent: 'route through the ordinary analyst role' });
+    expect(dataPropertyGraphContains(app.analystRuntime, new Set([selected.processRegistry, selected.processRunner, selected.runtimeProcessRootScope, selected.analystProcessRootScope]))).toBe(false);
+    expect(Reflect.ownKeys(app.analystRuntime)).not.toEqual(expect.arrayContaining(['args', 'runtimeDeps', 'session', 'admissionOpen']));
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ role: 'analyst', sessionId: 'analyst:global', preparedCompaction: expect.any(Object) }));
     expect(invoke.mock.calls[0]![0]).not.toHaveProperty('candidateChain');
     const input: LlmInvocationInput = { inputId: 'id', agentId: 'llm:compaction-summarizer', role: 'analyst', sessionId: 'summary:test', systemPrompt: 'summarize', providerConversation: { sourceSessionId: null, messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 2000 }, capabilityRequest: {}, episodeContext: { compaction: true } };

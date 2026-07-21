@@ -66,16 +66,20 @@ export async function createServerServices(input: {
   terminal.registerAdmissionCloser('websocket-admission', () => liveSyncSocket.closeAdmission());
   const syncHub = new SyncHub(liveSyncSocket);
 
-  const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
+  const processRegistry = new ManagedProcessGroupRegistry();
+  const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
+  const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst-sessions');
+  const mcpProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'mcp-servers');
+  const processRunner = new ProcessRunner(projectRoot, processRegistry);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
-  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, configAuthority: environment.configAuthority, eventBus, eventLogger, appLogs, cardStore, readModelChanges, processRunner, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, configAuthority: environment.configAuthority, eventBus, eventLogger, appLogs, cardStore, readModelChanges, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());
   terminal.registerAdmissionCloser('process-admission', () => runtimeApplication.processRunner.closeLaunchAdmission());
   terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());
   terminal.registerCleanupLeaf('runtime', () => runtimeApplication.cleanupRuntimeForApplicationStop());
   terminal.registerCleanupLeaf('analyst', () => runtimeApplication.cleanupAnalystForApplicationStop());
 
-  const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner, eventLogger });
+  const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner, mcpProcessRootScope, eventLogger });
   terminal.registerAdmissionCloser('mcp', () => mcpManager.closeAdmission());
   terminal.registerCleanupLeaf('mcp', () => mcpManager.cleanupForApplicationStop());
   const mcpReconciliation = await mcpManager.reconcilePersistedConfig();

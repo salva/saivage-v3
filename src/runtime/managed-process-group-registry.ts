@@ -8,28 +8,39 @@ export interface ManagedProcessScope {
   readonly [managedProcessScopeBrand]: true;
 }
 
-type ScopeKind = 'container' | 'direct';
-
-interface ScopeRecord {
+interface ScopeRecordBase {
   readonly scope: ManagedProcessScope;
   readonly parent: ManagedProcessScope | null;
-  readonly kind: ScopeKind;
   readonly label: string;
-  readonly category: ProcessCategory | null;
   open: boolean;
 }
+
+interface ContainerScopeRecord extends ScopeRecordBase {
+  readonly kind: 'container';
+  readonly category: null;
+}
+
+interface DirectScopeRecord extends ScopeRecordBase {
+  readonly kind: 'direct';
+  readonly category: ProcessCategory;
+  readonly groups: Map<string, GroupRecord>;
+}
+
+type ScopeRecord = ContainerScopeRecord | DirectScopeRecord;
 
 interface GroupRecord {
   readonly groupId: string;
   readonly pgid: number;
   readonly child: ChildProcess;
   readonly directScope: ManagedProcessScope;
+  readonly directScopeRecord: DirectScopeRecord;
   readonly category: ProcessCategory;
   readonly onAbsent: (reason: string | null) => void;
   state: ManagedGroupState;
   diagnostic: string | null;
   terminationReason: string | null;
   leaderExited: boolean;
+  absenceConfirmed: boolean;
   settlement: Promise<void>;
   resolveSettlement: () => void;
 }
@@ -100,6 +111,7 @@ export class ManagedProcessGroupRegistry {
   closeScope(scope: ManagedProcessScope): void {
     const record = this.requireKnownScope(scope);
     record.open = false;
+    if (record.kind === 'direct' && record.groups.size === 0) this.retireDirectScope(record);
   }
 
   closeLaunchAdmission(): void {
@@ -128,28 +140,24 @@ export class ManagedProcessGroupRegistry {
       pgid: child.pid,
       child,
       directScope: input.directScope,
+      directScopeRecord: scope,
       category: input.category,
       onAbsent: input.onAbsent,
       state: 'active',
       diagnostic: null,
       terminationReason: null,
       leaderExited: false,
+      absenceConfirmed: false,
       settlement,
       resolveSettlement,
     };
     this.groups.set(input.groupId, record);
+    scope.groups.set(input.groupId, record);
     child.once('exit', () => {
       record.leaderExited = true;
       queueMicrotask(() => { void this.observeNaturalAbsence(record); });
     });
     return child;
-  }
-
-  bindingMatches(groupId: string, directScope: ManagedProcessScope, category: ProcessCategory): boolean {
-    const scope = this.requireKnownScope(directScope);
-    const group = this.groups.get(groupId);
-    return scope.kind === 'direct' && scope.open && scope.category === category
-      && group?.directScope === directScope && group.category === category;
   }
 
   async terminateGroup(input: { groupId: string; directScope: ManagedProcessScope; category: ProcessCategory; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
@@ -161,6 +169,18 @@ export class ManagedProcessGroupRegistry {
       throw new Error(`Managed process group '${input.groupId}' is not bound to the invoking direct scope and category.`);
     }
     return this.terminateRecords([group], input.reason, input.graceMs ?? 5_000);
+  }
+
+  closeAndTerminateDirectScope(input: { directScope: ManagedProcessScope; category: ProcessCategory; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
+    const scope = this.assertScope(input.directScope, 'direct');
+    if (scope.category !== input.category) throw new Error(`Managed process scope category '${scope.category}' does not authorize '${input.category}'.`);
+    scope.open = false;
+    const selected = [...scope.groups.values()];
+    if (selected.length === 0) {
+      this.retireDirectScope(scope);
+      return Promise.resolve({ selected: [], stopped: [], failed: [] });
+    }
+    return this.terminateRecords(selected, input.reason, input.graceMs ?? 5_000);
   }
 
   terminateScopeTree(input: { rootScope: ManagedProcessScope; categories: readonly ProcessCategory[]; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
@@ -186,9 +206,14 @@ export class ManagedProcessGroupRegistry {
     return this.groups.get(groupId)?.child ?? null;
   }
 
-  private allocateScope(parent: ManagedProcessScope | null, kind: ScopeKind, label: string, category: ProcessCategory | null): ManagedProcessScope {
+  private allocateScope(parent: ManagedProcessScope | null, kind: 'container', label: string, category: null): ManagedProcessScope;
+  private allocateScope(parent: ManagedProcessScope, kind: 'direct', label: string, category: ProcessCategory): ManagedProcessScope;
+  private allocateScope(parent: ManagedProcessScope | null, kind: ScopeRecord['kind'], label: string, category: ProcessCategory | null): ManagedProcessScope {
     const scope = Object.freeze({}) as ManagedProcessScope;
-    this.scopes.set(scope, { scope, parent, kind, label, category, open: true });
+    const record: ScopeRecord = kind === 'container'
+      ? { scope, parent, kind, label, category: null, open: true }
+      : { scope, parent, kind, label, category: category!, open: true, groups: new Map() };
+    this.scopes.set(scope, record);
     return scope;
   }
 
@@ -198,7 +223,9 @@ export class ManagedProcessGroupRegistry {
     return record;
   }
 
-  private assertScope(scope: ManagedProcessScope, kind: ScopeKind, requireOpen = true): ScopeRecord {
+  private assertScope(scope: ManagedProcessScope, kind: 'container', requireOpen?: boolean): ContainerScopeRecord;
+  private assertScope(scope: ManagedProcessScope, kind: 'direct', requireOpen?: boolean): DirectScopeRecord;
+  private assertScope(scope: ManagedProcessScope, kind: ScopeRecord['kind'], requireOpen = true): ScopeRecord {
     const record = this.requireKnownScope(scope);
     if (record.kind !== kind) throw new Error(`Managed process scope '${record.label}' is not a ${kind} scope.`);
     if (requireOpen && !record.open) throw new Error(`Managed process scope '${record.label}' is closed.`);
@@ -223,6 +250,11 @@ export class ManagedProcessGroupRegistry {
   }
 
   private probe(record: GroupRecord): 'live' | 'absent' | 'ambiguous' {
+    this.validateCapturedRecord(record);
+    if (record.absenceConfirmed) {
+      this.confirmAbsent(record);
+      return 'absent';
+    }
     if (record.state === 'unverifiable') return 'ambiguous';
     try {
       this.platform.probe(record.pgid);
@@ -238,12 +270,17 @@ export class ManagedProcessGroupRegistry {
   }
 
   private signal(record: GroupRecord, signal: NodeJS.Signals): boolean {
+    this.validateCapturedRecord(record);
+    if (record.absenceConfirmed) return true;
     if (record.state === 'unverifiable') return false;
     try {
       this.platform.signal(record.pgid, signal);
       return true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+        this.confirmAbsent(record);
+        return true;
+      }
       this.markUnverifiable(record, `${signal} dispatch failed: ${diagnostic(error)}`);
       return false;
     }
@@ -255,10 +292,41 @@ export class ManagedProcessGroupRegistry {
   }
 
   private confirmAbsent(record: GroupRecord): void {
-    if (this.groups.get(record.groupId) !== record) return;
+    this.validateCapturedRecord(record);
+    if (record.absenceConfirmed) return;
+    record.absenceConfirmed = true;
     this.groups.delete(record.groupId);
+    record.directScopeRecord.groups.delete(record.groupId);
+    if (!record.directScopeRecord.open && record.directScopeRecord.groups.size === 0) {
+      this.retireDirectScope(record.directScopeRecord);
+    }
     record.onAbsent(record.terminationReason);
     record.resolveSettlement();
+  }
+
+  private validateCapturedRecord(record: GroupRecord): void {
+    const currentGroup = this.groups.get(record.groupId);
+    const currentMembership = record.directScopeRecord.groups.get(record.groupId);
+    const currentScope = this.scopes.get(record.directScope);
+    if (record.absenceConfirmed) {
+      if (currentGroup !== undefined || currentMembership !== undefined) {
+        throw new Error(`Managed process group '${record.groupId}' has conflicting current identity after confirmed absence.`);
+      }
+      if (currentScope !== undefined && currentScope !== record.directScopeRecord) {
+        throw new Error(`Managed process group '${record.groupId}' has conflicting direct scope identity after confirmed absence.`);
+      }
+      return;
+    }
+    if (currentGroup !== record || currentMembership !== record || currentScope !== record.directScopeRecord
+      || record.directScopeRecord.category !== record.category) {
+      throw new Error(`Managed process group '${record.groupId}' current identity diverged before absence confirmation.`);
+    }
+  }
+
+  private retireDirectScope(record: DirectScopeRecord): void {
+    if (record.groups.size !== 0) throw new Error(`Managed process scope '${record.label}' cannot retire with live groups.`);
+    if (this.scopes.get(record.scope) !== record) throw new Error(`Managed process scope '${record.label}' identity diverged before retirement.`);
+    this.scopes.delete(record.scope);
   }
 
   private async waitForAbsence(record: GroupRecord, timeoutMs: number): Promise<'absent' | 'live' | 'ambiguous'> {

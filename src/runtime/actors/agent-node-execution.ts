@@ -57,6 +57,7 @@ export interface AgentNodeExecutionDeps {
   parentControl: PlannerChildControlPort;
   notifyCard: (cardId: string, notification: import('../../schemas/index.js').CardNotification) => import('../runtime-api.js').NotifyCardResult;
   processRunner: ProcessRunner;
+  runtimeProcessRootScope: ManagedProcessScope;
   mcpToolInvocation: McpToolInvocationPort;
   promptTemplates: PromptTemplateRegistry;
   processPrompts: ProcessPromptRegistry;
@@ -207,7 +208,7 @@ export class AgentNodeExecution {
 
   private executorScope(input: CardActivationInput, ordinal: number): ManagedProcessScope {
     if (!input.activationId) throw new Error(`Card process '${this.deps.cardId}' requires activationId for executor node ownership.`);
-    return this.deps.processRunner.createDirectScope(this.deps.processRunner.runtimeRootScope, `card-activation:${input.activationId}:node:${ordinal}`, 'runtime_card');
+    return this.deps.processRunner.createDirectScope(this.deps.runtimeProcessRootScope, `card-activation:${input.activationId}:node:${ordinal}`, 'runtime_card');
   }
 
   private correction(node: ProcessNodeMetadata, violations: readonly string[]): string { return `${this.deps.processPrompts.get(this.deps.store.read(this.deps.cardId)!.type, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }

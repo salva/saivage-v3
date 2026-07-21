@@ -10,8 +10,10 @@ describe('App real managed-process cleanup', () => {
   it('allows production TERM grace, KILL escalation, and absence verification inside the App bound', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-app-process-cleanup-'));
     try {
-      const runner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
-      const scope = runner.createDirectScope(runner.runtimeRootScope, 'resistant-runtime', 'runtime_card');
+      const registry = new ManagedProcessGroupRegistry();
+      const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
+      const runner = new ProcessRunner(projectRoot, registry);
+      const scope = runner.createDirectScope(runtimeProcessRootScope, 'resistant-runtime', 'runtime_card');
       const processRecord = runner.spawn({
         command: "trap '' TERM; while true; do sleep 1; done",
         directScope: scope,
@@ -25,7 +27,7 @@ describe('App real managed-process cleanup', () => {
       terminal.registerCleanupLeaf('fastify', () => { calls.push('following'); });
       terminal.registerCleanupLeaf('runtime', async () => {
         calls.push('runtime');
-        const report = await runner.terminateOwnedRoot('runtime', runner.runtimeRootScope, 'application stopping');
+        const report = await runner.terminateScopeTree({ rootScope: runtimeProcessRootScope, categories: ['runtime_card'], reason: 'application stopping', graceMs: 5_000 });
         if (report.failed.length !== 0) throw new Error('managed process cleanup failed');
       });
 
@@ -35,7 +37,7 @@ describe('App real managed-process cleanup', () => {
 
       expect(report.warnings).toEqual([]);
       expect(calls).toEqual(['runtime', 'following']);
-      expect(runner.registry.isLive(processRecord.id)).toBe(false);
+      expect(registry.isLive(processRecord.id)).toBe(false);
       expect(elapsed).toBeGreaterThanOrEqual(5_000);
       expect(elapsed).toBeLessThan(10_000);
     } finally {

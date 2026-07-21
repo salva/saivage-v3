@@ -128,7 +128,7 @@ describe('server lifecycle composition', () => {
       expect(runtimeStart).toHaveBeenCalledTimes(1);
       const order: string[] = [];
       const sharedRunner = services.runtimeApplication.processRunner;
-      const terminateOwnedRoot = jest.spyOn(sharedRunner, 'terminateOwnedRoot');
+      const terminateScopeTree = jest.spyOn(sharedRunner, 'terminateScopeTree');
       const closeRuntimeAdmission = services.runtimeApplication.closeRuntimeAdmission.bind(services.runtimeApplication);
       const runtimeAdmissionClose = jest.spyOn(services.runtimeApplication, 'closeRuntimeAdmission').mockImplementation(() => {
         order.push('runtime-admission');
@@ -164,14 +164,13 @@ describe('server lifecycle composition', () => {
       expect(mcpCleanup).toHaveBeenCalledTimes(1);
       expect(liveDispose).toHaveBeenCalledTimes(1);
       expect(fastifyClose).toHaveBeenCalledTimes(1);
-      expect(new Set([sharedRunner.runtimeRootScope, sharedRunner.analystRootScope, sharedRunner.mcpRootScope]).size).toBe(3);
-      expect(services.runtimeApplication.analystDeps.processRunner).toBe(sharedRunner);
-      expect(services.runtimeApplication.analystDeps.analystProcessRootScope).toBe(sharedRunner.analystRootScope);
-      expect(terminateOwnedRoot).toHaveBeenCalledTimes(2);
-      expect(terminateOwnedRoot.mock.calls.map(([component, scope]) => [component, scope])).toEqual([
-        ['mcp', sharedRunner.mcpRootScope],
-        ['runtime', sharedRunner.runtimeRootScope],
+      expect(terminateScopeTree).toHaveBeenCalledTimes(2);
+      const containmentCalls = terminateScopeTree.mock.calls.map(([input]) => input);
+      expect(containmentCalls.map(({ categories, reason, graceMs }) => ({ categories, reason, graceMs }))).toEqual([
+        { categories: ['service_infrastructure'], reason: 'application stopping', graceMs: 5_000 },
+        { categories: ['runtime_card'], reason: 'application stopping', graceMs: 5_000 },
       ]);
+      expect(new Set(containmentCalls.map(({ rootScope }) => rootScope)).size).toBe(2);
     } finally {
       reconciliation.mockRestore();
       install.mockRestore();

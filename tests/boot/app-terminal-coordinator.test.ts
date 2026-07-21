@@ -6,8 +6,8 @@ import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 
 const roots: string[] = [];
 function realHarness(provider: LLMProviderPort = { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_r, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }) {
-  const root = mkdtempSync(join(tmpdir(), 'saivage-terminal-supervisor-')); roots.push(root); initProjectTree(root); const cards = new CardService(root); const runner = createTestProcessRunner(root);
-  const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, readModelChanges: new ReadModelChangeBroadcaster(), processRunner: runner, promptTemplates: createTestPromptTemplateRegistry() });
+  const root = mkdtempSync(join(tmpdir(), 'saivage-terminal-supervisor-')); roots.push(root); initProjectTree(root); const cards = new CardService(root); const processes = createTestProcessRunner(root); const runner = processes.processRunner;
+  const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, readModelChanges: new ReadModelChangeBroadcaster(), processRunner: runner, runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: createTestPromptTemplateRegistry() });
   const terminal = createAppTerminalCoordinator(); terminal.registerAdmissionCloser('runtime', () => supervisor.closeApplicationAdmission()); terminal.registerCleanupLeaf('runtime', () => supervisor.cleanupForApplicationStop()); return { supervisor, terminal, cards, runner };
 }
 
@@ -22,8 +22,8 @@ describe('App terminal coordinator', () => {
 
   it('joins Stop-first through actual terminal cleanup without a second termination', async () => {
     const { supervisor, terminal, runner } = realHarness(); const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); supervisor.launchStartedProject(prepared.launch);
-    const terminate = jest.spyOn(runner, 'terminateScopeTree'); const owned = jest.spyOn(runner, 'terminateOwnedRoot'); const stop = supervisor.stopProject();
-    await expect(terminal.stop()).resolves.toEqual({ warnings: [] }); await expect(stop).resolves.toMatchObject({ contained: true }); expect(terminate).toHaveBeenCalledTimes(1); expect(owned).not.toHaveBeenCalled(); expect(supervisor.getStatus().status).toBe('stopped');
+    const terminate = jest.spyOn(runner, 'terminateScopeTree'); const stop = supervisor.stopProject();
+    await expect(terminal.stop()).resolves.toEqual({ warnings: [] }); await expect(stop).resolves.toMatchObject({ contained: true }); expect(terminate).toHaveBeenCalledTimes(1); expect(supervisor.getStatus().status).toBe('stopped');
   });
 
   it.each(['result', 'cancel'] as const)('contains an actual already-settled %s runtime without reviving ownership', async (winner) => {
@@ -36,7 +36,7 @@ describe('App terminal coordinator', () => {
 
   it('reports an actual supervisor cleanup failure once and retains closing ownership', async () => {
     const h = realHarness(); const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); h.supervisor.launchStartedProject(prepared.launch);
-    jest.spyOn(h.runner, 'terminateOwnedRoot').mockRejectedValueOnce(new Error('termination failed')); const report = await h.terminal.stop();
+    jest.spyOn(h.runner, 'terminateScopeTree').mockRejectedValueOnce(new Error('termination failed')); const report = await h.terminal.stop();
     expect(report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_failed' }] }); expect(h.supervisor.getStatus().status).toBe('error');
   });
 

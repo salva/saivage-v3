@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
@@ -15,6 +14,9 @@ import { initProjectTree, testConfigAuthority } from '../helpers/canonical-proje
 import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
+import { createTestAnalystRuntime } from '../helpers/test-analyst-runtime.js';
+import { dataPropertyGraphContains } from '../helpers/data-property-graph.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -43,25 +45,49 @@ describe('Analyst handler cancellation after a committed mutation', () => {
     const controlActionPublished = new Promise<void>((resolve) => { publishControlAction = resolve; });
     const publications: unknown[] = [];
     eventBus.subscribe({ allowedKinds: ['control_action_recorded'], handler: (event) => { publications.push(event); publishControlAction(); } });
-    const runner = createTestProcessRunner(projectRoot);
+    const processes = createTestProcessRunner(projectRoot);
+    const closeDirect = jest.spyOn(processes.processRunner, 'closeAndTerminateDirectScope');
+    const terminateRoot = jest.spyOn(processes.processRunner, 'terminateScopeTree');
     const config = saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 20480, summarizer_candidate: { provider: 'test', account: null, model: 'model' } }, card_processes: DEFAULT_CARD_PROCESSES });
     const { enabled: _enabled, summarizer_candidate: _candidate, ...compactionPolicy } = config.compaction;
-    const runtime = new AnalystRuntime({ projectRoot, config, runtimeDeps: {
-      configAuthority: testConfigAuthority(projectRoot), cardStore: cards,
+    const composed = createTestAnalystRuntime({
+      projectRoot,
+      config,
+      promptTemplates: createTestPromptTemplateRegistry(),
+      processes,
+      configAuthority: testConfigAuthority(projectRoot),
+      cardStore: cards,
       runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard, notifyCard: jest.fn(() => ({ ok: true, notificationId: 'notification' })), getStatus: jest.fn() },
-      eventBus, provider: { completeTurn: provider, projectProviderExchanges: jest.fn() }, processRunner: runner, analystProcessRootScope: runner.analystRootScope,
-      compactionPolicy, compactor: { shouldCompact: () => false, compact: jest.fn() }, summarizerProvider: { completeTurn: jest.fn(), projectProviderExchanges: jest.fn() },
-      conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), interventionReadiness: new RuntimeInterventionBinding(),
-      runtimeProjectionChanged: jest.fn(), captureExecutingLlmSnapshots: () => [],
-    } as never, promptTemplates: createTestPromptTemplateRegistry() });
+      eventBus,
+      provider: { completeTurn: provider, projectProviderExchanges: jest.fn() },
+      mcpToolInvocation: unusedMcpToolInvocation,
+      compactionPolicy,
+      compactor: { shouldCompact: () => false, compact: jest.fn() },
+      summarizerProvider: { completeTurn: jest.fn(), projectProviderExchanges: jest.fn() },
+      conversations: { projectRoot },
+      appLogs: testAppLogs(projectRoot),
+      interventionReadiness: new RuntimeInterventionBinding(),
+      runtimeProjectionChanged: jest.fn(),
+      captureExecutingLlmSnapshots: () => [],
+    });
+    const { runtime } = composed;
 
     const turn = runtime.submit({ userContent: 'cancel obsolete work' });
+    const session = composed.sessions[0]!;
+    const forbidden = new Set<unknown>([processes.registry, processes.processRunner, processes.analystProcessRootScope, ...composed.directScopes, ...composed.sessionOperations, ...composed.sessionConstructionInputs]);
+    expect(dataPropertyGraphContains(session, forbidden)).toBe(false);
+    expect(Reflect.ownKeys(session)).not.toEqual(expect.arrayContaining(['args', 'runtimeDeps', 'processScope', 'llm', 'phase', 'retiredOperationTrackers']));
+    expect(dataPropertyGraphContains(runtime, new Set([...forbidden, ...composed.runtimeOperations, composed.runtimeConstructionInput]))).toBe(false);
+    expect(Reflect.ownKeys(runtime)).not.toEqual(expect.arrayContaining(['args', 'runtimeDeps', 'session', 'admissionOpen']));
     await committed;
     expect(runtime.cancel('operator cancelled after commit')).toBe(true);
     await expect(turn).resolves.toMatchObject({ cancelled: true });
     releaseOwner();
     await controlActionPublished;
     await runtime.cleanupForApplicationStop();
+    expect(closeDirect).toHaveBeenCalledTimes(1);
+    expect(closeDirect).toHaveBeenCalledWith(expect.objectContaining({ directScope: composed.directScopes[0], category: 'operator_session', reason: 'session closed' }));
+    expect(terminateRoot).toHaveBeenCalledWith(expect.objectContaining({ rootScope: processes.analystProcessRootScope, categories: ['operator_session'], reason: 'application stopping' }));
 
     expect(cancelCard).toHaveBeenCalledTimes(1);
     expect(provider).toHaveBeenCalledTimes(1);

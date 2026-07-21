@@ -82,6 +82,9 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
     const readModelChanges = new ReadModelChangeBroadcaster();
     const appLogs = { projectRoot };
     const cardStore = new CardService(projectRoot, eventBus, readModelChanges);
+    const processRegistry = new ManagedProcessGroupRegistry();
+    const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
+    const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst-sessions');
     const application = createRuntimeApplication({
       processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' },
       projectRoot,
@@ -92,7 +95,9 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
       appLogs,
       cardStore,
       readModelChanges,
-      processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()),
+      processRunner: new ProcessRunner(projectRoot, processRegistry),
+      runtimeProcessRootScope,
+      analystProcessRootScope,
       mcpToolInvocation: testAutonomousCompaction.mcpToolInvocation,
     });
 

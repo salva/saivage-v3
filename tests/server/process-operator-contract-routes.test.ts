@@ -35,8 +35,9 @@ describe('contract-backed process routes', () => {
     initProjectTree(projectRoot);
     const fastify = Fastify({ logger: false });
     try {
-      const processRunner = createTestProcessRunner(projectRoot);
-      const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'route-test', 'runtime_card');
+      const processes = createTestProcessRunner(projectRoot);
+      const processRunner = processes.processRunner;
+      const processScope = processRunner.createDirectScope(processes.runtimeProcessRootScope, 'route-test', 'runtime_card');
       const record = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerId: 'runtime-owner', ownerKind: 'runtime' });
       await processRunner.waitForSettlement(record.id);
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: runtimeApplication(processRunner), saivageConfig: TEST_SAIVAGE_CONFIG, providerRoutingReadModelProvider, authPolicy: new AuthPolicy(), eventBus: new EventBus() });
@@ -73,7 +74,7 @@ describe('contract-backed process routes', () => {
     initProjectTree(projectRoot);
     const fastify = Fastify({ logger: false });
     try {
-      const processRunner = createTestProcessRunner(projectRoot);
+      const processRunner = createTestProcessRunner(projectRoot).processRunner;
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: runtimeApplication(processRunner), saivageConfig: TEST_SAIVAGE_CONFIG, providerRoutingReadModelProvider, authPolicy: new AuthPolicy(), eventBus: new EventBus() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });

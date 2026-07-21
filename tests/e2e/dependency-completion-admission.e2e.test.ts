@@ -32,7 +32,7 @@ type RuntimeOwnership = {
   activationOwners: Map<string, { readonly cardId: string }>;
 };
 
-function runtime(projectRoot: string, cards: CardService, processRunner: ProcessRunner, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> }): SupervisorRuntimeApi {
+function runtime(projectRoot: string, cards: CardService, processRunner: ProcessRunner, runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> }): SupervisorRuntimeApi {
   return new SupervisorRuntimeApi({
     ...testAutonomousCompaction,
     projectRoot,
@@ -42,6 +42,7 @@ function runtime(projectRoot: string, cards: CardService, processRunner: Process
     conversations: { projectRoot },
     readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
     processRunner,
+    runtimeProcessRootScope,
     promptTemplates: { render: () => 'test prompt' },
   });
 }
@@ -120,8 +121,10 @@ describe('dependency-completion activation admission E2E', () => {
         throw new Error(`Unexpected provider session '${input.sessionId}'.`);
       }),
     };
-    const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
-    const supervisor = runtime(projectRoot, cards, processRunner, provider);
+    const registry = new ManagedProcessGroupRegistry();
+    const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
+    const processRunner = new ProcessRunner(projectRoot, registry);
+    const supervisor = runtime(projectRoot, cards, processRunner, runtimeProcessRootScope, provider);
     const ownership = supervisor as unknown as RuntimeOwnership;
     const prepared = await supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('Run was not accepted.');

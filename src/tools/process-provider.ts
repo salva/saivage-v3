@@ -156,8 +156,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         : reason.kind === 'session_closed'
           ? 'session closed'
           : 'runtime shutdown';
-      ctx.processRunner.closeScope(ctx.directScope);
-      const report = await ctx.processRunner.terminateScopeTree({ rootScope: ctx.directScope, categories: [ctx.category], reason: label, graceMs: 5000 });
+      const report = await ctx.processRunner.closeAndTerminateDirectScope({ directScope: ctx.directScope, category: ctx.category, reason: label, graceMs: 5000 });
       if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
     },
     tools: [

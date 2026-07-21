@@ -5,11 +5,15 @@ import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import * as YAML from 'yaml';
-import { McpManager } from '../../src/mcp/mcp-manager.js';
-import { ManagedProcessGroupRegistry, type ManagedProcessPlatform } from '../../src/runtime/managed-process-group-registry.js';
+import { McpManager, ServerNotRunningError } from '../../src/mcp/mcp-manager.js';
+import { McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
+import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
+import { ManagedProcessGroupRegistry, type ManagedProcessPlatform, type ManagedProcessScope } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testConfigAuthority } from '../helpers/canonical-project.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { dataPropertyGraphContains } from '../helpers/data-property-graph.js';
+import { createAppTerminalCoordinator } from '../../src/boot/app.js';
 
 const roots: string[] = [];
 
@@ -84,8 +88,24 @@ function createManager(root: string, control: { failStop?: boolean } = {}) {
       if (child.killed) throw Object.assign(new Error('absent'), { code: 'ESRCH' });
     },
   };
-  const processRunner = new ProcessRunner(root, new ManagedProcessGroupRegistry(platform));
-  return { manager: new McpManager({ configAuthority: testConfigAuthority(root), processRunner, eventLogger: { appendEvent() {} } as any }), spawn, signal };
+  const registry = new ManagedProcessGroupRegistry(platform);
+  const mcpProcessRootScope = registry.createContainerScope(registry.rootScope, 'mcp-servers');
+  const processRunner = new ProcessRunner(root, registry);
+  const revisionScopes: object[] = [];
+  const createDirectScope = processRunner.createDirectScope.bind(processRunner);
+  jest.spyOn(processRunner, 'createDirectScope').mockImplementation((...args) => {
+    const scope = createDirectScope(...args);
+    revisionScopes.push(scope);
+    return scope;
+  });
+  const managerOptions = { configAuthority: testConfigAuthority(root), processRunner, mcpProcessRootScope, eventLogger: { appendEvent() {} } as any };
+  return { manager: new McpManager(managerOptions), managerOptions, processRunner, mcpProcessRootScope, revisionScopes, spawn, signal };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 function rpcResponse(id: number, result: Record<string, unknown>): Response {
@@ -129,6 +149,53 @@ describe('persisted MCP reconciliation', () => {
     expect(rendered).not.toContain('password');
     expect(rendered).not.toContain('http://');
     expect(rendered).not.toContain('command');
+  });
+
+  it('keeps manager process authority and retained runtimes structurally unreachable while preserving public projections', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: http('http://localhost/one') });
+    const { manager, managerOptions, processRunner, mcpProcessRootScope, revisionScopes } = createManager(root);
+
+    const report = await manager.reconcilePersistedConfig();
+
+    expect(report.converged).toBe(true);
+    expect(manager.getStatus()).toEqual([expect.objectContaining({ name: 'one', status: 'running' })]);
+    expect(manager.getTools()).toEqual([expect.objectContaining({ name: 'ping' })]);
+    expect(revisionScopes).toHaveLength(1);
+    expect(dataPropertyGraphContains(manager, new Set([managerOptions, processRunner, mcpProcessRootScope, revisionScopes[0]]))).toBe(false);
+  });
+
+  it('keeps a directly held runtime runner and scope private and reuses its exact one-shot containment', async () => {
+    const processScope = {} as ManagedProcessScope;
+    const containment = deferred<{ selected: string[]; stopped: string[]; failed: [] }>();
+    const closeAndTerminateDirectScope = jest.fn(() => containment.promise);
+    const processRunner = { closeAndTerminateDirectScope };
+    const config = { transport: 'streamable-http', url: 'http://localhost/runtime', autostart: true, disabled: false } as const;
+    const runtimeOptions = {
+      name: 'direct', config, revision: 'revision', processRunner: processRunner as never, processScope,
+      ids: { next: () => 1 }, invocationStats: new McpInvocationStatsRecorder({ appendEvent() {} } as never),
+    };
+    const runtime = new McpServerRuntime(runtimeOptions);
+
+    expect(dataPropertyGraphContains(runtime, new Set([runtimeOptions, processRunner, processScope]))).toBe(false);
+    expect(runtime.name).toBe('direct');
+    expect(runtime.config).toBe(config);
+    expect(runtime.revision).toBe('revision');
+    const first = runtime.closeAdmission();
+    const second = runtime.closeAdmission();
+
+    expect(second).toBe(first);
+    expect(closeAndTerminateDirectScope).toHaveBeenCalledTimes(1);
+    expect(closeAndTerminateDirectScope).toHaveBeenCalledWith({
+      directScope: processScope,
+      category: 'service_infrastructure',
+      reason: "MCP server 'direct' stopped",
+    });
+    containment.resolve({ selected: [], stopped: [], failed: [] });
+    await expect(first).resolves.toBeUndefined();
+    await expect(runtime.stop()).resolves.toBeUndefined();
+    expect(closeAndTerminateDirectScope).toHaveBeenCalledTimes(1);
+    expect(runtime.getStatus()).toEqual(expect.objectContaining({ name: 'direct', status: 'stopped' }));
   });
 
   it('serializes concurrent reconciliations without duplicate runtimes', async () => {
@@ -225,17 +292,82 @@ describe('persisted MCP reconciliation', () => {
     expect(before.active[0]?.revision).toBeDefined();
   });
 
-  it('closes manager admission synchronously and terminally contains retained runtimes', async () => {
+  it('closes invocation and runtime admission synchronously, then reuses direct containment before root cleanup', async () => {
     const root = projectRoot();
-    writeConfig(root, { one: stdio('one') });
-    const { manager, signal } = createManager(root);
+    writeConfig(root, { one: http('http://localhost/one') });
+    const { manager, processRunner, mcpProcessRootScope } = createManager(root);
+    await manager.reconcilePersistedConfig();
+    const transportCalls = (globalThis.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    const events: string[] = [];
+    const directImplementation = processRunner.closeAndTerminateDirectScope.bind(processRunner);
+    const directContainment = jest.spyOn(processRunner, 'closeAndTerminateDirectScope').mockImplementation((input) => {
+      events.push('direct');
+      return directImplementation(input);
+    });
+    const rootImplementation = processRunner.terminateScopeTree.bind(processRunner);
+    const rootContainment = jest.spyOn(processRunner, 'terminateScopeTree').mockImplementation((input) => {
+      events.push('root');
+      return rootImplementation(input);
+    });
+
+    manager.closeAdmission();
+    expect(events).toEqual(['direct']);
+    await expect(manager.reconcilePersistedConfig()).rejects.toThrow('closed');
+    await expect(manager.invokeTool('one', 'ping', {})).rejects.toBeInstanceOf(ServerNotRunningError);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(transportCalls);
+    await manager.cleanupForApplicationStop();
+
+    expect(events).toEqual(['direct', 'root']);
+    expect(directContainment).toHaveBeenCalledTimes(1);
+    expect(directContainment).toHaveBeenCalledWith(expect.objectContaining({ directScope: expect.any(Object) }));
+    expect(rootContainment).toHaveBeenCalledWith({ rootScope: mcpProcessRootScope, categories: ['service_infrastructure'], reason: 'application stopping', graceMs: 5000 });
+    expect(manager.getStatus()).toEqual([]);
+  });
+
+  it('preserves root rejection precedence and retains runtimes after incomplete cleanup', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: http('http://localhost/one') });
+    const directError = new Error('direct containment failed');
+    const rootError = new Error('root containment failed');
+    const revisionScope = {} as ManagedProcessScope;
+    const processRunner = {
+      createDirectScope: jest.fn(() => revisionScope),
+      closeAndTerminateDirectScope: jest.fn(() => Promise.reject(directError)),
+      terminateScopeTree: jest.fn(() => { throw rootError; }),
+    };
+    const manager = new McpManager({
+      configAuthority: testConfigAuthority(root), processRunner: processRunner as never, mcpProcessRootScope: {} as ManagedProcessScope,
+      eventLogger: { appendEvent() {} } as never,
+    });
     await manager.reconcilePersistedConfig();
 
     manager.closeAdmission();
-    await expect(manager.reconcilePersistedConfig()).rejects.toThrow('closed');
-    await manager.cleanupForApplicationStop();
+    await expect(manager.cleanupForApplicationStop()).rejects.toBe(rootError);
 
-    expect(signal).toHaveBeenCalled();
-    expect(manager.getStatus()).toEqual([]);
+    expect(processRunner.closeAndTerminateDirectScope).toHaveBeenCalledTimes(1);
+    expect(manager.getStatus()).toHaveLength(1);
+  });
+
+  it('starts runtime direct containment in the App admission phase before MCP cleanup begins', async () => {
+    const root = projectRoot();
+    writeConfig(root, { one: http('http://localhost/one') });
+    const { manager, processRunner } = createManager(root);
+    await manager.reconcilePersistedConfig();
+    const events: string[] = [];
+    const directImplementation = processRunner.closeAndTerminateDirectScope.bind(processRunner);
+    jest.spyOn(processRunner, 'closeAndTerminateDirectScope').mockImplementation((input) => {
+      events.push('direct-containment');
+      return directImplementation(input);
+    });
+    const terminal = createAppTerminalCoordinator();
+    terminal.registerAdmissionCloser('mcp', () => manager.closeAdmission());
+    terminal.registerCleanupLeaf('mcp', () => {
+      events.push('cleanup');
+      return manager.cleanupForApplicationStop();
+    });
+
+    await expect(terminal.stop()).resolves.toEqual({ warnings: [] });
+
+    expect(events).toEqual(['direct-containment', 'cleanup']);
   });
 });

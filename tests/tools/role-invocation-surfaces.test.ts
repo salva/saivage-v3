@@ -78,16 +78,17 @@ function fixture(role: RoleSurfaceContext['role'], mcpToolInvocation: McpToolInv
   roots.push(projectRoot);
   initProjectTree(projectRoot);
   const store = new CardService(projectRoot);
-  const processRunner = createTestProcessRunner(projectRoot);
+  const processes = createTestProcessRunner(projectRoot);
+  const processRunner = processes.processRunner;
   if (role === 'planner') return { role, projectRoot, cardId: 'project', sessionId: 'planner:project', store, parentControl: { activateChild: async () => { throw new Error('unused'); }, cancelChild: async ({ childCardId }) => ({ card_id: childCardId, status: 'cancelled', cancelled_card_ids: [childCardId] }) }, notifyCard: () => ({ ok: true, notificationId: 'test-notification' }) };
   if (role === 'reviewer') return { role, projectRoot, cardId: 'project', store, mcpToolInvocation };
-  if (role === 'executor') return { role, projectRoot, cardId: 'project', ownerId: 'activation:test:node:0', store, processRunner, processScope: createTestDirectProcessScope(processRunner, 'runtime_card'), mcpToolInvocation };
+  if (role === 'executor') return { role, projectRoot, cardId: 'project', ownerId: 'activation:test:node:0', store, processRunner, processScope: createTestDirectProcessScope(processes, 'runtime_card'), mcpToolInvocation };
   const toolContext: ToolContext = {
     projectRoot,
     configAuthority: testConfigAuthority(projectRoot),
     interventionReadiness: new RuntimeInterventionBinding(),
     processRunner,
-    processScope: createTestDirectProcessScope(processRunner, 'operator_session'),
+    processScope: createTestDirectProcessScope(processes, 'operator_session'),
     store,
     sessionId: 'analyst:global',
     mcpToolInvocation,

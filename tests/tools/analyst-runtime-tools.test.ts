@@ -74,8 +74,9 @@ describe('analyst runtime tools', () => {
   it('projects process logs as canonical work URLs', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-runtime-'));
     try {
-      const processRunner = createTestProcessRunner(projectRoot);
-      const processScope = processRunner.createDirectScope(processRunner.runtimeRootScope, 'test-agent', 'runtime_card');
+      const processes = createTestProcessRunner(projectRoot);
+      const processRunner = processes.processRunner;
+      const processScope = processRunner.createDirectScope(processes.runtimeProcessRootScope, 'test-agent', 'runtime_card');
       const process = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerId: 'agent-1', ownerKind: 'agent' });
       const result = await list_processes_tool({ projectRoot, processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});
 
@@ -90,7 +91,7 @@ describe('analyst runtime tools', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-status-'));
     try {
       initProjectTree(projectRoot);
-      const processRunner = createTestProcessRunner(projectRoot);
+      const processRunner = createTestProcessRunner(projectRoot).processRunner;
       const cards = new CardService(projectRoot);
       const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       cards.setStatus(card.id, 'running');

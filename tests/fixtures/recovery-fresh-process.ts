@@ -9,6 +9,8 @@ import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 const projectRoot = process.argv[2];
 if (!projectRoot) throw new Error('project root is required');
 const cards = new CardService(projectRoot);
+const processRegistry = new ManagedProcessGroupRegistry();
+const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
 const runtime = new SupervisorRuntimeApi({
   ...testAutonomousCompaction,
   projectRoot,
@@ -17,7 +19,8 @@ const runtime = new SupervisorRuntimeApi({
   provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
   conversations: { projectRoot },
   readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
-  processRunner: new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry()),
+  processRunner: new ProcessRunner(projectRoot, processRegistry),
+  runtimeProcessRootScope,
   promptTemplates: { render: () => 'test prompt' },
 });
 const prepared = await runtime.beginStartProject();
