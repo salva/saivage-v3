@@ -104,6 +104,19 @@ describe('FilesView', () => {
     expect(wrapper.find('[data-testid="route-files"]').text()).toContain('Metadata');
   });
 
+  it.each([
+    ['.saivage/work', 'output'],
+    ['.saivage/work/logs/output.txt', 'output'],
+    ['.saivage/logs/app.jsonl', 'meta'],
+  ])('selects the canonical root for deep link %s', async (path, expectedRoot) => {
+    const { wrapper, router } = await mountFilesView({
+      initialRoute: `/files?root=meta&path=${encodeURIComponent(path)}`,
+    });
+
+    expect(router.currentRoute.value.query).toEqual({ root: expectedRoot, path });
+    wrapper.unmount();
+  });
+
   it('shows viewer state when file preview is blocked', async () => {
     vi.mocked(getFileContent).mockRejectedValue(new ApiError(403, 'Protected content — access denied', {}));
     const { wrapper } = await mountFilesView();

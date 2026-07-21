@@ -194,8 +194,8 @@ function parentPath(path: string): string {
 }
 
 function rootForPath(path: string): FileRoot | null {
-  if (path === '.saivage' || path.startsWith('.saivage/')) return 'meta';
   if (path === '.saivage/work' || path.startsWith('.saivage/work/')) return 'output';
+  if (path === '.saivage' || path.startsWith('.saivage/')) return 'meta';
   return null;
 }
 
