@@ -14,7 +14,7 @@ When the change creates or revises a skill, also follow `opencode-skill-authorin
 ## Ownership Model
 
 - **Batch coordinator (primary agent):** accepts the issue batch, assigns one unique `docs/working/<date>-<issue-slug>/` path per issue, launches and tracks one `fixer` Task per issue, records each exact Task-returned ID and disposition in its own session context, and decides when a waiting fixer may resume. It never takes over an issue's design, review, or implementation.
-- **Issue fixer (`fixer`):** owns one issue end to end: designer/reviewer delegation, finding triage, approved-plan freshness decisions, implementation-manager delegation, and read-only reconciliation and reporting after manager return. It may write ignored planning/review artifacts, but it never performs implementation edits, validation, artifact generation, staging, or commits.
+- **Issue fixer (`fixer`):** owns one issue end to end: designer/reviewer delegation, finding triage, design-value reassessment, approved-plan freshness decisions, implementation-manager delegation, and read-only reconciliation and reporting after manager return. It may write ignored planning/review artifacts, but it never performs implementation edits, validation, artifact generation, staging, or commits.
 - **Designer (`designer`):** writes and revises the issue's design/plan, including revisions prompted by review or implementation learning.
 - **Reviewer (`reviewer`):** adversarially reviews every current design/plan revision.
 - **Implementation manager (`implementation-manager`):** is the sole issue implementation orchestrator and the only agent that invokes `developer`. Its one lock covers all implementation mutation, required validation, generated artifacts, staging, commits, and stabilization.
@@ -26,6 +26,7 @@ Each issue must complete its own design/review loop. Potentially colliding issue
 
 - Design root-cause fixes before implementation and force a skeptical second pass.
 - Treat review findings as hypotheses and repeat revision/review until no confirmed material finding remains.
+- Stop evolving designs from accumulating unjustified complexity or reintroducing deferred concerns, and implement only designs that remain worthwhile and aligned with `AGENTS.md`.
 - Permit concurrent issue investigation and review without permitting overlapping issue implementations.
 - Keep working artifacts out of Git while updating tracked documentation required by the fix.
 
@@ -61,11 +62,32 @@ The issue fixer must use `designer` for all plan authoring and `reviewer` for ev
 1. Ask `designer` to write or revise the self-contained plan at the issue's unique path. For revisions, provide all confirmed material findings.
 2. Invoke `reviewer` on the complete current plan.
 3. Triage every finding.
-4. If any finding is material, revise and repeat. Implement only when every finding is false, minor, or explicitly deferred and no confirmed material finding remains.
+4. If any finding is material, determine whether the periodic design-value reassessment below is due. When it is not due, revise and repeat directly. When it is due, continue to revision only on `WORTH_CONTINUING`.
+5. When every finding is false, minor, or explicitly deferred and no confirmed material finding remains, run the mandatory final design-value reassessment. Review closure alone never authorizes freshness or implementation.
 
-### Reassessment On Repeated Review Loops
+### Design-Value Reassessment
 
-The issue fixer, not the designer or reviewer, reassesses the approach when roughly three rounds find material issues, findings recur, or revisions repeatedly widen or shift scope. Re-evaluate layer/component fit, root-cause placement, complexity, scope, and issue framing. Then do exactly one of: simplify, re-scope, move the fix, or ask the user. Reassessment never skips review; send the revised framing through the full loop again.
+The issue fixer, not the designer or reviewer, owns this higher-level merit decision. Apply it at both of these points:
+
+- **Periodically during revision:** reassess immediately when findings recur, a revision widens or shifts scope, adds a material mechanism, or pulls a deferred or non-essential concern into the core change. Otherwise reassess no later than every second review round with confirmed material findings since the last reassessment or full-loop restart. Run it after finding triage and before another designer revision.
+- **After review closure:** always reassess the complete closed plan before recording approval, checking semantic freshness, or invoking `implementation-manager`. An earlier periodic result cannot satisfy this final gate.
+
+Use a concise pass/fault decision, not a scorecard or new approval artifact. Confirm all of the following:
+
+- **Value and root cause:** the plan still solves the evidenced issue at the layer that owns its root cause rather than compensating for a symptom or preserving a disproved premise.
+- **Net simplicity:** the result is cleaner and easier to understand and change; its new mechanisms, states, contracts, coordination, and exceptions are not comparable to or worse than the complexity removed unless concrete value clearly justifies them.
+- **Project alignment:** the plan follows `AGENTS.md`, including clean architecture, fail-fast and singular-contract rules, and the prohibitions on compatibility paths and test-driven production complexity.
+- **Scope discipline:** the plan is the minimal coherent safe fix, and deferred or non-essential robustness and rare-edge-case concerns remain deferred unless they block the core behavior or leave it unsafe.
+
+Record one of these outcomes with concise evidence:
+
+- **`WORTH_CONTINUING`:** valid only at a due periodic gate while material findings remain. It permits the next designer revision and reviewer round, but cannot approve the plan, record an examined `HEAD`, run freshness, or authorize implementation. A material round where reassessment is not due follows the ordinary revision loop without a merit outcome.
+- **`WORTH_IMPLEMENTING`:** valid only at the mandatory post-closure gate. It is the sole merit outcome that permits plan approval, freshness checking, and eventual manager delegation.
+- **`REDESIGN_REQUIRED`:** the design is faulty but salvageable. Record the failed conditions and precise constraints that can plausibly restore a worthwhile compliant root-cause design. Do not patch or partially implement the current plan; give the complete issue, evidence, and constraints to `designer`, then restart the full designer/reviewer loop on a self-contained plan.
+- **`ABANDONED`:** no credible compliant redesign is worthwhile, such as when the premise is disproved, the necessary complexity outweighs the concrete value, or the objective conflicts with `AGENTS.md`. End the issue without freshness or implementation and report the evidence, failed conditions, and why precise redesign constraints cannot save it. Do not automatically relaunch it.
+- **`BLOCKED`:** evidence is insufficient or an operator-owned product tradeoff prevents a reliable decision. Ask the user rather than guessing, abandoning, or implementing.
+
+Every redesigned plan is subject to the same periodic and final gates. This reassessment evaluates the design's merit; the freshness gate below separately evaluates whether repository changes invalidated an approved design.
 
 ### Designer And Reviewer Calls
 
@@ -94,9 +116,19 @@ For a batch, the coordinator must:
 
 Sequentially awaiting each initial fixer defeats the batch contract. If concurrent Task launch or exact returned-ID observation is unavailable, report the batch workflow blocked rather than silently weakening it.
 
-## Approval And Freshness Gate
+## Final Approval And Freshness Gate
 
-When review closes, the fixer records the examined `HEAD` in its approval report. Immediately before every implementation-manager attempt, including every attempt after lock waiting, it performs a read-only semantic freshness check against current `HEAD`, commits since its last approval/check, and current shared-worktree changes.
+Only after review closes and the final reassessment returns `WORTH_IMPLEMENTING` may the fixer record this approval in session/report state:
+
+```text
+Plan approval:
+Review closure: <review verdict and round/review artifact>
+Final merit outcome: WORTH_IMPLEMENTING
+Supporting evidence: <concise evidence covering the four merit conditions>
+Examined HEAD: <commit>
+```
+
+Immediately before every implementation-manager attempt, including every attempt after lock waiting, the fixer performs a read-only semantic freshness check against current `HEAD`, commits since its last approval/check, and current shared-worktree changes.
 
 Compare the plan's assumptions, named files, contracts, call sites, cleanup, documentation, and validation:
 
@@ -104,7 +136,7 @@ Compare the plan's assumptions, named files, contracts, call sites, cleanup, doc
 - **`PLAN_REVIEW_REQUIRED`:** a contract or assumption changed, a target was removed/substantially rewritten, planned changes conflict, scope changed, or validation/docs no longer establish correctness. Do not invoke the manager. Send current evidence to `designer` and repeat the complete review/triage loop.
 - **`BLOCKED`:** the shared workspace is broken, unclassified, or unsafe for a reliable check. Do not mutate or improvise.
 
-A successful check does not reserve implementation. The manager must still acquire the sole lock; if it loses contention, the fixer waits and repeats freshness after its verified resume.
+A freshness-driven return to design invalidates the prior approval; a newly closed revision requires a new final `WORTH_IMPLEMENTING` decision and approval record. A successful check does not reserve implementation. The manager must still acquire the sole lock; if it loses contention, the fixer waits and repeats freshness after its verified resume.
 
 ## Singular Complete Implementation Boundary
 
@@ -167,6 +199,7 @@ The fixer performs read-only reconciliation only: inspect the manager report, co
 Every fixer return to a coordinator starts with exactly one disposition:
 
 - `COMPLETED`
+- `ABANDONED`
 - `WAITING_FOR_IMPLEMENTATION_LOCK`
 - `BLOCKED`
 - `FAILED`
@@ -178,7 +211,11 @@ A waiting return includes:
 Disposition: WAITING_FOR_IMPLEMENTATION_LOCK
 Issue: <identifier and summary>
 Plan: <absolute path>
-Plan approval: <review verdict and examined HEAD>
+Plan approval:
+Review closure: <review verdict and round/review artifact>
+Final merit outcome: WORTH_IMPLEMENTING
+Supporting evidence: <concise evidence covering the four merit conditions>
+Examined HEAD: <commit>
 Implementation attempt: <number>
 Lock holder: <verbatim or concise faithful existing lock description>
 Continuity nonce: <fresh opaque value retained in this fixer session>
@@ -211,7 +248,7 @@ Relevant intervening changes: <summary or none>
 Decision and evidence: <reason>
 ```
 
-Completion/failure reports include issue identity, plan path, review result, files changed, manager-supplied validation results, commit hashes, remaining work/divergence, and repository stability. The fixer generates no new implementation evidence after manager return.
+Completed reports include issue identity, plan path, the unchanged successful plan-approval block, files changed, manager-supplied validation results, commit hashes, remaining work/divergence, and repository stability. `ABANDONED` reports instead include the review outcome, merit evidence, failed conditions, why redesign cannot make the issue worthwhile, and any separate follow-up; they claim no files changed, validation, or commits. The fixer generates no new implementation evidence after manager return.
 
 ## Cancellation And Error Handling
 
@@ -220,6 +257,7 @@ Completion/failure reports include issue identity, plan path, review result, fil
 - **Cancellation between calls:** discard authorization and make no Call 2. Never reuse the nonce; later continuation requires a fresh waiting disposition from the original session.
 - **Call 2 ID/context mismatch:** mark `BLOCKED` before freshness/implementation tools and never delegate from replacement-session output.
 - **Design/review/Task problem before implementation:** use `BLOCKED` for unavailable required tooling and `FAILED` for an actual issue-local failure. Other fixers may continue if the shared worktree is safe.
+- **Design abandoned on merit:** return `ABANDONED` as an intentional terminal no-implementation decision, not `FAILED` or `CANCELLED`; the coordinator does not resume or replace it.
 - **Acquired-lock error/partial/divergence:** the manager stabilizes coherent work before normal release; the fixer reconciles read-only and returns to design/review or reports failure. Resume other issues only when report, lock, and repository state are safe.
 - **Manager cannot stabilize or terminates abnormally:** leave the lock in place. No contender removes or takes it over; report a batch-level blocker requiring explicit owner/operator action.
 - **Coordinator cancellation:** stop launches/resumes; cancel children only when explicitly requested/supported; report all last dispositions and any active holder. Never remove another session's lock.
@@ -227,7 +265,7 @@ Completion/failure reports include issue identity, plan path, review result, fil
 
 ## Post-Batch Aggregate Validation
 
-Only after every fixer implementation is `COMPLETED`, no fixer has pending implementation work, and the implementation lock is absent may the coordinator run one final read-only-or-harmless aggregate validation required to test batch coordination. It never stages or commits. Any unexpected tracked/generated diff fails the aggregate check and is reported rather than repaired outside the manager boundary.
+Only when every issue disposition is exactly `COMPLETED` or `ABANDONED`, no fixer has pending implementation work, and the implementation lock is absent may the coordinator run one final read-only-or-harmless aggregate validation required to test batch coordination. Any `WAITING_FOR_IMPLEMENTATION_LOCK`, `BLOCKED`, `FAILED`, or `CANCELLED` issue prevents it. Aggregate validation never stages or commits. Any unexpected tracked/generated diff fails the aggregate check and is reported rather than repaired outside the manager boundary.
 
 For workflow changes that require Task continuity validation, run the plan's harmless live smoke exactly as written: concurrent synthetic fixer sessions, exact-ID recording, nonce-free/tool-free Call 1, verified same-ID Call 2, and safe mismatch detection. If Task concurrency, IDs, resume, nonce retention, or tool-free evidence is unavailable, report workflow validation `BLOCKED`; do not substitute a sequential, one-call, or text-only imitation.
 
@@ -237,4 +275,4 @@ Do not introduce parallel issue-level implementation, multiple lock-holding mana
 
 ## Final Reporting
 
-Report the issue(s), core design choice, plan path(s), adversarial-review outcome and material findings, main docs/files changed, manager-run validation commands/results, commit hashes, repository stability, residual risks/follow-ups, and any blocked/cancelled issues. Do not commit `docs/working/` artifacts. After changes to skills or agent prompts, tell the operator to restart OpenCode before relying on them.
+Report the issue(s), core design choice, plan path(s), adversarial-review and final-merit outcomes, material findings, main docs/files changed, manager-run validation commands/results, commit hashes, repository stability, residual risks/follow-ups, and any abandoned, blocked, or cancelled issues. Never imply that an abandoned issue was implemented. Do not commit `docs/working/` artifacts. After changes to skills or agent prompts, tell the operator to restart OpenCode before relying on them.
