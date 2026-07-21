@@ -269,7 +269,7 @@ The backend independently applies the singular direct structured redactor to the
 
 Canonical `work:///` is the browsable Files root for `.saivage/work`; content preview rejects that root as a directory. Concrete process-log Browse actions remain canonical descendant URLs, and the process API rejects `work:///` itself as a log reference.
 
-Content supervision has been deleted. Debug has no supervision panel, review statistics, quarantine presentation, or `/api/debug/supervision` request. Path containment, blocked-secret policy, command policy, and centralized outbound redaction remain separate retained security boundaries.
+Content supervision has been deleted. Debug has no supervision panel, review statistics, quarantine presentation, or `/api/debug/supervision` request. Path containment, blocked-secret policy, and command policy remain operational/API controls for predictable file admission, limiting operator-facing browsing, and constrained ordinary tool execution; they do not contain a trusted root-capable agent. Centralized outbound redaction separately preserves secret non-disclosure at the operator-facing projection boundary.
 
 Tool-activity websocket projections use the unified metadata-only process result fields: `process_id`, `exit_code`, `status`, `stdout_url`, `stderr_url`, `stdout_bytes`, and `stderr_bytes`. Legacy inline-output fields such as `stdout`, `stderr`, `stdout_tail`, `stderr_tail`, `tail_truncated`, `truncated`, `log_path`, `running`, `terminated`, and `still_running` are not projected.
 

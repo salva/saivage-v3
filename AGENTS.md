@@ -19,6 +19,15 @@ rather than duplicating project policy.
 
 See historical: docs under `docs-old/` and stale design docs are provenance, not implementation authority.
 
+## Deployment And Trust Model
+
+- Saivage is intended to run inside an externally isolated LXC container. That isolation is deployment-owned; Saivage neither creates nor verifies it.
+- In-container agents are trusted and may execute shell commands as root. This capability does not make every ordinary workflow unconstrained: tools may still constrain operations to simplify agent/operator work, prevent accidents, uphold API contracts, and preserve runtime/data correctness and integrity.
+- Saivage-internal controls cannot comprehensively contain a malicious or rogue root-capable agent. Do not add exhaustive hardening for malicious symlink placement, forbidden-file access, anti-tamper behavior, or equivalent attacks by that principal.
+- Apply the following test only to controls proposed as security or hardening defenses against that trusted root-capable principal: retain or add such a control only when independently justified by at least one of exactly these four reasons: simplifying ordinary agent/operator work; preventing a likely accident; preserving an explicit product/API trust boundary; satisfying a concrete deployment requirement. Name the actual rationale; do not claim root-agent containment.
+- Ordinary runtime/data correctness and integrity invariants remain valid outside that four-reason test, but they do not contain the agent.
+- Preserve external/operator authentication and outbound secret non-disclosure. Trusted agent inspection and root capability grant neither unauthenticated external access nor permission to disclose secrets through UI, API, log, or chat output.
+
 ## Operational Workflow
 
 - When fixing any issue, first create a design and implementation plan under `docs/working/`, then have the `reviewer` subagent review every current plan revision. Critically evaluate its findings and repeat the adversarial review/fix cycle until no confirmed material finding remains. During repeated loops, periodically reassess whether the evolving design remains worthwhile, simple, scoped, and aligned with these instructions; after review closes, always repeat that higher-level assessment before freshness checking or implementation. A salvageable fault restarts the complete design/review loop with precise constraints; a non-salvageable design is abandoned without implementation. Follow the `saivage-issue-fix-adversarial-review` skill for the exact cadence, rubric, outcomes, and reporting.

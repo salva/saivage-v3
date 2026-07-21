@@ -18,6 +18,8 @@ Provider candidate availability is live process-local routing advice and resets 
 
 ## Quick start
 
+Saivage is designed for deployment inside an isolated LXC container, where trusted in-container agents may have root shell access; authentication and secret-safe output still protect external/operator surfaces. Local builds and tests outside LXC remain valid, and Saivage neither detects nor enforces LXC at startup.
+
 Use Node.js 24 (the repository engines require `node >=24 <25` and `npm >=10 <12`, matching the GitHub Actions validation profile) on a POSIX system with Bash and POSIX process-group behavior. Build Saivage from a source checkout, then operate it from the target project directory so the project-local `.saivage/` runtime tree is created beside the work Saivage will manage:
 
 ```bash

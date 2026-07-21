@@ -2,6 +2,12 @@
 
 This document is the canonical architecture authority for Saivage v3. The current durable-format cutover is reset-only; old binaries, mixed formats, migrations, compatibility readers, bridges, and normalization paths are unsupported.
 
+## Deployment And Trust Model
+
+Saivage is designed for an externally isolated LXC container. Deployment provides that isolation as the boundary against agent-caused host impact; Saivage neither creates nor verifies it. In-container agents are trusted and may execute shell commands as root.
+
+Internal path, command, and process controls serve operational and API-contract purposes, and runtime/data invariants preserve ordinary correctness and integrity; none contains that trusted root-capable principal. Ordinary workflows may remain constrained despite that capability. External operator authentication and outbound secret non-disclosure remain genuine product boundaries.
+
 ## Activation Ownership Architecture
 
 The supervisor owns one `Map<string, CardActivationOwner>` and one guarded synchronous `ownershipTransition`. `CardActivationOwner` is plain activation-local state and `CardProcessActor` is the remaining micro-actor. `ConversationLLMActor` is a separate direct provider/tool phase owner.
@@ -120,7 +126,7 @@ One LLM options path carries the supplied ordered tool list to every provider tr
 
 Routing occurs only when the matching activation-owned tracker consumer stages the accepted result or failure. Activation trackers and provider invocation lifecycles remain separate semantic owners over shared low-level contained operations. Terminal order adds terminal entry and process settlement before supervisor-owned publication; tracker and LLM join state remain reachable for containment.
 
-The operator LLM-exchange handler is a separate trust boundary. It independently applies the same singular direct structured redactor to the latest strictly read canonical payload and parses that projection before response, without rewriting persistence or reusing the producer's field-classification ownership. Its failure path emits only a stable generic API body and a stable log event containing the validated session and operation identifiers; no exception object, diagnostic message, malformed value, stack, or project path crosses either operator sink.
+The operator LLM-exchange handler is a separate external operator response/non-disclosure boundary. It independently applies the same singular direct structured redactor to the latest strictly read canonical payload and parses that projection before response, without rewriting persistence or reusing the producer's field-classification ownership. Its failure path emits only a stable generic API body and a stable log event containing the validated session and operation identifiers; no exception object, diagnostic message, malformed value, stack, or project path crosses either operator sink.
 
 ## 5. Stable Sessions And Full-Chain Recovery
 
