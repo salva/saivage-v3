@@ -19,6 +19,12 @@ const EXPECTED_NPM_ENGINE = '>=10 <12';
 const RUNTIME_REFERENCE_PATTERN = /Node(?:\.js)?\s+24[\s\S]{0,160}(?:npm\s+10|package\.json\s+engines|package engines|CI|GitHub Actions)/i;
 const REQUIRED_RUNTIME_DOC_FILES = ['README.md', 'docs/architecture/system-architecture.md'];
 const PASS_WITH_NO_TESTS_FLAG = '--passWithNoTests';
+const DATED_LIVE_VALIDATION_RECORD = 'docs/validation/live-getrich-v2-launch-playwright-issues-2026-06-24.md';
+const PLAYWRIGHT_SUITE_OWNERS = [
+  ['preview smoke', 'tests/playwright/smoke', 'tests/playwright/smoke/playwright.config.ts', 'web:test:e2e:preview-smoke', String.raw`testMatch: /.*\.spec\.ts/`],
+  ['browser-client smoke', 'tests/playwright/browser-client', 'tests/playwright/browser-client/chat-api-client-browser.config.ts', 'web:test:e2e:browser-client-smoke', String.raw`testMatch: /(^|\/)chat-api-client-browser\.spec\.ts$/`],
+  ['live GetRich v2', 'tests/playwright/live-getrich-v2', 'tests/playwright/live-getrich-v2/live-getrich-v2.config.ts', 'web:test:live-getrich-v2', String.raw`testMatch: /live-getrich-v2(-extra|-ui|-coverage)?\.spec\.ts/`],
+];
 
 
 const REQUIRED_VALIDATION_SCRIPTS = [
@@ -204,6 +210,16 @@ function readJsonFile(root, relativePath) {
 function readPackageScripts(root) {
   const pkg = readJsonFile(root, 'package.json');
   return pkg.scripts ?? {};
+}
+
+function listFilesRecursively(root, relativeDirectory) {
+  const directory = path.join(root, relativeDirectory);
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const relativePath = path.join(relativeDirectory, entry.name).split(path.sep).join('/');
+    if (entry.isDirectory()) return listFilesRecursively(root, relativePath);
+    return entry.isFile() ? [relativePath] : [];
+  }).sort();
 }
 
 function commandLocation(file, command) {
@@ -667,6 +683,43 @@ function validateValidationWorkflowContract({ workflowDocuments }) {
     }
     validateClassifier({ file, jobs, failures, checked });
     validateAggregate({ file, jobs, failures, checked });
+
+    const backendRuns = scalarRunSteps(jobs['backend-jest-build']).map(({ run }) => run);
+    const expectedBackendRuns = ['npm ci', 'cd web && npm ci', 'npm run build', 'npm test'];
+    checked.push(`${file} exact backend install/build/test order`);
+    if (JSON.stringify(backendRuns) !== JSON.stringify(expectedBackendRuns)) {
+      failures.push(`${file} backend-jest-build scalar commands must be exactly ${expectedBackendRuns.join(' -> ')}`);
+    }
+
+    const browser = jobs['browser-smoke'];
+    const browserRuns = scalarRunSteps(browser).map(({ run }) => run);
+    const expectedBrowserRuns = ['npm ci', 'cd web && npm ci', 'npm run web:test:e2e:install', 'npx playwright install-deps chromium', 'npm run web:test:e2e:smoke'];
+    checked.push(`${file} exact browser setup and smoke command order`);
+    if (JSON.stringify(browserRuns) !== JSON.stringify(expectedBrowserRuns)) {
+      failures.push(`${file} browser-smoke scalar commands must be exactly ${expectedBrowserRuns.join(' -> ')}`);
+    }
+    const browserSteps = Array.isArray(browser?.steps) ? browser.steps : [];
+    if (!browserSteps.some((step) => step?.uses === 'actions/checkout@v4')) failures.push(`${file} browser-smoke must check out with actions/checkout@v4`);
+    const browserNode = browserSteps.find((step) => step?.uses === 'actions/setup-node@v4');
+    if (`${browserNode?.with?.['node-version']}` !== '24') failures.push(`${file} browser-smoke must set up Node 24 with actions/setup-node@v4`);
+    if (browserNode?.with?.cache !== 'npm') failures.push(`${file} browser-smoke Node setup must retain npm caching`);
+    const smokeIndex = browserSteps.findIndex((step) => step?.run === 'npm run web:test:e2e:smoke');
+    const artifactSteps = browserSteps.filter((step) => step?.uses === 'actions/upload-artifact@v4');
+    const workflowArtifactSteps = Object.values(jobs).flatMap((job) => Array.isArray(job?.steps) ? job.steps : []).filter((step) => step?.uses === 'actions/upload-artifact@v4');
+    checked.push(`${file} browser failure/cancellation artifact semantics and order`);
+    if (artifactSteps.length !== 1 || workflowArtifactSteps.length !== 1) {
+      failures.push(`${file} validation workflow must contain exactly one actions/upload-artifact@v4 step, in browser-smoke`);
+    } else {
+      const artifact = artifactSteps[0];
+      if (browserSteps[smokeIndex + 1] !== artifact) failures.push(`${file} browser artifact upload must immediately follow the browser smoke command`);
+      if (expressionBody(artifact.if) !== 'failure() || cancelled()') failures.push(`${file} browser artifact upload condition must be exactly failure() || cancelled()`);
+      const artifactPaths = typeof artifact.with?.path === 'string' ? artifact.with.path.split(/\r?\n/).map((value) => value.trim()).filter(Boolean) : [];
+      if (JSON.stringify(artifactPaths) !== JSON.stringify(['tmp/playwright-report', 'tmp/playwright-results'])) failures.push(`${file} browser artifact upload paths must be exactly tmp/playwright-report and tmp/playwright-results in that order`);
+      if (artifact.with?.['if-no-files-found'] !== 'warn') failures.push(`${file} browser artifact upload must set if-no-files-found: warn`);
+      if (Object.hasOwn(artifact, 'continue-on-error')) failures.push(`${file} browser artifact upload must not set continue-on-error`);
+    }
+    if (content.includes('web:test:live-getrich-v2') || content.includes('live-getrich-v2.config.ts')) failures.push(`${file} validation workflow must exclude the external live GetRich v2 suite`);
+
     const dependency = jobs['dependency-hygiene'];
     checked.push(`${file} path-aware production dependency audit gate`);
     const dependencyRuns = scalarRunSteps(dependency).map(({ run }) => run);
@@ -675,6 +728,77 @@ function validateValidationWorkflowContract({ workflowDocuments }) {
     }
     if (content.includes('npm run deps:review')) failures.push(`${file} dependency-hygiene must not run the local-only deps:review command in CI`);
   }
+  return { checked, failures };
+}
+
+function validatePlaywrightOwnership({ root, scripts }) {
+  const failures = [];
+  const checked = [];
+  const allSpecs = listFilesRecursively(root, 'tests/playwright').filter((file) => file.endsWith('.spec.ts'));
+  const owned = new Set();
+  for (const [name, directory, config, script, testMatch] of PLAYWRIGHT_SUITE_OWNERS) {
+    const specs = allSpecs.filter((file) => file.startsWith(`${directory}/`));
+    checked.push(`${name} positive owner (${specs.length} spec file(s))`);
+    if (specs.length === 0) failures.push(`${name} Playwright owner must contain at least one .spec.ts file`);
+    specs.forEach((spec) => owned.add(spec));
+    if (!existsSync(path.join(root, config))) {
+      failures.push(`${name} Playwright config ${config} does not exist`);
+    } else {
+      const configSource = readFileSync(path.join(root, config), 'utf8');
+      if (!configSource.includes("testDir: '.'") || !configSource.includes(testMatch)) failures.push(`${name} Playwright config must positively own its exact directory and expected spec set`);
+    }
+    const expected = `playwright test -c ${config}`;
+    if (scripts[script] !== expected) failures.push(`package.json script "${script}" must map exactly to ${config}, but is currently: ${scripts[script] ?? '<missing>'}`);
+  }
+  for (const spec of allSpecs) {
+    if (!owned.has(spec)) failures.push(`Playwright spec ${spec} has no positive suite owner`);
+  }
+  const composite = 'npm run web:test:e2e:preview-smoke && npm run web:test:e2e:browser-client-smoke';
+  checked.push('package.json self-contained Playwright smoke composition');
+  if (scripts['web:test:e2e:smoke'] !== composite) failures.push(`package.json script "web:test:e2e:smoke" must compose exactly the two self-contained profiles: ${composite}`);
+  if ((scripts['web:test:e2e:smoke'] ?? '').includes('live-getrich-v2')) failures.push('package.json self-contained web:test:e2e:smoke must exclude the external live GetRich v2 suite');
+  return { checked, failures };
+}
+
+function validatePlaywrightDocumentation({ root }) {
+  const failures = [];
+  const checked = [];
+  const literalPattern = /tests\/playwright\/[A-Za-z0-9_./-]+\.(?:spec|config)\.ts/g;
+  for (const file of ['README.md', DATED_LIVE_VALIDATION_RECORD]) {
+    const fullPath = path.join(root, file);
+    if (!existsSync(fullPath)) {
+      failures.push(`${file} does not exist; cannot verify Playwright documentation`);
+      continue;
+    }
+    const markdown = readFileSync(fullPath, 'utf8');
+    for (const literal of markdown.match(literalPattern) ?? []) {
+      checked.push(`${file} Playwright path ${literal}`);
+      if (!existsSync(path.join(root, literal))) failures.push(`${file} references nonexistent Playwright path ${literal}`);
+    }
+  }
+
+  const readme = existsSync(path.join(root, 'README.md')) ? readFileSync(path.join(root, 'README.md'), 'utf8') : '';
+  const requirements = [
+    ['root/web clean-install build order', /npm ci\s*\n\(cd web && npm ci\)\s*\nnpm run build/],
+    ['backend dual clean install', /backend-jest-build[\s\S]{0,300}root `npm ci`[\s\S]{0,160}web `cd web && npm ci`/i],
+    ['30-test self-contained smoke ownership', /web:test:e2e:smoke[\s\S]{0,300}30[\s\S]{0,200}self-contained/i],
+    ['preview and dev-server prerequisites', /preview[\s\S]{0,200}dev server/i],
+    ['live command and reachable deployment prerequisite', /npm run web:test:live-getrich-v2[\s\S]{0,260}reachable deployment/i],
+    ['live base URL override', /SAIVAGE_LIVE_BASE_URL/],
+    ['best-effort failed or cancelled browser artifacts', /failed or cancelled[\s\S]{0,220}best-effort[\s\S]{0,220}tmp\/playwright-report[\s\S]{0,100}tmp\/playwright-results/i],
+  ];
+  for (const [label, pattern] of requirements) {
+    checked.push(`README.md ${label}`);
+    if (!pattern.test(readme)) failures.push(`README.md must document ${label}`);
+  }
+
+  const recordPath = path.join(root, DATED_LIVE_VALIDATION_RECORD);
+  const record = existsSync(recordPath) ? readFileSync(recordPath, 'utf8') : '';
+  for (const required of ['npm run web:test:live-getrich-v2', 'SAIVAGE_LIVE_BASE_URL', 'tests/playwright/live-getrich-v2/live-getrich-v2.spec.ts:36', 'tests/playwright/live-getrich-v2/live-getrich-v2-coverage.spec.ts:167']) {
+    checked.push(`${DATED_LIVE_VALIDATION_RECORD} ${required}`);
+    if (!record.includes(required)) failures.push(`${DATED_LIVE_VALIDATION_RECORD} must contain ${required}`);
+  }
+  if (!/reachable deployment/i.test(record)) failures.push(`${DATED_LIVE_VALIDATION_RECORD} must state the reachable-deployment prerequisite`);
   return { checked, failures };
 }
 
@@ -985,7 +1109,9 @@ export function verifyValidationCadence(options = {}) {
   const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
   const failClosedJest = validateFailClosedJestGates({ scripts, workflowCommands: workflow.checked });
-  const failures = [...documented.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...webTestAliases.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures];
+  const playwrightOwnership = validatePlaywrightOwnership({ root, scripts });
+  const playwrightDocumentation = validatePlaywrightDocumentation({ root });
+  const failures = [...documented.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...webTestAliases.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
   return {
     ok: failures.length === 0,
     failures,
@@ -999,6 +1125,8 @@ export function verifyValidationCadence(options = {}) {
     runtimeEngineEntriesChecked: runtimeEngines.checked,
     docsVerifyEntriesChecked: docsVerify.checked,
     failClosedJestGateEntriesChecked: failClosedJest.checked,
+    playwrightOwnershipEntriesChecked: playwrightOwnership.checked,
+    playwrightDocumentationEntriesChecked: playwrightDocumentation.checked,
   };
 }
 

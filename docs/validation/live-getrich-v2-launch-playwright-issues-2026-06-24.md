@@ -11,8 +11,10 @@ npm run build
 ssh root@10.0.3.170 'systemctl restart saivage-v3-getrich.service && systemctl is-active saivage-v3-getrich.service'
 curl -fsS --max-time 5 http://10.0.3.170:8080/health
 curl -fsS --max-time 5 http://10.0.3.170:8080/health/ready
-npx playwright test -c tests/playwright/live-getrich-v2.config.ts
+npm run web:test:live-getrich-v2
 ```
+
+The live suite requires a reachable deployment. It defaults to the target above; set `SAIVAGE_LIVE_BASE_URL=http://host:port` to override the deployment URL.
 
 ## Launch Result
 
@@ -92,7 +94,7 @@ Status: fixed for the live deployment. The Ubuntu package `nodejs` remains insta
 Failed test:
 
 ```text
-tests/playwright/live-getrich-v2.spec.ts:36
+tests/playwright/live-getrich-v2/live-getrich-v2.spec.ts:36
 health and config endpoints expose the configured providers and routing
 ```
 
@@ -119,7 +121,7 @@ Likely fix: decide whether `/api/providers` should expose display ids or fully q
 Failed test:
 
 ```text
-tests/playwright/live-getrich-v2-coverage.spec.ts:167
+tests/playwright/live-getrich-v2/live-getrich-v2-coverage.spec.ts:167
 GET /api/files/content returns file content for an in-project path
 ```
 
