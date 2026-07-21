@@ -80,6 +80,16 @@ export const resultPresenters: Record<string, ResultPresenter> = {
   list_processes_tool: (ctx) => { const list = Array.isArray(ctx.record?.processes) ? ctx.record!.processes : Array.isArray(ctx.parsed) ? ctx.parsed as unknown[] : null; return { headline: list ? textPart(`${list.length} process${list.length === 1 ? '' : 'es'}`) : textPart(ctx.rawContent, 96) }; },
   list_agent_sessions: (ctx) => { const list = Array.isArray(ctx.record?.sessions) ? ctx.record!.sessions : Array.isArray(ctx.parsed) ? ctx.parsed as unknown[] : null; return { headline: list ? textPart(`${list.length} session${list.length === 1 ? '' : 's'}`) : textPart(ctx.rawContent, 96) }; },
   read_agent_session: (ctx) => { const messages = Array.isArray(ctx.record?.messages) ? ctx.record!.messages : null; return { headline: messages ? textPart(`${messages.length} message${messages.length === 1 ? '' : 's'}`) : textPart(ctx.rawContent, 96) }; },
-  skill: (ctx) => ({ headline: textPart(Array.isArray(ctx.record?.skills) ? `${ctx.record!.skills.length} skill${ctx.record!.skills.length === 1 ? '' : 's'}` : 'skill loaded') }),
+  skill: (ctx) => {
+    const data = ctx.record?.success === true ? asRecord(ctx.record.data) : null;
+    if (Array.isArray(data?.skills)) {
+      const count = data.skills.length;
+      return { headline: textPart(`${count} skill${count === 1 ? '' : 's'}`) };
+    }
+    if (typeof data?.skill_name === 'string' && typeof data.skill_content === 'string') {
+      return { headline: textPart('skill loaded') };
+    }
+    return { headline: textPart(ctx.rawContent, 96) };
+  },
   mcp_tool_call: (ctx) => ({ headline: textPart(ctx.record?.summary ?? ctx.record?.result ?? ctx.parsed ?? ctx.rawContent, 96) }),
 };

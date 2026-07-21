@@ -110,9 +110,9 @@ export interface DoctorIssue { severity: 'error' | 'warning'; message: string; }
 export interface DoctorResponse { status: 'ok' | 'issues_found'; checks: DoctorCheck[]; issues: DoctorIssue[]; }
 export interface SupervisionStats { total: number; blocked: number; passed: number; sanitized: number; byRisk: Record<string, number>; bySourceKind: Record<string, number>; }
 export interface SupervisionResponse { reviews: ContentReview[]; stats: SupervisionStats; }
-export type TriggerType = 'keyword' | 'tool' | 'path' | 'tag';
-export interface SkillTrigger { type: TriggerType; pattern: string; }
-export interface SkillIndexEntry { name: string; file: string; target_agents: AgentRole[]; triggers: SkillTrigger[]; updated_at: string; }
+export const skillTargetRoleValues = ['executor', 'reviewer', 'analyst'] as const;
+export type SkillTargetRole = typeof skillTargetRoleValues[number];
+export interface SkillIndexEntry { name: string; file: string; target_agents: SkillTargetRole[]; }
 
 
 import type { EventKind } from './event-catalog.js';

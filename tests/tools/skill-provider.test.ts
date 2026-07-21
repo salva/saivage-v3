@@ -6,43 +6,61 @@ import { tmpdir } from 'node:os';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createSkillProvider } from '../../src/tools/skill-provider.js';
 
-function writeSkill(root: string): void {
+function temporaryProject(test: (root: string, skillsDir: string) => Promise<void>): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'saivage-skill-provider-'));
   const skillsDir = join(root, '.saivage', 'skills');
   mkdirSync(skillsDir, { recursive: true });
+  return test(root, skillsDir).finally(() => rmSync(root, { recursive: true, force: true }));
+}
+
+function writeCatalog(skillsDir: string): void {
   writeFileSync(join(skillsDir, 'index.json'), JSON.stringify([
-    { name: 'executor-skill', file: 'executor.md', target_agents: ['executor'], triggers: [{ type: 'keyword', pattern: 'exec' }], updated_at: '2026-01-01T00:00:00.000Z' },
-    { name: 'reviewer-skill', file: 'reviewer.md', target_agents: ['reviewer'], triggers: [{ type: 'keyword', pattern: 'review' }], updated_at: '2026-01-01T00:00:00.000Z' },
-  ], null, 2), 'utf8');
+    { name: 'shared', file: 'shared.md', target_agents: ['executor', 'reviewer'] },
+    { name: 'reviewer-skill', file: 'reviewer.md', target_agents: ['reviewer'] },
+    { name: 'executor-skill', file: 'executor.md', target_agents: ['executor'] },
+    { name: 'broken', file: 'missing.md', target_agents: ['executor'] },
+  ]), 'utf8');
+  writeFileSync(join(skillsDir, 'shared.md'), 'shared', 'utf8');
+  writeFileSync(join(skillsDir, 'reviewer.md'), 'review', 'utf8');
   writeFileSync(join(skillsDir, 'executor.md'), '# Executor Skill\n', 'utf8');
-  writeFileSync(join(skillsDir, 'reviewer.md'), '# Reviewer Skill\n', 'utf8');
 }
 
 describe('SkillProvider', () => {
-  it('lists skills scoped to the provider role', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-skill-provider-'));
-    try {
-      writeSkill(root);
-      const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentRole: 'executor' })]);
-      const result = await invokeTool(surface, 'skill', {});
-      expect(result).toEqual({ success: true, data: { skills: [expect.objectContaining({ name: 'executor-skill' })] } });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
+  it('returns only ordered role-filtered name projections', async () => temporaryProject(async (root, skillsDir) => {
+    writeCatalog(skillsDir);
+    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentRole: 'executor' })]);
 
-  it('loads skill content and returns lookup failures as model-visible errors', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-skill-provider-'));
-    try {
-      writeSkill(root);
-      const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentRole: 'executor' })]);
-      const loaded = await invokeTool(surface, 'skill', { name: 'executor-skill' });
-      expect(loaded).toEqual(expect.objectContaining({ success: true }));
-      if (loaded.success) expect(loaded.data).toEqual(expect.objectContaining({ skill_name: 'executor-skill', loaded: true }));
+    expect(await invokeTool(surface, 'skill', {})).toEqual({
+      success: true,
+      data: { skills: [{ name: 'shared' }, { name: 'executor-skill' }, { name: 'broken' }] },
+    });
+  }));
 
-      const missing = await invokeTool(surface, 'skill', { name: 'missing' });
-      expect(missing).toEqual({ success: false, error: "Skill 'missing' not found in index" });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
+  it('returns the exact named skill projection without delimiters or metadata', async () => temporaryProject(async (root, skillsDir) => {
+    writeCatalog(skillsDir);
+    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentRole: 'executor' })]);
+
+    expect(await invokeTool(surface, 'skill', { name: 'executor-skill' })).toEqual({
+      success: true,
+      data: { skill_name: 'executor-skill', skill_content: '# Executor Skill\n' },
+    });
+  }));
+
+  it('returns generic model-visible errors for missing, cross-role, and file-read failures', async () => temporaryProject(async (root, skillsDir) => {
+    writeCatalog(skillsDir);
+    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentRole: 'executor' })]);
+
+    expect(await invokeTool(surface, 'skill', { name: 'missing' })).toEqual({
+      success: false,
+      error: "Skill 'missing' is unavailable for role 'executor'.",
+    });
+    expect(await invokeTool(surface, 'skill', { name: 'reviewer-skill' })).toEqual({
+      success: false,
+      error: "Skill 'reviewer-skill' is unavailable for role 'executor'.",
+    });
+    expect(await invokeTool(surface, 'skill', { name: 'broken' })).toEqual({
+      success: false,
+      error: expect.stringMatching(/Failed to read skill 'broken' file at .*missing\.md: ENOENT/),
+    });
+  }));
 });

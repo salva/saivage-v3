@@ -10,6 +10,7 @@ import {
   cardActionValues,
   cardStatusValues,
   cardTypeValues,
+  skillTargetRoleValues,
   urgencyValues,
 } from './types.js';
 import { buildLoggedEventSchema } from './event-catalog.js';
@@ -106,10 +107,28 @@ export const sourceKindSchema = z.enum(['command_output', 'file', 'download', 'w
 export const reviewStatusSchema = z.enum(['passed', 'blocked', 'sanitized']);
 export const riskLevelSchema = z.enum(['low', 'medium', 'high']);
 export const contentReviewSchema = z.object({ id: z.string().min(1), source_kind: sourceKindSchema, source_ref: z.string().min(1), status: reviewStatusSchema, summary: z.string(), risk: riskLevelSchema, created_at: z.string().datetime() }).strict();
-export const triggerTypeSchema = z.enum(['keyword', 'tool', 'path', 'tag']);
-export const skillTriggerSchema = z.object({ type: triggerTypeSchema, pattern: z.string().min(1) });
-export const skillIndexEntrySchema = z.object({ name: z.string().min(1), file: z.string().min(1), target_agents: z.array(agentRoleSchema), triggers: z.array(skillTriggerSchema), updated_at: z.string().datetime() });
-export const skillIndexSchema = z.array(skillIndexEntrySchema);
+export const skillTargetRoleSchema = z.enum(skillTargetRoleValues);
+const skillFileSchema = z.string().min(1).superRefine((file, ctx) => {
+  const segments = file.split('/');
+  const isAbsolute = file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file) || file.startsWith('\\\\');
+  if (isAbsolute || file.includes('\\') || segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Skill file must be a normalized relative path without empty, dot, or parent segments.' });
+  }
+});
+export const skillIndexEntrySchema: z.ZodType<import('./types.js').SkillIndexEntry> = z.object({
+  name: z.string().min(1),
+  file: skillFileSchema,
+  target_agents: z.array(skillTargetRoleSchema).min(1).superRefine((roles, ctx) => {
+    if (new Set(roles).size !== roles.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Skill target roles must be unique.' });
+  }),
+}).strict();
+export const skillIndexSchema = z.array(skillIndexEntrySchema).superRefine((entries, ctx) => {
+  const seen = new Set<string>();
+  entries.forEach((entry, index) => {
+    if (seen.has(entry.name)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate skill name '${entry.name}'.`, path: [index, 'name'] });
+    seen.add(entry.name);
+  });
+});
 
 
 export const runtimeEventKindSchema = enumFromCatalog(runtimeEventKindValues);

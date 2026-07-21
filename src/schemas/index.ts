@@ -53,6 +53,7 @@ export {
   cardActionValues,
   urgencyValues,
   analystIssueSeverityValues,
+  skillTargetRoleValues,
 } from './types.js';
 export type {
   ActivationOutcome,
@@ -122,8 +123,7 @@ export type {
   DoctorResponse,
   SupervisionStats,
   SupervisionResponse,
-  TriggerType,
-  SkillTrigger,
+  SkillTargetRole,
   SkillIndexEntry,
   RuntimeEventKind,
   AgentEventKind,
@@ -189,8 +189,7 @@ export {
   reviewStatusSchema,
   riskLevelSchema,
   contentReviewSchema,
-  triggerTypeSchema,
-  skillTriggerSchema,
+  skillTargetRoleSchema,
   skillIndexEntrySchema,
   skillIndexSchema,
   runtimeEventKindSchema,

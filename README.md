@@ -156,6 +156,20 @@ The generated contract accepts strict parsed `{outcome,summary}`. Hidden correct
 
 Prompt overrides are durable operator configuration: `saivage init`, `saivage reset`, and `start --create-runtime` preserve them while recreating generated state. Before deployment, audit every role override; update incompatible files to defer exactly once to `{{contractDescription}}`, or remove them. Startup fails rather than normalizing old `status` fields or outcome values.
 
+Skills are an optional, on-demand capability for Executor, Reviewer, and Analyst; Planner does not receive the `skill` tool. When used, `.saivage/skills/index.json` is a strict JSON array whose entries contain exactly `name`, `file`, and `target_agents`:
+
+```json
+[
+  {
+    "name": "typescript-testing",
+    "file": "typescript-testing.md",
+    "target_agents": ["executor", "reviewer"]
+  }
+]
+```
+
+Files are exact normalized relative paths beneath `.saivage/skills`. Both listing and named loading are filtered to the caller's role, and skill content is loaded only when the agent calls the tool; Saivage does not automatically match or inject skills. An absent index is allowed and lists no skills. Old non-empty entries containing `triggers`, `updated_at`, or any other extra field are unsupported and fail strict validation; there is no compatibility reader or automatic rewrite. Roll out this schema per deployment only with the stopped, reset-only procedure in the [operator runbook](docs/runbook/index.md#skill-index-format-cutover), never with mixed old/new binaries. Reset preserves the operator-authored index rather than translating it.
+
 Current card IDs use parent-local spreadsheet segments (`card-a`, `card-b`, ..., `card-z`, `card-aa`; nested parents restart at `a`). Every creation starts at `a` and directly attempts exclusive creation of each exact candidate namespace, advancing only when that `mkdir` returns `EEXIST` and never inspecting or enumerating the collision. A successful namespace claim remains consumed even if publication or linking later fails; membership begins only after complete initial publication and the parent's cumulative `children` array append.
 
 Card streams use only format v2. One strict `cardRecordSchema` defines the current card record everywhere it appears, including card-version rows, embedded history snapshots, and tombstone final state. Current, history, and tombstone snapshots have one status authority at `lifecycle.status` and have no top-level `status`, persisted `parent`, persisted `depth`, `allowedActions`, or `position`. The complete cumulative parent `children` snapshot is the sole linked-membership and semantic sibling-order authority, including retained tombstone links. Directory creation claims identity, complete initial publication proves the child, and only the later single parent append grants membership and places it in order. A real active reorder is likewise one parent append: requested active IDs come first and retained non-active links follow in their prior relative order; an active-order no-op writes nothing. Generic card patches cannot write `children` or lifecycle.
