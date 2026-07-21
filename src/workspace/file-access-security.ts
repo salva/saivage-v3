@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { normalize, relative, resolve, sep } from 'node:path';
 import {
   looksLikeSecretPath as sharedLooksLikeSecretPath,
@@ -14,37 +14,15 @@ export {
   redactAnalystSecretValue,
 } from './secret-redaction.js';
 
-const NON_SECRET_SENSITIVE_PATHS: ReadonlySet<string> = new Set([
-  '.saivage/saivage.yaml',
-]);
-
 const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
 ]);
-
-const NON_SECRET_WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([]);
 
 const NON_SECRET_REDACT_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.yaml',
 ]);
 
-export const SENSITIVE_PATHS: ReadonlySet<string> = new Set([
-  ...NON_SECRET_SENSITIVE_PATHS,
-]);
-
-export const READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
-  ...NON_SECRET_READ_BLOCKED_PATHS,
-]);
-
-export const WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([
-  ...NON_SECRET_WRITE_BLOCKED_PATHS,
-]);
-
-export const REDACT_PATHS: ReadonlySet<string> = new Set([
-  ...NON_SECRET_REDACT_PATHS,
-]);
-
-export function sanitizeFilePath(filePath: string): string {
+function sanitizeFilePath(filePath: string): string {
   if (!filePath) return '';
 
   let cleaned = normalize(filePath);
@@ -56,11 +34,6 @@ export function sanitizeFilePath(filePath: string): string {
   cleaned = cleaned.replace(/[/\\]+$/, '');
 
   return cleaned;
-}
-
-export function isSensitivePath(filePath: string): boolean {
-  const clean = sanitizeFilePath(filePath);
-  return sharedLooksLikeSecretPath(clean) || NON_SECRET_SENSITIVE_PATHS.has(clean) || NON_SECRET_READ_BLOCKED_PATHS.has(clean) || clean === '.saivage/locks' || clean.startsWith('.saivage/locks/');
 }
 
 export function isReadBlocked(filePath: string): boolean {
@@ -77,10 +50,7 @@ export function isReadBlocked(filePath: string): boolean {
 
 export function isWriteBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
-  if (sharedLooksLikeSecretPath(clean)) {
-    return true;
-  }
-  return NON_SECRET_WRITE_BLOCKED_PATHS.has(clean) || clean.startsWith('.saivage/locks/');
+  return sharedLooksLikeSecretPath(clean) || clean.startsWith('.saivage/locks/');
 }
 
 export function isRedacted(filePath: string): boolean {
@@ -113,21 +83,11 @@ export function redactCommandForOperator(command: string): string {
   return redactCommandForPolicy(command);
 }
 
-export interface SafeProjectPathResult {
+interface SafeProjectPathResult {
   safe: boolean;
   absolutePath: string;
   relativePath?: string;
   realTargetProjectRelativePath?: string;
-  reason?: string;
-}
-
-export interface SafeContainedFileMetadata {
-  path: string;
-  exists: boolean;
-  type?: 'file' | 'directory';
-  size?: number;
-  modifiedAt?: string;
-  blocked?: boolean;
   reason?: string;
 }
 
@@ -196,63 +156,6 @@ export function resolveContainedProjectPath(
   };
 }
 
-export function getContainedFileMetadata(projectRoot: string, rawPath: unknown): SafeContainedFileMetadata | null {
-  if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
-    return null;
-  }
-
-  const resolved = resolveContainedProjectPath(projectRoot, rawPath.trim());
-  if (!resolved.safe || !resolved.relativePath) {
-    const fallback = resolved.relativePath ?? toContainedRelativePath(projectRoot, rawPath);
-    if (!fallback) {
-      return null;
-    }
-    return {
-      path: fallback,
-      exists: false,
-      blocked: true,
-      reason: resolved.reason,
-    };
-  }
-
-  if (!existsSync(resolved.absolutePath)) {
-    return {
-      path: resolved.relativePath,
-      exists: false,
-    };
-  }
-
-  try {
-    const linkStats = lstatSync(resolved.absolutePath);
-    if (linkStats.isSymbolicLink()) {
-      const realRoot = realpathSync(resolve(projectRoot));
-      const realPath = realpathSync(resolved.absolutePath);
-      if (!realPath.startsWith(realRoot + sep) && realPath !== realRoot) {
-        return {
-          path: resolved.relativePath,
-          exists: false,
-          blocked: true,
-          reason: 'Symlink target is outside the project root.',
-        };
-      }
-    }
-
-    const stats = statSync(resolved.absolutePath);
-    return {
-      path: resolved.relativePath,
-      exists: true,
-      type: stats.isDirectory() ? 'directory' : 'file',
-      size: stats.isFile() ? stats.size : undefined,
-      modifiedAt: stats.mtime.toISOString(),
-    };
-  } catch {
-    return {
-      path: resolved.relativePath,
-      exists: false,
-    };
-  }
-}
-
 export function toContainedRelativePath(projectRoot: string, rawPath: unknown): string | null {
   if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
     return null;
@@ -264,56 +167,4 @@ export function toContainedRelativePath(projectRoot: string, rawPath: unknown): 
   }
 
   return resolved.relativePath;
-}
-
-export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
-
-export interface SafeGeneratedFileClassification {
-  sensitivity: SafeFileSensitivity;
-  blocked: boolean;
-  previewable: boolean;
-  downloadable: boolean;
-  redactedOnly: boolean;
-}
-
-export function classifyGeneratedFilePath(filePath: string): SafeGeneratedFileClassification {
-  if (isReadBlocked(filePath)) {
-    return {
-      sensitivity: 'sensitive-blocked',
-      blocked: true,
-      previewable: false,
-      downloadable: false,
-      redactedOnly: false,
-    };
-  }
-
-  if (isRedacted(filePath)) {
-    return {
-      sensitivity: 'sensitive-redacted',
-      blocked: false,
-      previewable: true,
-      downloadable: false,
-      redactedOnly: true,
-    };
-  }
-
-  return {
-    sensitivity: 'normal',
-    blocked: false,
-    previewable: true,
-    downloadable: true,
-    redactedOnly: false,
-  };
-}
-
-export function isStashPathAllowed(stashDir: string, requestedPath: string): boolean {
-  if (!requestedPath || !stashDir) return false;
-
-  const resolvedStash = resolve(stashDir);
-  const resolvedRequested = resolve(stashDir, requestedPath);
-
-  const stashNorm = resolvedStash.endsWith(sep) ? resolvedStash : resolvedStash + sep;
-  const reqNorm = resolvedRequested.endsWith(sep) ? resolvedRequested : resolvedRequested + sep;
-
-  return reqNorm.startsWith(stashNorm);
 }

@@ -30,8 +30,6 @@ import { quarantineContent, recordContentPass } from '../helpers/content-review.
 import {
   isReadBlocked,
   isRedacted,
-  isSensitivePath,
-  isStashPathAllowed,
   resolveContainedProjectPath,
 } from '../../src/workspace/file-access-security.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
@@ -204,8 +202,6 @@ describe('all modules import and work together', () => {
     expect('redactSecrets' in mod).toBe(false);
     expect(typeof mod.isReadBlocked).toBe('function');
     expect(typeof mod.isWriteBlocked).toBe('function');
-    expect(typeof isSensitivePath).toBe('function');
-    expect(typeof isStashPathAllowed).toBe('function');
 
     // file-tree exports (original + new)
     expect('initProjectTree' in mod).toBe(false);
@@ -275,7 +271,6 @@ describe('integration edge cases', () => {
     const mod = await import('../../src/workspace/index.js');
     expect(mod.isReadBlocked('.saivage/locks/runtime.lock')).toBe(true);
     expect(mod.isWriteBlocked('.saivage/locks/runtime.lock')).toBe(true);
-    expect(isSensitivePath('.saivage/locks/runtime.lock')).toBe(true);
     expect(() => readProjectFileAtomic(root, '.saivage/locks/runtime.lock')).toThrow(/blocked for security reasons/);
   });
 

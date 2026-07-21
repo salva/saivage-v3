@@ -17,12 +17,7 @@ export {
   isAnalystSecretPath,
   isSecretLikeKey,
   redactAnalystSecretValue,
-  type SafeProjectPathResult,
 } from './file-access-security.js';
-export {
-  classifyShellCommand,
-  type ShellSafetyClass,
-} from './shell-classifier.js';
 export {
   listRecentReviews,
 } from './quarantine.js';

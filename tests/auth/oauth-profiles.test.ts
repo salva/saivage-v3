@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { isProfileExpired, type AuthProfile } from '../../src/auth/oauth-profiles.js';
-import { isReadBlocked, isSensitivePath } from '../../src/workspace/file-access-security.js';
+import { isReadBlocked } from '../../src/workspace/file-access-security.js';
 
 function profile(expiresAt?: number): AuthProfile {
   return { type: 'oauth', provider: 'test', accessToken: 'token', ...(expiresAt === undefined ? {} : { expiresAt }) };
@@ -18,7 +18,6 @@ describe('isProfileExpired', () => {
 
 describe('auth profile file access', () => {
   it('keeps the canonical auth file unavailable to agents', () => {
-    expect(isSensitivePath('.saivage/auth-profiles.json')).toBe(true);
     expect(isReadBlocked('.saivage/auth-profiles.json')).toBe(true);
     expect(isReadBlocked('.saivage/foo/../auth-profiles.json')).toBe(true);
   });

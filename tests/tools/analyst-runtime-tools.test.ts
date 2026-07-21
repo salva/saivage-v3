@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -74,14 +74,30 @@ describe('analyst runtime tools', () => {
   it('projects process logs as canonical work URLs', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-runtime-'));
     try {
+      const cwd = join(projectRoot, 'subdir');
+      mkdirSync(cwd);
       const processes = createTestProcessRunner(projectRoot);
       const processRunner = processes.processRunner;
       const processScope = processRunner.createDirectScope(processes.runtimeProcessRootScope, 'test-agent', 'runtime_card');
-      const process = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerId: 'agent-1', ownerKind: 'agent' });
+      const rawSecret = 'synthetic-command-secret';
+      const process = processRunner.spawn({ command: `echo token=${rawSecret}`, cwd, directScope: processScope, category: 'runtime_card', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerId: 'agent-1', ownerKind: 'agent' });
       const result = await list_processes_tool({ projectRoot, processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});
 
       expect(result.success).toBe(true);
-      if (result.success) expect(result.data).toEqual([expect.objectContaining({ card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', owner_kind: 'agent', owner_id: 'agent-1', logs: { stdout: `work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${process.id}/stdout.log`, stderr: `work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${process.id}/stderr.log` } })]);
+      if (result.success) {
+        expect(result.data).toEqual([expect.objectContaining({
+          card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          owner_kind: 'agent',
+          owner_id: 'agent-1',
+          command: expect.stringContaining('[REDACTED]'),
+          cwd: 'subdir',
+          logs: {
+            stdout: `work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${process.id}/stdout.log`,
+            stderr: `work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${process.id}/stderr.log`,
+          },
+        })]);
+        expect(JSON.stringify(result.data)).not.toContain(rawSecret);
+      }
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }

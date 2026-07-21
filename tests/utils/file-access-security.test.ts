@@ -1,6 +1,19 @@
 import { describe, expect, it } from '@jest/globals';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
-import { redactOperatorErrorMessage } from '../../src/workspace/file-access-security.js';
+import {
+  isWriteBlocked,
+  redactOperatorErrorMessage,
+} from '../../src/workspace/file-access-security.js';
+
+describe('isWriteBlocked', () => {
+  it('preserves secret and lock descendant blocking boundaries', () => {
+    expect(isWriteBlocked('.saivage/auth-profiles.json')).toBe(true);
+    expect(isWriteBlocked('.saivage/locks/runtime.lock')).toBe(true);
+    expect(isWriteBlocked('./.saivage/locks/runtime.lock')).toBe(true);
+    expect(isWriteBlocked('.saivage/locks')).toBe(false);
+    expect(isWriteBlocked('src/app.ts')).toBe(false);
+  });
+});
 
 describe('redaction file-safety behavior', () => {
   it('redacts token-shaped literals in arbitrary plain text', () => {
