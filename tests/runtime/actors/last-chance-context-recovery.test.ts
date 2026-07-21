@@ -10,7 +10,7 @@ import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-ex
 import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
 import { agentMessageSchema, parseConversationSessionId, type AgentMessage, type OperationalAgentRole, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { CompactionAppendError, CompactionSummaryConstructionError, prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
-import { SummarizerExchangeProjectionError } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
 import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { appendAnalystIngressBatch } from '../../../src/runtime/actors/conversation-session.js';
@@ -185,9 +185,8 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     const agentId = 'planner:project';
     const cause = new Error(`${kind} fatal`);
     const provider = contextOnlyProvider();
-    const completionValue: ProviderTurnCompletion = { result: { kind: 'message', content: 'summary' }, provider_exchanges: [] };
     const thrown = kind === 'projection'
-      ? new SummarizerExchangeProjectionError(cause, completionValue)
+      ? new AppLogPublicationError('provider_exchange', cause)
       : kind === 'append'
         ? new CompactionAppendError(cause)
         : cause;

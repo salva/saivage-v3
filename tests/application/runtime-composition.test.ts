@@ -6,9 +6,7 @@ import { join } from 'node:path';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { createRuntimeApplication, type RuntimeApiFactoryDeps } from '../../src/application/runtime-composition.js';
-import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { CardService } from '../../src/cards/card-service.js';
-import { EventBus } from '../../src/events/index.js';
 import { createEventLog } from '../../src/observability/index.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
@@ -36,31 +34,27 @@ function services(runtimeApiFactory: (deps: RuntimeApiFactoryDeps) => any, selec
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-composition-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
-  const eventBus = new EventBus();
-  const readModelChanges = new ReadModelChangeBroadcaster();
-  const appLogs = { projectRoot };
+  const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentsChanged: jest.fn(), conversationChanged: jest.fn(), timelineChanged: jest.fn() };
   const processRegistry = new ManagedProcessGroupRegistry();
   const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
   const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst-sessions');
   return {
-    projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config: selectedConfig, configAuthority: testConfigAuthority(projectRoot), eventBus,
-    eventLogger: createEventLog(projectRoot, appLogs), appLogs,
-    cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges, runtimeApiFactory,
+    projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config: selectedConfig, configAuthority: testConfigAuthority(projectRoot),
+    eventLogger: createEventLog(projectRoot, freshness.timelineChanged),
+    cardStore: new CardService(projectRoot, freshness), freshness, runtimeApiFactory,
     processRegistry, processRunner: new ProcessRunner(projectRoot, processRegistry), runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: unusedMcpToolInvocation,
   };
 }
 
 function mechanics() {
-  return { start: async () => undefined, startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true }), pause: async () => ({ status: 'stopped' }), resume: async () => ({ status: 'stopped' }), stopProject: async () => ({ status: 'stopped', contained: false }), notifyCard: () => ({ ok: false }), cancelCard: async () => { throw new Error('unused'); }, subscribe: () => ({ unsubscribe() {} }), getStatus: () => ({ status: 'stopped', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }), getRuntimeState: () => null, getActorRuntimeReadModel: () => ({ pauseMode: 'idle', cards: [] }), captureAutonomousExecutingLlmSnapshots: () => [], closeApplicationAdmission() {}, cleanupForApplicationStop: async () => undefined } as any;
+  return { start: async () => undefined, startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true }), pause: async () => ({ status: 'stopped' }), resume: async () => ({ status: 'stopped' }), stopProject: async () => ({ status: 'stopped', contained: false }), notifyCard: () => ({ ok: false }), cancelCard: async () => { throw new Error('unused'); }, getStatus: () => ({ status: 'stopped', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }), getRuntimeState: () => null, getActorRuntimeReadModel: () => ({ pauseMode: 'idle', cards: [] }), captureAutonomousExecutingLlmSnapshots: () => [], closeApplicationAdmission() {}, cleanupForApplicationStop: async () => undefined } as any;
 }
 
 describe('runtime compaction composition', () => {
-  it('composes the narrow append observer into the unchanged conversation_changed event payload', () => {
+  it('composes direct conversation freshness effects', () => {
     let deps!: RuntimeApiFactoryDeps;
     const runtimeApiFactory = jest.fn((value: RuntimeApiFactoryDeps) => { deps = value; return mechanics(); });
     const selected = services(runtimeApiFactory);
-    const events: unknown[] = [];
-    selected.eventBus.subscribe('conversation_changed', (event) => { events.push(event.payload); });
     createRuntimeApplication(selected);
     const timestamp = '2026-07-19T00:00:00.000Z';
     const sessions = ['analyst:global', 'planner:project', 'reviewer:project', 'executor:project'] as const;
@@ -70,7 +64,8 @@ describe('runtime compaction composition', () => {
 
     for (const row of rows) appendConversationBatch(deps.conversations, [row]);
 
-    expect(events).toEqual(rows.map((row) => ({ session_id: row.session_id, mutation: 'entry_appended', message_id: row.id, message_kind: row.kind, role: row.role, message_timestamp: timestamp })));
+    expect(selected.freshness.conversationChanged.mock.calls.map(([sessionId]) => sessionId)).toEqual(rows.map((row) => row.session_id));
+    expect(selected.freshness.agentsChanged).toHaveBeenCalledTimes(rows.length);
   });
 
   it('rejects a non-emitted candidate before an injected runtime factory is invoked', () => {
@@ -119,7 +114,7 @@ describe('runtime compaction composition', () => {
     await deps.summarizerProvider.completeTurn(input, new AbortController().signal);
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ candidateChain: [{ provider: 'test', account: null, model: 'org/summary/model' }] }));
     deps.summarizerProvider.projectProviderExchanges('summary:test', 'id', [], []);
-    expect(project).toHaveBeenCalledWith('summary:test', 'id', [], []);
+    expect(project).toHaveBeenCalledWith('summary:test', 'id', [], [], undefined);
   });
 
   it('rejects an incompatible effective role override before runtime actor construction', () => {

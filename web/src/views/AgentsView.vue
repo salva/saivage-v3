@@ -96,11 +96,11 @@ const roleEntries = computed<RoleEntry[]>(() => {
   return entries;
 });
 
-const ROLE_ICONS: Record<string, string> = {
+const ROLE_ICONS: Record<AgentRole, string> = {
   analyst: '(AN)', planner: '(PL)', executor: '(EX)',
-  reviewer: '(RV)', content_supervisor: '(CS)',
+  reviewer: '(RV)',
 };
-function roleIcon(role: AgentRole): string { return ROLE_ICONS[role] || '(?)'; }
+function roleIcon(role: AgentRole): string { return ROLE_ICONS[role]; }
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 
 function selectSession(id: ConversationSessionId): void { void router.push({ name: 'agent-detail', params: { id } }); }

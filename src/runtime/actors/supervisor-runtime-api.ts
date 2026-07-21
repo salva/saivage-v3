@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { EventBus, type Subscription, type SubscriptionOptions } from '../../events/index.js';
 import { cardRecordSchema, type CardNotification, type CardRecord, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/status-api.js';
@@ -22,7 +21,7 @@ import type { ProcessRunner } from '../process-runner.js';
 import type { ManagedProcessScope } from '../managed-process-group-registry.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
-import type { ReadModelChanges } from '../../application/read-model-changes.js';
+import type { FreshnessEffects } from '../../application/freshness-effects.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { RuntimeContainmentError, RuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 import type { RuntimeProcessIdentity } from '../lock.js';
@@ -33,11 +32,12 @@ import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { executorActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { cardParentId } from '../../schemas/card-id.js';
 import { deferred, type Deferred } from './deferred.js';
+import { AppLogPublicationError } from '../../persistence/app-log.js';
 
 export interface SupervisorRuntimeApiOptions {
-  projectRoot: string; eventBus?: EventBus; now?: () => string;
+  projectRoot: string; now?: () => string;
   actorStore: CardService; interventionBinding: RuntimeInterventionBinding; provider: LLMProviderPort;
-  conversations: ConversationFileContext; readModelChanges: ReadModelChanges;
+  conversations: ConversationFileContext; freshness: Pick<FreshnessEffects, 'runtimeChanged' | 'agentsChanged' | 'conversationChanged'>;
   compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry;
   cardProcesses: CompiledCardProcesses; processPrompts: ProcessPromptRegistry;
@@ -52,7 +52,6 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   private readonly behavior: Omit<SupervisorRuntimeApiOptions, 'processRunner' | 'runtimeProcessRootScope'>;
   readonly #processRunner: ProcessRunner;
   readonly #runtimeProcessRootScope: ManagedProcessScope;
-  private readonly eventBus: EventBus;
   private readonly now: () => string;
   private readonly runtimeGate: RuntimeGate;
   private readonly activationOwners = new Map<string, CardActivationOwner>();
@@ -70,7 +69,6 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     this.#processRunner = processRunner;
     this.#runtimeProcessRootScope = runtimeProcessRootScope;
     this.behavior = behavior;
-    this.eventBus = behavior.eventBus ?? new EventBus();
     this.now = behavior.now ?? (() => new Date().toISOString());
     this.runtimeGate = behavior.runtimeGate ?? new RuntimeGate();
   }
@@ -204,7 +202,6 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   }
 
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> { return this.cancelOwnedOrStored(cardId, reason, null); }
-  subscribe(options: SubscriptionOptions): Subscription { return this.eventBus.subscribe(options); }
   getStatus() { return { status: this.status, currentCardId: this.currentCardId, pid: this.behavior.processIdentity.pid, startedAt: this.behavior.processIdentity.startedAt }; }
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
@@ -274,9 +271,47 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller: owner.caller, entry: owner.entry, alreadyStabilizedRoles: owner.alreadyStabilizedRoles, notificationDelivery: { selectNotifications: () => this.requireKnownCard(owner).pending_notifications, removeNotifications: (ids: readonly string[]) => owner.store.removeNotifications(owner.cardId, [...ids]) }, claimResult: () => this.claimResult(owner) };
     void owner.processor.activate(input, owner.abortController.signal).then((outcome) => this.settleResult(owner, outcome), (error) => {
       if (owner.terminalWinner === 'cancel' || owner.containmentOwner !== 'none') return;
+      if (error instanceof AppLogPublicationError) {
+        void this.containProcessorPublicationFailure(owner, error).catch((cleanupError) => { owner.retainedLocalFailure ??= cleanupError; });
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       void this.settleResult(owner, { status: 'failed', summary: message, result: { kind: 'failed', summary: message } });
     });
+  }
+
+  private async containProcessorPublicationFailure(owner: CardActivationOwner, error: AppLogPublicationError): Promise<void> {
+    if (this.activationOwners.get(owner.cardId) !== owner) return;
+    owner.retainedPublicationFailure = error;
+    let lease: ChildInvocationLease | null = null;
+    this.ownershipTransition(false, () => {
+      owner.phase = 'publication_unknown';
+      lease = owner.parentRelationship?.invocation ?? null;
+      if (lease && (lease.phase() === 'admitted' || lease.phase() === 'settling')) lease.markPublicationUnknown();
+      this.status = 'error';
+      this.runtimeGate.close();
+      this.behavior.interventionBinding.markNotReady();
+    });
+    try {
+      owner.processor.suppressContinuationAndPrepareJoin(error);
+    } catch (cleanupError) { owner.retainedLocalFailure ??= cleanupError; }
+    try { await this.joinProcessor(owner); }
+    catch (cleanupError) { owner.retainedLocalFailure ??= cleanupError; }
+    if (!owner.parentRelationship) {
+      owner.settlement.reject(error);
+      return;
+    }
+    const relationship = owner.parentRelationship;
+    this.ownershipTransition(false, () => {
+      if (this.activationOwners.get(owner.cardId) !== owner) return;
+      const parent = this.activationOwners.get(relationship.parentCardId);
+      if (parent?.childCardId === owner.cardId) parent.childCardId = null;
+      this.activationOwners.delete(owner.cardId);
+      this.currentCardId = relationship.parentCardId;
+      if (relationship.invocation.phase() !== 'contained') relationship.invocation.markContained();
+    });
+    owner.settlement.reject(error);
+    relationship.invocation.deliverInterruption(error);
   }
 
   private claimResult(owner: CardActivationOwner): void {
@@ -414,7 +449,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (record.owner === 'stop') {
       const sessions = owners.flatMap((owner) => owner.parentRelationship ? [owner.parentRelationship.invocation.identity.sessionId] : []);
       this.ownershipTransition(true, () => {
-        this.runtimeGate.completeRun(); for (const owner of owners) { const lease = owner.parentRelationship?.invocation; if (lease?.phase() === 'contained') lease.markReleased(); }
+        this.runtimeGate.completeRun(); for (const owner of owners) { const lease = owner.parentRelationship?.invocation; if (lease?.phase() === 'contained' && !(owner.retainedPublicationFailure instanceof AppLogPublicationError)) lease.markReleased(); }
         this.activationOwners.clear(); this.preparedLaunch = null; this.runIdentity = null; this.currentCardId = null; this.containment = null; this.status = 'stopped'; this.behavior.interventionBinding.markStoppedReady();
       }, sessions[0]);
     }
@@ -468,7 +503,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (this.runIdentity && !this.currentCardId) throw new Error('Active runtime has no current card.');
   }
 
-  private ownershipInvalidated(sessionId?: import('../../schemas/index.js').ConversationSessionId): void { this.behavior.readModelChanges.runtimeChanged(); this.behavior.readModelChanges.agentsChanged(); if (sessionId) this.behavior.readModelChanges.conversationChanged(sessionId); }
+  private ownershipInvalidated(sessionId?: import('../../schemas/index.js').ConversationSessionId): void { this.behavior.freshness.runtimeChanged(); this.behavior.freshness.agentsChanged(); if (sessionId) this.behavior.freshness.conversationChanged(sessionId); }
   private async cancelNonrunningSubtree(cardId: string, cancelled: string[]): Promise<void> { const owner = this.activationOwners.get(cardId); if (owner) { const result = await this.cancelOwnedOrStored(cardId, 'ancestor cancelled', null); cancelled.push(...result.cancelled_card_ids); return; } const card = this.behavior.actorStore.read(cardId); if (!card || !canCancelCardStatus(card.lifecycle.status)) return; if (card.lifecycle.status === 'running') throw new Error(`Running card '${cardId}' has no activation owner.`); for (const childId of this.behavior.actorStore.listChildren(cardId)) await this.cancelNonrunningSubtree(childId, cancelled); this.behavior.actorStore.setStatus(cardId, 'cancelled'); cancelled.push(cardId); }
 }
 

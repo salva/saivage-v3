@@ -32,7 +32,6 @@ function config(providers: SaivageConfig['providers']): SaivageConfig {
     models: { default: ['m1'] }, providers,
     server: { port: 8080, host: '127.0.0.1' },
     runtime: { continuousImprovement: false, processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 } },
-    security: { injectionScanner: true, maxScanLengthBytes: 102400 },
     compaction: { enabled: true, input_budget_tokens: 100000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler', summarizer_candidate: { provider: 'test', account: null, model: 'm1' } },
     card_processes: DEFAULT_CARD_PROCESSES,
   };

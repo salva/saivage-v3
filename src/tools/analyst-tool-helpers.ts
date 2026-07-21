@@ -6,6 +6,7 @@ import { computeCardLogicalPath } from '../application/read-models/card-view.js'
 import type { CardRecord, CardType } from '../schemas/index.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-definition.js';
 import type { SafeToolData, ToolContext, ToolResult } from './analyst-tool-types.js';
+import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
 
 export function saivageDir(projectRoot: string): string {
   return join(projectRoot, '.saivage');
@@ -77,6 +78,7 @@ export function toolFailure(message: string, safeData?: SafeToolData): ToolResul
 }
 
 export function toolFailureFromError(err: unknown, messageOverride?: string): ToolResult {
+  rethrowAppLogPublicationError(err);
   return { success: false, error: messageOverride ?? errorMessage(err) };
 }
 

@@ -74,6 +74,8 @@ export abstract class BaseActor {
   #stateTasks = new Map<number, Task<any>>();
   #actorMainPromise: Promise<void> | undefined;
   #actorMainRunning = false;
+  #deliveringTaskResult = false;
+  #currentTaskStateHalted = false;
 
   protected constructor(
     definition: CompiledActorDefinition,
@@ -88,10 +90,12 @@ export abstract class BaseActor {
   }
 
   start(): void {
+    if (this.#currentTaskStateHalted) throw new InternalActorError(`Cannot restart actor from halted task state "${this.#currentState}"`);
     if (this.#currentState !== undefined && !this.#definition.states.get(this.#currentState)?.terminal) {
       throw new InternalActorError(`Cannot start actor from non-terminal state "${this.#currentState}"`);
     }
     this.#currentState = this.#definition.initial;
+    this.#currentTaskStateHalted = false;
     const context: ActorStartContext = Object.freeze({
       source: null,
       event: null,
@@ -149,6 +153,11 @@ export abstract class BaseActor {
     return new Promise<void>((resolve, reject) => {
       this.#eventSettlementWaiters.add({ sequence, resolve, reject });
     });
+  }
+
+  protected haltCurrentTaskState(): void {
+    if (!this.#deliveringTaskResult || this.#nextEvent !== undefined) throw new InternalActorError('Current task state can be halted only during task-result callback delivery with no pending event');
+    this.#currentTaskStateHalted = true;
   }
 
   #dispatchEvent(eventName: string, sequence: number): string {
@@ -214,13 +223,17 @@ export abstract class BaseActor {
         const task = this.#stateTasks.get(result.id)!;
         this.#stateTasks.delete(result.id);
 
-        if (result.timedOut && task.on_timeout) {
-          task.on_timeout(result.error as TimeoutError);
-        } else if (result.ok) {
-          task.on_done(result.result);
-        } else {
-          task.on_failed(result.error);
-        }
+        this.#deliveringTaskResult = true;
+        try {
+          if (result.timedOut && task.on_timeout) {
+            task.on_timeout(result.error as TimeoutError);
+          } else if (result.ok) {
+            task.on_done(result.result);
+          } else {
+            task.on_failed(result.error);
+          }
+        } finally { this.#deliveringTaskResult = false; }
+        if (this.#currentTaskStateHalted) return;
       }
     } catch (error) {
       console.error('BaseActor main loop failed', error);

@@ -1,5 +1,5 @@
 import { getEventSeverity, type EventKind } from '@saivage/schemas/event-catalog';
-import type { ContentReview, DebugErrorRecord, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView, RuntimeState } from '../api/types';
+import type { DebugErrorRecord, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView, RuntimeState } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel } from './runtime-read-model';
 
@@ -31,86 +31,40 @@ function serializedDetails(value: Record<string, unknown> | undefined): string |
 }
 
 export function projectErrorRecord(error: DebugErrorRecord): DebugErrorItem {
+  const projected = projectTimelineEvent(error);
+  const source = error.kind === 'runtime_diagnostic'
+    ? error.card_id ?? error.goal_id ?? error.phase ?? 'runtime'
+    : error.kind === 'runtime_actionable_error'
+      ? error.actionable_error.cardId ?? error.actionable_error.sessionId ?? 'runtime'
+      : `mcp:${error.server}`;
+  const message = error.kind === 'runtime_diagnostic'
+    ? error.error_message
+    : error.kind === 'runtime_actionable_error'
+      ? error.actionable_error.message
+      : error.error ?? `MCP tool ${error.tool} invocation failed`;
   return {
     id: error.id,
-    source: error.cardId ?? error.goalId ?? error.phase ?? 'runtime',
-    type: error.phase ?? error.kind,
-    severity: 'error',
-    message: redactObservabilityText(error.message),
-    details: serializedDetails(error.metadata),
+    source,
+    type: error.kind === 'runtime_diagnostic' ? error.phase ?? error.kind : error.kind,
+    severity: getEventSeverity(error.kind),
+    message: redactObservabilityText(message),
+    details: serializedDetails(projected.details),
     timestamp: error.timestamp,
   };
 }
 
 export function projectTimelineEvent(event: DebugTimelineEvent): DebugTimelineItem {
-  const { id, kind, timestamp, card_id, goal_id, session_id, ...details } = event;
+  const { id, kind, timestamp, ...details } = event;
+  const card_id = event.kind === 'runtime_diagnostic' ? event.card_id : undefined;
+  const goal_id = event.kind === 'runtime_diagnostic' ? event.goal_id : undefined;
   return {
     id,
     kind,
     timestamp,
     ...(card_id === undefined ? {} : { cardId: card_id }),
     ...(goal_id === undefined ? {} : { goalId: goal_id }),
-    ...(typeof session_id !== 'string' ? {} : { sessionId: session_id }),
     details: redactObservabilityValue(details),
   };
-}
-
-function eventSource(event: DebugTimelineEvent): string {
-  if (typeof event.session_id === 'string') return event.session_id;
-  return event.card_id ?? event.goal_id ?? 'runtime';
-}
-
-function eventErrorItem(event: DebugTimelineEvent, message: string): DebugErrorItem {
-  const timeline = projectTimelineEvent(event);
-  return {
-    id: event.id,
-    source: eventSource(event),
-    type: event.kind,
-    severity: getEventSeverity(event.kind),
-    message: redactObservabilityText(message),
-    details: serializedDetails(timeline.details),
-    timestamp: event.timestamp,
-  };
-}
-
-function actionableErrorMessage(record: Record<string, unknown>): string {
-  const message = record['message'];
-  return typeof message === 'string' && message.trim().length > 0
-    ? message
-    : 'Runtime actionable error recorded';
-}
-
-export function projectTimelineError(event: DebugTimelineEvent): DebugErrorItem | null {
-  switch (event.kind) {
-    case 'runtime_diagnostic':
-      return eventErrorItem(event, event.error_message);
-    case 'runtime_actionable_error':
-      return eventErrorItem(event, actionableErrorMessage(event.actionable_error));
-    case 'subscriber_error':
-      return eventErrorItem(event, event.error_message);
-    case 'mcp_tool_invocation':
-      return event.success ? null : eventErrorItem(event, event.error ?? `MCP tool ${event.tool} invocation failed`);
-    case 'card_history_appended':
-    case 'notification_added':
-    case 'control_action_recorded':
-    case 'analyst_tool_invoked':
-    case 'conversation_changed':
-    case 'control_action_record_appended':
-    case 'event_log_record_appended':
-    case 'error_log_record_appended':
-      return null;
-    default: {
-      const exhaustive: never = event;
-      return exhaustive;
-    }
-  }
-}
-
-export function selectTimelineDerivedErrors(events: DebugTimelineEvent[]): DebugErrorItem[] {
-  return events.flatMap((event) => {
-    const item = projectTimelineError(event);
-    return item === null ? [] : [item];
-  });
 }
 
 export function selectErrorsBySource(errors: DebugErrorItem[]): Map<string, DebugErrorItem[]> {
@@ -132,15 +86,6 @@ export function selectDoctorIssuesBySeverity(issues: DoctorIssue[]): Map<'error'
   for (const issue of issues) {
     const list = map.get(issue.severity);
     if (list) list.push(issue); else map.set(issue.severity, [issue]);
-  }
-  return map;
-}
-
-export function selectReviewsByStatus(reviews: ContentReview[]): Map<string, ContentReview[]> {
-  const map = new Map<string, ContentReview[]>();
-  for (const review of reviews) {
-    const list = map.get(review.status);
-    if (list) list.push(review); else map.set(review.status, [review]);
   }
   return map;
 }

@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 
-import { EventBus } from '../events/index.js';
 import {
   cardHistoryEntrySchema,
   cardLifecycleStateSchema,
@@ -46,8 +45,7 @@ import {
   type CanonicalCardFilesMetadataProjection,
 } from '../persistence/card-files.js';
 import type { CanonicalReadInstrumentation, GrowingFileIo } from '../persistence/growing-file.js';
-import type { ReadModelChanges } from '../application/read-model-changes.js';
-import { ReadModelChangeBroadcaster } from '../application/read-model-changes.js';
+import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../application/freshness-effects.js';
 import type { LiveSyncCardRecordSlot } from '../contracts/index.js';
 import { CardIndex } from './card-index.js';
 import {
@@ -137,7 +135,7 @@ export class CardService {
   readonly maxDepth = 5;
   private notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 
-  constructor(readonly projectRoot: string, private readonly eventBus = new EventBus(), private readonly readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster(), private readonly cardAppendIo?: GrowingFileIo) {}
+  constructor(readonly projectRoot: string, private readonly freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'> = NO_FRESHNESS_EFFECTS, private readonly cardAppendIo?: GrowingFileIo) {}
 
   setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void { this.notifyCard = notifyCard; }
   get recordReader() { return { record: (cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest') => this.readRecord(cardId, filename, version), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
@@ -149,15 +147,14 @@ export class CardService {
   }
 
   private publishCardVersionEffects(history: CardHistoryEntry, parentId: string | null, runtimeChanged: boolean, recordSlots: readonly LiveSyncCardRecordSlot[] = []): void {
-    this.eventBus.emit('card_history_appended', { entry_id: history.entry_id, entry_kind: history.kind, card_id: history.card_id, version_seq: history.version_seq, changed_fields: history.changed_fields, changed_at: history.changed_at });
     const cardId = history.card_id;
-    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: cardId });
-    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'history', card_id: cardId });
-    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'diff', card_id: cardId });
-    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'children', card_id: cardId });
-    if (parentId) this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'children', card_id: parentId });
-    for (const slot of recordSlots) this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, slot });
-    if (runtimeChanged) this.readModelChanges.runtimeChanged();
+    this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: cardId });
+    this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'history', card_id: cardId });
+    this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'diff', card_id: cardId });
+    this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'children', card_id: cardId });
+    if (parentId) this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'children', card_id: parentId });
+    for (const slot of recordSlots) this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, slot });
+    if (runtimeChanged) this.freshness.runtimeChanged();
   }
 
   readActivationAdmission(cardId: string): CardActivationAdmissionProjection | null {
@@ -188,7 +185,7 @@ export class CardService {
   editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection { return replaceOpenAuthoredRecord(this.projectRoot, cardId, filename, version, content, this.cardAppendIo); }
   closeRecord(cardId: string, filename: string, version: number, role: AgentRole, cardVersionSeq: number): RecordProjection {
     const closed = closeAuthoredRecord(this.projectRoot, cardId, filename, version, role, cardVersionSeq, this.cardAppendIo);
-    this.readModelChanges.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, slot: closed.slot });
+    this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, slot: closed.slot });
     return closed;
   }
   discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection { return discardAuthoredRecord(this.projectRoot, cardId, filename, version, reason, this.cardAppendIo); }

@@ -1,14 +1,12 @@
-import { type AnalystConversationSessionId, type ControlActionSurface, type ControlActionAuditEntry } from '../schemas/index.js';
+import { type AnalystConversationSessionId, type ControlActionSurface } from '../schemas/index.js';
 import {
   ANALYST_NO_MODEL_REPLY,
   AnalystOfflineError,
   formatVocabularySnippet,
 } from './analyst-prompt.js';
-import type { EventBus } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
 import type { EventLog } from '../observability/index.js';
 import type { ActorRole } from './authz.js';
-import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
 import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
@@ -32,6 +30,7 @@ import type { SummarizerProviderPort } from '../runtime/actors/compaction/summar
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { randomUUID } from 'node:crypto';
+import { AppLogPublicationError, rethrowAppLogPublicationError } from '../persistence/app-log.js';
 
 
 export interface WorkspaceContext {
@@ -60,10 +59,6 @@ export function buildWorkspaceContextNote(workspaceContext?: WorkspaceContext): 
   return lines.join('\n');
 }
 
-export interface ActivityCallback {
-  (activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void;
-}
-
 export interface AnalystResponse {
   sessionId: AnalystConversationSessionId;
   restart: RestartChatAcknowledgement | null;
@@ -86,45 +81,6 @@ export type AnalystTurnResult = AnalystResponse;
 
 type AnalystToolInvocations = NonNullable<AnalystResponse['toolInvocations']>;
 
-function summarizeForBroadcast(tool: string, result: ToolResult): { summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string } {
-  const data = result.success && result.data && typeof result.data === 'object' ? result.data as Record<string, unknown> : null;
-  const source = data ?? {};
-  const auditSource = data?.['audit_entry'] && typeof data['audit_entry'] === 'object' ? data['audit_entry'] as ControlActionAuditEntry : null;
-  const classified_as = typeof source['classified_as'] === 'string' ? String(source['classified_as']) : undefined;
-  const relatedCardFromData = typeof data?.['id'] === 'string' && (tool === 'edit_card' || tool === 'get_card' || tool === 'create_card') ? String(data['id']) : undefined;
-  const related_card_id = typeof source['card_id'] === 'string' ? String(source['card_id']) : relatedCardFromData ?? (typeof source['related_card_id'] === 'string' ? String(source['related_card_id']) : auditSource?.target_kind === 'card' && auditSource.target_id ? auditSource.target_id : undefined);
-  const related_note_id = typeof source['note_id'] === 'string' ? String(source['note_id']) : typeof source['related_note_id'] === 'string' ? String(source['related_note_id']) : auditSource?.target_kind === 'note' && auditSource.target_id ? auditSource.target_id : undefined;
-  const related_process_id = typeof source['process_id'] === 'string' ? String(source['process_id']) : typeof source['related_process_id'] === 'string' ? String(source['related_process_id']) : auditSource?.target_kind === 'process' && auditSource.target_id ? auditSource.target_id : undefined;
-
-  let summary = result.success ? (tool === 'edit_card' && related_card_id ? `edited card ${related_card_id}` : 'completed') : result.error;
-  if (auditSource?.outcome_summary) {
-    summary = auditSource.outcome_summary;
-  } else if (tool === 'read' && data) {
-    const path = typeof data['path'] === 'string' ? data['path'] : 'file';
-    const binary = data['binary'] === true;
-    const size = typeof data['size'] === 'number' ? ` (${data['size']} bytes)` : '';
-    summary = binary ? `read binary file ${path}${size}` : `read file ${path}${size}`;
-  } else if (tool === 'glob' && data) {
-    const path = typeof data['path'] === 'string' ? data['path'] : 'directory';
-    const count = Array.isArray(data['matches']) ? data['matches'].length : 0;
-    summary = `globbed ${path} (${count} matches)`;
-  } else if (tool === 'run_command') {
-    if (data) {
-      const code = data['exit_code'];
-      summary = `${classified_as ?? 'shell'} command exit=${code === null ? 'null' : String(code)}`;
-    }
-  }
-
-  return { summary: sanitizeAnalystText(summary, 200), classified_as, related_card_id, related_note_id, related_process_id };
-}
-
-
-
-function broadcastToolInvocation(eventBus: EventBus, sessionId: AnalystConversationSessionId, tool: string, result: ToolResult): void {
-  const payload = summarizeForBroadcast(tool, result);
-  eventBus.emit('analyst_tool_invoked', { sessionId, tool, success: result.success, ...payload });
-}
-
 type RestartConfirmation = Readonly<{ kind: 'restart_confirmation' }>;
 type TerminalCompletion = Readonly<{ input: CanonicalLlmInvocationInput; outcome: Extract<LLMActorOutcome, { type: 'result' | 'error' }> }>;
 type AnalystTurnStep =
@@ -144,7 +100,6 @@ type AnalystTurnOutcome =
   | { kind: 'failed'; error: unknown };
 type AnalystTurnOperation = {
   readonly input: AnalystTurnInput;
-  readonly onActivity?: ActivityCallback;
   readonly acceptedOperationId: string;
   restartConfirmation: RestartConfirmation | null;
   readonly caller: Deferred<AnalystTurnResult>;
@@ -177,8 +132,7 @@ export class AnalystSession {
   readonly #restartPort: RestartPort | undefined;
   readonly #conversations: ConversationFileContext;
   readonly #compactionPolicy: AutonomousCompactionPolicy;
-  readonly #eventBus: EventBus;
-  readonly #eventLogger: EventLog | undefined;
+  readonly #eventLogger: EventLog;
   readonly #cardStore: CardService;
   readonly #runtimeProjectionChanged: () => void;
   readonly #createInvocationSurface: () => InvocationSurface;
@@ -201,8 +155,7 @@ export class AnalystSession {
     compactionPolicy: AutonomousCompactionPolicy;
     compactor: CompactorPort;
     summarizerProvider: SummarizerProviderPort;
-    eventBus: EventBus;
-    eventLogger?: EventLog;
+    eventLogger: EventLog;
     cardStore: CardService;
     runtimeProjectionChanged(): void;
     createInvocationSurface(): InvocationSurface;
@@ -218,7 +171,6 @@ export class AnalystSession {
     this.#restartPort = input.restartPort;
     this.#conversations = input.conversations;
     this.#compactionPolicy = input.compactionPolicy;
-    this.#eventBus = input.eventBus;
     this.#eventLogger = input.eventLogger;
     this.#cardStore = input.cardStore;
     this.#runtimeProjectionChanged = input.runtimeProjectionChanged;
@@ -227,14 +179,14 @@ export class AnalystSession {
     this.#llm = new ConversationLLMActor({ projectRoot: input.projectRoot, agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged });
   }
 
-  submit(input: AnalystTurnInput, onActivity?: ActivityCallback): Promise<AnalystTurnResult> {
+  submit(input: AnalystTurnInput): Promise<AnalystTurnResult> {
     if (this.#phase.kind === 'failed') return Promise.reject(this.#phase.cause);
     if (this.#phase.kind === 'disposed') return Promise.reject(this.#phase.reason);
     if (this.#phase.kind !== 'idle') return Promise.reject(new Error(`Analyst session '${this.#sessionId}' already has an active turn.`));
     if (!input.userContent.trim()) return Promise.reject(new Error('Analyst turn content must not be empty.'));
     const caller = deferred<AnalystTurnResult>(); void caller.promise.catch(() => undefined);
     const operation: AnalystTurnOperation = {
-      input, onActivity, acceptedOperationId: randomUUID(), restartConfirmation: this.#phase.restartConfirmation,
+      input, acceptedOperationId: randomUUID(), restartConfirmation: this.#phase.restartConfirmation,
       caller, abort: new AbortController(), tracker: new ActivationOperationTracker(), outcome: { kind: 'pending' },
       step: this.#phase.restartConfirmation && input.userContent === 'RESTART SERVER' ? { kind: 'confirmed_restart_preparing' } : { kind: 'preparing' },
       toolInvocations: [], toolInFlight: null, newlyRequestedRestart: false,
@@ -314,13 +266,12 @@ export class AnalystSession {
         const violation = buildAgentProtocolViolation({ session_id: this.#sessionId, role: 'analyst', tool_call_id: outcome.toolCallId, tool_name: outcome.toolName, violation: parsed.violation, raw: rawArguments });
         result = { success: false, error: JSON.stringify(violation) };
       } else {
-        params = parsed.args; this.emitActivity(operation, { type: 'tool_call', content: { tool: outcome.toolName, params } });
+        params = parsed.args;
         operation.toolInFlight = outcome.toolName;
         result = await invokeToolCall(surface, outcome.toolName, rawArguments, this.#llm.toolInvocationContext(outcome), signal);
         operation.toolInFlight = null; this.assertCurrent(operation, signal);
       }
-      this.emitActivity(operation, { type: 'tool_result', content: { tool: outcome.toolName, success: result.success } });
-      operation.toolInvocations.push({ tool: outcome.toolName, params, result }); broadcastToolInvocation(this.#eventBus, this.#sessionId, outcome.toolName, result);
+      operation.toolInvocations.push({ tool: outcome.toolName, params, result });
       if (outcome.toolName === 'restart_server' && result.success) {
         await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, result);
         operation.newlyRequestedRestart = true;
@@ -409,14 +360,8 @@ export class AnalystSession {
     return { inputId: randomUUID(), agentId: this.#llm.agentId, role: 'analyst', sessionId: this.#sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.#projectRoot, this.#sessionId)), tools, terminalToolNames: [], modelParams: { temperature: modelParams.temperature }, preparedCompaction: prepareCompaction(this.#compactionPolicy, systemPrompt, tools, modelParams.maxTokens), capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }), episodeContext: { surface: this.#surface } };
   }
 
-  private emitActivity(operation: AnalystTurnOperation, activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void { try { operation.onActivity?.(activity); } catch (err) { this.logBoundaryDiagnostic('analyst_activity_callback_failed', err); } }
-
   private logBoundaryDiagnostic(phase: string, err: unknown): void {
-    try {
-      this.#eventLogger?.appendEvent(buildRuntimeDiagnosticEvent({ phase, error: err }));
-    } catch {
-      /* best-effort diagnostics; never fail the analyst response path */
-    }
+    this.#eventLogger.appendEventPrepared(() => buildRuntimeDiagnosticEvent({ phase, error: err }), { operationError: err });
   }
 
   private errorMessage(err: unknown): string {
@@ -438,6 +383,7 @@ export class AnalystSession {
     try {
       return JSON.stringify({ projectRoot: this.#projectRoot, cards: this.#cardStore.list().map((card) => ({ id: card.id, type: card.type, parent: this.#cardStore.getParent(card.id), status: card.lifecycle.status, title: card.title, priority: card.priority, tags: card.tags })) }, null, 2);
     } catch (err) {
+      rethrowAppLogPublicationError(err);
       this.logBoundaryDiagnostic('analyst_project_context_build_failed', err);
       return `Project root: ${this.#projectRoot}`;
     }
@@ -457,6 +403,14 @@ export class AnalystSession {
     try { response = await wrapper; } catch (error) { rejected = true; failure = error; }
     operation.tracker.closeAdmission(new Error('Analyst turn settled.'));
     this.#retiredOperationTrackers.add(operation.tracker);
+    if (failure instanceof AppLogPublicationError) {
+      try { this.#llm.suppressContinuation(failure); } catch { /* publication failure remains authoritative */ }
+      try { await this.#shutdownProcesses(); } catch { /* publication failure remains authoritative */ }
+      this.#phase = { kind: 'failed', cause: failure };
+      operation.caller.reject(failure);
+      this.pruneRetiredTrackers();
+      return;
+    }
     let cleanupFailure: unknown;
     try {
       if (operation.step.kind === 'waiting_tool') this.#llm.abandonParkedTurn();
@@ -527,9 +481,9 @@ export class AnalystRuntime {
     this.#terminateRoot = input.terminateRoot;
   }
 
-  submit(input: AnalystTurnInput, onActivity?: ActivityCallback): Promise<AnalystTurnResult> {
+  submit(input: AnalystTurnInput): Promise<AnalystTurnResult> {
     if (!this.#admissionOpen) return Promise.reject(new Error('Analyst admission is closed.'));
-    return this.getOrCreateSession(input).submit(input, onActivity);
+    return this.getOrCreateSession(input).submit(input);
   }
 
   cancel(reason: string): boolean {

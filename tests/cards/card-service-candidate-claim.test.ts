@@ -51,8 +51,6 @@ jest.unstable_mockModule('node:fs', () => ({
 }));
 
 const { CardService } = await import('../../src/cards/card-service.js');
-const { EventBus } = await import('../../src/events/index.js');
-const { ReadModelChangeBroadcaster } = await import('../../src/application/read-model-changes.js');
 const { cardStreamFile } = await import('../../src/persistence/layout.js');
 const { initProjectTree } = await import('../helpers/canonical-project.js');
 
@@ -103,16 +101,11 @@ describe('direct child namespace claims', () => {
       fsync: ((...args: unknown[]) => { appendOperations.push('fsync'); return Reflect.apply(realFs.fsyncSync, undefined, args); }) as typeof realFs.fsyncSync,
       close: ((...args: unknown[]) => { appendOperations.push('close'); return Reflect.apply(realFs.closeSync, undefined, args); }) as typeof realFs.closeSync,
     };
-    const eventBus = new EventBus();
-    const history = jest.fn();
-    eventBus.subscribe('card_history_appended', (event) => { history(event); });
-    const changes = new ReadModelChangeBroadcaster();
     const cardChanged = jest.fn();
     const runtimeChanged = jest.fn();
-    changes.subscribe({ cardProjectionChanged: cardChanged, runtimeChanged, agentsChanged() {}, conversationChanged() {} });
 
     let caught: unknown;
-    try { new CardService(root, eventBus, changes, io).create(input); } catch (error) { caught = error; }
+    try { new CardService(root, { cardProjectionChanged: cardChanged, runtimeChanged }, io).create(input); } catch (error) { caught = error; }
 
     expect(caught).toBe(injectedFailure);
     expect(candidateMkdirPaths).toEqual([injectedCandidatePath]);
@@ -120,7 +113,6 @@ describe('direct child namespace claims', () => {
     expect(realFs.existsSync(injectedCandidatePath)).toBe(false);
     expect(realFs.readFileSync(cardStreamFile(root, 'project'))).toEqual(parentBytes);
     expect(appendOperations).toEqual([]);
-    expect(history).not.toHaveBeenCalled();
     expect(cardChanged).not.toHaveBeenCalled();
     expect(runtimeChanged).not.toHaveBeenCalled();
     expect(inspectionsAfterFailure).toEqual([]);

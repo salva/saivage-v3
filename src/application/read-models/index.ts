@@ -5,8 +5,6 @@ export { CardsReadModelService } from './cards-read-model.js';
 export { computeCardLogicalPath, toCardView } from './card-view.js';
 export { WorkspaceFileReadModelService } from './workspace-file-read-model.js';
 export type { CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
-export { DebugReadModelService } from './debug-read-model.js';
 export { AgentOperatorReadModelService } from './agent-operator-read-model.js';
 export type { AgentOperatorConversationResponse, AgentOperatorSessionSummary, ListedAgentStatus } from './agent-operator-read-model.js';
-export { EventsReadModelService } from './events-read-model.js';
 export type { EventsListResponse, EventsQuery } from '../../contracts/index.js';

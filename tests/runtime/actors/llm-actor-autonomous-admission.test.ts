@@ -12,8 +12,7 @@ import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm
 import { InvocationService } from '../../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../../src/agents/candidate-availability.js';
 import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
-import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
-import { testAppLogs } from '../../helpers/app-logs.js';
+import { NO_FRESHNESS_EFFECTS } from '../../../src/application/freshness-effects.js';
 import { invocationProviderRegistry } from '../../helpers/invocation-provider-fixture.js';
 
 const roots: string[] = [];
@@ -87,46 +86,6 @@ describe('prepared conversation LLM admission', () => {
     await expect(lease.activation).rejects.toThrow('contained');
   });
 
-  it('persists and publishes inside the admitted raw callback before consumer delivery', async () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-order-'));
-    roots.push(projectRoot);
-    initProjectTree(projectRoot);
-    const trace: string[] = [];
-    const actor = new ConversationLLMActor({
-      projectRoot,
-      agentId: 'planner:project',
-      provider: {
-        completeTurn: async () => {
-          trace.push('provider/aggregation return');
-          return { result: { kind: 'message', content: 'done' }, provider_exchanges: [exchangeAttempt()] };
-        },
-        projectProviderExchanges: () => {
-          trace.push('provider-exchange app-log append');
-          trace.push('post-append read-model hint');
-        },
-      },
-      conversations: {
-        projectRoot,
-        observeEntry: (entry) => {
-          if (entry.role === 'assistant') trace.push('actor conversation persistence');
-        },
-      },
-      compactor: { shouldCompact: () => false, compact: jest.fn<CompactorPort['compact']>() },
-      summarizerProvider: { completeTurn: jest.fn<LLMProviderPort['completeTurn']>(), projectProviderExchanges: jest.fn() },
-    });
-    const turn = directTurn(actor, preparedInput());
-    turn.then(() => { trace.push('consumer delivery'); });
-    await expect(turn).resolves.toMatchObject({ type: 'result', result: { kind: 'message', content: 'done' } });
-
-    expect(trace).toEqual([
-      'provider/aggregation return',
-      'actor conversation persistence',
-      'provider-exchange app-log append',
-      'post-append read-model hint',
-      'consumer delivery',
-    ]);
-  });
-
   it('abandons unresolved provider work immediately and fences its later completion from actor effects', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-abandoned-'));
     roots.push(projectRoot);
@@ -148,8 +107,7 @@ describe('prepared conversation LLM admission', () => {
     });
     const invocationService = new InvocationService({
       projectRoot,
-      appLogs: testAppLogs(projectRoot),
-      readModelChanges: new ReadModelChangeBroadcaster(),
+      freshness: NO_FRESHNESS_EFFECTS,
       registry: invocationProviderRegistry([candidate]),
       router: { getLastCapabilitySkips: () => [] } as never,
       candidateAvailability: new MemoryCandidateAvailability(),

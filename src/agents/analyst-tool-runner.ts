@@ -4,6 +4,7 @@ import { recordControlAction, stableStringify } from '../persistence/index.js';
 import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
 import type { AnalystMutationOutcome } from '../application/analyst-mutation-services.js';
+import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
 
 export interface AnalystMutationReadContext {
   readonly projectRoot: string;
@@ -37,12 +38,20 @@ function paramsSummary(params: unknown): string {
 }
 
 export async function runAuditedAnalystTool<P extends object, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>, signal?: AbortSignal): Promise<ToolResult> {
-  const auditBase = { actor: ctx.actor, surface: ctx.surface, action: spec.action, target_kind: spec.target_kind, target_id: spec.getTargetId(params), params_summary: paramsSummary(params), safety_class: spec.safety_class };
   let settled = false;
-  const settle = (entry: { outcome: 'denied' | 'error' | 'ok'; outcome_summary: string; error?: string }): void => {
+  const settle = (entry: { outcome: 'denied' | 'error' | 'ok'; outcome_summary: string; error?: string }, operationError?: unknown): void => {
     if (settled) throw new Error(`Analyst control action '${spec.action}' was settled more than once.`);
     settled = true;
-    recordControlAction(ctx.appLogs, { ...auditBase, ...entry }, ctx.eventBus);
+    recordControlAction(ctx.projectRoot, () => ({
+      actor: ctx.actor,
+      surface: ctx.surface,
+      action: spec.action,
+      target_kind: spec.target_kind,
+      target_id: spec.getTargetId(params),
+      params_summary: paramsSummary(params),
+      safety_class: spec.safety_class,
+      ...entry,
+    }), operationError);
   };
   let result: ToolResult;
   try {
@@ -75,9 +84,10 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
       }
     }
   } catch (error) {
+    rethrowAppLogPublicationError(error);
     if (settled) throw error;
     const summary = error instanceof Error ? error.message : String(error);
-    settle({ outcome: 'error', outcome_summary: summary, error: summary });
+    settle({ outcome: 'error', outcome_summary: summary, error: summary }, error);
     throw error;
   }
   signal?.throwIfAborted();

@@ -7,9 +7,7 @@ import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
-import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { CardService } from '../../src/cards/card-service.js';
-import { EventBus } from '../../src/events/index.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
@@ -43,13 +41,11 @@ describe('required autonomous compaction E2E', () => {
       compaction: { enabled: true, input_budget_tokens: 12000, summarizer_candidate: { provider: 'test', account: null, model: 'org/summary/model' } },
       card_processes: DEFAULT_CARD_PROCESSES,
     });
-    const eventBus = new EventBus();
-    const readModelChanges = new ReadModelChangeBroadcaster();
-    const appLogs = { projectRoot };
+    const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentsChanged: jest.fn(), conversationChanged: jest.fn(), timelineChanged: jest.fn() };
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
     const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst-sessions');
-    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventBus, eventLogger: createEventLog(projectRoot, appLogs), appLogs, cardStore: new CardService(projectRoot, eventBus, readModelChanges), readModelChanges, processRunner: new ProcessRunner(projectRoot, processRegistry), runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: testAutonomousCompaction.mcpToolInvocation });
+    const application = createRuntimeApplication({ projectRoot, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }, config, configAuthority: testConfigAuthority(projectRoot), eventLogger: createEventLog(projectRoot, freshness.timelineChanged), cardStore: new CardService(projectRoot, freshness), freshness, processRunner: new ProcessRunner(projectRoot, processRegistry), runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: testAutonomousCompaction.mcpToolInvocation });
 
     await application.runtimeApi.start();
     await application.runtimeApi.startProject();

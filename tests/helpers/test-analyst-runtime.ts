@@ -4,7 +4,6 @@ import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import type { ConversationFileContext } from '../../src/persistence/conversation-file.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
-import type { EventBus } from '../../src/events/index.js';
 import type { EventLog } from '../../src/observability/index.js';
 import type { CardService } from '../../src/cards/card-api.js';
 import type { PromptTemplateRegistry } from '../../src/utils/prompt-api.js';
@@ -24,9 +23,8 @@ export interface TestAnalystRuntimeOptions {
   configAuthority: ToolContext['configAuthority'];
   interventionReadiness: ToolContext['interventionReadiness'];
   mcpToolInvocation: ToolContext['mcpToolInvocation'];
-  eventBus: EventBus;
-  eventLogger?: EventLog;
-  appLogs: ToolContext['appLogs'];
+  eventLogger: EventLog;
+  eventQueries: ToolContext['eventQueries'];
   provider: LLMProviderPort;
   conversations: ConversationFileContext;
   compactionPolicy: AutonomousCompactionPolicy;
@@ -65,8 +63,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
         restartServerAvailable: options.restartServerAvailable ?? false,
         actor,
         surface,
-        eventBus: options.eventBus,
-        appLogs: options.appLogs,
+        eventQueries: options.eventQueries,
         captureExecutingLlmSnapshots: options.captureExecutingLlmSnapshots,
         analystMutations,
       };
@@ -91,7 +88,6 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
       compactionPolicy: options.compactionPolicy,
       compactor: options.compactor,
       summarizerProvider: options.summarizerProvider,
-      eventBus: options.eventBus,
       eventLogger: options.eventLogger,
       cardStore: options.cardStore,
       runtimeProjectionChanged: options.runtimeProjectionChanged,

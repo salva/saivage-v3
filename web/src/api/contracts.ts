@@ -40,7 +40,6 @@ export type {
   RestartChatAcknowledgement,
   ChatWorkspaceContext,
   DebugErrorsResponse,
-  DebugTimelineResponse,
   HealthLivenessResponse,
   HealthReadinessResponse,
   McpInvocationStat,
@@ -132,10 +131,6 @@ export type {
   NoteAuthor,
   RuntimeState,
   RuntimeStatus,
-  ReviewStatus,
-  RiskLevel,
   SessionStatus,
-  SourceKind,
-  SupervisionResponse,
   Urgency,
 } from '@saivage/schemas';

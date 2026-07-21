@@ -50,17 +50,17 @@ const cardDetail = parseOperatorResponse('cards.get', { card });
 const debugErrors = parseOperatorResponse('debug.errors', {
   errors: [{
     id: 'err-playwright-1',
-    kind: 'error',
-    message: 'Synthetic provider failure redacted',
+    kind: 'runtime_diagnostic',
+    error_message: 'Synthetic provider failure redacted',
     phase: 'planner-smoke',
     timestamp: now,
   }],
   total: 1,
 });
-const debugTimeline = parseOperatorResponse('debug.timeline', {
+const debugTimeline = parseOperatorResponse('events.list', {
   events: [
-    { id: 'evt-1', kind: 'runtime_diagnostic', session_id: 'planner-smoke', timestamp: now, error_message: 'Synthetic provider failure redacted' },
-    { id: 'evt-2', kind: 'card_history_appended', card_id: smokeCardId, timestamp: now, entry_id: '11111111-1111-4111-8111-111111111111', entry_kind: 'status', version_seq: 1, changed_fields: ['status'], changed_at: now },
+    { id: 'evt-1', kind: 'runtime_diagnostic', phase: 'planner-smoke', timestamp: now, error_message: 'Synthetic provider failure redacted' },
+    { id: 'evt-2', kind: 'mcp_tool_invocation', server: 'filesystem', tool: 'read', success: true, duration_ms: 5, timestamp: now },
   ],
   total: 2,
 });
@@ -250,11 +250,10 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/debug/errors') {
       return json(route, debugErrors);
     }
-    if (request.method() === 'GET' && url.pathname === '/api/debug/timeline') {
+    if (request.method() === 'GET' && url.pathname === '/api/events') {
       return json(route, debugTimeline);
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, { status: 'ok', checks: [], issues: [] });
-    if (request.method() === 'GET' && url.pathname === '/api/debug/supervision') return json(route, { reviews: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } });
     if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
       return json(route, parseOperatorResponse('mcp.tools', {
         tools: [

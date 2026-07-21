@@ -52,9 +52,7 @@ describe('verify-doc-routes operator contract discovery', () => {
       'GET /api/config',
       'GET /api/mcp/status',
       'GET /api/debug/doctor',
-      'GET /api/debug/supervision',
       'GET /api/debug/errors',
-      'GET /api/debug/timeline',
       'POST /api/auth/ws-ticket',
       'GET /health',
       'GET /health/ready',
@@ -70,8 +68,6 @@ describe('verify-doc-routes operator contract discovery', () => {
     expect(debugRoutes).toEqual([
       'GET /api/debug/doctor',
       'GET /api/debug/errors',
-      'GET /api/debug/supervision',
-      'GET /api/debug/timeline',
     ]);
     expect(result.routeResult.routeInventoryRows.map((row) => row.key)).not.toEqual(expect.arrayContaining(debugRoutes));
   });

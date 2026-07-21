@@ -133,7 +133,7 @@ describe('operator API response contracts', () => {
     expect(errors.statusCode).toBe(200);
     expect(errors.json()).toEqual({ errors: expect.any(Array), total: expect.any(Number) });
 
-    const timeline = await app.server.fastify.inject({ method: 'GET', url: '/api/debug/timeline' });
+    const timeline = await app.server.fastify.inject({ method: 'GET', url: '/api/events?selection=newest_tail&limit=1000' });
     expect(timeline.statusCode).toBe(200);
     expect(timeline.json()).toEqual({ events: expect.any(Array), total: expect.any(Number) });
 
@@ -141,9 +141,10 @@ describe('operator API response contracts', () => {
     expect(doctor.statusCode).toBe(200);
     expect(doctor.json()).toEqual({ status: expect.any(String), checks: expect.any(Array), issues: expect.any(Array) });
 
-    const supervision = await app.server.fastify.inject({ method: 'GET', url: '/api/debug/supervision' });
-    expect(supervision.statusCode).toBe(200);
-    expect(supervision.json()).toEqual({ reviews: expect.any(Array), stats: expect.any(Object) });
+    const removedTimeline = await app.server.fastify.inject({ method: 'GET', url: '/api/debug/timeline' });
+    expect(removedTimeline.statusCode).toBe(404);
+    const removedSupervision = await app.server.fastify.inject({ method: 'GET', url: '/api/debug/supervision' });
+    expect(removedSupervision.statusCode).toBe(404);
   });
 
   it('returns a failed tool result unchanged from the agent conversation route', async () => {

@@ -19,7 +19,8 @@ export type ShutdownComponent =
   | 'process-admission'
   | 'analyst'
   | 'mcp'
-  | 'subscriptions'
+  | 'sync-hub'
+  | 'signal-handlers'
   | 'lifecycle-lock';
 
 export interface SafeCleanupWarning {
@@ -178,7 +179,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   const stopForSignal = (): void => { void stop().then((report) => { logShutdownWarnings(report); process.exit(0); }); };
   process.once('SIGINT', stopForSignal);
   process.once('SIGTERM', stopForSignal);
-  terminal.registerCleanupLeaf('subscriptions', () => {
+  terminal.registerCleanupLeaf('signal-handlers', () => {
     process.removeListener('SIGINT', stopForSignal);
     process.removeListener('SIGTERM', stopForSignal);
   });

@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../../src/cards/card-service.js';
 import { RuntimeInterventionBinding } from '../../../src/application/intervention-readiness.js';
-import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 import { RuntimeControlService } from '../../../src/application/runtime-control-service.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { dataPropertyGraphContains } from '../../helpers/data-property-graph.js';
@@ -14,14 +13,19 @@ import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
+import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
+import { appLogFile } from '../../../src/persistence/layout.js';
+import { InvocationService } from '../../../src/agents/invocation-service.js';
+import type { ChildInvocationLease } from '../../../src/runtime/actors/child-invocation-wait.js';
+import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function harness(provider: LLMProviderPort = blockingProvider()) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-supervisor-owner-')); roots.push(root); initProjectTree(root);
-  const cards = new CardService(root); const binding = new RuntimeInterventionBinding(); const gate = new RuntimeGate(); const changes = new ReadModelChangeBroadcaster(); const processes = createTestProcessRunner(root); const runner = processes.processRunner;
-  const supervisorOptions = { ...testAutonomousCompaction, projectRoot: root, processIdentity: { pid: 1, startedAt: '2026-01-01T00:00:00.000Z' }, actorStore: cards, interventionBinding: binding, provider, conversations: { projectRoot: root }, readModelChanges: changes, processRunner: runner, runtimeProcessRootScope: processes.runtimeProcessRootScope, runtimeGate: gate, promptTemplates: createTestPromptTemplateRegistry() };
+  const cards = new CardService(root); const binding = new RuntimeInterventionBinding(); const gate = new RuntimeGate(); const changes = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentsChanged: jest.fn(), conversationChanged: jest.fn(), timelineChanged: jest.fn() }; const processes = createTestProcessRunner(root); const runner = processes.processRunner;
+  const supervisorOptions = { ...testAutonomousCompaction, projectRoot: root, processIdentity: { pid: 1, startedAt: '2026-01-01T00:00:00.000Z' }, actorStore: cards, interventionBinding: binding, provider, conversations: { projectRoot: root }, freshness: changes, processRunner: runner, runtimeProcessRootScope: processes.runtimeProcessRootScope, runtimeGate: gate, promptTemplates: createTestPromptTemplateRegistry() };
   const supervisor = new SupervisorRuntimeApi(supervisorOptions);
   const service = new RuntimeControlService(supervisor);
   return { root, cards, binding, gate, changes, runner, runtimeProcessRootScope: processes.runtimeProcessRootScope, supervisorOptions, supervisor, service };
@@ -32,9 +36,118 @@ function completingProvider() { let calls = 0; return { completeTurn: async () =
 function childActivationProvider(childCardId: string) { return { completeTurn: async () => ({ result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childCardId }) } }] }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() }; }
 function terminalProviderResult() { return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'emit', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ outcome: 'complete_direct', summary: 'done' }) } }] }, provider_exchanges: [] }; }
 async function waitUntil(predicate: () => boolean) { for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 5)); } throw new Error('timeout'); }
+function fileSnapshot(root: string): Map<string, string> {
+  const files = new Map<string, string>();
+  const visit = (directory: string, relative: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
+      const child = join(directory, entry.name);
+      if (entry.isDirectory()) visit(child, childRelative);
+      else if (entry.isFile()) files.set(childRelative, readFileSync(child).toString('base64'));
+    }
+  };
+  visit(root, '');
+  return files;
+}
 const reentrantCases: Array<[string, 'stop' | 'close', boolean]> = [['stop-return', 'stop', false], ['stop-then-throw', 'stop', true], ['close-return', 'close', false], ['close-then-throw', 'close', true]];
 
 describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
+  it('retains the exact root provider-exchange publication failure after real processor join with no lifecycle write or hint', async () => {
+    const error = new AppLogPublicationError('provider_exchange', new Error('hostile root publication failure'));
+    const attempt = { attempt_index: 0, contract_id: 'test', contract_name: 'test', transport: 'generic' as const, provider: 'test', model: 'model', source_input_id: 'input', request_params: {}, started_at: '2026-07-21T00:00:00.000Z', completed_at: '2026-07-21T00:00:01.000Z', status: 'ok' as const, terminal_tool_fired: 'emit_result' };
+    let h!: ReturnType<typeof harness>;
+    const provider = { completeTurn: async () => ({ ...terminalProviderResult(), provider_exchanges: [attempt] }), projectProviderExchanges: () => { h.changes.runtimeChanged.mockClear(); throw error; } };
+    h = harness(provider);
+    const commit = jest.spyOn(h.cards, 'commitTerminalLifecycle');
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await h.service.startProject();
+    await waitUntil(() => h.supervisor.getStatus().status === 'error');
+    const owner = (h.supervisor as unknown as { activationOwners: Map<string, { phase: string; retainedPublicationFailure: unknown; processorJoin: Promise<unknown> | null }> }).activationOwners.get('project');
+    expect(owner).toMatchObject({ phase: 'publication_unknown', retainedPublicationFailure: error });
+    await expect(owner!.processorJoin).resolves.toEqual(expect.any(Array));
+    expect(commit).not.toHaveBeenCalled();
+    expect(h.changes.runtimeChanged).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+  });
+
+  it('contains a real child provider-exchange publication failure through its parent and retains secondary join failure locally', async () => {
+    const seed = harness();
+    const child = seed.cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    let h!: ReturnType<typeof harness>;
+    let publicationError!: AppLogPublicationError;
+    let childOwner!: CardActivationOwner;
+    let lease!: ChildInvocationLease;
+    let markerSnapshot!: Map<string, string>;
+    const leasePhases: string[] = [];
+    const secondaryJoinFailure = new Error('secondary child processor join cleanup failed');
+    const invocation = new InvocationService({ projectRoot: seed.root, registry: {} as never, router: {} as never, candidateAvailability: {} as never, freshness: { agentsChanged: seed.changes.agentsChanged } });
+    const attempt = { attempt_index: 0, contract_id: 'test', contract_name: 'test', transport: 'generic' as const, provider: 'test', model: 'model', source_input_id: '', request_params: {}, started_at: '2026-07-21T00:00:00.000Z', completed_at: '2026-07-21T00:00:01.000Z', status: 'ok' as const, terminal_tool_fired: 'emit_result' };
+    const provider: LLMProviderPort = {
+      completeTurn: async (input) => {
+        if (input.episodeContext.cardId === 'project') return { result: { kind: 'tool_calls', tool_calls: [{ id: 'activate', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: child.id }) } }] }, provider_exchanges: [] };
+        mkdirSync(appLogFile(seed.root), { recursive: true });
+        return { ...terminalProviderResult(), provider_exchanges: [{ ...attempt, source_input_id: input.inputId }] };
+      },
+      projectProviderExchanges: (sessionId, sourceInputId, attempts, outputIds, operationError) => {
+        try { invocation.projectProviderExchanges(sessionId, sourceInputId, attempts, outputIds, operationError); }
+        catch (error) {
+          if (!(error instanceof AppLogPublicationError)) throw error;
+          publicationError = error;
+          const owners = (h.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners;
+          childOwner = owners.get(child.id)!;
+          lease = childOwner.parentRelationship!.invocation;
+          leasePhases.push(lease.phase());
+          const markPublicationUnknown = lease.markPublicationUnknown.bind(lease);
+          jest.spyOn(lease, 'markPublicationUnknown').mockImplementation(() => { markPublicationUnknown(); leasePhases.push(lease.phase()); });
+          const markContained = lease.markContained.bind(lease);
+          jest.spyOn(lease, 'markContained').mockImplementation(() => { markContained(); leasePhases.push(lease.phase()); });
+          const realJoin = childOwner.processor.joinActivation.bind(childOwner.processor);
+          jest.spyOn(childOwner.processor, 'joinActivation').mockImplementation(async () => { await realJoin(); throw secondaryJoinFailure; });
+          seed.changes.runtimeChanged.mockClear(); seed.changes.agentsChanged.mockClear(); seed.changes.conversationChanged.mockClear();
+          markerSnapshot = fileSnapshot(seed.root);
+          throw error;
+        }
+      },
+    };
+    h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...seed.supervisorOptions, provider }) };
+    const commit = jest.spyOn(h.cards, 'commitTerminalLifecycle');
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const prepared = await h.supervisor.beginStartProject();
+    if (!prepared.accepted) throw new Error('rejected');
+    const owners = (h.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners;
+    const rootOwner = owners.get('project')!;
+    h.supervisor.launchStartedProject(prepared.launch);
+
+    await waitUntil(() => rootOwner.retainedPublicationFailure instanceof AppLogPublicationError && !owners.has(child.id));
+    expect(publicationError).toBeInstanceOf(AppLogPublicationError);
+    expect(publicationError.entryType).toBe('provider_exchange');
+    expect(leasePhases).toEqual(['admitted', 'publication_unknown', 'contained']);
+    expect(lease.phase()).toBe('contained');
+    expect(childOwner.retainedPublicationFailure).toBe(publicationError);
+    expect(childOwner.retainedLocalFailure).toBe(secondaryJoinFailure);
+    await expect(childOwner.settlement.promise).rejects.toBe(publicationError);
+    expect(owners.has(child.id)).toBe(false);
+    expect(rootOwner.childCardId).toBeNull();
+    expect(rootOwner.phase).toBe('publication_unknown');
+    expect(rootOwner.terminalWinner).toBe('open');
+    expect(rootOwner.retainedPublicationFailure).toBe(publicationError);
+    await expect(rootOwner.settlement.promise).rejects.toBe(publicationError);
+    await expect(rootOwner.processorJoin).resolves.toEqual(expect.any(Array));
+    expect(rootOwner.processor.processPosition()).toMatchObject({ kind: 'node' });
+    expect(h.supervisor.getStatus().status).toBe('error');
+    expect(h.binding.interventionReadiness()).toBe('not_ready');
+    expect(h.cards.read(child.id)?.lifecycle.status).toBe('running');
+    expect(h.cards.read('project')?.lifecycle.status).toBe('running');
+    expect(commit).not.toHaveBeenCalled();
+    expect(seed.changes.runtimeChanged).not.toHaveBeenCalled();
+    expect(seed.changes.agentsChanged).not.toHaveBeenCalled();
+    expect(seed.changes.conversationChanged).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(fileSnapshot(seed.root)).toEqual(markerSnapshot);
+    await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+  });
+
   it('retains runner and exact runtime root only in native-private fields', () => {
     const h = harness();
     expect(dataPropertyGraphContains(h.supervisor, new Set([h.supervisorOptions, h.runner, h.runtimeProcessRootScope]))).toBe(false);
@@ -65,7 +178,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
 
   it.each(reentrantCases)('arbitrates reentrant running append callback %s before publication continuation', async (_name, claim, throws) => {
     const h = harness(); const snapshots: string[] = []; let containment: Promise<unknown> | undefined;
-    h.changes.subscribe({ runtimeChanged: () => snapshots.push(`${h.supervisor.getStatus().status}/${h.binding.interventionReadiness()}`), agentsChanged() {}, conversationChanged() {}, cardProjectionChanged() {} });
+    h.changes.runtimeChanged.mockImplementation(() => { snapshots.push(`${h.supervisor.getStatus().status}/${h.binding.interventionReadiness()}`); });
     const original = h.cards.setStatus.bind(h.cards);
     const set = jest.spyOn(h.cards, 'setStatus').mockImplementation((...args) => {
       if (claim === 'stop') containment = h.supervisor.stopProject();
@@ -104,7 +217,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
 
   it('keeps a child invocation suspended after outcome-unknown running publication until Stop clears it without stream access', async () => {
     const seed = harness(); const child = seed.cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const provider = childActivationProvider(child.id); const h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: seed.root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: seed.cards, interventionBinding: seed.binding, provider, conversations: { projectRoot: seed.root }, readModelChanges: seed.changes, processRunner: seed.runner, runtimeProcessRootScope: seed.runtimeProcessRootScope, runtimeGate: seed.gate, promptTemplates: createTestPromptTemplateRegistry() }) };
+    const provider = childActivationProvider(child.id); const h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: seed.root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: seed.cards, interventionBinding: seed.binding, provider, conversations: { projectRoot: seed.root }, freshness: seed.changes, processRunner: seed.runner, runtimeProcessRootScope: seed.runtimeProcessRootScope, runtimeGate: seed.gate, promptTemplates: createTestPromptTemplateRegistry() }) };
     const original = h.cards.setStatus.bind(h.cards); const set = jest.spyOn(h.cards, 'setStatus').mockImplementation((id, status) => { if (id === child.id && status === 'running') throw new Error('child running unknown'); return original(id, status); });
     const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); h.supervisor.launchStartedProject(prepared.launch); await waitUntil(() => h.supervisor.getStatus().status === 'error');
     const owner = (h.supervisor as unknown as { activationOwners: Map<string, { phase: string }> }).activationOwners.get(child.id); expect(owner?.phase).toBe('publication_unknown'); set.mockClear(); await h.supervisor.stopProject(); expect(set).not.toHaveBeenCalled();
@@ -112,7 +225,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
 
   it('lets Stop claim child admission from the running append callback before currentness or provider continuation', async () => {
     const seed = harness(); const child = seed.cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'child', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: seed.root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: seed.cards, interventionBinding: seed.binding, provider: childActivationProvider(child.id), conversations: { projectRoot: seed.root }, readModelChanges: seed.changes, processRunner: seed.runner, runtimeProcessRootScope: seed.runtimeProcessRootScope, runtimeGate: seed.gate, promptTemplates: createTestPromptTemplateRegistry() }) };
+    const h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: seed.root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: seed.cards, interventionBinding: seed.binding, provider: childActivationProvider(child.id), conversations: { projectRoot: seed.root }, freshness: seed.changes, processRunner: seed.runner, runtimeProcessRootScope: seed.runtimeProcessRootScope, runtimeGate: seed.gate, promptTemplates: createTestPromptTemplateRegistry() }) };
     const original = h.cards.setStatus.bind(h.cards); let stop: Promise<unknown> | undefined;
     jest.spyOn(h.cards, 'setStatus').mockImplementation((id, status) => { if (id === child.id && status === 'running') { stop = h.supervisor.stopProject(); expect(h.supervisor.getStatus()).toMatchObject({ status: 'closing', currentCardId: 'project' }); } return original(id, status); });
     const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); h.supervisor.launchStartedProject(prepared.launch); await waitUntil(() => stop !== undefined); await expect(stop).resolves.toEqual({ status: 'stopped', contained: true });
@@ -173,13 +286,13 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
 
   it('prevents provider activation when Stop claims during launch invalidation', async () => {
     const provider = blockingProvider(); const complete = jest.spyOn(provider, 'completeTurn'); const h = harness(provider); const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected');
-    let stop: Promise<unknown> | undefined; const subscription = h.changes.subscribe({ runtimeChanged: () => { if (h.supervisor.getStatus().status === 'running' && !stop) stop = h.supervisor.stopProject(); }, agentsChanged() {}, conversationChanged() {}, cardProjectionChanged() {} });
-    expect(() => h.supervisor.launchStartedProject(prepared.launch)).toThrow('Runtime project execution stopped.'); await expect(stop).resolves.toEqual({ status: 'stopped', contained: true }); expect(complete).not.toHaveBeenCalled(); subscription.unsubscribe();
+    let stop: Promise<unknown> | undefined; h.changes.runtimeChanged.mockImplementation(() => { if (h.supervisor.getStatus().status === 'running' && !stop) stop = h.supervisor.stopProject(); });
+    expect(() => h.supervisor.launchStartedProject(prepared.launch)).toThrow('Runtime project execution stopped.'); await expect(stop).resolves.toEqual({ status: 'stopped', contained: true }); expect(complete).not.toHaveBeenCalled();
   });
 
   it('publishes complete stopped ownership before natural-release listeners can Stop', async () => {
     const h = harness(completingProvider()); const observations: unknown[] = [];
-    h.changes.subscribe({ runtimeChanged: () => { if (h.supervisor.getStatus().status === 'stopped') observations.push({ status: h.supervisor.getStatus(), runtime: h.supervisor.getRuntimeState(), owners: (h.supervisor as unknown as { activationOwners: Map<string, unknown> }).activationOwners.size, readiness: h.binding.interventionReadiness(), stop: h.supervisor.stopProject() }); }, agentsChanged() {}, conversationChanged() {}, cardProjectionChanged() {} });
+    h.changes.runtimeChanged.mockImplementation(() => { if (h.supervisor.getStatus().status === 'stopped') observations.push({ status: h.supervisor.getStatus(), runtime: h.supervisor.getRuntimeState(), owners: (h.supervisor as unknown as { activationOwners: Map<string, unknown> }).activationOwners.size, readiness: h.binding.interventionReadiness(), stop: h.supervisor.stopProject() }); });
     await h.service.startProject(); await waitUntil(() => observations.length === 1); const observation = observations[0] as { status: { status: string; currentCardId: string | null }; runtime: unknown; owners: number; readiness: string; stop: Promise<unknown> };
     expect(observation).toMatchObject({ status: { status: 'stopped', currentCardId: null }, runtime: null, owners: 0, readiness: 'stopped' }); await expect(observation.stop).resolves.toEqual({ status: 'stopped', contained: false });
   });
@@ -201,7 +314,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
 
   it.each(['pausing', 'paused'] as const)('naturally completes from %s and retires the exact run Pause callback before stopped invalidation', async (mode) => {
     const h = harness(completingProvider()); const snapshots: Array<{ status: string; readiness: string; gatePause: boolean }> = [];
-    h.changes.subscribe({ runtimeChanged: () => snapshots.push({ status: h.supervisor.getStatus().status, readiness: h.binding.interventionReadiness(), gatePause: h.gate.pauseRequested }), agentsChanged() {}, conversationChanged() {}, cardProjectionChanged() {} });
+    h.changes.runtimeChanged.mockImplementation(() => { snapshots.push({ status: h.supervisor.getStatus().status, readiness: h.binding.interventionReadiness(), gatePause: h.gate.pauseRequested }); });
     const original = h.cards.commitTerminalLifecycle.bind(h.cards); let injected = false;
     jest.spyOn(h.cards, 'commitTerminalLifecycle').mockImplementation((...args) => {
       if (!injected) { injected = true; h.service.pause(); if (mode === 'paused') { const controller = new AbortController(); void h.gate.waitUntilOpen(controller.signal).catch(() => undefined); controller.abort(new Error('retire frontier')); } }

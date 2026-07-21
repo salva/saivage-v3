@@ -6,10 +6,9 @@ import { join } from 'node:path';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { providerExchangeLogId } from '../../src/contracts/provider-exchange-log.js';
-import { readAppLogEntries } from '../../src/persistence/app-log.js';
+import { AppLogPublicationError, readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
-import { testAppLogs } from '../helpers/app-logs.js';
-import { ReadModelChangeBroadcaster, type ReadModelChanges } from '../../src/application/read-model-changes.js';
+import type { FreshnessEffects } from '../../src/application/freshness-effects.js';
 
 const roots: string[] = [];
 const sessionId = 'planner:project';
@@ -26,14 +25,10 @@ describe('provider exchange publication security projection', () => {
   it('publishes one post-append Agent hint per canonical-session exchange and none for other identities or failure', () => {
     const root = projectRoot();
     const readableCounts: number[] = [];
-    const readModelChanges: ReadModelChanges = {
-      runtimeChanged: jest.fn(),
-      cardProjectionChanged: jest.fn(),
-      conversationChanged: jest.fn(),
+    const freshness: Pick<FreshnessEffects, 'agentsChanged'> = {
       agentsChanged: jest.fn(() => { readableCounts.push(readAppLogEntries(root, 'provider_exchange').length); }),
-      subscribe: jest.fn(() => ({ unsubscribe: jest.fn() })),
     };
-    const service = invocationService(root, readModelChanges);
+    const service = invocationService(root, freshness);
 
     service.projectProviderExchanges('planner:project', sourceInputId, providerAttempts(), []);
     expect(readableCounts).toEqual([1, 2]);
@@ -59,39 +54,33 @@ describe('provider exchange publication security projection', () => {
   it('commits a duplicate canonical exchange before one strict Agent observer failure and stops later attempts', () => {
     const root = projectRoot();
     const agentsChanged = jest.fn(() => { readAppLogEntries(root, 'provider_exchange'); });
-    const changes: ReadModelChanges = {
-      runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), conversationChanged: jest.fn(), agentsChanged,
-      subscribe: jest.fn(() => ({ unsubscribe: jest.fn() })),
-    };
+    const changes = { agentsChanged };
     const service = invocationService(root, changes);
     service.projectProviderExchanges(sessionId, sourceInputId, [providerAttempts()[0]!], []);
 
-    expect(() => service.projectProviderExchanges(sessionId, sourceInputId, providerAttempts(), [])).toThrow(/duplicate id/);
+    expect(() => service.projectProviderExchanges(sessionId, sourceInputId, providerAttempts(), [])).toThrow(/duplicate logical id/);
     const rows = rawProviderRows(root);
-    expect(rows.map(({ id }) => id)).toEqual([
+    expect(rows.map((row) => providerExchangeLogId(row.data))).toEqual([
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
     ]);
     expect(agentsChanged).toHaveBeenCalledTimes(2);
-    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate id/);
+    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate logical id/);
   });
 
   it('commits a duplicate noncanonical exchange without an Agent hint and rejects it only on strict read', () => {
     const root = projectRoot(); const agentsChanged = jest.fn();
-    const changes: ReadModelChanges = {
-      runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), conversationChanged: jest.fn(), agentsChanged,
-      subscribe: jest.fn(() => ({ unsubscribe: jest.fn() })),
-    };
+    const changes = { agentsChanged };
     const service = invocationService(root, changes);
     const attempt = attemptFor('summary-input', 0);
     service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], []);
     service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], []);
-    expect(rawProviderRows(root).map(({ id }) => id)).toEqual([
+    expect(rawProviderRows(root).map((row) => providerExchangeLogId(row.data))).toEqual([
       providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
       providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
     ]);
     expect(agentsChanged).not.toHaveBeenCalled();
-    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate id/);
+    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate logical id/);
   });
 
   it('redacts classified diagnostic fields before durable append without changing identity or source attempts', () => {
@@ -107,7 +96,7 @@ describe('provider exchange publication security projection', () => {
     const rows = readAppLogEntries(root, 'provider_exchange');
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.data.attempt_index)).toEqual([0, 1]);
-    expect(rows.map((row) => row.id)).toEqual([
+    expect(rows.map((row) => providerExchangeLogId(row.data))).toEqual([
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 1 }),
     ]);
@@ -173,7 +162,10 @@ describe('provider exchange publication security projection', () => {
     const service = invocationService(root);
     const attempt = { ...providerAttempts()[0]!, source_input_id: 'different-source-input' };
 
-    expect(() => service.projectProviderExchanges(sessionId, sourceInputId, [attempt], [])).toThrow(/does not match/);
+    let thrown: unknown;
+    try { service.projectProviderExchanges(sessionId, sourceInputId, [attempt], []); } catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(AppLogPublicationError);
+    expect((thrown as AppLogPublicationError).publicationCause).toEqual(expect.objectContaining({ message: expect.stringMatching(/does not match/) }));
     expect(readAppLogEntries(root)).toEqual([]);
   });
 });
@@ -257,15 +249,14 @@ function projectRoot(): string {
   return root;
 }
 
-function rawProviderRows(root: string): Array<{ id: string }> {
-  return readFileSync(appLogFile(root), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ id: string }> }).rows);
+function rawProviderRows(root: string): Array<{ type: 'provider_exchange'; data: Parameters<typeof providerExchangeLogId>[0] }> {
+  return readFileSync(appLogFile(root), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: 'provider_exchange'; data: Parameters<typeof providerExchangeLogId>[0] }> }).rows);
 }
 
-function invocationService(root: string, readModelChanges: ReadModelChanges = new ReadModelChangeBroadcaster()): InvocationService {
+function invocationService(root: string, freshness: Pick<FreshnessEffects, 'agentsChanged'> = { agentsChanged() {} }): InvocationService {
   return new InvocationService({
     projectRoot: root,
-    appLogs: testAppLogs(root),
-    readModelChanges,
+    freshness,
     registry: {} as never,
     router: {} as never,
     candidateAvailability: {} as never,

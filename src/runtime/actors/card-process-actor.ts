@@ -21,6 +21,7 @@ import { ActivationOperationTracker, type InvocationJoinOutcome } from './invoca
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 import { parseLlmActorId } from './ids.js';
 import { parseConversationSessionId } from '../../schemas/index.js';
+import { AppLogPublicationError } from '../../persistence/app-log.js';
 
 type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -48,6 +49,8 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #stagedResult: AcceptedNodeResult | null = null;
   #stagedFailure: Error | null = null;
   #activationSettled = false;
+  #terminalPublicationFailure: AppLogPublicationError | null = null;
+  #terminalJoinFailure: unknown = null;
 
   constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.definition, {
@@ -76,6 +79,8 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#activationSignal = signal;
     this.#executionOrdinal = null;
     this.#activationSettled = false;
+    this.#terminalPublicationFailure = null;
+    this.#terminalJoinFailure = null;
     this.#operationTracker = new ActivationOperationTracker();
     this.#runner.beginActivation();
     this.#result = deferred<ProcessOutcome>();
@@ -107,12 +112,13 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     const processorJoin = this.#joinProcessorActivation();
     const settled = await Promise.allSettled([...actorJoins, processorJoin]);
     const failure = settled.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected');
-    if (failure) throw failure.reason;
     const outcomes = settled.slice(0, actorJoins.length).map((entry) => (entry as PromiseFulfilledResult<InvocationJoinOutcome>).value);
     const processorOutcomes = (settled[settled.length - 1] as PromiseFulfilledResult<readonly InvocationJoinOutcome[]>).value;
     const hadActors = this.#activeLlmActors.size > 0;
     this.#activeLlmActors.clear();
-    if (hadActors) this.#runtimeProjectionChanged();
+    if (hadActors && !this.#terminalPublicationFailure) this.#runtimeProjectionChanged();
+    if (failure) this.#terminalJoinFailure ??= failure.reason;
+    if (this.#terminalJoinFailure !== null) throw this.#terminalJoinFailure;
     return [...outcomes, ...processorOutcomes];
   }
 
@@ -182,7 +188,23 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.sendEvent(event);
   }
 
-  #acceptNodeFailure(error: Error): void { this.#stagedFailure = error; this.sendEvent('execution:failed'); }
+  #acceptNodeFailure(error: Error): void {
+    if (error instanceof AppLogPublicationError) {
+      this.#terminalPublicationFailure = error;
+      this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
+      for (const llm of this.#joiningLlmActors) {
+        try { llm.suppressContinuation(error); }
+        catch (cleanupError) { this.#terminalJoinFailure ??= cleanupError; }
+      }
+      try { this.#operationTracker?.closeAdmission(error); }
+      catch (cleanupError) { this.#terminalJoinFailure ??= cleanupError; }
+      this.#currentExecutingLlm = null;
+      this.haltCurrentTaskState();
+      this.#result!.reject(error);
+      return;
+    }
+    this.#stagedFailure = error; this.sendEvent('execution:failed');
+  }
 
   #settleTerminal(terminal: 'DONE' | 'BLOCKED' | 'FAILED', context: ActorLifecycleContext): void {
     if (context.source === null) throw new Error(`Process terminal '${terminal}' cannot be an initial state.`);

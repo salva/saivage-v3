@@ -39,7 +39,7 @@ export type CardStatus = typeof cardStatusValues[number];
 
 export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.reorder_child'] as const;
 export type CardAction = typeof cardActionValues[number];
-export interface ActionableErrorEnvelope { code: string; message: string; acceptedValues?: string[]; currentState?: Record<string, unknown>; nextAction: string; docsRef?: string; runId?: string | null; sessionId?: string | null; cardId?: string | null; parentCardId?: string | null; childCardId?: string | null; }
+export type { ActionableErrorEnvelope } from './actionable-error.js';
 
 export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
 export type Urgency = typeof urgencyValues[number];
@@ -86,9 +86,9 @@ export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as cons
 export interface AnalystIssue { summary: string; severity?: typeof analystIssueSeverityValues[number]; evidence_path?: string; }
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
 export interface ProcessRecord { id: string; card_id: string | null; owner_id: string; command: string; command_hash: string; cwd: string; cwd_canonical: string; status: ProcessStatus; pid?: number | null; started_at: string; started_at_monotonic: number; completed_at?: string | null; exit_code?: number | null; signal?: string | null; terminal_reason?: 'exit' | 'signal' | 'spawn_error' | null; required_for_card_completion: boolean; output_dir: string; stdout_path: string; stderr_path: string; agent_session_id?: string | null; goal_id?: string | null; launch_reason?: string | null; owner_kind: 'agent' | 'operator' | 'runtime'; background_policy?: 'foreground' | null; failure_classification?: 'spawn_error' | null; }
-export const agentRoleValues = ['analyst', 'planner', 'executor', 'reviewer', 'content_supervisor'] as const;
+export const agentRoleValues = ['analyst', 'planner', 'executor', 'reviewer'] as const;
 export const agentInvocationRoleValues = ['planner', 'executor', 'reviewer'] as const;
-export const operationalAgentRoleValues = ['planner', 'executor', 'reviewer', 'analyst'] as const;
+export const operationalAgentRoleValues = agentRoleValues;
 export type AgentRole = typeof agentRoleValues[number];
 export type AgentInvocationRole = typeof agentInvocationRoleValues[number];
 export type OperationalAgentRole = typeof operationalAgentRoleValues[number];
@@ -101,38 +101,24 @@ export interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; s
 export interface AgentMessage { id: string; session_id: ConversationSessionId; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
 export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
 export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id: string; updated_at: string; }
-export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
-export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
-export type RiskLevel = 'low' | 'medium' | 'high';
-export interface ContentReview { id: string; source_kind: SourceKind; source_ref: string; status: ReviewStatus; summary: string; risk: RiskLevel; created_at: string; }
 export interface DoctorCheck { name: string; passed: boolean; details?: string; }
 export interface DoctorIssue { severity: 'error' | 'warning'; message: string; }
 export interface DoctorResponse { status: 'ok' | 'issues_found'; checks: DoctorCheck[]; issues: DoctorIssue[]; }
-export interface SupervisionStats { total: number; blocked: number; passed: number; sanitized: number; byRisk: Record<string, number>; bySourceKind: Record<string, number>; }
-export interface SupervisionResponse { reviews: ContentReview[]; stats: SupervisionStats; }
 export const skillTargetRoleValues = ['executor', 'reviewer', 'analyst'] as const;
 export type SkillTargetRole = typeof skillTargetRoleValues[number];
 export interface SkillIndexEntry { name: string; file: string; target_agents: SkillTargetRole[]; }
 
 
-import type { EventKind } from './event-catalog.js';
 export { eventKindValues, runtimeEventKindValues, agentEventKindValues, type EventKind } from './event-catalog.js';
-export type RuntimeEventKind = EventKind;
-export type AgentEventKind = EventKind;
-export interface BaseEvent { id: string; kind: EventKind; timestamp: string; session_id?: string; goal_id?: string; card_id?: string; }
-export interface RuntimeDiagnosticEvent extends BaseEvent { kind: 'runtime_diagnostic'; goal_id?: string; card_id?: string; phase?: string; error_message: string; error_name?: string; metadata?: Record<string, unknown>; }
-export interface RuntimeActionableErrorEvent extends BaseEvent { kind: 'runtime_actionable_error'; actionable_error: Record<string, unknown>; }
-export interface SubscriberErrorEvent extends BaseEvent { kind: 'subscriber_error'; subscription_id: string; source_kind: string; error_message: string; error_name?: string; timed_out?: boolean; }
-export interface CardHistoryAppendedEvent extends BaseEvent { kind: 'card_history_appended'; entry_id: string; entry_kind: CardHistoryKind; card_id: string; version_seq: number; changed_fields: string[]; changed_at: string; }
-export interface NotificationAddedEvent extends Omit<BaseEvent, 'session_id'> { kind: 'notification_added'; session_id: string | null; notification_kind: string; }
-export interface ControlActionRecordedEvent extends BaseEvent { kind: 'control_action_recorded'; id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; created_at: string; actor?: string; surface?: string; }
-export interface AnalystToolInvokedEvent extends BaseEvent { kind: 'analyst_tool_invoked'; sessionId: 'analyst:global'; tool: string; success: boolean; summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; }
-export interface McpToolInvocationEvent extends BaseEvent { kind: 'mcp_tool_invocation'; server: string; tool: string; success: boolean; duration_ms: number; error?: string; }
-export interface ConversationChangedEvent extends BaseEvent { kind: 'conversation_changed'; session_id: ConversationSessionId; mutation: 'entry_appended'; message_id: string; message_kind: string; role: string; message_timestamp: string; }
-export interface ControlActionRecordAppendedEvent extends BaseEvent { kind: 'control_action_record_appended'; record: Record<string, unknown>; }
-export interface EventLogRecordAppendedEvent extends BaseEvent { kind: 'event_log_record_appended'; record: Record<string, unknown>; }
-export interface ErrorLogRecordAppendedEvent extends BaseEvent { kind: 'error_log_record_appended'; record: Record<string, unknown>; }
-export type LoggedEvent = RuntimeDiagnosticEvent | RuntimeActionableErrorEvent | SubscriberErrorEvent | CardHistoryAppendedEvent | NotificationAddedEvent | ControlActionRecordedEvent | AnalystToolInvokedEvent | McpToolInvocationEvent | ConversationChangedEvent | ControlActionRecordAppendedEvent | EventLogRecordAppendedEvent | ErrorLogRecordAppendedEvent;
-
-export type LoggedEventByKind = { [K in EventKind]: Extract<LoggedEvent, { kind: K }> };
-export type EventPayloadByKind = { [K in EventKind]: Omit<LoggedEventByKind[K], keyof BaseEvent | 'kind'> };
+export type RuntimeEventKind = import('./event-catalog.js').EventKind;
+export type AgentEventKind = import('./event-catalog.js').EventKind;
+export type {
+  BaseEvent,
+  ErrorEvent,
+  EventPayloadByKind,
+  LoggedEvent,
+  LoggedEventByKind,
+  McpToolInvocationEvent,
+  RuntimeActionableErrorEvent,
+  RuntimeDiagnosticEvent,
+} from './event-catalog.js';

@@ -7,8 +7,7 @@ import { MemoryCandidateAvailability } from '../../src/agents/candidate-availabi
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
-import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
-import { testAppLogs } from '../helpers/app-logs.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
 import { chatSuccess, invocationProviderRegistry, serverUnavailable } from '../helpers/invocation-provider-fixture.js';
 
 const candidate: Candidate = { provider: 'p', account: null, model: 'm' };
@@ -37,8 +36,7 @@ function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvai
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-'));
   roots.push(projectRoot);
   return new InvocationService({
-    appLogs: testAppLogs(projectRoot),
-    readModelChanges: new ReadModelChangeBroadcaster(),
+    freshness: NO_FRESHNESS_EFFECTS,
     projectRoot,
     registry: invocationProviderRegistry(chain.length > 0 ? chain : [candidate]),
     router: { resolve: async () => chain, getLastCapabilitySkips: () => [] } as never,

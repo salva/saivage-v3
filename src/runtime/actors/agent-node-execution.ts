@@ -27,6 +27,7 @@ import { plannerActorId, reviewerActorId, executorActorId } from './ids.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../../persistence/authored-record-files.js';
+import { AppLogPublicationError, rethrowAppLogPublicationError } from '../../persistence/app-log.js';
 
 export interface AcceptedNodeResult {
   readonly outcome: string;
@@ -80,6 +81,7 @@ export class AgentNodeExecution {
     const scope = node.role === 'executor' ? this.executorScope(input, args.nodeOrdinal) : null;
     const surface = this.buildSurface(node.role, input, sessionId, scope, args.nodeOrdinal);
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
+    let publicationFailure: AppLogPublicationError | null = null;
     let reviewerPair = node.role === 'reviewer' ? this.captureReviewerPair(input.card.id) : null;
     try {
       const inputId = this.host.freshInputId();
@@ -102,7 +104,7 @@ export class AgentNodeExecution {
         onTerminalTool: async (terminalOutcome, control) => {
           let parsed: NodeResult;
           try { parsed = verifyTerminalToolOutcome(contract, terminalOutcome).result.result; }
-          catch (error) { return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [errorMessage(error)]) }, signal)); }
+          catch (error) { rethrowAppLogPublicationError(error); return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [errorMessage(error)]) }, signal)); }
           const route = processNodeTransition(process, stateId, parsed.outcome);
           const target = process.states.get(route.target);
           if (!target || (target.kind !== 'node' && target.kind !== 'terminal')) throw new Error(`Compiled node '${node.nodeId}' has invalid target '${route.target}'.`);
@@ -148,8 +150,17 @@ export class AgentNodeExecution {
       });
       this.host.assertCurrentActivation(input);
       return accepted;
+    } catch (error) {
+      if (error instanceof AppLogPublicationError) publicationFailure = error;
+      throw error;
     } finally {
-      await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
+      try {
+        await cleanupInvocationSurface(surface, publicationFailure
+          ? { kind: 'publication_terminal', error: publicationFailure }
+          : { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
+      } catch (cleanupError) {
+        if (!publicationFailure) throw cleanupError;
+      }
     }
   }
 

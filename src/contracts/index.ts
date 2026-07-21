@@ -43,7 +43,6 @@ export {
   EventsListResponseSchema,
   EventsQuerySchema,
   DebugErrorsResponseSchema,
-  DebugTimelineResponseSchema,
   ForbiddenErrorSchema,
   HealthLivenessResponseSchema,
   HealthReadinessResponseSchema,
@@ -72,8 +71,8 @@ export {
   parseOperatorResponse,
 } from './operator-api.js';
 
-export { appLogEntrySchema, errorRecordSchema } from './app-log.js';
-export type { AppLogEntry, AppLogEntryOfType, AppLogEntryType, ErrorRecord } from './app-log.js';
+export { appLogEntrySchema } from './app-log.js';
+export type { AppLogEntry, AppLogEntryOfType, AppLogEntryType } from './app-log.js';
 
 export {
   agentOperatorApiContracts,
@@ -148,7 +147,6 @@ export type {
   ControlActionsListResponse,
   ControlActionsQuery,
   DebugErrorsResponse,
-  DebugTimelineResponse,
   EventsListFailure,
   EventsListResponse,
   EventsQuery,

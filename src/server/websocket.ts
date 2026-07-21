@@ -1,5 +1,5 @@
 /**
- * WebSocket endpoint and event bus wiring.
+ * WebSocket endpoint and live-sync wiring.
  *
  * Connection:  ws://host:port/ws
  * Auth:        Checked on upgrade; invalid → close 1008.
@@ -19,24 +19,13 @@ import { redactForOutbound } from '../redaction/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { AnalystWsHandler } from './analyst-ws-handler.js';
 import type { RestartPort } from '../boot/restart-port.js';
+import { AppLogPublicationError } from '../persistence/app-log.js';
 
 export type { WsEnvelope, WsEventType };
 
 function serializeOutboundEnvelope(event: WsEnvelope): string {
   const envelope = redactForOutbound(validateKnownWsEnvelope(event) as WsEnvelope);
   return JSON.stringify(envelope);
-}
-
-function broadcast(liveSyncSocket: LiveSyncSocket, event: WsEnvelope): void {
-  const data = serializeOutboundEnvelope(event);
-  liveSyncSocket.forEachClient((ws) => {
-    try {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(data);
-      }
-    } catch { void 0; 
-    }
-  });
 }
 
 export function sendToClient(ws: WebSocket, event: WsEnvelope, callback?: (error?: Error) => void): void {
@@ -83,7 +72,6 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
     runtimeApplication: options.runtimeApplication,
     restartPort: options.restartPort,
     sendToClient,
-    broadcast: (event) => broadcast(liveSyncSocket, event),
   });
   fastify.get(
     '/ws',
@@ -105,7 +93,13 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
 
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
         if (!liveSyncSocket.isAdmissionOpen()) return;
-        return analystWsHandler.handleRawMessage(ws, raw);
+        void analystWsHandler.handleRawMessage(ws, raw).catch((error) => {
+          if (error instanceof AppLogPublicationError) {
+            request.log.error({ code: 'app_log_publication_failed', entryType: error.entryType, transport: 'websocket' }, 'Required app-log publication failed');
+            return;
+          }
+          request.log.error({ code: 'analyst_websocket_message_failed', transport: 'websocket' }, 'Analyst WebSocket message failed');
+        });
       });
 
       ws.on('close', () => {

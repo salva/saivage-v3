@@ -12,10 +12,11 @@ import { deferred, type Deferred } from './deferred.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
 import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../../contracts/provider-exchange.js';
 import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult } from './compaction/compactor.js';
-import { SummarizerExchangeProjectionError, type SummarizerProviderPort } from './compaction/summarizer.js';
+import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import { sanitizeRecoveryMessage } from '../../agents/invocation-recovery-policy.js';
 import type { ChildInvocationReservation, ExactWaitBarrier, ExecutingLlmActivity, ExternalAndProcessWaits, LlmToolInvocationContext, ToolInvocationIdentity } from './executing-llm-snapshot.js';
 import { ChildInvocationLease } from './child-invocation-wait.js';
+import { AppLogPublicationError, rethrowAppLogPublicationError } from '../../persistence/app-log.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -24,7 +25,7 @@ export type LLMActorOutcome =
 
 export interface LLMProviderPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
-  projectProviderExchanges?(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void;
+  projectProviderExchanges?(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[], operationError?: unknown): void;
 }
 
 export interface CompactorPort {
@@ -225,7 +226,14 @@ export class ConversationLLMActor {
       repair.settlement.resolve();
       const nested = this.#arm(next, signal, { terminal, cancellation }, repair.disposition);
       nested.then(repair.result.resolve, (error: unknown) => repair.result.reject(asError(error)));
-    } catch (error) { this.#phase = { kind: 'idle', disposition: repair.disposition }; repair.result.reject(asError(error)); repair.settlement.reject(asError(error)); }
+    } catch (error) {
+      if (error instanceof AppLogPublicationError) {
+        this.#invocations.closeAdmission(error); repair.disposition = { kind: 'continuation_closed', reason: error };
+        repair.result.reject(error); repair.settlement.reject(error);
+      } else {
+        this.#phase = { kind: 'idle', disposition: repair.disposition }; repair.result.reject(asError(error)); repair.settlement.reject(asError(error));
+      }
+    }
     return direct.promise;
   }
 
@@ -249,7 +257,7 @@ export class ConversationLLMActor {
       observe(operation.settlement.promise); this.#phase = { kind: 'settling_tool', operation };
       let publication: AnalystCancellationPublication;
       try { publication = parked.callbacks.cancellation(parked.input, reason); }
-      catch (error) { this.#failTool(operation, error); return { kind: 'claimed', input: parked.input, publicationOwnedByLlm: true }; }
+      catch (error) { this.#failTool(operation, error); rethrowAppLogPublicationError(error); return { kind: 'claimed', input: parked.input, publicationOwnedByLlm: true }; }
       if (operation.terminal.kind !== 'cancel_claiming') {
         this.#failTool(operation, new Error('Parked cancellation claim changed during outer handoff.'));
         return { kind: 'claimed', input: parked.input, publicationOwnedByLlm: true };
@@ -276,6 +284,7 @@ export class ConversationLLMActor {
       try { publication = claim(input, reason); }
       catch (error) {
         this.#failTool(operation, error);
+        rethrowAppLogPublicationError(error);
         return { kind: 'claimed', input, publicationOwnedByLlm: true };
       }
       if (operation.terminal.kind !== 'cancel_claiming' || operation.terminal.input !== input || operation.terminal.reason !== reason) {
@@ -333,7 +342,9 @@ export class ConversationLLMActor {
     if (phase.kind === 'idle') { this.#phase = { kind: 'idle', disposition: { kind: 'continuation_closed', reason } }; return; }
     if (phase.kind === 'retained_text') { phase.operation.disposition = { kind: 'continuation_closed', reason }; return; }
     if (phase.kind === 'arming' || phase.kind === 'invoking') { phase.operation.disposition = { kind: 'continuation_closed', reason }; return; }
-    throw new Error(`LLMActor '${this.agentId}' cannot close continuation while '${phase.kind}'.`);
+    if (phase.kind === 'settling_tool') { phase.operation.parked.disposition = { kind: 'continuation_closed', reason }; return; }
+    if (phase.kind === 'repairing_text') { phase.operation.disposition = { kind: 'continuation_closed', reason }; return; }
+    throw new Error(`LLMActor '${this.agentId}' has an unknown continuation phase.`);
   }
 
   async join(): Promise<InvocationJoinOutcome> {
@@ -343,7 +354,7 @@ export class ConversationLLMActor {
     const parked = this.#parkedOperation(); if (parked?.childLease) settlements.push(parked.childLease.join());
     const invocationJoin = this.#invocations.join();
     const all = await Promise.allSettled([...settlements, invocationJoin]);
-    const failure = all.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected');
+    const failure = all.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected' && !(entry.reason instanceof AppLogPublicationError));
     if (failure) throw failure.reason;
     return (all[all.length - 1] as PromiseFulfilledResult<InvocationJoinOutcome>).value;
   }
@@ -412,6 +423,7 @@ export class ConversationLLMActor {
   }
 
   async #rejectInvocation(operation: InvocationOperation, error: unknown): Promise<void> {
+    if (error instanceof AppLogPublicationError) { this.#failInvocation(operation, error); return; }
     try {
       if (this.#phase.kind !== 'invoking' || this.#phase.operation !== operation) return;
       if (operation.completionPersistenceEntered) throw error;
@@ -422,7 +434,7 @@ export class ConversationLLMActor {
       const message = error.originalFailure instanceof Error ? error.originalFailure.message : error.message;
       operation.completionPersistenceEntered = true;
       const appended = appendLlmTurnError(this.conversations, operation.input, message);
-      this.#projectProviderExchanges(operation.input, error.provider_exchanges, [appended.id]);
+      this.#projectProviderExchanges(operation.input, error.provider_exchanges, [appended.id], error.originalFailure);
       const outcome: Extract<LLMActorOutcome, { type: 'error' }> = { type: 'error', agentId: this.agentId, error: message };
       operation.callbacks.terminal(Object.freeze({ input: operation.input, outcome }));
       this.#phase = { kind: 'idle', disposition: operation.disposition };
@@ -434,6 +446,12 @@ export class ConversationLLMActor {
   #failInvocation(operation: InvocationOperation, error: unknown): void {
     const failure = asError(error);
     if (operation.lease) { try { this.#invocations.cancelCurrent(operation.lease, failure); } catch { /* exact failure remains authoritative */ } operation.lease = null; }
+    if (failure instanceof AppLogPublicationError) {
+      this.#invocations.closeAdmission(failure);
+      operation.disposition = { kind: 'continuation_closed', reason: failure };
+      operation.result.reject(failure); operation.settlement.reject(failure);
+      return;
+    }
     if ((this.#phase.kind === 'arming' || this.#phase.kind === 'invoking') && this.#phase.operation === operation) this.#phase = { kind: 'idle', disposition: operation.disposition };
     operation.result.reject(failure); operation.settlement.reject(failure);
   }
@@ -484,6 +502,12 @@ export class ConversationLLMActor {
 
   #failTool(operation: ToolSettlementOperation, error: unknown): void {
     const failure = asError(error);
+    if (failure instanceof AppLogPublicationError) {
+      this.#invocations.closeAdmission(failure);
+      operation.parked.disposition = { kind: 'continuation_closed', reason: failure };
+      operation.result.reject(failure); operation.settlement.reject(failure);
+      return;
+    }
     if (this.#phase.kind === 'settling_tool' && this.#phase.operation === operation) this.#phase = { kind: 'idle', disposition: operation.parked.disposition };
     operation.result.reject(failure); operation.settlement.reject(failure);
   }
@@ -523,8 +547,10 @@ export class ConversationLLMActor {
       this.#requireExactParked(parked);
       if (this.#executingActivity.mode !== 'active' || parked.childLease?.isWaitingBarrier()) throw new Error(`LLMActor '${this.agentId}' already owns a wait barrier.`);
       this.#executingActivity = Object.freeze({ mode: 'waiting', barrier: Object.freeze(barrier) }); this.#publishExecutingActivityChange();
+      let publicationTerminal = false;
       try { return await promise; }
-      finally { if (this.#executingActivity.mode !== 'waiting' || this.#executingActivity.barrier !== barrier) throw new Error(`LLMActor '${this.agentId}' wait barrier changed before settlement.`); this.#executingActivity = Object.freeze({ mode: 'active', barrier: null }); this.#publishExecutingActivityChange(); }
+      catch (error) { publicationTerminal = error instanceof AppLogPublicationError; throw error; }
+      finally { if (this.#executingActivity.mode !== 'waiting' || this.#executingActivity.barrier !== barrier) throw new Error(`LLMActor '${this.agentId}' wait barrier changed before settlement.`); this.#executingActivity = Object.freeze({ mode: 'active', barrier: null }); if (!publicationTerminal) this.#publishExecutingActivityChange(); }
     };
     return Object.freeze({ waitExternal: <T>(promise: Promise<T>) => wait({ kind: 'external', ...identity }, promise), waitProcess: <T>(processId: string, promise: Promise<T>) => wait({ kind: 'process', ...identity, processId }, promise) });
   }
@@ -544,10 +570,10 @@ export class ConversationLLMActor {
       if (result.kind === 'no_smaller_projection') throw normalContextFailure('Provider input context exhausted; last-chance compaction found no strictly smaller safe provider projection, so no provider retry was attempted.', firstAttempts, firstFailure.originalFailure);
       compaction = result;
     } catch (error) {
+      rethrowAppLogPublicationError(error);
       if (error instanceof ProviderTurnFailure) throw error;
       if (error instanceof CompactionSummaryConstructionError) throw normalContextFailure(`Provider input context exhausted; last-chance compaction failed while constructing a smaller projection: ${sanitizeRecoveryMessage(error.cause)}. No provider retry was attempted.`, firstAttempts, firstFailure.originalFailure, error.cause);
       if (error instanceof CompactionAppendError) throw error.cause;
-      if (error instanceof SummarizerExchangeProjectionError) throw error;
       throw error;
     }
     if (compaction.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compaction.providerConversation.sourceSessionId}'.`);
@@ -555,6 +581,7 @@ export class ConversationLLMActor {
       const completion = await this.provider.completeTurn({ ...input, providerConversation: compaction.providerConversation }, signal);
       return { ...completion, provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, completion.provider_exchanges) };
     } catch (error) {
+      rethrowAppLogPublicationError(error);
       if (!(error instanceof ProviderTurnFailure)) throw error;
       if (isAuthoritativeContextFailure(error)) {
         const secondAttempts = strictContextFailureAttempts(error, input.inputId);
@@ -571,7 +598,7 @@ export class ConversationLLMActor {
     const call = result.tool_calls[0]!; const appended = appendLlmTurnToolCallBatch(this.conversations, input, call, completion.provider_private_context); this.#projectProviderExchanges(input, completion.provider_exchanges, [appended.id]);
     return { kind: 'tool_call', input, result, toolCallArguments: call.function.arguments };
   }
-  #projectProviderExchanges(input: CanonicalLlmInvocationInput, attempts: ProviderExchangeAttempt[], outputIds: string[]): void { if (attempts.length === 0) return; if (!this.provider.projectProviderExchanges) throw new Error(`Provider for '${input.inputId}' returned provider exchanges without a projection capability.`); this.provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, outputIds); }
+  #projectProviderExchanges(input: CanonicalLlmInvocationInput, attempts: ProviderExchangeAttempt[], outputIds: string[], operationError?: unknown): void { if (attempts.length === 0) return; if (!this.provider.projectProviderExchanges) throw new Error(`Provider for '${input.inputId}' returned provider exchanges without a projection capability.`); this.provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, outputIds, operationError); }
   #outcomeFromPersisted(persisted: PersistedProviderCompletion): LLMActorOutcome {
     if (persisted.kind === 'message') return { type: 'result', agentId: this.agentId, result: persisted.result };
     if (persisted.kind === 'error') return { type: 'error', agentId: this.agentId, error: persisted.error };

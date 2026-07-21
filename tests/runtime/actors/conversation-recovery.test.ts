@@ -229,7 +229,7 @@ describe('exact role-session stabilization', () => {
     expect(() => stabilizeRoleSession({
       projectRoot,
       sessionId,
-      conversations: { projectRoot, changes: { conversationChanged, agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } },
+      conversations: { projectRoot, changes: { conversationChanged, agentsChanged() {} } },
       terminalToolNames: terminalTools,
     })).toThrow(publicationError);
     expect(conversationChanged).toHaveBeenCalledTimes(1);
@@ -240,7 +240,7 @@ describe('exact role-session stabilization', () => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
     appendConversationBatch({ projectRoot }, [toolCall(sourceInputId, 'pending', sessionId, 'activate_card')]);
     const publicationError = new Error('result publication callback failed');
-    expect(() => stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot, changes: { conversationChanged() { throw publicationError; }, agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } }, terminalToolNames: terminalTools })).toThrow(publicationError);
+    expect(() => stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot, changes: { conversationChanged() { throw publicationError; }, agentsChanged() {} } }, terminalToolNames: terminalTools })).toThrow(publicationError);
     const rows = readConversation(projectRoot, sessionId).sourceRows;
     expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
     expect(rows.filter((row) => row.kind === 'model_recovered')).toHaveLength(0);

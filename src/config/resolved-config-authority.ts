@@ -5,6 +5,7 @@ import { saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { validateModelRoles } from './validate-model-roles.js';
 import { replaceConfigYaml } from './config-file.js';
+import type { AgentRole } from '../schemas/index.js';
 
 export type ConfigSelectionSource =
   | { readonly kind: 'cli'; readonly argument: '--config' }
@@ -12,7 +13,7 @@ export type ConfigSelectionSource =
   | { readonly kind: 'default' };
 
 export type ConfigMutation =
-  | { readonly kind: 'set_role_routing'; readonly role: string; readonly modelCandidate: string }
+  | { readonly kind: 'set_role_routing'; readonly role: AgentRole; readonly modelCandidate: string }
   | { readonly kind: 'set_failover_chain'; readonly forModel: string; readonly orderedFailoverModels: readonly string[] }
   | { readonly kind: 'mcp_add'; readonly name: string; readonly command: string; readonly args?: readonly string[]; readonly env?: Readonly<Record<string, string>> }
   | { readonly kind: 'mcp_edit'; readonly name: string; readonly patch: { readonly command?: string; readonly args?: readonly string[]; readonly env?: Readonly<Record<string, string>> } }

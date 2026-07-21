@@ -31,7 +31,7 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
     interventionBinding: new RuntimeInterventionBinding(),
     provider,
     conversations: { projectRoot },
-    readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) },
+    freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} },
     processRunner: new ProcessRunner(projectRoot, registry),
     runtimeProcessRootScope,
     promptTemplates: { render: () => 'test prompt' },

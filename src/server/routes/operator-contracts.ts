@@ -22,7 +22,7 @@ import { buildMcpOperatorContractHandlers } from './operator-mcp-handlers.js';
 import { buildProcessOperatorContractHandlers } from './operator-process-handlers.js';
 import { buildRuntimeCardOperatorContractHandlers } from './operator-runtime-card-handlers.js';
 import { ContractRuntime } from '../contract-runtime.js';
-import type { EventBus } from '../../events/index.js';
+import type { EventLog } from '../../observability/index.js';
 
 export interface OperatorContractRouteRegistrationOptions extends
   OperatorProjectContext,
@@ -32,7 +32,7 @@ export interface OperatorContractRouteRegistrationOptions extends
   Omit<OperatorRuntimeProviderContext, 'runtimeApplication'> {
   fastify: FastifyInstance;
   authPolicy: AuthPolicy;
-  eventBus: EventBus;
+  eventLogger: EventLog;
   mcpManager?: McpManager;
   runtimeApplication: import('../../application/runtime-composition.js').RuntimeApplication;
   saivageConfig: import('../../agents/config-api.js').SaivageConfig;
@@ -40,7 +40,7 @@ export interface OperatorContractRouteRegistrationOptions extends
 
 export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {
   const { fastify, projectRoot } = options;
-  const runtime = new ContractRuntime({ authPolicy: options.authPolicy, eventBus: options.eventBus });
+  const runtime = new ContractRuntime({ authPolicy: options.authPolicy, eventLogger: options.eventLogger });
   const handlers = {
     ...defineOperatorContractHandlers({
       'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),

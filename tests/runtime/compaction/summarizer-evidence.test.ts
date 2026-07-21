@@ -7,12 +7,10 @@ import { InvocationService } from '../../../src/agents/invocation-service.js';
 import { ProviderTurnFailure, type LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
-import { readAppLogEntries } from '../../../src/persistence/app-log.js';
+import { AppLogPublicationError, readAppLogEntries } from '../../../src/persistence/app-log.js';
 import { agentMessageSchema, type ConversationSessionId } from '../../../src/schemas/index.js';
-import { summarizeMerge, summarizeRound, SummarizerExchangeProjectionError, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { summarizeMerge, summarizeRound, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
-import { testAppLogs } from '../../helpers/app-logs.js';
-import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -80,7 +78,7 @@ describe('summarizer provider-exchange evidence ownership', () => {
   });
 
   it('turns projection publication uncertainty into one typed fatal error without retry', async () => {
-    const projectionCause = new Error('app log publication unknown');
+    const projectionCause = new AppLogPublicationError('provider_exchange', new Error('app log publication unknown'));
     let completion: ReturnType<SummarizerProviderPort['completeTurn']> extends Promise<infer T> ? T : never;
     const completeTurn = jest.fn(async (input: LlmInvocationInput) => {
       completion = { result: { kind: 'message', content: 'summary' }, provider_exchanges: [attempt(input, 'ok')] };
@@ -88,12 +86,7 @@ describe('summarizer provider-exchange evidence ownership', () => {
     });
     const projectProviderExchanges = jest.fn<SummarizerProviderPort['projectProviderExchanges']>(() => { throw projectionCause; });
 
-    await expect(summarizeRound(summaryRoundArgs({ completeTurn, projectProviderExchanges }))).rejects.toMatchObject({
-      name: 'SummarizerExchangeProjectionError',
-      projectionCause,
-      providerOutcome: completion!,
-      cause: projectionCause,
-    } satisfies Partial<SummarizerExchangeProjectionError>);
+    await expect(summarizeRound(summaryRoundArgs({ completeTurn, projectProviderExchanges }))).rejects.toBe(projectionCause);
     expect(completeTurn).toHaveBeenCalledTimes(1);
     expect(projectProviderExchanges).toHaveBeenCalledTimes(1);
     const [sessionId, sourceInputId, attempts, outputIds] = projectProviderExchanges.mock.calls[0]!;
@@ -108,7 +101,7 @@ describe('summarizer provider-exchange evidence ownership', () => {
 function evidenceProvider(complete: (input: LlmInvocationInput) => ReturnType<SummarizerProviderPort['completeTurn']> extends Promise<infer T> ? T : never) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-summary-evidence-'));
   roots.push(root);
-  const service = new InvocationService({ projectRoot: root, appLogs: testAppLogs(root), readModelChanges: new ReadModelChangeBroadcaster(), registry: {} as never, router: {} as never, candidateAvailability: {} as never });
+  const service = new InvocationService({ projectRoot: root, freshness: { agentsChanged() {} }, registry: {} as never, router: {} as never, candidateAvailability: {} as never });
   const project = jest.fn((sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]) => service.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds));
   const provider: SummarizerProviderPort = { completeTurn: async (input) => complete(input), projectProviderExchanges: project };
   return { root, provider, project };

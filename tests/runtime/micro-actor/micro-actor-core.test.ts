@@ -24,6 +24,7 @@ class TestActor extends BaseActor {
     this.runTask(run, options);
   }
   settlement(): Promise<void> { return this.awaitLifecycleSettlement(); }
+  halt(): void { this.haltCurrentTaskState(); }
 }
 
 describe('actor definition compilation', () => {
@@ -110,6 +111,31 @@ describe('actor definition compilation', () => {
 });
 
 describe('state tasks and events', () => {
+  it('halts only during task-result delivery without transition or main-loop failure', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const callbacks: string[] = [];
+    let actor!: TestActor;
+    actor = new TestActor(
+      compileActorDefinition({ states: { running: { on: { done: 'terminal' } }, terminal: { terminal: true } } }),
+      {
+        enter: ({ target }) => {
+          callbacks.push(`enter:${target}`);
+          if (target === 'running') actor.task(() => Promise.resolve(), { on_done: () => actor.halt() });
+        },
+        leave: () => callbacks.push('leave'),
+        transition: () => callbacks.push('transition'),
+      },
+    );
+    expect(() => actor.halt()).toThrow(InternalActorError);
+    actor.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(actor.state()).toBe('running');
+    expect(callbacks).toEqual(['enter:running']);
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(() => actor.start()).toThrow(InternalActorError);
+    errorSpy.mockRestore();
+  });
+
   it('runs task completion callbacks and default completion/failure events', async () => {
     const definition = compileActorDefinition({
       states: { idle: { on: { done: 'done', failed: 'done' } }, done: { terminal: true } },

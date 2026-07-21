@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
 
-import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { CardService } from '../../src/cards/card-service.js';
 import type { LiveSyncInvalidateFrame } from '../../src/contracts/index.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
@@ -46,9 +45,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const live = new LiveSyncSocket();
     live.add(ws);
     hub = new SyncHub(live, 10);
-    const changes = new ReadModelChangeBroadcaster();
-    changes.subscribe(hub);
-    cards = new CardService(root, undefined, changes);
+    cards = new CardService(root, hub);
   });
 
   afterEach(() => {
@@ -133,9 +130,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
       fsync(fd) { fsyncSync(fd); throw failure; },
       close: closeSync,
     };
-    const changes = new ReadModelChangeBroadcaster();
-    changes.subscribe(hub);
-    const failingCards = new CardService(root, undefined, changes, failingIo);
+    const failingCards = new CardService(root, hub, failingIo);
     expect(() => failingCards.update(child.id, { title: 'outcome unknown' })).toThrow(failure);
     expect(flush()).toEqual([]);
   });
@@ -154,9 +149,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
       fsync(fd) { fsyncSync(fd); throw failure; },
       close: closeSync,
     };
-    const changes = new ReadModelChangeBroadcaster();
-    changes.subscribe(hub);
-    const failingCards = new CardService(root, undefined, changes, failingIo);
+    const failingCards = new CardService(root, hub, failingIo);
 
     expect(() => failingCards.closeRecord(child.id, 'review.md', draft.version, 'reviewer', cards.read(child.id)!.version_seq)).toThrow(failure);
     expect(flush()).toEqual([]);
@@ -170,8 +163,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
       open() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
       stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
     };
-    const changes = new ReadModelChangeBroadcaster(); changes.subscribe(hub);
-    const missingCards = new CardService(root, undefined, changes, missingIo);
+    const missingCards = new CardService(root, hub, missingIo);
     expect(() => missingCards.update(child.id, { title: 'not published' })).toThrow(/disappeared before version append/);
     expect(flush()).toEqual([]);
     expect(() => missingCards.editRecord(child.id, 'review.md', draft.version, 'not published')).toThrow(/disappeared before append/);

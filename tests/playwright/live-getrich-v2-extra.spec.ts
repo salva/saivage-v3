@@ -41,9 +41,9 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     expect(typeof body).toBe('object');
   });
 
-  test('debug.timeline returns a payload', async ({ request }) => {
-    const res = await request.get('/api/debug/timeline');
-    expect(res.status(), `GET /api/debug/timeline — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
+  test('events newest tail returns a payload', async ({ request }) => {
+    const res = await request.get('/api/events?selection=newest_tail&limit=1000');
+    expect(res.status(), `GET /api/events — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
     const body = await res.json();
     expect(typeof body).toBe('object');
   });

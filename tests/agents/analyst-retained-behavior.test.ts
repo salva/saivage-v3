@@ -5,7 +5,6 @@ import { join } from 'node:path';
 
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
 import { ANALYST_CAPABILITY_CLASSES, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
-import { EventBus } from '../../src/events/index.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { listControlActions } from '../../src/persistence/index.js';
 
@@ -17,12 +16,9 @@ function harness(options: { actor?: 'analyst'; surface?: 'web-chat' | 'rest'; re
   roots.push(root);
   const intervention = new RuntimeInterventionBinding();
   if (options.ready !== false) intervention.markStoppedReady();
-  const eventBus = new EventBus();
-  const publications: unknown[] = [];
-  eventBus.subscribe({ allowedKinds: ['control_action_recorded'], handler: (event) => { publications.push(event); } });
-  const context = { projectRoot: root, actor: options.actor ?? 'analyst', surface: options.surface ?? 'web-chat', appLogs: { projectRoot: root }, eventBus, interventionReadiness: intervention, analystPreparation: {}, analystMutations: {} } as never;
+  const context = { projectRoot: root, actor: options.actor ?? 'analyst', surface: options.surface ?? 'web-chat', interventionReadiness: intervention, analystPreparation: {}, analystMutations: {} } as never;
   const spec = (mutate: (...args: any[]) => any, extra: Record<string, unknown> = {}) => ({ action: 'card.test', safety_class: 'low' as const, target_kind: 'card' as const, getTargetId: () => 'project', lifecycle: 'intervention_ready' as const, mutate, ...extra });
-  return { root, context, publications, spec };
+  return { root, context, spec };
 }
 
 describe('Analyst retained navigation and capability behavior', () => {
@@ -94,11 +90,10 @@ describe('audited Analyst mutation settlement', () => {
     expect(listControlActions(application.root)[0]).toMatchObject({ outcome: 'error', error: 'owner threw' });
   });
 
-  it('audits returned success and publishes once', async () => {
+  it('audits returned success once', async () => {
     const test = harness();
     await expect(runAuditedAnalystTool(test.context, {}, test.spec(() => ({ kind: 'returned', success: true, data: { ok: true } })))).resolves.toEqual({ success: true, data: { ok: true } });
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'ok' });
-    expect(test.publications).toHaveLength(1);
   });
 
   it.each([
@@ -109,7 +104,6 @@ describe('audited Analyst mutation settlement', () => {
     await runAuditedAnalystTool(test.context, {}, test.spec(() => result, { action }));
     expect(listControlActions(test.root)).toHaveLength(1);
     expect(listControlActions(test.root)[0]).toMatchObject({ actor: 'analyst', action, outcome });
-    expect(test.publications).toHaveLength(1);
   });
 
   it('keeps a committed success ok when cancellation arrives before the application returns', async () => {
@@ -120,7 +114,6 @@ describe('audited Analyst mutation settlement', () => {
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(listControlActions(test.root)).toHaveLength(1);
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'ok' });
-    expect(test.publications).toHaveLength(1);
   });
 
   it('propagates audit append failure without another append attempt', async () => {
@@ -129,6 +122,5 @@ describe('audited Analyst mutation settlement', () => {
     const mutate = jest.fn(() => ({ kind: 'returned' as const, success: true as const }));
     await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate))).rejects.toThrow();
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(test.publications).toHaveLength(0);
   });
 });

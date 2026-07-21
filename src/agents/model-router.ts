@@ -42,7 +42,7 @@ export class ModelRouter {
    * OAuth profiles during startup-time candidate resolution. Transport/auth
    * validation and live cooldown/block filtering happen later at real LLM invocation time.
    */
-  async resolve(role: string, request?: CapabilityRequest): Promise<Candidate[]> {
+  async resolve(role: import('../schemas/index.js').OperationalAgentRole, request?: CapabilityRequest): Promise<Candidate[]> {
     this.lastCapabilitySkips = [];
     const modelList = getModelListForRole(this.config, role);
     const candidates: Candidate[] = [];

@@ -1,5 +1,4 @@
 import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
-import type { EventBus } from '../events/index.js';
 import type { RuntimeControlMechanics } from './runtime-control-service.js';
 import type { LLMProviderPort } from '../runtime/actors/index.js';
 import type { CardService } from '../cards/card-service.js';
@@ -11,7 +10,7 @@ import type { ManagedProcessScope } from '../runtime/managed-process-group-regis
 import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
-import type { ReadModelChanges } from './read-model-changes.js';
+import type { FreshnessEffects } from './freshness-effects.js';
 import type { RuntimeInterventionBinding } from './intervention-readiness.js';
 import type { InvocationRequest } from '../agents/invocation-service.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
@@ -24,7 +23,6 @@ import type { ProcessPromptRegistry } from '../runtime/card-process/process-prom
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
   processIdentity: RuntimeProcessIdentity;
-  eventBus: EventBus;
   cardStore: CardService;
   interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
@@ -40,14 +38,13 @@ export interface MicroActorRuntimeApiFactoryDeps {
   mcpToolInvocation: McpToolInvocationPort;
   now?: () => string;
   conversations: ConversationFileContext;
-  readModelChanges: ReadModelChanges;
+  freshness: Pick<FreshnessEffects, 'runtimeChanged' | 'agentsChanged' | 'conversationChanged'>;
 }
 
 export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps): RuntimeControlMechanics {
   return createSupervisorRuntimeApi({
     projectRoot: deps.projectRoot,
     processIdentity: deps.processIdentity,
-    eventBus: deps.eventBus,
     actorStore: deps.cardStore,
     interventionBinding: deps.interventionBinding,
     provider: createInvocationServiceProvider(deps.invocationService),
@@ -63,14 +60,14 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     mcpToolInvocation: deps.mcpToolInvocation,
     now: deps.now,
     conversations: deps.conversations,
-    readModelChanges: deps.readModelChanges,
+    freshness: deps.freshness,
   });
 }
 
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
     completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal)),
-    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
+    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds, operationError) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds, operationError),
   };
 }
 

@@ -5,24 +5,13 @@ import type { AgentMessage, ConversationSessionId } from '../../../schemas/index
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import { validateConversationRows } from '../../../contracts/conversation-compaction.js';
 import { providerConversationProjection } from '../conversation-session.js';
+import { rethrowAppLogPublicationError } from '../../../persistence/app-log.js';
 
 export interface SummarizerProviderPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
-  projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void;
+  projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[], operationError?: unknown): void;
 }
 export type MergeSummaryInput = { round_id: string; summary_text: string };
-
-export class SummarizerExchangeProjectionError extends Error {
-  readonly projectionCause: unknown;
-  readonly providerOutcome: ProviderTurnCompletion | ProviderTurnFailure;
-
-  constructor(projectionCause: unknown, providerOutcome: ProviderTurnCompletion | ProviderTurnFailure) {
-    super('Failed to publish summarizer provider-exchange evidence.', { cause: projectionCause });
-    this.name = 'SummarizerExchangeProjectionError';
-    this.projectionCause = projectionCause;
-    this.providerOutcome = providerOutcome;
-  }
-}
 
 export async function summarizeRound(args: { sourceSessionId: ConversationSessionId; round_id: string; rows: AgentMessage[]; summarizerProvider: SummarizerProviderPort; signal: AbortSignal }): Promise<string> {
   if (args.rows.some((row) => row.kind === 'context_compaction')) throw new Error('summarizeRound must receive immutable non-metadata source rows only.');
@@ -46,6 +35,7 @@ async function invokeSummaryTurn(input: LlmInvocationInput, provider: Summarizer
     projectSummaryExchanges(provider, input, completion.provider_exchanges, completion);
     return completion;
   } catch (error) {
+    rethrowAppLogPublicationError(error);
     if (!(error instanceof ProviderTurnFailure)) throw error;
     projectSummaryExchanges(provider, input, error.provider_exchanges, error);
     throw error;
@@ -58,11 +48,7 @@ function projectSummaryExchanges(
   attempts: ProviderExchangeAttempt[],
   providerOutcome: ProviderTurnCompletion | ProviderTurnFailure,
 ): void {
-  try {
-    provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, []);
-  } catch (error) {
-    throw new SummarizerExchangeProjectionError(error, providerOutcome);
-  }
+  provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, [], providerOutcome instanceof ProviderTurnFailure ? providerOutcome.originalFailure : undefined);
 }
 
 function buildSummaryInput(inputId: string, sessionId: string, systemPrompt: string, providerConversation: LlmInvocationInput['providerConversation']): LlmInvocationInput {

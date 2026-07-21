@@ -1,4 +1,3 @@
-import type { Subscription, SubscriptionOptions } from '../events/index.js';
 import type { RuntimeState, RuntimeStatus } from '../schemas/index.js';
 import type { ActorRuntimeReadModel } from '../application/read-models/actor-runtime-read-model.js';
 import type { CardNotification } from '../schemas/index.js';
@@ -27,7 +26,6 @@ export interface RuntimeApi {
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult;
   startProject(): Promise<StartProjectResult>;
-  subscribe(options: SubscriptionOptions): Subscription;
   getStatus(): {
     status: RuntimeStatus;
     currentCardId: string | null;

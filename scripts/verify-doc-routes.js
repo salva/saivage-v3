@@ -407,7 +407,7 @@ function extractImplementedAgentTools(projectRoot) {
   return result;
 }
 
-const SCHEMA_WRAPPERS = new Set(['optional', 'default', 'strict', 'passthrough', 'superRefine', 'transform']);
+const SCHEMA_WRAPPERS = new Set(['optional', 'default', 'strict', 'passthrough', 'superRefine', 'transform', 'pipe']);
 const SCALAR_CHAINS = new Set(['min', 'max', 'int', 'positive', 'nonnegative', 'safe', 'refine']);
 const SCALAR_FACTORIES = new Set(['string', 'number', 'boolean', 'enum', 'unknown', 'literal', 'any']);
 

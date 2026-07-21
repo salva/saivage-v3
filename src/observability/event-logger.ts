@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { LoggedEvent, EventKind } from '../schemas/index.js';
+import type { LoggedEvent } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { loggedEventSchema } from '../schemas/index.js';
-import { appendAppLogEntry, readAppLogEntries, type AppLogContext } from '../persistence/app-log.js';
-import { appLogFile } from '../persistence/layout.js';
+import { appendAppLogEntry, type AppLogPublicationContext } from '../persistence/app-log.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -20,15 +18,6 @@ function nextEventId(): string {
 
 // ── Filter Type ──────────────────────────────────────────────
 
-export interface EventFilter {
-  kind?: EventKind | EventKind[];
-  goal_id?: string;
-  card_id?: string;
-  session_id?: string;
-  since?: string; // ISO timestamp — return events after this time
-  limit?: number;
-  offset?: number; // number of events to skip before applying limit
-}
 
 // ── Event Input Type ─────────────────────────────────────────
 
@@ -45,102 +34,39 @@ export type AppendEventInput = LoggedEvent extends infer Event
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function getGoalId(e: LoggedEvent): string | undefined {
-  return e.goal_id;
-}
-
-function getCardId(e: LoggedEvent): string | undefined {
-  return e.card_id;
-}
-
-function getSessionId(e: LoggedEvent): string | undefined {
-  return e.session_id ?? undefined;
-}
-
 // ── Event log producer ───────────────────────────────────────
 
 export interface EventLog {
-  appendEvent(event: AppendEventInput): LoggedEvent;
-  getEvents(filter?: EventFilter): LoggedEvent[];
-  getLogPath(): string;
+  appendEvent(event: AppendEventInput, context?: AppLogPublicationContext): LoggedEvent;
+  appendEventPrepared(prepareEvent: () => AppendEventInput, context?: AppLogPublicationContext): LoggedEvent;
 }
 
-export function createEventLog(projectRoot: string, appLogs: AppLogContext): EventLog {
+export function createEventLog(projectRoot: string, timelineChanged: () => void = () => undefined): EventLog {
+  const appendPrepared = (prepareEvent: () => AppendEventInput, context: AppLogPublicationContext = {}): LoggedEvent => {
+    const entry = appendAppLogEntry(projectRoot, 'event', () => {
+      const event = prepareEvent();
+      return {
+        type: 'event',
+        data: redactForOutbound({
+          ...event,
+          id: event.id ?? nextEventId(),
+          timestamp: event.timestamp ?? new Date().toISOString(),
+        }) as unknown as LoggedEvent,
+      };
+    }, context);
+    timelineChanged();
+    return entry.data;
+  };
   return {
 
   /**
    * Append an event to the log. The event gets an auto-generated id and
    * timestamp if not already provided. Returns the full event object.
    */
-  appendEvent(event: AppendEventInput): LoggedEvent {
-    const fullEvent: LoggedEvent = redactForOutbound({
-      ...event,
-      id: event.id ?? nextEventId(),
-      timestamp: event.timestamp ?? new Date().toISOString(),
-    }) as unknown as LoggedEvent;
-
-    const parsed = loggedEventSchema.safeParse(fullEvent);
-    if (!parsed.success) {
-      throw new Error(`LoggedEvent validation failed for kind '${event.kind}': ${parsed.error.message}`);
-    }
-
-    appendAppLogEntry(appLogs.projectRoot, { id: parsed.data.id, timestamp: parsed.data.timestamp, type: 'event', data: parsed.data });
-    return parsed.data;
+  appendEvent(event: AppendEventInput, context: AppLogPublicationContext = {}): LoggedEvent {
+    return appendPrepared(() => event, context);
   },
 
-  /**
-   * Get events, with optional filtering.
-   * Reads from the persisted file, so it reflects all events.
-   *
-   * Filtering order:
-   * 1. Apply all content filters (kind, goal_id, card_id, session_id, since).
-   * 2. Apply offset (default 0) to skip the first N matching events.
-   * 3. Apply limit to cap the returned slice (if undefined or negative, no cap).
-   *
-   * Events are returned in file order (chronological, oldest first).
-   */
-  getEvents(filter?: EventFilter): LoggedEvent[] {
-    let events = readAppLogEntries(projectRoot, 'event').map((entry) => entry.data);
-
-    // Step 1: Apply content filters
-    if (filter) {
-      if (filter.kind) {
-        const kinds = Array.isArray(filter.kind) ? filter.kind : [filter.kind];
-        events = events.filter((e) => kinds.includes(e.kind));
-      }
-      if (filter.goal_id) {
-        events = events.filter((e) => getGoalId(e) === filter.goal_id);
-      }
-      if (filter.card_id) {
-        events = events.filter((e) => getCardId(e) === filter.card_id);
-      }
-      if (filter.session_id) {
-        events = events.filter((e) => getSessionId(e) === filter.session_id);
-      }
-      if (filter.since) {
-        events = events.filter((e) => e.timestamp >= filter.since!);
-      }
-    }
-
-    // Step 2 & 3: Apply offset and limit pagination
-    if (filter) {
-      const offset = filter.offset ?? 0;
-      const effectiveOffset = Math.max(0, offset);
-
-      if (filter.limit !== undefined && filter.limit >= 0) {
-        events = events.slice(effectiveOffset, effectiveOffset + filter.limit);
-      } else {
-        // No limit (undefined or negative) — return everything after offset
-        events = events.slice(effectiveOffset);
-      }
-    }
-
-    return events;
-  },
-
-  /**
-   * Get the path to the events file.
-   */
-  getLogPath(): string { return appLogFile(projectRoot); },
+  appendEventPrepared: appendPrepared,
   };
 }

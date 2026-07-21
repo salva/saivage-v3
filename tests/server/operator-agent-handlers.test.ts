@@ -15,13 +15,12 @@ import { buildAgentOperatorContractHandlers } from '../../src/server/routes/oper
 import { appLogEntrySchema } from '../../src/contracts/app-log.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
-import { providerExchangeAppLogEntry } from '../../src/persistence/provider-exchange-log.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
 import type { ProviderExchangePayload } from '../../src/contracts/provider-exchange.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
-import { EventBus } from '../../src/events/index.js';
+import { createEventLog } from '../../src/observability/index.js';
 
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 const timestamp = '2026-07-17T00:00:00.000Z';
@@ -57,7 +56,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const snapshots = jest.fn(() => { throw new Error('must not capture'); });
     const fastify = Fastify({ logger: false });
     const handlers = buildAgentOperatorContractHandlers({ projectRoot: '/nonexistent', runtimeApplication: { captureExecutingLlmSnapshots: snapshots } as unknown as RuntimeApplication });
-    new ContractRuntime({ authPolicy: new AuthPolicy(), eventBus: new EventBus() }).mount(fastify, agentOperatorApiContracts, handlers);
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog('/nonexistent') }).mount(fastify, agentOperatorApiContracts, handlers);
     try {
       for (const path of [`/api/agents/${encodeURIComponent(id)}`, `/api/agents/${encodeURIComponent(id)}/conversation`, `/api/agents/${encodeURIComponent(id)}/llm-exchange`]) {
         const response = await fastify.inject({ method: 'GET', url: path });
@@ -73,7 +72,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
   it.each(['ok', 'error'] as const)('independently redacts canonical %s exchanges without rewriting persistence', async (status) => {
     const root = projectRoot();
     const payload = sensitiveExchange(status);
-    appendAppLogEntry(root, providerExchangeAppLogEntry({
+    appendAppLogEntry(root, 'provider_exchange', () => providerExchangeEntry({
       session_id: 'planner:project',
       source_input_id: payload.source_input_id,
       attempt_index: payload.attempt_index,
@@ -116,7 +115,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const secret = 'tok_malformed_duplicate_secret';
     const root = projectRoot('saivage-secret-project-path-');
     const payload = { ...sensitiveExchange('ok'), source_input_id: secret, attempt_index: 0 };
-    const entry = providerExchangeAppLogEntry({
+    const entry = providerExchangeEntry({
       session_id: 'planner:project', source_input_id: payload.source_input_id,
       attempt_index: payload.attempt_index, timestamp: payload.completed_at, payload,
     });
@@ -125,7 +124,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     writeFileSync(appLogFile(root), Buffer.concat([line, line]));
     const handlers = buildAgentOperatorContractHandlers({ projectRoot: root });
     const fastify = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy(), eventBus: new EventBus() }).mount(
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(root) }).mount(
       fastify,
       { 'agents.llmExchange': agentOperatorApiContracts['agents.llmExchange'] },
       { 'agents.llmExchange': handlers['agents.llmExchange']! },
@@ -146,6 +145,10 @@ describe('operator Agent exact identity contracts and handlers', () => {
     }
   });
 });
+
+function providerExchangeEntry(data: { session_id: string; source_input_id: string; attempt_index: number; timestamp: string; payload: ProviderExchangePayload }) {
+  return { type: 'provider_exchange' as const, data };
+}
 
 function entry(session_id: string) {
   return { id: 'm1', session_id, role: 'user', kind: 'text', content: 'hello', round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', message_index: 0, block_index: 0, timestamp };

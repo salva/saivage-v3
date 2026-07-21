@@ -32,7 +32,7 @@ export async function createServer(options: CreateServerOptions): Promise<Server
     liveSyncSocket: services.liveSyncSocket,
     restartPort: options.restartPort,
     authPolicy: services.authPolicy,
-    eventBus: services.eventBus,
+    eventLogger: services.eventLogger,
   });
 
   return { fastify: services.fastify, config: serverConfig, saivageConfig: services.config, mcpManager: services.mcpManager, runtimeApplication: services.runtimeApplication };

@@ -12,8 +12,7 @@ import { buildFilesDebugOperatorContractHandlers } from '../../src/server/routes
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { appLogFile, cardNamespace } from '../../src/persistence/layout.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
-import { EventBus } from '../../src/events/index.js';
-import { DebugReadModelService } from '../../src/application/read-models/debug-read-model.js';
+import { createEventLog } from '../../src/observability/index.js';
 
 describe('operator files and debug contract handlers', () => {
   let fastify: FastifyInstance;
@@ -29,7 +28,7 @@ describe('operator files and debug contract handlers', () => {
     cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cardServiceProvider = jest.fn(() => cards);
     fastify = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventBus: new EventBus() }).mount(
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot) }).mount(
       fastify,
       filesDebugOperatorApiContracts,
       buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider }),
@@ -52,49 +51,31 @@ describe('operator files and debug contract handlers', () => {
     expect(cardServiceProvider).not.toHaveBeenCalled();
   });
 
-  it('returns exact empty Debug app-log projections when the log is missing', async () => {
+  it('returns an exact empty Debug error projection when the log is missing', async () => {
     const errors = await fastify.inject({ method: 'GET', url: '/api/debug/errors', headers: authHeaders });
-    const timeline = await fastify.inject({ method: 'GET', url: '/api/debug/timeline', headers: authHeaders });
     expect(errors.statusCode).toBe(200);
     expect(errors.json()).toEqual({ errors: [], total: 0 });
-    expect(timeline.statusCode).toBe(200);
-    expect(timeline.json()).toEqual({ events: [], total: 0 });
   });
 
-  it('turns a deliberately invalid Debug handler response into a contract violation', async () => {
-    const getErrors = jest.spyOn(DebugReadModelService.prototype, 'getErrors');
-    // @ts-expect-error This fixture intentionally violates the exact handler response type.
-    getErrors.mockReturnValue({ errors: [{ source: 'legacy' }], total: 1 });
-    const response = await fastify.inject({ method: 'GET', url: '/api/debug/errors', headers: authHeaders });
-    expect(response.statusCode).toBe(500);
-    expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
-    getErrors.mockRestore();
-  });
-
-  it('returns exact canonical error and event rows in physical order', async () => {
+  it('returns exact canonical error events in physical order', async () => {
     const timestamp = '2026-01-01T00:00:00.000Z';
-    const error = { id: 'err-1', timestamp, kind: 'error' as const, message: 'boom', cardId: 'card-a', metadata: { attempt: 1, api_key: 'sensitive-value' } };
     const first = { id: 'event-1', timestamp, kind: 'runtime_diagnostic' as const, card_id: 'card-a', error_message: 'first' };
     const second = { id: 'event-2', timestamp: '2026-01-01T00:00:01.000Z', kind: 'mcp_tool_invocation' as const, server: 'tools', tool: 'inspect', success: false, duration_ms: 4, error: 'second' };
-    appendAppLogEntry(projectRoot, { id: error.id, timestamp, type: 'error', data: error });
-    appendAppLogEntry(projectRoot, { id: first.id, timestamp: first.timestamp, type: 'event', data: first });
-    appendAppLogEntry(projectRoot, { id: second.id, timestamp: second.timestamp, type: 'event', data: second });
+    appendAppLogEntry(projectRoot, 'event', () => ({ type: 'event', data: first }));
+    appendAppLogEntry(projectRoot, 'event', () => ({ type: 'event', data: second }));
 
     const errors = await fastify.inject({ method: 'GET', url: '/api/debug/errors', headers: authHeaders });
-    const timeline = await fastify.inject({ method: 'GET', url: '/api/debug/timeline', headers: authHeaders });
     expect(errors.statusCode).toBe(200);
-    expect(errors.json()).toEqual({ errors: [{ ...error, metadata: { attempt: 1, api_key: '[REDACTED]' } }], total: 1 });
-    expect(timeline.statusCode).toBe(200);
-    expect(timeline.json()).toEqual({ events: [first, second], total: 2 });
+    expect(errors.json()).toEqual({ errors: [first, second], total: 2 });
   });
 
   it('fails each explicit Debug read on a complete malformed app-log row without changing bytes', async () => {
     const path = appLogFile(projectRoot);
     const malformed = '{"version":1,"type":"app_log","rows":[{"complete":"invalid"}]}\n';
     const timestamp = '2026-01-01T00:00:00.000Z';
-    appendAppLogEntry(projectRoot, { id: 'event-before-malformed', timestamp, type: 'event', data: { id: 'event-before-malformed', timestamp, kind: 'runtime_diagnostic', error_message: 'before' } });
+    appendAppLogEntry(projectRoot, 'event', () => ({ type: 'event', data: { id: 'event-before-malformed', timestamp, kind: 'runtime_diagnostic', error_message: 'before' } }));
     writeFileSync(path, malformed, 'utf8');
-    for (const url of ['/api/debug/errors', '/api/debug/timeline']) {
+    for (const url of ['/api/debug/errors']) {
       const response = await fastify.inject({ method: 'GET', url, headers: authHeaders });
       expect(response.statusCode).toBe(500);
       expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });

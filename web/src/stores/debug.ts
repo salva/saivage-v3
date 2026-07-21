@@ -1,7 +1,7 @@
 /**
  * Pinia store for debug information.
  *
- * Exposes errors, timeline, process, doctor, and content-supervision
+ * Exposes errors, timeline, process, and Doctor
  * diagnostics. All data is read-only
  * for inspection purposes — actions should link back to the
  * relevant card or process.
@@ -13,21 +13,17 @@ import type {
   DebugErrorRecord,
   DebugTimelineEvent,
   DebugErrorsResponse,
-  DebugTimelineResponse,
+  EventsResponse,
   DoctorCheck,
   DoctorIssue,
   DoctorResponse,
-  ContentReview,
-  SupervisionStats,
-  SupervisionResponse,
   ProcessView,
   ProcessListResponse,
 } from '../api/types';
 import {
   getDebugErrors,
-  getDebugTimeline,
+  getNewestEvents,
   getDoctor,
-  getDebugSupervision,
   listProcesses,
   ApiError,
 } from '../api/client';
@@ -38,7 +34,6 @@ import {
   type DebugTimelineItem,
   selectErrorsBySource,
   selectSortedTimeline,
-  selectTimelineDerivedErrors,
 } from './debug-read-model';
 
 const log = createLogger('store:debug');
@@ -58,21 +53,12 @@ export const useDebugStore = defineStore('debug', () => {
   const doctorLoading = ref(false);
   const doctorError = ref<string | null>(null);
 
-  const supervisionReviews = ref<ContentReview[]>([]);
-  const supervisionStats = ref<SupervisionStats | null>(null);
-  const supervisionLoading = ref(false);
-  const supervisionError = ref<string | null>(null);
-
   const loading = ref(false);
   const error = ref<string | null>(null);
 
 
   const projectedErrors = computed<DebugErrorItem[]>(() => errors.value.map(projectErrorRecord));
-  const eventDerivedErrors = computed<DebugErrorItem[]>(() => selectTimelineDerivedErrors(timelineEvents.value));
-
-  const combinedErrors = computed<DebugErrorItem[]>(() => [...projectedErrors.value, ...eventDerivedErrors.value]);
-
-  const errorsBySource = computed<Map<string, DebugErrorItem[]>>(() => selectErrorsBySource(combinedErrors.value));
+  const errorsBySource = computed<Map<string, DebugErrorItem[]>>(() => selectErrorsBySource(projectedErrors.value));
 
   const sortedTimeline = computed<DebugTimelineItem[]>(() => selectSortedTimeline(timelineEvents.value));
 
@@ -96,7 +82,7 @@ export const useDebugStore = defineStore('debug', () => {
     loading.value = true;
     error.value = null;
     try {
-      const response: DebugTimelineResponse = await getDebugTimeline();
+      const response: EventsResponse = await getNewestEvents();
       timelineEvents.value = response.events;
       timelineTotal.value = response.total;
     } catch (err) {
@@ -142,23 +128,7 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  async function fetchSupervision(): Promise<void> {
-    supervisionLoading.value = true;
-    supervisionError.value = null;
-    try {
-      const response: SupervisionResponse = await getDebugSupervision();
-      supervisionReviews.value = response.reviews;
-      supervisionStats.value = response.stats;
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch supervision data';
-      supervisionError.value = msg;
-      log.error('fetchSupervision', msg);
-    } finally {
-      supervisionLoading.value = false;
-    }
-  }
-
-  async function fetchAll(): Promise<void> {
+  async function refreshObservability(): Promise<void> {
     loading.value = true;
     error.value = null;
 
@@ -173,17 +143,19 @@ export const useDebugStore = defineStore('debug', () => {
 
     if (failures.length > 0) {
       error.value = failures.length >= 2 ? 'Failed to fetch debug data' : failures.join('; ');
+      loading.value = false;
+      throw results.find((result): result is PromiseRejectedResult => result.status === 'rejected')!.reason;
     }
 
     loading.value = false;
   }
 
-  const refetchTimeline = fetchTimeline;
+  const refetchTimeline = refreshObservability;
   const refetchProcesses = fetchProcesses;
 
   return {
-    errors: readonly(combinedErrors),
-    errorsTotal: readonly(computed(() => combinedErrors.value.length)),
+    errors: readonly(projectedErrors),
+    errorsTotal: readonly(computed(() => projectedErrors.value.length)),
     timelineEvents: readonly(timelineEvents),
     timelineTotal: readonly(timelineTotal),
     processes: readonly(processes),
@@ -194,10 +166,6 @@ export const useDebugStore = defineStore('debug', () => {
     doctorIssues: readonly(doctorIssues),
     doctorLoading: readonly(doctorLoading),
     doctorError: readonly(doctorError),
-    supervisionReviews: readonly(supervisionReviews),
-    supervisionStats: readonly(supervisionStats),
-    supervisionLoading: readonly(supervisionLoading),
-    supervisionError: readonly(supervisionError),
     loading: readonly(loading),
     error: readonly(error),
     errorsBySource,
@@ -208,7 +176,6 @@ export const useDebugStore = defineStore('debug', () => {
     refetchTimeline,
     refetchProcesses,
     fetchDoctor,
-    fetchSupervision,
-    fetchAll,
+    refreshObservability,
   };
 });

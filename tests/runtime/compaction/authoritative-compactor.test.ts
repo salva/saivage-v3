@@ -3,7 +3,7 @@ import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { appendConversationBatch, ConversationPostPublicationObservationError, readConversation } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
 import { conversationFile } from '../../../src/runtime/actors/conversation-inventory.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
 import {
@@ -13,7 +13,8 @@ import {
   prepareCompaction,
   type AutonomousCompactionPolicy,
 } from '../../../src/runtime/actors/compaction/compactor.js';
-import { SummarizerExchangeProjectionError, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import type { AgentMessage } from '../../../src/schemas/index.js';
 import { estimateMessageTokens } from '../../../src/runtime/actors/compaction/round-classifier.js';
@@ -29,9 +30,8 @@ describe('authoritative context-recovery compaction', () => {
     const root = projectWithRounds(5);
     const before = readConversation(root, 'planner:project');
     const rejected = providerConversationProjection(before);
-    const observed = jest.fn();
     const args = compactArgs(root, rejected, summaryProvider());
-    const result = await compact({ ...args, conversations: { projectRoot: root, observeEntry: observed } });
+    const result = await compact(args);
 
     expect(result.kind).toBe('compacted');
     if (result.kind !== 'compacted') return;
@@ -41,8 +41,6 @@ describe('authoritative context-recovery compaction', () => {
     expect(after.sourceRows).toEqual(before.sourceRows);
     expect(after.compactions).toHaveLength(1);
     expect(result.providerConversation).toEqual(providerConversationProjection(after));
-    expect(observed).toHaveBeenCalledTimes(1);
-    expect(observed).toHaveBeenCalledWith(expect.objectContaining({ id: result.compactionMessage.id, kind: 'context_compaction' }));
   });
 
   it('advances from non-reducing escalated output through safe hard fallback', async () => {
@@ -96,14 +94,13 @@ describe('authoritative context-recovery compaction', () => {
 
   it('propagates summarizer projection uncertainty without construction wrapping or append', async () => {
     const root = projectWithRounds(5);
-    const projectionCause = new Error('projection publication unknown');
+    const projectionCause = new AppLogPublicationError('provider_exchange', new Error('projection publication unknown'));
     const provider = summaryProvider();
     provider.projectProviderExchanges = jest.fn(() => { throw projectionCause; });
 
     const failure = await compact(compactArgs(root, providerConversationProjection(readConversation(root, 'planner:project')), provider)).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(SummarizerExchangeProjectionError);
+    expect(failure).toBe(projectionCause);
     expect(failure).not.toBeInstanceOf(CompactionSummaryConstructionError);
-    expect(failure).toMatchObject({ projectionCause, cause: projectionCause });
     expect(provider.projectProviderExchanges).toHaveBeenCalledTimes(1);
     expect(readConversation(root, 'planner:project').compactions).toHaveLength(0);
   });
@@ -119,25 +116,12 @@ describe('authoritative context-recovery compaction', () => {
     expect(readConversation(root, 'planner:project').compactions).toHaveLength(0);
   });
 
-  it('preserves confirmed post-publication observation failure without append wrapping or retry', async () => {
-    const root = projectWithRounds(5);
-    const observationCause = new Error('conversation observation failed');
-    const provider = summaryProvider();
-    const args = compactArgs(root, providerConversationProjection(readConversation(root, 'planner:project')), provider);
-
-    const failure = await compact({ ...args, conversations: { projectRoot: root, observeEntry: () => { throw observationCause; } } }).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(ConversationPostPublicationObservationError);
-    expect(failure).not.toBeInstanceOf(CompactionAppendError);
-    expect(failure).toMatchObject({ cause: observationCause, entry: { kind: 'context_compaction' } });
-    expect(provider.completeTurn).toHaveBeenCalled();
-  });
-
   it('leaves an appended canonical row valid when cancellation arrives at the append boundary', async () => {
     const root = projectWithRounds(5);
     const controller = new AbortController();
     const reason = new Error('cancel after append');
     const args = compactArgs(root, providerConversationProjection(readConversation(root, 'planner:project')), summaryProvider());
-    const result = await compact({ ...args, signal: controller.signal, conversations: { projectRoot: root, changes: { conversationChanged: () => controller.abort(reason), agentsChanged() {}, runtimeChanged() {}, cardProjectionChanged() {}, subscribe: () => ({ unsubscribe() {} }) } } });
+    const result = await compact({ ...args, signal: controller.signal, conversations: { projectRoot: root, changes: { conversationChanged: () => controller.abort(reason), agentsChanged() {} } } });
 
     expect(result.kind).toBe('compacted');
     expect(controller.signal.reason).toBe(reason);

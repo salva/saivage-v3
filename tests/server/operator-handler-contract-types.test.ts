@@ -20,7 +20,6 @@ import { buildProcessOperatorContractHandlers } from '../../src/server/routes/op
 import type { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ContractRuntime, type ContractPreSendReply } from '../../src/server/contract-runtime.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
-import { EventBus } from '../../src/events/index.js';
 
 declare const runtimeApplication: RuntimeApplication;
 declare const saivageConfig: SaivageConfig;
@@ -41,9 +40,7 @@ function processFactoryDependencyTypeFixtures(): void {
 }
 
 function contractRuntimeDependencyTypeFixtures(): void {
-  new ContractRuntime({ authPolicy: new AuthPolicy(), eventBus: new EventBus() });
-  // @ts-expect-error ContractRuntime requires the composition-owned EventBus.
-  new ContractRuntime({ authPolicy: new AuthPolicy() });
+  new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: null as never });
 }
 
 const handlers = defineOperatorContractHandlers({

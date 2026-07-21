@@ -12,15 +12,16 @@ describe('durable growing-schema and writer inventory', () => {
     const conversations = source('src/persistence/conversation-file.ts');
 
     expect(appLogContract).toContain("z.discriminatedUnion('type'");
-    for (const type of ['event', 'error', 'control_action', 'provider_exchange', 'content_review']) expect(appLogContract).toContain(`z.literal('${type}')`);
-    expect(Array.from(appLogContract.matchAll(/type: z\.literal\('([^']+)'\)/g), (match) => match[1])).toEqual(['event', 'error', 'control_action', 'provider_exchange', 'content_review']);
+    for (const type of ['event', 'control_action', 'provider_exchange']) expect(appLogContract).toContain(`z.literal('${type}')`);
+    expect(Array.from(appLogContract.matchAll(/type: z\.literal\('([^']+)'\)/g), (match) => match[1])).toEqual(['event', 'control_action', 'provider_exchange']);
     expect(appLogContract).not.toContain('card_deleted');
     expect(appLogContract).not.toMatch(/from ['"]node:|from ['"]\.\.\/persistence\//);
     expect(messages).toMatch(/entityLinkSchema = z\.object\([\s\S]*?\)\.strict\(\)/);
     expect(messages).toMatch(/agentMessageSchema = z\.object\([\s\S]*?\)\.strict\(\)\.superRefine/);
 
+    expect(appLog).toContain('prepareGrowingEnvelope');
+    expect(conversations).toContain('serializeGrowingEnvelope');
     for (const owner of [appLog, conversations]) {
-      expect(owner).toContain('serializeGrowingEnvelope');
       expect(owner).toContain('publishFirstEnvelope');
       expect(owner).toContain('appendEnvelope');
       expect(owner).not.toContain('appendFileSync');
@@ -30,10 +31,8 @@ describe('durable growing-schema and writer inventory', () => {
   it('keeps app-log consumers on typed payloads without parse/drop or payload casts', () => {
     for (const path of [
       'src/observability/event-logger.ts',
-      'src/observability/error-logger.ts',
       'src/persistence/control-action-audit.ts',
       'src/persistence/provider-exchange-log.ts',
-      'src/workspace/quarantine.ts',
     ]) {
       const text = source(path);
       expect(text).not.toMatch(/safeParse\(entry\.data\)|entry\.data\s+as\s+/);

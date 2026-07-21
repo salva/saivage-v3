@@ -34,7 +34,7 @@
           <div class="debug-section-header operator-header">
             <div>
               <h4 class="debug-section-title">Runtime Diagnostics</h4>
-              <p class="operator-subtitle">Inspect runtime state here. Ask the Analyst to Run, Pause, or Shutdown the runtime; use Dashboard for run and activation observability, command errors, and recovery state.</p>
+              <p class="operator-subtitle">Inspect runtime state here. Ask the Analyst to Run, Pause, or Shutdown the runtime; use Debug &gt; Errors for durable command, precondition, activation, and actionable-error evidence.</p>
             </div>
             <div class="operator-actions-inline">
               <button class="sv-fetch-btn" :disabled="operatorPanelBusy" @click="refreshOperatorControl">Refresh</button>
@@ -56,13 +56,13 @@
             </div>
 
             <StatusBanner v-if="runtimeRefreshError" tone="warning" :message="runtimeRefreshError" />
-            <ViewState v-if="!runtime" state="empty" title="Runtime state is unavailable." message="Ask the Analyst to Run the project or open Dashboard to inspect recovery state." />
+            <ViewState v-if="!runtime" state="empty" title="Runtime state is unavailable." message="Ask the Analyst to Run the project; inspect Debug > Errors for durable failure evidence." />
 
             <div class="operator-runtime-guidance" role="note">
-              DebugView is diagnostic-only. Lifecycle changes are Analyst-owned; Dashboard owns command errors, root runs, child activation edges, and recovery state.
+              Debug is diagnostic-only. Lifecycle changes are Analyst-owned. Dashboard shows current runtime and activation ownership; Debug &gt; Errors is the durable error surface.
             </div>
 
-            <div v-if="!runtime" class="operator-help-text">Runtime diagnostics are unavailable because runtime state is not initialized. Ask the Analyst to Run the project or open Dashboard to inspect recovery state.</div>
+            <div v-if="!runtime" class="operator-help-text">Runtime diagnostics are unavailable because runtime state is not initialized. Ask the Analyst to Run the project and inspect Debug &gt; Errors for durable evidence.</div>
           </div>
         </section>
 
@@ -71,10 +71,10 @@
           <div class="debug-section-header operator-header">
             <div>
               <h4 class="debug-section-title">Actionable runtime issues</h4>
-              <p class="operator-subtitle">Tool and runtime precondition failures are reported in Dashboard with next-action guidance.</p>
+              <p class="operator-subtitle">Durable command, runtime precondition, activation, and actionable-error evidence is reported in Debug &gt; Errors with next-action guidance where available.</p>
             </div>
           </div>
-          <ViewState state="empty" title="Open Dashboard for command errors, activation failures, and recovery state." />
+          <ViewState state="empty" title="Open Debug > Errors for durable runtime issues." />
         </section>
 
       </div>
@@ -289,7 +289,7 @@
         </div>
       </div>
 
-      <div v-if="localActiveTab === 'supervision'" class="debug-tab-content">
+      <div v-if="localActiveTab === 'doctor'" class="debug-tab-content">
         <section class="debug-section">
           <div class="debug-section-header"><h4 class="debug-section-title">Doctor Diagnostics</h4><button class="sv-fetch-btn" :disabled="doctorLoading" @click="debugStore.fetchDoctor()">Fetch</button></div>
           <ViewState v-if="doctorLoading" state="loading" title="Running diagnostics..." />
@@ -302,18 +302,6 @@
           </template>
         </section>
 
-        <section class="debug-section">
-          <div class="debug-section-header"><h4 class="debug-section-title">Content Supervision</h4><button class="sv-fetch-btn" :disabled="supervisionLoading" @click="debugStore.fetchSupervision()">Fetch</button></div>
-          <ViewState v-if="supervisionLoading" state="loading" title="Loading supervision data..." />
-          <ViewState v-else-if="supervisionError" state="error" title="Failed to load" :message="supervisionError" />
-          <ViewState v-else-if="supervisionStats === null" state="empty" title="No supervision data loaded yet." message="Click Fetch to load." />
-          <template v-else>
-            <div class="sv-stats-grid"><div class="sv-stat-card sv-stat-total"><span class="sv-stat-num">{{ supervisionStats.total }}</span><span class="sv-stat-label">Total Reviews</span></div><div class="sv-stat-card sv-stat-blocked"><span class="sv-stat-num">{{ supervisionStats.blocked }}</span><span class="sv-stat-label">Blocked</span></div><div class="sv-stat-card sv-stat-passed"><span class="sv-stat-num">{{ supervisionStats.passed }}</span><span class="sv-stat-label">Passed</span></div><div class="sv-stat-card sv-stat-sanitized"><span class="sv-stat-num">{{ supervisionStats.sanitized }}</span><span class="sv-stat-label">Sanitized</span></div></div>
-            <div v-if="Object.keys(supervisionStats.byRisk).length" class="sv-sub-section"><h5 class="sv-sub-title">By Risk</h5><div class="sv-pills"><span v-for="(count, risk) in supervisionStats.byRisk" :key="risk" class="sv-pill" :class="'risk-' + risk">{{ risk }}: {{ count }}</span></div></div>
-            <div v-if="Object.keys(supervisionStats.bySourceKind).length" class="sv-sub-section"><h5 class="sv-sub-title">By Source</h5><div class="sv-pills"><span v-for="(count, kind) in supervisionStats.bySourceKind" :key="kind" class="sv-pill sv-pill-kind">{{ kind }}: {{ count }}</span></div></div>
-            <div v-if="supervisionReviews.length > 0" class="sv-sub-section"><h5 class="sv-sub-title">Recent Reviews ({{ supervisionReviews.length }})</h5><div class="sv-review-list"><div v-for="review in supervisionReviews.slice(0, 20)" :key="review.id" class="sv-review-item" :class="'sv-review-' + review.status"><span class="sv-review-status-badge" :class="'sv-st-' + review.status">{{ review.status }}</span><div class="sv-review-body"><span class="sv-review-summary">{{ review.summary }}</span><div class="sv-review-meta"><span class="sv-review-source">{{ review.source_ref }}</span><span class="sv-review-risk" :class="'risk-' + review.risk">{{ review.risk }}</span><span class="sv-review-time">{{ fmtDate(review.created_at) }}</span></div></div></div></div></div>
-          </template>
-        </section>
       </div>
     </div>
   </div>
@@ -354,8 +342,6 @@ const {
   loading, error,
   processes, processesLoading, processesError,
   doctorStatus, doctorChecks, doctorIssues, doctorLoading, doctorError,
-  supervisionReviews, supervisionStats,
-  supervisionLoading, supervisionError,
 } = storeToRefs(debugStore);
 const {
   runtime, loading: runtimeLoading, refreshing: runtimeRefreshing,
@@ -411,7 +397,7 @@ function setTabLocal(tab: typeof localActiveTab.value): void {
   if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
   else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
   else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
-  else if (tab === 'supervision') { debugStore.fetchDoctor().catch(() => {}); debugStore.fetchSupervision().catch(() => {}); }
+  else if (tab === 'doctor') debugStore.fetchDoctor().catch(() => {});
   else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
 }
 
@@ -432,7 +418,7 @@ let unregisterProcesses: (() => void) | null = null;
 onMounted(async () => {
   unregisterTimeline = liveSyncStore.registerResource({ resource: 'timeline', scope: 'active', requestOwnership: 'sync-client', refetch: debugStore.refetchTimeline });
   unregisterProcesses = liveSyncStore.registerResource({ resource: 'processes', scope: 'active', requestOwnership: 'sync-client', refetch: debugStore.refetchProcesses });
-  await debugStore.fetchAll();
+  await debugStore.refreshObservability().catch(() => {});
   mcpStore.fetchMcpData().catch(() => {});
   mcpStore.startPolling(15000);
 });
@@ -524,13 +510,6 @@ onUnmounted(() => {
 .mcp-stat-item { display:inline-flex; align-items:center; gap:4px; }
 .mcp-stat-success { color:var(--accent); }
 .mcp-stat-error { color:var(--danger); }
-.sv-stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:12px; }
-.sv-stat-card { display:flex; flex-direction:column; align-items:flex-start; gap:4px; padding:12px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; }
-.sv-stat-num { font-size:22px; font-weight:700; color:var(--text); line-height:1; }
-.sv-stat-label { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
-.sv-stat-card.sv-stat-blocked .sv-stat-num { color:var(--danger); }
-.sv-stat-card.sv-stat-passed .sv-stat-num { color:var(--accent); }
-.sv-stat-card.sv-stat-sanitized .sv-stat-num { color:var(--warn); }
 .process-header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
 .process-status-badge { font-size:10px; font-weight:600; padding:2px 8px; border-radius:999px; text-transform:uppercase; }
 .process-status-badge.ps-running { background:var(--entry-accent-bg); color:var(--accent); }
@@ -544,6 +523,6 @@ onUnmounted(() => {
 .pd-key { min-width:120px; font-size:12px; color:var(--text-muted); }
 .pd-value { font-size:12px; color:var(--text); }
 .wrap { word-break:break-word; white-space:pre-wrap; }
-.process-link-button, .sv-fetch-btn, .sv-q-browse-btn { margin-left:8px; padding:4px 8px; font-size:11px; color:var(--accent-2); background:var(--bg); border:1px solid var(--border); border-radius:4px; cursor:pointer; }
+.process-link-button, .sv-fetch-btn { margin-left:8px; padding:4px 8px; font-size:11px; color:var(--accent-2); background:var(--bg); border:1px solid var(--border); border-radius:4px; cursor:pointer; }
 .process-empty-note { font-size:12px; color:var(--text-muted); line-height:1.5; }
 </style>

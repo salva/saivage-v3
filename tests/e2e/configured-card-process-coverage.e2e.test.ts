@@ -61,7 +61,7 @@ describe('configured card-process substantive E2E coverage', () => {
       const open = cards.openRecord('project', 'status.md'); cards.editRecord('project', 'status.md', open.version, `step ${calls}`);
       return complete(tool(`result-${calls}`, 'emit_result', { outcome: calls === 1 ? 'next' : calls === 2 ? 'again' : 'complete', summary: `step ${calls}` }));
     }) };
-    runtime = new SupervisorRuntimeApi({ ...testAutonomousCompaction, cardProcesses: compileCardProcesses(configured), projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, ...processRuntimeDeps(root), promptTemplates: { render: () => 'test prompt' } });
+    runtime = new SupervisorRuntimeApi({ ...testAutonomousCompaction, cardProcesses: compileCardProcesses(configured), projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} }, ...processRuntimeDeps(root), promptTemplates: { render: () => 'test prompt' } });
     const prepared = await runtime.beginStartProject(); if (!prepared.accepted) throw new Error('Run was rejected'); runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => runtime.getStatus().status === 'stopped');
     expect(positions).toEqual([{ stateId: 'node:first', executionOrdinal: 0 }, { stateId: 'node:second', executionOrdinal: 1 }, { stateId: 'node:second', executionOrdinal: 2 }]);
@@ -100,7 +100,7 @@ describe('configured card-process substantive E2E coverage', () => {
       }
       throw new Error(`Unexpected provider session '${input.sessionId}'.`);
     }) };
-    const runtime = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, ...processRuntimeDeps(root), promptTemplates: { render: () => 'test prompt' } });
+    const runtime = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} }, ...processRuntimeDeps(root), promptTemplates: { render: () => 'test prompt' } });
 
     const prepared = await runtime.beginStartProject(); if (!prepared.accepted) throw new Error('Run was rejected'); runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => runtime.getStatus().status === 'stopped');
@@ -148,7 +148,7 @@ describe('configured card-process substantive E2E coverage', () => {
       expect(input.providerConversation.messages.some((row) => row.content === 'reviewer late context')).toBe(true);
       return complete(tool('reviewer-final-result', 'emit_result', { outcome: 'approved', summary: 'approved' }));
     }) };
-    const runtime = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, readModelChanges: { runtimeChanged() {}, cardProjectionChanged() {}, agentsChanged() {}, conversationChanged() {}, subscribe: () => ({ unsubscribe() {} }) }, ...processRuntimeDeps(root), promptTemplates: { render: () => 'test prompt' } });
+    const runtime = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} }, ...processRuntimeDeps(root), promptTemplates: { render: () => 'test prompt' } });
     const prepared = await runtime.beginStartProject(); if (!prepared.accepted) throw new Error('Run was rejected'); runtime.launchStartedProject(prepared.launch);
     await waitUntil(() => runtime.getStatus().status === 'stopped');
     expect(cards.read('project')?.lifecycle.status).toBe('done'); expect(cards.read(child.id)?.lifecycle.status).toBe('done');

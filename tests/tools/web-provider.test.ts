@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createWebProvider } from '../../src/tools/web-tools.js';
 import { createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
-import { EventBus } from '../../src/events/index.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
@@ -86,7 +85,7 @@ describe('WebProvider', () => {
     const write = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { record_url: 'record:///brief.md?card=project&v=2' } }));
     const readiness = new RuntimeInterventionBinding(); readiness.markStoppedReady();
     try {
-      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', appLogs: { projectRoot: root }, eventBus: new EventBus(), interventionReadiness: readiness, analystMutations: { briefRecords: { write } } } as never;
+      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: readiness, analystMutations: { briefRecords: { write } } } as never;
       const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', analystToolContext })]);
       const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'record:///brief.md?card=project&v=next' });
       expect(result).toMatchObject({ success: true, data: { saved_as: 'record:///brief.md?card=project&v=2' } });

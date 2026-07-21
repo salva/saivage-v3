@@ -6,7 +6,6 @@ import { CardService } from '../../src/cards/card-service.js';
 import { appendConversationBatch, readConversation, readConversationInventory } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
-import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { appendAnalystIngressBatch } from '../../src/runtime/actors/conversation-session.js';
 import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 import { parseConversationSessionId, type ConversationSessionId } from '../../src/schemas/index.js';
@@ -64,8 +63,7 @@ describe('domain-derived conversation inventory', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-conversation-inventory-')); roots.push(root); initProjectTree(root);
     appendConversationBatch({ projectRoot: root }, [message('planner:project', 'first')]);
     const effects: string[] = [];
-    const changes = new ReadModelChangeBroadcaster();
-    changes.subscribe({ conversationChanged: () => { effects.push('conversation'); }, agentsChanged: () => { effects.push('agents'); }, cardProjectionChanged() {}, runtimeChanged() {} });
+    const changes = { conversationChanged: () => { effects.push('conversation'); }, agentsChanged: () => { effects.push('agents'); } };
     const failure = new Error('conversation fsync');
     const operations: string[] = [];
     const failingIo: GrowingFileIo = {
@@ -76,7 +74,7 @@ describe('domain-derived conversation inventory', () => {
       close(fd) { operations.push('close'); closeSync(fd); },
     };
     let thrown: unknown;
-    try { appendConversationBatch({ projectRoot: root, changes, observeEntry: () => { effects.push('observation'); } }, [message('planner:project', 'second')], { io: failingIo }); } catch (error) { thrown = error; }
+    try { appendConversationBatch({ projectRoot: root, changes }, [message('planner:project', 'second')], { io: failingIo }); } catch (error) { thrown = error; }
     expect(thrown).toBe(failure);
     expect(operations).toEqual([`open:${conversationFile(root, 'planner:project')}`, 'stat', 'write', 'fsync', 'close']);
     expect(effects).toEqual([]);

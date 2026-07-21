@@ -19,9 +19,8 @@ import type {
   FilesListResponse,
   FileContent,
   DebugErrorsResponse,
-  DebugTimelineResponse,
+  EventsResponse,
   DoctorResponse,
-  SupervisionResponse,
   McpToolsResponse,
   ProcessListResponse,
   CardHistoryListResponse,
@@ -258,16 +257,12 @@ export function getDebugErrors(): Promise<DebugErrorsResponse> {
   return operatorRequest('debug.errors');
 }
 
-export function getDebugTimeline(): Promise<DebugTimelineResponse> {
-  return operatorRequest('debug.timeline');
+export function getNewestEvents(): Promise<EventsResponse> {
+  return operatorRequest('events.list', { query: { selection: 'newest_tail', limit: '1000' } });
 }
 
 export function getDoctor(): Promise<DoctorResponse> {
   return request<DoctorResponse>('GET', '/api/debug/doctor');
-}
-
-export function getDebugSupervision(): Promise<SupervisionResponse> {
-  return request<SupervisionResponse>('GET', '/api/debug/supervision');
 }
 
 export function getMcpTools(): Promise<McpToolsResponse> {

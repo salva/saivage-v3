@@ -6,6 +6,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Environment } from '../../config/index.js';
+import { AppLogPublicationError } from '../../persistence/app-log.js';
+import { UNEXPECTED_INTERNAL_SERVER_ERROR } from '../../contracts/index.js';
 
 export async function createFastifyApp(environment: Environment): Promise<FastifyInstance> {
   let transportOpt: { target: string; options: Record<string, unknown> } | undefined;
@@ -19,6 +21,12 @@ export async function createFastifyApp(environment: Environment): Promise<Fastif
   }
 
   const fastify = Fastify({ logger: { level: environment.server.logLevel, transport: transportOpt } });
+  fastify.setErrorHandler((error, request, reply) => {
+    if (!(error instanceof AppLogPublicationError)) throw error;
+    request.log.error({ code: 'app_log_publication_failed', entryType: error.entryType, method: request.method, route: request.routeOptions.url }, 'Required app-log publication failed');
+    if (reply.sent) { reply.raw.destroy(); return; }
+    void reply.code(500).send(UNEXPECTED_INTERNAL_SERVER_ERROR);
+  });
   fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {
     const rawBody = typeof body === 'string' ? body : body.toString('utf-8');
     if (rawBody.trim() === '') {

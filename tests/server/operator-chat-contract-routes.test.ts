@@ -15,7 +15,7 @@ import { AgentOperatorReadModelService } from '../../src/application/read-models
 import { appendAnalystIngressBatch } from '../../src/runtime/actors/conversation-session.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
-import { EventBus } from '../../src/events/index.js';
+import { createEventLog } from '../../src/observability/index.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
@@ -38,7 +38,7 @@ describe('operator chat route request contracts', () => {
       saivageConfig: TEST_SAIVAGE_CONFIG,
       restartPort: { schedule: jest.fn(), acknowledge },
     });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventBus: new EventBus() }).mount(fastify, chatOperatorApiContracts, handlers);
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot) }).mount(fastify, chatOperatorApiContracts, handlers);
     await fastify.ready();
   });
 

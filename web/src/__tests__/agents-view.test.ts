@@ -55,7 +55,7 @@ vi.mock('../api/client', () => {
           role: 'assistant',
           kind: 'tool_call',
           tool_call_id: 'tc1',
-          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: '22222222-2222-4222-8222-222222222222', reason: 'ready' }) } }] }),
+          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '22222222-2222-4222-8222-222222222222', reason: 'ready' }) } }] }),
           timestamp: '2025-06-01T08:06:00Z',
         },
         {
@@ -81,7 +81,7 @@ vi.mock('../api/client', () => {
     });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('🔧 activate_card(cardId, reason)');
+    expect(wrapper.text()).toContain('🔧 activate_card(card_id, reason)');
     expect(wrapper.text()).toContain('📤 activate_card → ok (activated G3)');
     expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
 
@@ -266,7 +266,7 @@ describe('AgentsView', () => {
           role: 'assistant',
           kind: 'tool_call',
           tool_call_id: 'tc1',
-          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: '22222222-2222-4222-8222-222222222222', reason: 'ready' }) } }] }),
+          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '22222222-2222-4222-8222-222222222222', reason: 'ready' }) } }] }),
           round_id: 'r-assistant-00000000000000000000000000000001',
           message_index: 0,
           block_index: 0,

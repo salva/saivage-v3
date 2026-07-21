@@ -11,7 +11,7 @@ import { registerInternalDebugRoutes } from '../routes/chats-files-debug.js';
 import { registerWebSocket } from '../websocket.js';
 import type { AuthPolicy } from '../auth-policy.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
-import type { EventBus } from '../../events/index.js';
+import type { EventLog } from '../../observability/index.js';
 
 export function registerServerRoutes(options: {
   fastify: FastifyInstance;
@@ -24,7 +24,7 @@ export function registerServerRoutes(options: {
   liveSyncSocket: LiveSyncSocket;
   restartPort?: RestartPort;
   authPolicy: AuthPolicy;
-  eventBus: EventBus;
+  eventLogger: EventLog;
 }): void {
   const serverAvailabilityProvider = () => buildServerAvailability({ projectRoot: options.projectRoot, runtimeApplication: options.runtimeApplication, mcpManager: options.mcpManager });
 
@@ -40,7 +40,7 @@ export function registerServerRoutes(options: {
     providerRoutingReadModelProvider: () => options.runtimeApplication.getProviderRoutingReadModel(),
     restartPort: options.restartPort,
     authPolicy: options.authPolicy,
-    eventBus: options.eventBus,
+    eventLogger: options.eventLogger,
   });
   registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore, options.authPolicy);
   registerWebSocket(options.fastify, options.projectRoot, {

@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import type { SaivageConfig } from '../agents/config-api.js';
-import { sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
+import { sanitizeAnalystText } from '../agents/analyst-api.js';
 import { GLOBAL_ANALYST_SESSION_ID } from '../schemas/index.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
@@ -9,6 +9,7 @@ import type { RestartPort } from '../boot/restart-port.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { projectAnalystToolInvocationActivity } from './tool-activity-projection.js';
+import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
 
 export interface AnalystWsHandlerOptions {
   projectRoot: string;
@@ -17,7 +18,6 @@ export interface AnalystWsHandlerOptions {
   runtimeApplication: RuntimeApplication;
   restartPort?: RestartPort;
   sendToClient: (ws: WebSocket, event: WsEnvelope, callback?: (error?: Error) => void) => void;
-  broadcast: (event: WsEnvelope) => void;
 }
 
 export class AnalystWsHandler {
@@ -37,12 +37,7 @@ export class AnalystWsHandler {
         const parsed = InboundAnalystMessageEnvelopeSchema.safeParse(rawParsed);
         if (!parsed.success) throw new Error('Invalid analyst websocket message');
 
-        const response = await this.options.runtimeApplication.analystRuntime.submit({ userContent: parsed.data.content.text, actor: 'analyst', surface: 'web-chat' }, (activity) => {
-            this.options.broadcast({
-              type: 'activity',
-              content: sanitizeAnalystPayload(activity) as Record<string, unknown>,
-            });
-          });
+        const response = await this.options.runtimeApplication.analystRuntime.submit({ userContent: parsed.data.content.text, actor: 'analyst', surface: 'web-chat' });
 
         for (const invocation of response.toolInvocations ?? []) {
           this.options.sendToClient(ws, {
@@ -60,6 +55,7 @@ export class AnalystWsHandler {
           void restartPort!.acknowledge();
         });
       } catch (err) {
+        rethrowAppLogPublicationError(err);
         this.options.sendToClient(ws, {
           type: 'error',
           content: {

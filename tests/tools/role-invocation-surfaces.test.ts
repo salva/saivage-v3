@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
+import { EventQueryService } from '../../src/application/event-query-service.js';
 import { CardService } from '../../src/cards/card-service.js';
 import type { McpToolInvocationPort } from '../../src/mcp/mcp-manager.js';
 import { createMcpToolInvocationInstallation, McpToolInvocationNotInstalledError } from '../../src/mcp/tool-invocation-installation.js';
@@ -95,7 +96,7 @@ function fixture(role: RoleSurfaceContext['role'], mcpToolInvocation: McpToolInv
     restartServerAvailable: false,
     actor: 'analyst',
     surface: 'web-chat',
-    appLogs: { projectRoot },
+    eventQueries: new EventQueryService(projectRoot),
     captureExecutingLlmSnapshots: () => [],
   };
   return { role, toolContext };

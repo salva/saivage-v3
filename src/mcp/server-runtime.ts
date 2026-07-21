@@ -130,24 +130,23 @@ export class McpServerRuntime {
       this.validateToolArguments(toolName, toolDefinition.inputSchema, args);
       const startTime = Date.now();
       const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
+      let result: unknown;
       try {
-        const result = cfg.transport === 'stdio'
+        result = cfg.transport === 'stdio'
           ? await this.enqueueStdioInvocation(() => { this.assertCurrent(generation, signal); return invokeStdioTool({ serverName: this.name, toolName, args, config: cfg, handle, timeoutMs, ids: this.#ids, signal }); })
           : await invokeStreamableHttpTool({ serverName: this.name, toolName, args, config: cfg, handle, timeoutMs, ids: this.#ids, signal });
         this.assertCurrent(generation, signal);
-        const durationMs = Date.now() - startTime;
-        this.#invocationStats.record(this.name, toolName, true);
-        this.#invocationStats.log(this.name, toolName, true, durationMs);
-        return result;
       } catch (err) {
-        if (generation === this.generation) {
-          const durationMs = Date.now() - startTime;
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          this.#invocationStats.record(this.name, toolName, false);
-          this.#invocationStats.log(this.name, toolName, false, durationMs, errorMsg);
-        }
+        if (generation !== this.generation) throw err;
+        const durationMs = Date.now() - startTime;
+        this.#invocationStats.record(this.name, toolName, false);
+        this.#invocationStats.publish(this.name, toolName, false, durationMs, err);
         throw err;
       }
+      const durationMs = Date.now() - startTime;
+      this.#invocationStats.record(this.name, toolName, true);
+      this.#invocationStats.publish(this.name, toolName, true, durationMs);
+      return result;
     });
   }
 

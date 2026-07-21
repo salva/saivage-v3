@@ -83,13 +83,6 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     expect(typeof body).toBe('object');
   });
 
-  test('GET /api/debug/supervision returns a supervision snapshot', async ({ request }) => {
-    const res = await request.get('/api/debug/supervision');
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(typeof body).toBe('object');
-  });
-
   test('GET /api/runtime/card-runs returns card-run plumbing snapshot', async ({ request }) => {
     const res = await request.get('/api/runtime/card-runs');
     expect(res.status()).toBe(200);

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from '@jest/globals';
 
-import { processStatusSchema, reviewStatusSchema, runtimeStatusSchema, sessionStatusSchema } from '../../src/schemas/index.js';
+import { processStatusSchema, runtimeStatusSchema, sessionStatusSchema } from '../../src/schemas/index.js';
 
 describe('card status namespace inventory', () => {
   it('does not add a card status catalog to the CLI', () => {
@@ -12,7 +12,6 @@ describe('card status namespace inventory', () => {
   it('leaves unrelated status namespaces exact', () => {
     expect(processStatusSchema.options).toEqual(['running', 'exited', 'failed', 'killed']);
     expect(sessionStatusSchema.options).toEqual(['active', 'waiting', 'inactive']);
-    expect(reviewStatusSchema.options).toEqual(['passed', 'blocked', 'sanitized']);
     expect(runtimeStatusSchema.options).toEqual(['stopped', 'starting', 'running', 'pausing', 'paused', 'closing', 'error']);
   });
 });

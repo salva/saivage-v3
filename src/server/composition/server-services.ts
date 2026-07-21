@@ -3,13 +3,10 @@ import type { SaivageConfig } from '../../agents/config-api.js';
 import type { AppTerminalRegistration } from '../../boot/app.js';
 import type { RestartPort } from '../../boot/restart-port.js';
 import { createRuntimeApplication, type RuntimeApplication } from '../../application/runtime-composition.js';
-import { ReadModelChangeBroadcaster, type ReadModelChangeSubscription } from '../../application/read-model-changes.js';
 import { CardService } from '../../cards/card-api.js';
 import type { Environment } from '../../config/index.js';
-import { EventBus } from '../../events/index.js';
 import { createMcpToolInvocationInstallation, McpManager } from '../../mcp/manager-api.js';
-import { createEventLog, createErrorLog, type ErrorLog, type EventLog } from '../../observability/index.js';
-import type { AppLogContext } from '../../persistence/app-log.js';
+import { createEventLog, type EventLog } from '../../observability/index.js';
 import { AuthPolicy } from '../auth-policy.js';
 import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
@@ -22,17 +19,12 @@ export interface ServerServices {
   projectRoot: string;
   config: SaivageConfig;
   fastify: FastifyInstance;
-  eventBus: EventBus;
   eventLogger: EventLog;
-  errorLogger: ErrorLog;
-  appLogs: AppLogContext;
   cardStore: CardService;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
   liveSyncSocket: LiveSyncSocket;
   syncHub: SyncHub;
-  readModelChanges: ReadModelChangeBroadcaster;
-  readModelChangeSubscription: ReadModelChangeSubscription | null;
   authPolicy: AuthPolicy;
 }
 
@@ -56,15 +48,11 @@ export async function createServerServices(input: {
     if (terminal.isApplicationClosing()) await reply.code(503).send({ error: 'application_closing' });
   });
 
-  const eventBus = new EventBus();
-  const readModelChanges = new ReadModelChangeBroadcaster();
-  const appLogs: AppLogContext = { projectRoot };
-  const eventLogger = createEventLog(projectRoot, appLogs);
-  const errorLogger = createErrorLog(projectRoot, appLogs);
-  const cardStore = new CardService(projectRoot, eventBus, readModelChanges);
   const liveSyncSocket = new LiveSyncSocket();
   terminal.registerAdmissionCloser('websocket-admission', () => liveSyncSocket.closeAdmission());
   const syncHub = new SyncHub(liveSyncSocket);
+  const eventLogger = createEventLog(projectRoot, () => syncHub.timelineChanged());
+  const cardStore = new CardService(projectRoot, syncHub);
 
   const processRegistry = new ManagedProcessGroupRegistry();
   const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
@@ -72,7 +60,7 @@ export async function createServerServices(input: {
   const mcpProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'mcp-servers');
   const processRunner = new ProcessRunner(projectRoot, processRegistry);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
-  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, configAuthority: environment.configAuthority, eventBus, eventLogger, appLogs, cardStore, readModelChanges, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, configAuthority: environment.configAuthority, eventLogger, cardStore, freshness: syncHub, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());
   terminal.registerAdmissionCloser('process-admission', () => runtimeApplication.processRunner.closeLaunchAdmission());
   terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());
@@ -89,14 +77,8 @@ export async function createServerServices(input: {
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
 
-  syncHub.wire(runtimeApplication.runtimeApi);
-  let readModelChangeSubscription: ReadModelChangeSubscription | null = readModelChanges.subscribe(syncHub);
-  terminal.registerCleanupLeaf('subscriptions', () => {
-    readModelChangeSubscription?.unsubscribe();
-    readModelChangeSubscription = null;
-    syncHub.dispose();
-  });
+  terminal.registerCleanupLeaf('sync-hub', () => syncHub.dispose());
   terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
 
-  return { projectRoot, config, fastify, eventBus, eventLogger, errorLogger, appLogs, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, readModelChanges, readModelChangeSubscription, authPolicy };
+  return { projectRoot, config, fastify, eventLogger, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, authPolicy };
 }

@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
 import type { z } from 'zod';
 import type { AuthPolicy } from './auth-policy.js';
-import type { EventBus, EventKind } from '../events/index.js';
+import type { EventLog } from '../observability/index.js';
+import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
 import {
   UNEXPECTED_INTERNAL_SERVER_ERROR,
   type OperatorRouteContract,
@@ -50,7 +51,7 @@ export interface ContractHandlerResult {
 }
 
 export interface ContractRuntimeOptions {
-  eventBus: EventBus;
+  eventLogger: EventLog;
   authPolicy: AuthPolicy;
 }
 
@@ -60,9 +61,7 @@ type FailureCode =
   | 'failure_identity_projection_failed'
   | 'permission_evaluation_failed'
   | 'handler_failed'
-  | 'response_validation_failed'
-  | 'contract_violation_event_failed'
-  | 'audit_publication_failed';
+  | 'response_validation_failed';
 
 type SafeFailureIdentity = { sessionId: string } | { cardId: string } | Record<never, never>;
 type ResponseDescriptor = { statusCode: number; body: unknown };
@@ -102,11 +101,11 @@ export function defineContract<TContract extends OperatorRouteContract>(contract
 }
 
 export class ContractRuntime {
-  private readonly eventBus: EventBus;
+  private readonly eventLogger: EventLog;
   private readonly authPolicy: AuthPolicy;
 
   constructor(options: ContractRuntimeOptions) {
-    this.eventBus = options.eventBus;
+    this.eventLogger = options.eventLogger;
     this.authPolicy = options.authPolicy;
   }
 
@@ -176,8 +175,8 @@ export class ContractRuntime {
           const schema = schemaForStatus(contract, candidate.statusCode);
           const parsedResponse = schema?.safeParse(candidate.body);
           if (schema && !parsedResponse?.success) {
-            failureCode = 'contract_violation_event_failed';
-            this.eventBus.emit('runtime_actionable_error', {
+            this.eventLogger.appendEventPrepared(() => ({
+              kind: 'runtime_actionable_error',
               actionable_error: {
                 code: 'contract_response_violation',
                 message: 'Operator contract response validation failed.',
@@ -188,18 +187,15 @@ export class ContractRuntime {
                   failureCode: 'response_validation_failed',
                 },
               },
-            });
+            }));
             failureCode = 'response_validation_failed';
             throw RESPONSE_CONTRACT_VIOLATION;
           }
 
           final = { statusCode: candidate.statusCode, body: parsedResponse?.success ? parsedResponse.data : candidate.body };
 
-          if (contract.audit && final.statusCode >= 200 && final.statusCode < 300) {
-            failureCode = 'audit_publication_failed';
-            this.emitAudit(contract, final.statusCode, final.body, request);
-          }
-        } catch {
+        } catch (error) {
+          rethrowAppLogPublicationError(error);
           request.log.error(
             { operation: contract.operationId, failureCode, ...safeIdentity },
             'Operator contract operation failed',
@@ -247,17 +243,4 @@ export class ContractRuntime {
     return decision.allowed ? null : forbiddenBody(decision.reason);
   }
 
-  private emitAudit(contract: OperatorRouteContract, statusCode: number, body: unknown, request: FastifyRequest): void {
-    if (!contract.audit) return;
-    this.eventBus.emit(contract.audit.kind as EventKind, {
-      id: `${contract.operationId}:${Date.now()}`,
-      action: contract.audit.action ?? contract.operationId,
-      target_kind: contract.audit.targetKind ?? null,
-      target_id: contract.audit.targetId?.({ request, body }) ?? null,
-      outcome: 'success',
-      created_at: new Date().toISOString(),
-      actor: 'operator',
-      surface: 'rest',
-    } as never);
-  }
 }

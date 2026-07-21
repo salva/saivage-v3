@@ -4,7 +4,6 @@ import {
   eventKindValues,
   runtimeEventKindValues,
   type EventKind,
-  type LoggedEvent,
   agentRoleValues,
   analystIssueSeverityValues,
   cardActionValues,
@@ -13,7 +12,8 @@ import {
   skillTargetRoleValues,
   urgencyValues,
 } from './types.js';
-import { buildLoggedEventSchema } from './event-catalog.js';
+import { loggedEventSchema, loggedEventSchemaByKind } from './event-catalog.js';
+export { actionableErrorEnvelopeSchema, actionableEnumError, createActionableErrorEnvelope } from './actionable-error.js';
 import { roundIdGrammar } from './round-id.js';
 import { cardLifecycleStateSchema } from './lifecycle.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from './message-identity.js';
@@ -99,14 +99,7 @@ export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: 
 });
 
 export const runtimeStatusSchema = z.enum(['stopped', 'starting', 'running', 'pausing', 'paused', 'closing', 'error']);
-export const actionableErrorEnvelopeSchema: z.ZodType<import('./types.js').ActionableErrorEnvelope> = z.object({ code: z.string().min(1), message: z.string().min(1), acceptedValues: z.array(z.string()).optional(), currentState: z.record(z.string(), z.unknown()).optional(), nextAction: z.string().min(1), docsRef: z.string().optional(), runId: z.string().nullable().optional(), sessionId: z.string().nullable().optional(), cardId: cardIdSchema.nullable().optional(), parentCardId: cardIdSchema.nullable().optional(), childCardId: cardIdSchema.nullable().optional() }).strict();
-export function createActionableErrorEnvelope(input: import('./types.js').ActionableErrorEnvelope): import('./types.js').ActionableErrorEnvelope { return actionableErrorEnvelopeSchema.parse(input); }
-export function actionableEnumError(field: string, value: unknown, acceptedValues: readonly string[], docsRef = 'docs/v3-planner-control-mcp-contract.md'): import('./types.js').ActionableErrorEnvelope { return createActionableErrorEnvelope({ code: 'invalid_enum_value', message: `Invalid ${field} '${String(value)}'. Accepted values: ${acceptedValues.join(', ')}.`, acceptedValues: [...acceptedValues], currentState: { field, value }, nextAction: `Retry with one of: ${acceptedValues.join(', ')}.`, docsRef }); }
 export const runtimeStateSchema = z.object({ status: runtimeStatusSchema, project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), current_card_id: cardIdSchema, updated_at: z.string().datetime() }).strict();
-export const sourceKindSchema = z.enum(['command_output', 'file', 'download', 'web', 'api', 'tool']);
-export const reviewStatusSchema = z.enum(['passed', 'blocked', 'sanitized']);
-export const riskLevelSchema = z.enum(['low', 'medium', 'high']);
-export const contentReviewSchema = z.object({ id: z.string().min(1), source_kind: sourceKindSchema, source_ref: z.string().min(1), status: reviewStatusSchema, summary: z.string(), risk: riskLevelSchema, created_at: z.string().datetime() }).strict();
 export const skillTargetRoleSchema = z.enum(skillTargetRoleValues);
 const skillFileSchema = z.string().min(1).superRefine((file, ctx) => {
   const segments = file.split('/');
@@ -135,9 +128,4 @@ export const runtimeEventKindSchema = enumFromCatalog(runtimeEventKindValues);
 export const agentEventKindSchema = enumFromCatalog(agentEventKindValues);
 export const eventKindSchema = enumFromCatalog(eventKindValues);
 
-export const loggedEventSchemaByKind = Object.fromEntries(
-  eventKindValues.map((kind) => [kind, buildLoggedEventSchema(kind)]),
-) as Record<EventKind, z.ZodTypeAny>;
-
-const loggedEventSchemaMembers = eventKindValues.map((kind) => loggedEventSchemaByKind[kind]) as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
-export const loggedEventSchema: z.ZodType<LoggedEvent> = z.union(loggedEventSchemaMembers) as z.ZodType<LoggedEvent>;
+export { loggedEventSchema, loggedEventSchemaByKind };

@@ -19,9 +19,6 @@ export {
   redactAnalystSecretValue,
 } from './file-access-security.js';
 export {
-  listRecentReviews,
-} from './quarantine.js';
-export {
   assertRecordWrite,
   parseScopedPathScheme,
   resolveRecordWriteTarget,

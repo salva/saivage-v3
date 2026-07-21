@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { redactAnalystSecretValue } from '../workspace/file-access-security.js';
+import { agentRoleSchema, type AgentRole } from '../schemas/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { GLOBAL_ANALYST_SESSION_ID, parseConversationSessionId } from '../schemas/index.js';
 import { AgentOperatorReadModelService } from '../application/read-models/index.js';
@@ -22,7 +23,7 @@ export async function show_config(ctx: ToolContext, _params: Record<string, neve
   catch (err) { return toolFailureFromError(err); }
 }
 
-type ReconfigureParams = { action: 'set_role_routing' | 'set_failover_chain' | 'mcp_add' | 'mcp_edit' | 'mcp_remove' | 'set_runtime_setting' | 'set_server_setting'; role?: string; model_candidate?: string; for_model?: string; ordered_failover_models?: string[]; name?: string; command?: string; args?: string[]; env?: Record<string, string>; key?: string; value?: unknown };
+type ReconfigureParams = { action: 'set_role_routing' | 'set_failover_chain' | 'mcp_add' | 'mcp_edit' | 'mcp_remove' | 'set_runtime_setting' | 'set_server_setting'; role?: AgentRole; model_candidate?: string; for_model?: string; ordered_failover_models?: string[]; name?: string; command?: string; args?: string[]; env?: Record<string, string>; key?: string; value?: unknown };
 
 export async function reconfigure(ctx: ToolContext, params: ReconfigureParams, signal?: AbortSignal): Promise<ToolResult> {
   if (params.action === 'mcp_add' || params.action === 'mcp_edit' || params.action === 'mcp_remove') {
@@ -78,7 +79,7 @@ export async function read_agent_session(ctx: ToolContext, params: { sessionId: 
 export function analystMiscTools(ctx: ToolContext): readonly ToolDefinition<any>[] { return [
   defineTool({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', inputSchema: z.object({ card_id: describe(cardIdSchema, 'The exact card id.'), kind: describe(z.string().min(1), 'A short categorical label.'), body: describe(z.string().min(1), 'The context text to inject.') }).strict(), executor: (args, signal) => queue_notification(ctx, args, signal) }),
   defineTool({ name: 'show_config', description: 'Show the current project configuration with secrets redacted.', inputSchema: emptyInput, executor: (args) => show_config(ctx, args) }),
-  defineTool({ name: 'reconfigure', description: 'Reconfigure role routing, failover, MCP servers, runtime, or server settings.', inputSchema: z.object({ action: z.enum(['set_role_routing', 'set_failover_chain', 'mcp_add', 'mcp_edit', 'mcp_remove', 'set_runtime_setting', 'set_server_setting']), role: z.string().optional(), model_candidate: z.string().optional(), for_model: z.string().optional(), ordered_failover_models: z.array(z.string()).optional(), name: z.string().optional(), command: z.string().optional(), args: z.array(z.string()).optional(), env: z.record(z.string()).optional(), key: z.string().optional(), value: z.unknown().optional() }).strict(), executor: (args, signal) => reconfigure(ctx, args, signal) }),
+  defineTool({ name: 'reconfigure', description: 'Reconfigure role routing, failover, MCP servers, runtime, or server settings.', inputSchema: z.object({ action: z.enum(['set_role_routing', 'set_failover_chain', 'mcp_add', 'mcp_edit', 'mcp_remove', 'set_runtime_setting', 'set_server_setting']), role: agentRoleSchema.optional(), model_candidate: z.string().optional(), for_model: z.string().optional(), ordered_failover_models: z.array(z.string()).optional(), name: z.string().optional(), command: z.string().optional(), args: z.array(z.string()).optional(), env: z.record(z.string()).optional(), key: z.string().optional(), value: z.unknown().optional() }).strict(), executor: (args, signal) => reconfigure(ctx, args, signal) }),
   defineTool({ name: 'mcp_reconcile', description: 'Retry MCP runtime convergence from the already persisted configuration without writing configuration again.', inputSchema: emptyInput, executor: (args) => mcp_reconcile(ctx, args) }),
   defineTool({ name: 'list_agent_sessions', description: 'List all agent sessions in the project (analyst, planner, executor, etc.), not just the current analyst session.', inputSchema: emptyInput, executor: (args) => list_agent_sessions(ctx, args) }),
   defineTool({ name: 'read_agent_session', description: "Read a specific agent session's metadata and most recent persisted messages. Useful for inspecting what other agents (planner, executor, etc.) have been doing.", inputSchema: z.object({ sessionId: z.string(), lastN: z.number().int().optional() }).strict(), executor: (args) => read_agent_session(ctx, args) }),

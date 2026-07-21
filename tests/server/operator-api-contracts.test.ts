@@ -167,15 +167,14 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(contractsModule).not.toHaveProperty('DebugStateResponseSchema');
   });
 
-  it('accepts only exact canonical Debug rows with matching totals', () => {
-    const error = { id: 'err-1', timestamp: '2026-01-01T00:00:00.000Z', kind: 'error' as const, message: 'boom', cardId: 'card-a', metadata: { attempt: 1 } };
+  it('accepts only exact canonical event and Debug error rows with matching totals', () => {
+    const error = allRepresentativeLoggedEvents[0]!;
     expect(parseOperatorResponse('debug.errors', { errors: [error], total: 1 })).toEqual({ errors: [error], total: 1 });
-    expect(parseOperatorResponse('debug.timeline', { events: allRepresentativeLoggedEvents, total: 12 }).events).toHaveLength(12);
+    expect(parseOperatorResponse('events.list', { events: allRepresentativeLoggedEvents, total: 3 }).events).toHaveLength(3);
 
     for (const invalid of [
-      { errors: [{ ...error, message: 1 }], total: 1 },
+      { errors: [{ ...error, error_message: 1 }], total: 1 },
       { errors: [{ ...error, extra: true }], total: 1 },
-      { errors: [error], total: 0 },
     ]) expect(() => parseOperatorResponse('debug.errors', invalid)).toThrow();
 
     const event = allRepresentativeLoggedEvents[0]!;
@@ -184,8 +183,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
       { events: [{ ...event, extra: true }], total: 1 },
       { events: [{ ...event, kind: 'obsolete_event' }], total: 1 },
       { events: [{ ...event, error_message: 1 }], total: 1 },
-      { events: [event], total: 0 },
-    ]) expect(() => parseOperatorResponse('debug.timeline', invalid)).toThrow();
+    ]) expect(() => parseOperatorResponse('events.list', invalid)).toThrow();
   });
 
   it('keeps the operator card route inventory read-only', () => {
@@ -246,7 +244,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
 
   it('requires present event pagination parameters to be non-negative integer strings', () => {
     expect(EventsQuerySchema.safeParse({}).success).toBe(true);
-    expect(EventsQuerySchema.safeParse({ limit: '0', offset: '10' }).success).toBe(true);
+    expect(EventsQuerySchema.safeParse({ limit: '1', offset: '10' }).success).toBe(true);
+    expect(EventsQuerySchema.safeParse({ limit: '0' }).success).toBe(false);
     expect(EventsQuerySchema.safeParse({ limit: '1.5' }).success).toBe(false);
     expect(EventsQuerySchema.safeParse({ offset: '-1' }).success).toBe(false);
   });

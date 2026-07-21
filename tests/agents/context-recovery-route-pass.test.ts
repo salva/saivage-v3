@@ -6,8 +6,7 @@ import { join } from 'node:path';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
-import { testAppLogs } from '../helpers/app-logs.js';
-import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
 import { contextExhausted, invocationProviderRegistry } from '../helpers/invocation-provider-fixture.js';
 
 const roots: string[] = [];
@@ -39,5 +38,5 @@ describe('authoritative context route-pass ordering', () => {
 function invocationService(candidates: Candidate[]): InvocationService {
   const root = mkdtempSync(join(tmpdir(), 'saivage-context-route-pass-'));
   roots.push(root);
-  return new InvocationService({ projectRoot: root, appLogs: testAppLogs(root), readModelChanges: new ReadModelChangeBroadcaster(), registry: invocationProviderRegistry(candidates), router: { getLastCapabilitySkips: () => [] } as never, candidateAvailability: new MemoryCandidateAvailability() });
+  return new InvocationService({ projectRoot: root, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry(candidates), router: { getLastCapabilitySkips: () => [] } as never, candidateAvailability: new MemoryCandidateAvailability() });
 }

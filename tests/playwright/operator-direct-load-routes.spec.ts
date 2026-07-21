@@ -72,7 +72,7 @@ test('production browser direct loads initialize router and render route-owned b
 
   expect(rest.unknown).toEqual([]);
   expect(rest.counts.get('GET /api/debug/errors')).toBeGreaterThan(0);
-  expect(rest.counts.get('GET /api/debug/timeline')).toBeGreaterThan(0);
+  expect(rest.counts.get('GET /api/events')).toBeGreaterThan(0);
   expect(failedRequests).toEqual([]);
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);

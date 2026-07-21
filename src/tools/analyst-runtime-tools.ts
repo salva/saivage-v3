@@ -1,16 +1,17 @@
 import { z } from 'zod';
 
 import { listControlActions } from '../persistence/index.js';
-import { readAppLogEntries } from '../persistence/app-log.js';
+import { eventKindValues } from '../schemas/index.js';
 import type { ProcessRecord } from '../schemas/index.js';
 import { redactCommandForOperator, toContainedRelativePath, workUrlFromAbsolutePath } from '../workspace/index.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolDefinition } from './invocation.js';
+import { redactForOutbound } from '../redaction/index.js';
+import { EVENT_QUERY_MAX_LIMIT } from '../application/event-query-service.js';
 
 const JSONL_TAIL_DEFAULT = 50;
-const JSONL_TAIL_MAX = 1000;
 
 function processView(projectRoot: string, record: ProcessRecord): Record<string, unknown> {
   const safePath = (path: string | null | undefined) => path ? toContainedRelativePath(projectRoot, path) : null;
@@ -66,17 +67,17 @@ export async function restart_server(ctx: ToolContext, _params: Record<string, n
 }
 
 export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<ToolResult> {
-  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const all = readAppLogEntries(ctx.projectRoot, 'event').map((entry) => entry.data); const filtered = params.kind ? all.filter((e) => e.kind === params.kind) : all; const tail = filtered.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, parse_errors: 0, events: tail } }; }
+  try { const limit = params.limit ?? JSONL_TAIL_DEFAULT; const result = ctx.eventQueries.queryEvents({ selection: 'newest_tail', limit, ...(params.kind ? { kind: params.kind as (typeof eventKindValues)[number] } : {}) }); const events = redactForOutbound(result.events); return { success: true, data: { total_lines: result.total, returned: events.length, parse_errors: 0, events } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 
 export async function read_runtime_errors(ctx: ToolContext, params: { limit?: number }): Promise<ToolResult> {
-  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const all = readAppLogEntries(ctx.projectRoot, 'error').map((entry) => entry.data); const tail = all.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, parse_errors: 0, errors: tail } }; }
+  try { const result = ctx.eventQueries.queryErrors(params.limit ?? JSONL_TAIL_DEFAULT); const errors = redactForOutbound(result.errors); return { success: true, data: { total_lines: result.total, returned: errors.length, parse_errors: 0, errors } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 
 export async function read_control_actions(ctx: ToolContext, params: { limit?: number; since?: string }): Promise<ToolResult> {
-  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const all = listControlActions(ctx.projectRoot, params.since ? { since: params.since } : undefined); const tail = all.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, actions: tail } }; }
+  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), EVENT_QUERY_MAX_LIMIT); const all = listControlActions(ctx.projectRoot, params.since ? { since: params.since } : undefined); const tail = all.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, actions: tail } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 
@@ -91,8 +92,8 @@ export function analystRuntimeTools(ctx: ToolContext): readonly ToolDefinition<a
   defineTool({ name: 'resume_runtime', description: 'Resume the runtime after a pause.', inputSchema: emptyInput, executor: (args) => resume_runtime(ctx, args) }),
   defineTool({ name: 'stop_project', description: 'Stop project execution without disposing or restarting the server.', inputSchema: emptyInput, executor: (args) => stop_project(ctx, args) }),
   defineTool({ name: 'restart_server', description: 'Request confirmed supervised server shutdown.', inputSchema: emptyInput, executor: (args) => restart_server(ctx, args) }),
-  defineTool({ name: 'read_runtime_events', description: 'Tail app-log-backed runtime event entries (.saivage/logs/app.jsonl, type=event). Optionally filter by event kind.', inputSchema: z.object({ limit: z.number().int().optional(), kind: z.string().optional() }).strict(), executor: (args) => read_runtime_events(ctx, args) }),
-  defineTool({ name: 'read_runtime_errors', description: 'Tail app-log-backed runtime error entries (.saivage/logs/app.jsonl, type=error).', inputSchema: z.object({ limit: z.number().int().optional() }).strict(), executor: (args) => read_runtime_errors(ctx, args) }),
+  defineTool({ name: 'read_runtime_events', description: 'Read the newest matching app-log-backed runtime events.', inputSchema: z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(), kind: z.enum(eventKindValues).optional() }).strict(), executor: (args) => read_runtime_events(ctx, args) }),
+  defineTool({ name: 'read_runtime_errors', description: 'Read the newest app-log-backed runtime error events.', inputSchema: z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional() }).strict(), executor: (args) => read_runtime_errors(ctx, args) }),
   defineTool({ name: 'read_control_actions', description: 'Tail app-log-backed control-action entries (.saivage/logs/app.jsonl, type=control_action). Shows mutating actions performed by analyst/planner/operator.', inputSchema: z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict(), executor: (args) => read_control_actions(ctx, args) }),
   defineTool({ name: 'list_processes_tool', description: 'List runtime processes. Processes may be card-owned or non-card; card_id is null for Analyst/operator/runtime processes, and owner_kind/owner_id identify the owner. Optionally filter by status (running, finished, failed, killed) or cardId.', inputSchema: z.object({ status: z.string().optional(), cardId: z.string().optional() }).strict(), executor: (args) => list_processes_tool(ctx, args) }),
 ]; }

@@ -33,7 +33,6 @@ export function invocationProviderRegistry(candidates: readonly Candidate[]): Pr
       continuousImprovement: false,
       processTimeouts: { plannerMs: 1_200_000, executorMs: 1_200_000, reviewerMs: 1_200_000 },
     },
-    security: { injectionScanner: true, maxScanLengthBytes: 102_400 },
     compaction: {
       enabled: true,
       input_budget_tokens: 100_000,

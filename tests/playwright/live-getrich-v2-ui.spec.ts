@@ -54,7 +54,7 @@ test.describe('saivage-v3 live deployment — UI interaction coverage', () => {
     await expect(page.getByRole('heading', { name: /Card history/i })).toBeVisible();
   });
 
-  test('Debug view exposes operator, errors, timeline, mcp, processes, and supervision tabs', async ({ page }) => {
+  test('Debug view exposes operator, errors, timeline, mcp, processes, and Doctor tabs', async ({ page }) => {
     await page.goto('/debug');
     await expect(page.locator('.debug-tabs')).toBeVisible({ timeout: 10_000 });
     const errors: string[] = [];

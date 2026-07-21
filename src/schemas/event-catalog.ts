@@ -1,87 +1,102 @@
 import { z } from 'zod';
-import { ConversationSessionIdSchema, AnalystConversationSessionIdSchema } from './conversation-session-id.js';
+
+import { actionableErrorEnvelopeSchema } from './actionable-error.js';
 import { cardIdSchema } from './card-id.js';
 
-export type SeverityLevel = 'info' | 'warning' | 'error';
-type OutboundPolicy = 'internal' | 'operator' | 'audit';
-type EventDomain = 'runtime' | 'agent';
-
-const anyRecord = z.record(z.string(), z.unknown());
-
-const actionableErrorEnvelopeSchema = anyRecord;
-
-type RegistryEntry = {
-  domain: EventDomain;
-  strict: boolean;
-  baseShape: z.ZodRawShape;
-  refine?: (data: unknown, ctx: z.RefinementCtx) => void;
-  severity: SeverityLevel;
-  tracked: boolean;
-  audit: boolean;
-  broadcast: boolean;
-  outbound: OutboundPolicy;
+const eventBaseShape = {
+  id: z.string().min(1),
+  timestamp: z.string().datetime(),
 };
 
-const strict = <T extends z.ZodRawShape>(baseShape: T, rest: Omit<RegistryEntry, 'baseShape' | 'strict' | 'refine'> & { refine?: (data: unknown, ctx: z.RefinementCtx) => void }) => ({ ...rest, baseShape, strict: true as const });
+export const runtimeDiagnosticEventSchema = z.object({
+  ...eventBaseShape,
+  kind: z.literal('runtime_diagnostic'),
+  goal_id: cardIdSchema.optional(),
+  card_id: cardIdSchema.optional(),
+  phase: z.string().optional(),
+  error_message: z.string(),
+}).strict();
 
-function refineConversationChanged(data: unknown, ctx: z.RefinementCtx): void {
-  const payload = data as Record<string, unknown>;
-  if (payload.mutation === 'entry_appended') {
-    for (const key of ['message_id', 'message_kind', 'role', 'message_timestamp']) {
-      if (payload[key] === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is required for entry_appended` });
-    }
-  }
-}
+export const runtimeActionableErrorEventSchema = z.object({
+  ...eventBaseShape,
+  kind: z.literal('runtime_actionable_error'),
+  actionable_error: actionableErrorEnvelopeSchema,
+}).strict();
 
-export const EventRegistry = {
-  runtime_diagnostic: strict({ goal_id: cardIdSchema.optional(), card_id: cardIdSchema.optional(), phase: z.string().optional(), error_message: z.string(), error_name: z.string().optional(), metadata: anyRecord.optional() }, { domain: 'runtime', severity: 'error', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  runtime_actionable_error: strict({ actionable_error: actionableErrorEnvelopeSchema }, { domain: 'runtime', severity: 'error', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  subscriber_error: strict({ subscription_id: z.string(), source_kind: z.string(), error_message: z.string(), error_name: z.string().optional(), timed_out: z.boolean().optional() }, { domain: 'runtime', severity: 'error', tracked: false, audit: false, broadcast: false, outbound: 'internal' }),
-  mcp_tool_invocation: strict({ server: z.string(), tool: z.string(), success: z.boolean(), duration_ms: z.number().nonnegative(), error: z.string().optional() }, { domain: 'agent', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  card_history_appended: strict({ entry_id: z.string().uuid(), entry_kind: z.enum(['update', 'status', 'mutate', 'depends', 'delete', 'archive', 'child_link']), card_id: cardIdSchema, version_seq: z.number(), changed_fields: z.array(z.string()), changed_at: z.string() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' }),
-  notification_added: strict({ session_id: z.string().nullable(), notification_kind: z.string() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' }),
-  control_action_recorded: strict({ id: z.string(), action: z.string(), target_kind: z.string().nullable(), target_id: z.string().nullable(), outcome: z.string(), created_at: z.string(), actor: z.string().optional(), surface: z.string().optional() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' }),
-  analyst_tool_invoked: strict({ sessionId: AnalystConversationSessionIdSchema, tool: z.string(), success: z.boolean(), summary: z.string(), classified_as: z.string().optional(), related_card_id: cardIdSchema.optional(), related_note_id: z.string().optional(), related_process_id: z.string().optional() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' }),
-  conversation_changed: strict({ session_id: ConversationSessionIdSchema, mutation: z.literal('entry_appended'), message_id: z.string().optional(), message_kind: z.string().optional(), role: z.string().optional(), message_timestamp: z.string().datetime().optional() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator', refine: refineConversationChanged }),
-  control_action_record_appended: strict({ record: anyRecord }, { domain: 'runtime', severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' }),
-  event_log_record_appended: strict({ record: anyRecord }, { domain: 'runtime', severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' }),
-  error_log_record_appended: strict({ record: anyRecord }, { domain: 'runtime', severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' }),
-} as const satisfies Record<string, RegistryEntry>;
+export const mcpToolInvocationEventSchema = z.object({
+  ...eventBaseShape,
+  kind: z.literal('mcp_tool_invocation'),
+  server: z.string(),
+  tool: z.string(),
+  success: z.boolean(),
+  duration_ms: z.number().nonnegative(),
+  error: z.string().optional(),
+}).strict();
 
-export type EventKind = keyof typeof EventRegistry;
-function composePayloadSchema(entry: RegistryEntry): z.ZodTypeAny {
-  const obj = z.object(entry.baseShape);
-  const shaped = obj.strict();
-  return entry.refine ? shaped.superRefine(entry.refine) : shaped;
-}
-export const payloadSchemaByKind = Object.fromEntries(
-  (Object.keys(EventRegistry) as EventKind[]).map((kind) => [kind, composePayloadSchema(EventRegistry[kind])]),
-) as Record<EventKind, z.ZodTypeAny>;
-export type EventPayload<K extends EventKind> = K extends EventKind
-  ? z.infer<z.ZodObject<(typeof EventRegistry)[K]['baseShape']>>
-  : never;
-export const eventKindValues = Object.keys(EventRegistry) as EventKind[];
-export const runtimeEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].domain === 'runtime') as EventKind[];
-export const agentEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].domain === 'agent') as EventKind[];
+export const loggedEventSchema = z.discriminatedUnion('kind', [
+  runtimeDiagnosticEventSchema,
+  runtimeActionableErrorEventSchema,
+  mcpToolInvocationEventSchema,
+]);
+
+export type LoggedEvent = z.infer<typeof loggedEventSchema>;
+export type RuntimeDiagnosticEvent = z.infer<typeof runtimeDiagnosticEventSchema>;
+export type RuntimeActionableErrorEvent = z.infer<typeof runtimeActionableErrorEventSchema>;
+export type McpToolInvocationEvent = z.infer<typeof mcpToolInvocationEventSchema>;
+export type EventKind = LoggedEvent['kind'];
+export type BaseEvent = Pick<LoggedEvent, 'id' | 'kind' | 'timestamp'>;
+export type LoggedEventByKind = { [K in EventKind]: Extract<LoggedEvent, { kind: K }> };
+export type EventPayloadByKind = { [K in EventKind]: Omit<LoggedEventByKind[K], 'id' | 'kind' | 'timestamp'> };
+export type EventPayload<K extends EventKind> = EventPayloadByKind[K];
+export type SeverityLevel = 'info' | 'warning' | 'error';
+
+export const eventKindValues = [
+  'runtime_diagnostic',
+  'runtime_actionable_error',
+  'mcp_tool_invocation',
+] as const satisfies readonly EventKind[];
+
+export const runtimeEventKindValues = [
+  'runtime_diagnostic',
+  'runtime_actionable_error',
+] as const satisfies readonly EventKind[];
+
+export const agentEventKindValues = ['mcp_tool_invocation'] as const satisfies readonly EventKind[];
+
+const eventSeverity = {
+  runtime_diagnostic: 'error',
+  runtime_actionable_error: 'error',
+  mcp_tool_invocation: 'info',
+} as const satisfies Record<EventKind, SeverityLevel>;
 
 export function getEventSeverity(kind: EventKind): SeverityLevel {
-  return EventRegistry[kind].severity;
+  return eventSeverity[kind];
 }
 
-export function buildLoggedEventSchema<K extends EventKind>(kind: K): z.ZodTypeAny {
-  const entry = EventRegistry[kind];
-  const { kind: _k, session_id: _s, goal_id: _g, card_id: _c, ...rest } = entry.baseShape as z.ZodRawShape;
-  void _k; void _s; void _g; void _c;
-  const envelopeShape = {
-    id: z.string().min(1),
-    kind: z.literal(kind),
-    timestamp: z.string().datetime(),
-    session_id: (entry.baseShape as z.ZodRawShape).session_id ?? z.string().optional(),
-    goal_id: (entry.baseShape as z.ZodRawShape).goal_id ?? z.string().optional(),
-    card_id: (entry.baseShape as z.ZodRawShape).card_id ?? z.string().optional(),
-    ...rest,
-  } as z.ZodRawShape;
-  const base = z.object(envelopeShape);
-  const shaped = base.strict();
-  return entry.refine ? shaped.superRefine(entry.refine) : shaped;
+export const errorEventSchema = z.union([
+  runtimeDiagnosticEventSchema,
+  runtimeActionableErrorEventSchema,
+  mcpToolInvocationEventSchema.refine((event) => !event.success, 'Successful MCP invocations are not error events.'),
+]);
+
+export type ErrorEvent = RuntimeDiagnosticEvent | RuntimeActionableErrorEvent | (McpToolInvocationEvent & { success: false });
+
+export function isErrorEvent(event: LoggedEvent): event is ErrorEvent {
+  return event.kind !== 'mcp_tool_invocation' || !event.success;
+}
+
+export const loggedEventSchemaByKind = {
+  runtime_diagnostic: runtimeDiagnosticEventSchema,
+  runtime_actionable_error: runtimeActionableErrorEventSchema,
+  mcp_tool_invocation: mcpToolInvocationEventSchema,
+} as const satisfies Record<EventKind, z.ZodTypeAny>;
+
+export const payloadSchemaByKind = {
+  runtime_diagnostic: runtimeDiagnosticEventSchema.omit({ id: true, kind: true, timestamp: true }),
+  runtime_actionable_error: runtimeActionableErrorEventSchema.omit({ id: true, kind: true, timestamp: true }),
+  mcp_tool_invocation: mcpToolInvocationEventSchema.omit({ id: true, kind: true, timestamp: true }),
+} as const satisfies Record<EventKind, z.ZodTypeAny>;
+
+export function buildLoggedEventSchema<K extends EventKind>(kind: K): (typeof loggedEventSchemaByKind)[K] {
+  return loggedEventSchemaByKind[kind];
 }

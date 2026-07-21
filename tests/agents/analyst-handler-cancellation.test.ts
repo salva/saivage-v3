@@ -7,11 +7,11 @@ import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { CardService } from '../../src/cards/card-service.js';
-import { EventBus } from '../../src/events/index.js';
+import { createEventLog } from '../../src/observability/index.js';
+import { EventQueryService } from '../../src/application/event-query-service.js';
 import { listControlActions } from '../../src/persistence/index.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
-import { testAppLogs } from '../helpers/app-logs.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
@@ -40,11 +40,6 @@ describe('Analyst handler cancellation after a committed mutation', () => {
       return { card_id: cardId, status: 'cancelled' as const, cancelled_card_ids: [cardId], reason };
     });
     const provider = jest.fn(async () => ({ result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'cancel-call', type: 'function' as const, function: { name: 'cancel_card', arguments: JSON.stringify({ cardId: child.id, reason: 'obsolete' }) } }] }, provider_exchanges: [] }));
-    const eventBus = new EventBus();
-    let publishControlAction!: () => void;
-    const controlActionPublished = new Promise<void>((resolve) => { publishControlAction = resolve; });
-    const publications: unknown[] = [];
-    eventBus.subscribe({ allowedKinds: ['control_action_recorded'], handler: (event) => { publications.push(event); publishControlAction(); } });
     const processes = createTestProcessRunner(projectRoot);
     const closeDirect = jest.spyOn(processes.processRunner, 'closeAndTerminateDirectScope');
     const terminateRoot = jest.spyOn(processes.processRunner, 'terminateScopeTree');
@@ -58,14 +53,14 @@ describe('Analyst handler cancellation after a committed mutation', () => {
       configAuthority: testConfigAuthority(projectRoot),
       cardStore: cards,
       runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard, notifyCard: jest.fn(() => ({ ok: true, notificationId: 'notification' })), getStatus: jest.fn() },
-      eventBus,
+      eventLogger: createEventLog(projectRoot),
+      eventQueries: new EventQueryService(projectRoot),
       provider: { completeTurn: provider, projectProviderExchanges: jest.fn() },
       mcpToolInvocation: unusedMcpToolInvocation,
       compactionPolicy,
       compactor: { shouldCompact: () => false, compact: jest.fn() },
       summarizerProvider: { completeTurn: jest.fn(), projectProviderExchanges: jest.fn() },
       conversations: { projectRoot },
-      appLogs: testAppLogs(projectRoot),
       interventionReadiness: new RuntimeInterventionBinding(),
       runtimeProjectionChanged: jest.fn(),
       captureExecutingLlmSnapshots: () => [],
@@ -83,7 +78,6 @@ describe('Analyst handler cancellation after a committed mutation', () => {
     expect(runtime.cancel('operator cancelled after commit')).toBe(true);
     await expect(turn).resolves.toMatchObject({ cancelled: true });
     releaseOwner();
-    await controlActionPublished;
     await runtime.cleanupForApplicationStop();
     expect(closeDirect).toHaveBeenCalledTimes(1);
     expect(closeDirect).toHaveBeenCalledWith(expect.objectContaining({ directScope: composed.directScopes[0], category: 'operator_session', reason: 'session closed' }));
@@ -91,7 +85,6 @@ describe('Analyst handler cancellation after a committed mutation', () => {
 
     expect(cancelCard).toHaveBeenCalledTimes(1);
     expect(provider).toHaveBeenCalledTimes(1);
-    expect(publications).toHaveLength(1);
     expect(listControlActions(projectRoot)).toHaveLength(1);
     expect(listControlActions(projectRoot)[0]).toMatchObject({ action: 'card.cancel', outcome: 'ok' });
     const rows = readConversation(projectRoot, 'analyst:global').physicalRows;

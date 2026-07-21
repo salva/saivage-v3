@@ -17,9 +17,8 @@ vi.mock('../api/client', () => {
   };
   return {
     getDebugErrors: vi.fn().mockResolvedValue({ errors: [], total: 0 }),
-    getDebugTimeline: vi.fn().mockResolvedValue({ events: [], total: 0 }),
+    getNewestEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
     getDoctor: vi.fn().mockResolvedValue({ status: 'ok', checks: [], issues: [] }),
-    getDebugSupervision: vi.fn().mockResolvedValue({ reviews: [], stats: null }),
     listProcesses: vi.fn(),
     getMcpTools: vi.fn().mockResolvedValue({ tools: [], stats: {} }),
     ApiError,

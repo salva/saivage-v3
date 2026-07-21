@@ -3,25 +3,21 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ConversationLLMActor, type AnalystCancellationClaim, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
+import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
-import type { ConversationEntryObservation } from '../../../src/persistence/conversation-file.js';
-import type { CanonicalLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('direct conversation LLM ownership', () => {
-  it('keeps conversation, provider evidence, exact terminal handoff, and direct delivery ordered when disposal re-enters publication', async () => {
+  it('keeps conversation, provider evidence, exact terminal handoff, and direct delivery ordered', async () => {
     const root = project();
     const trace: string[] = [];
-    const disposed = new Error('dispose during completion publication');
-    let actor!: ConversationLLMActor;
     const input = preparedInput();
-    actor = llm(root, {
+    const actor = llm(root, {
       completeTurn: async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [exchange(input.inputId)] }),
       projectProviderExchanges: (_session, source, _attempts, outputs) => { trace.push(`evidence:${source}:${outputs.join(',')}`); },
     }, {
@@ -29,12 +25,6 @@ describe('direct conversation LLM ownership', () => {
         conversationChanged: () => trace.push('conversationChanged'),
         agentsChanged: () => trace.push('agentsChanged'),
       } as never,
-      observeEntry: (entry: ConversationEntryObservation) => {
-        if (entry.id === `${input.inputId}:message`) {
-          trace.push('message-observed');
-          expect(actor.dispose(disposed)).toBe('joining_owned_completion');
-        }
-      },
     });
 
     const terminal = jest.fn((completion: { input: PreparedLlmInvocationInput }) => {
@@ -45,11 +35,12 @@ describe('direct conversation LLM ownership', () => {
     turn.then(() => trace.push('delivery'));
 
     await expect(turn).resolves.toMatchObject({ type: 'result', result: { content: 'done' } });
+    actor.dispose(new Error('test cleanup'));
     await expect(actor.join()).resolves.toEqual({ status: 'joined' });
     expect(terminal).toHaveBeenCalledTimes(1);
     expect(trace).toEqual([
       'conversationChanged', 'agentsChanged', // llm_turn_started
-      'conversationChanged', 'agentsChanged', 'message-observed',
+      'conversationChanged', 'agentsChanged',
       `evidence:${input.inputId}:${input.inputId}:message`,
       `handoff:${input.inputId}`,
       'delivery',
@@ -86,32 +77,6 @@ describe('direct conversation LLM ownership', () => {
     await expect(actor.join()).resolves.toEqual({ status: 'joined' });
   });
 
-  it('lets cancellation re-enter the tool-result writer, persists the caller result once, and appends one parked-source notice', async () => {
-    const root = project();
-    const input = preparedInput();
-    let actor!: ConversationLLMActor;
-    let cancellationDisposition: unknown;
-    const claims: Array<{ input: CanonicalLlmInvocationInput; reason: string }> = [];
-    const markPublished = jest.fn();
-    const cancellation: AnalystCancellationClaim = (claimed, reason) => { claims.push({ input: claimed, reason }); return Object.freeze({ markPublished }); };
-    actor = llm(root, toolProvider(), {
-      observeEntry: (entry: ConversationEntryObservation) => {
-        if (entry.id === `${input.inputId}:tool-result:call`) cancellationDisposition = actor.requestCancellation('operator');
-      },
-    });
-    const parked = await actor.turn(input, undefined, jest.fn(), cancellation);
-    if (parked.type !== 'tool_call') throw new Error('Expected a tool call.');
-
-    const settlement = actor.appendToolResult('call', { success: true, data: { value: 1 } });
-    await expect(settlement).rejects.toThrow('operator');
-    expect(cancellationDisposition).toEqual({ kind: 'claimed', input, publicationOwnedByLlm: true });
-    expect(claims).toEqual([{ input, reason: 'operator' }]);
-    expect(markPublished).toHaveBeenCalledTimes(1);
-    const rows = readConversation(root, input.sessionId).physicalRows;
-    expect(rows.filter((row) => row.id === `${input.inputId}:tool-result:call`)).toHaveLength(1);
-    expect(rows.filter((row) => row.id === `${input.inputId}:message`)).toEqual([expect.objectContaining({ content: 'Cancelled: operator' })]);
-  });
-
   it('uses the fresh continuation source when cancellation wins from the continuation hook', async () => {
     const root = project();
     const input = preparedInput();
@@ -137,103 +102,6 @@ describe('direct conversation LLM ownership', () => {
     expect(rows).toContainEqual(expect.objectContaining({ id: `${continuationId}:message`, content: 'Cancelled: hook cancellation' }));
     expect(rows.some((row) => row.content === 'must not be appended')).toBe(false);
     expect(rows.some((row) => row.id === `${continuationId}:tool-result:call`)).toBe(false);
-  });
-
-  it('finishes one continuation-context batch when cancellation re-enters its observer, then suppresses afterAppend and provider admission', async () => {
-    const root = project();
-    const input = preparedInput();
-    let actor!: ConversationLLMActor;
-    let continuationId = '';
-    let cancellation: unknown;
-    let contextObservations = 0;
-    const afterAppend = jest.fn();
-    const provider = toolProvider();
-    actor = llm(root, provider, {
-      observeEntry: (entry: ConversationEntryObservation) => {
-        if (entry.role !== 'user' || entry.kind !== 'text') return;
-        contextObservations += 1;
-        if (contextObservations === 1) cancellation = actor.requestCancellation('context observer');
-      },
-    });
-    const parked = await actor.turn(input, undefined, jest.fn(), () => Object.freeze({ markPublished: jest.fn() }));
-    if (parked.type !== 'tool_call') throw new Error('Expected a tool call.');
-
-    const settlement = actor.appendToolResult('call', { success: true }, undefined, (freshId) => {
-      continuationId = freshId;
-      return { messages: [{ role: 'user', content: 'context one' }, { role: 'user', content: 'context two' }], afterAppend };
-    });
-    await expect(settlement).rejects.toThrow('context observer');
-    expect(cancellation).toMatchObject({ kind: 'claimed', input: { inputId: continuationId } });
-    expect(contextObservations).toBe(2);
-    expect(afterAppend).not.toHaveBeenCalled();
-    expect(provider.completeTurn).toHaveBeenCalledTimes(1);
-    const rows = readConversation(root, input.sessionId).physicalRows;
-    expect(rows.filter((row) => row.content === 'context one' || row.content === 'context two')).toHaveLength(2);
-    expect(rows).toContainEqual(expect.objectContaining({ id: `${continuationId}:message`, content: 'Cancelled: context observer' }));
-  });
-
-  it('lets a tool-result observer failure beat its re-entrant cancellation without a notice or markPublished', async () => {
-    const root = project();
-    const input = preparedInput();
-    const observerFailure = new Error('tool result observer failed');
-    const markPublished = jest.fn();
-    let actor!: ConversationLLMActor;
-    actor = llm(root, toolProvider(), {
-      observeEntry: (entry: ConversationEntryObservation) => {
-        if (entry.id !== `${input.inputId}:tool-result:call`) return;
-        expect(actor.requestCancellation('losing cancellation')).toMatchObject({ kind: 'claimed' });
-        throw observerFailure;
-      },
-    });
-    const parked = await actor.turn(input, undefined, jest.fn(), () => Object.freeze({ markPublished }));
-    if (parked.type !== 'tool_call') throw new Error('Expected a tool call.');
-
-    await expect(actor.appendToolResult('call', { success: true })).rejects.toMatchObject({ cause: observerFailure });
-    expect(markPublished).not.toHaveBeenCalled();
-    const rows = readConversation(root, input.sessionId).physicalRows;
-    expect(rows.filter((row) => row.id === `${input.inputId}:tool-result:call`)).toHaveLength(1);
-    expect(rows.filter((row) => row.id === `${input.inputId}:message`)).toHaveLength(0);
-  });
-
-  it('preserves disposal-first precedence during the tool-result writer', async () => {
-    const root = project();
-    const input = preparedInput();
-    const reason = new Error('disposed first');
-    let actor!: ConversationLLMActor;
-    let cancellation: unknown;
-    actor = llm(root, toolProvider(), {
-      observeEntry: (entry: ConversationEntryObservation) => {
-        if (entry.id !== `${input.inputId}:tool-result:call`) return;
-        expect(actor.dispose(reason)).toBe('joining_owned_completion');
-        cancellation = actor.requestCancellation('losing cancellation');
-      },
-    });
-    const parked = await actor.turn(input, undefined, jest.fn(), () => Object.freeze({ markPublished: jest.fn() }));
-    if (parked.type !== 'tool_call') throw new Error('Expected a tool call.');
-
-    await expect(actor.appendToolResult('call', { success: true })).rejects.toBe(reason);
-    expect(cancellation).toEqual({ kind: 'not_claimed' });
-    const rows = readConversation(root, input.sessionId).physicalRows;
-    expect(rows.filter((row) => row.id === `${input.inputId}:tool-result:call`)).toHaveLength(1);
-    expect(rows.filter((row) => row.id.endsWith(':message'))).toHaveLength(0);
-  });
-
-  it('finishes an entered plain-text repair writer but suppresses continuation after re-entrant disposal', async () => {
-    const root = project();
-    const input = preparedInput();
-    const reason = new Error('disposed during repair');
-    const provider = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'plain' }, provider_exchanges: [] }));
-    let actor!: ConversationLLMActor;
-    actor = llm(root, { completeTurn: provider }, {
-      observeEntry: (entry: ConversationEntryObservation) => { if (entry.kind === 'model_repair') actor.dispose(reason); },
-    });
-    await actor.turn(input, undefined, jest.fn());
-
-    let repair!: Promise<unknown>;
-    expect(() => { repair = actor.continueAfterPlainText('repair now', undefined, jest.fn()); }).not.toThrow();
-    await expect(repair).rejects.toBe(reason);
-    expect(provider).toHaveBeenCalledTimes(1);
-    expect(readConversation(root, input.sessionId).physicalRows.filter((row) => row.kind === 'model_repair')).toHaveLength(1);
   });
 
   it('keeps an admitted publication-unknown child lease in the direct join until supervisor containment', async () => {

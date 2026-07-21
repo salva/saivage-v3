@@ -51,7 +51,7 @@ function installOperatorApiFetch(): void {
         });
       case '/api/debug/errors':
         return jsonResponse({ errors: [], total: 0 });
-      case '/api/debug/timeline':
+      case '/api/events':
         return jsonResponse({ events: [], total: 0 });
       case '/api/mcp/tools':
         return jsonResponse({ tools: [], servers: [], invocationStats: {}, serverDetails: [] });

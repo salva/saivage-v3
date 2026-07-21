@@ -8,6 +8,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testConfigAuthority } from '../helpers/canonical-project.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { AppLogPublicationError } from '../../src/persistence/app-log.js';
 
 const roots: string[] = [];
 const managers: McpManager[] = [];
@@ -25,10 +26,10 @@ function writeConfig(projectRoot: string, mcpServers: Record<string, unknown>): 
   }));
 }
 
-function manager(projectRoot: string): McpManager {
+function manager(projectRoot: string, eventLogger: any = { appendEventPrepared(prepare: () => unknown) { prepare(); } }): McpManager {
   const registry = new ManagedProcessGroupRegistry();
   const mcpProcessRootScope = registry.createContainerScope(registry.rootScope, 'mcp-servers');
-  const value = new McpManager({ configAuthority: testConfigAuthority(projectRoot), processRunner: new ProcessRunner(projectRoot, registry), mcpProcessRootScope, eventLogger: { appendEvent() {} } as any });
+  const value = new McpManager({ configAuthority: testConfigAuthority(projectRoot), processRunner: new ProcessRunner(projectRoot, registry), mcpProcessRootScope, eventLogger });
   managers.push(value);
   return value;
 }
@@ -84,6 +85,39 @@ describe('MCP invocation errors', () => {
 });
 
 describe('contained MCP invocation', () => {
+  it('retains successful transport accounting when required publication fails', async () => {
+    const projectRoot = root();
+    writeConfig(projectRoot, { web: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: true } });
+    globalThis.fetch = httpFetch() as typeof fetch;
+    const publicationError = new AppLogPublicationError('event', new Error('append failed'));
+    const mcp = manager(projectRoot, { appendEventPrepared: () => { throw publicationError; } });
+    await mcp.reconcilePersistedConfig();
+    let thrown: unknown;
+    try { await mcp.invokeTool('web', 'ping', { count: 1 }); } catch (error) { thrown = error; }
+    expect(thrown).toBe(publicationError);
+    expect(mcp.getInvocationStats()['web:ping']).toMatchObject({ total: 1, success: 1, error: 0 });
+  });
+
+  it('gives publication failure precedence over a settled transport failure and retains that operation error', async () => {
+    const projectRoot = root();
+    writeConfig(projectRoot, { web: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: true } });
+    const fetchMock = httpFetch(); globalThis.fetch = fetchMock as typeof fetch;
+    let publicationError: AppLogPublicationError | undefined;
+    const mcp = manager(projectRoot, { appendEventPrepared: (_prepare: () => unknown, context: { operationError?: unknown }) => {
+      publicationError = new AppLogPublicationError('event', new Error('append failed'), context.operationError);
+      throw publicationError;
+    } });
+    await mcp.reconcilePersistedConfig();
+    const transportError = new Error('transport failed');
+    globalThis.fetch = jest.fn(async () => { throw transportError; }) as typeof fetch;
+    let thrown: unknown;
+    try { await mcp.invokeTool('web', 'ping', { count: 1 }); } catch (error) { thrown = error; }
+    expect(thrown).toBe(publicationError);
+    expect(publicationError?.operationError).toBeInstanceOf(TransportError);
+    expect((publicationError?.operationError as Error).message).toContain(transportError.message);
+    expect(mcp.getInvocationStats()['web:ping']).toMatchObject({ total: 1, success: 0, error: 1 });
+  });
+
   it('discovers and invokes Streamable HTTP tools while recording statistics', async () => {
     const projectRoot = root();
     writeConfig(projectRoot, { web: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: true } });

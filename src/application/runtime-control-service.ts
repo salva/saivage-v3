@@ -67,7 +67,6 @@ export class RuntimeControlService implements RuntimeApi {
 
   notifyCard(cardId: string, notification: CardNotification) { return this.#mechanics.notifyCard(cardId, notification); }
   cancelCard(cardId: string, reason: string) { return this.#mechanics.cancelCard(cardId, reason); }
-  subscribe(options: Parameters<RuntimeApi['subscribe']>[0]) { return this.#mechanics.subscribe(options); }
   getStatus() { return this.#mechanics.getStatus(); }
   getRuntimeState() { return this.#mechanics.getRuntimeState(); }
   getActorRuntimeReadModel() { return this.#mechanics.getActorRuntimeReadModel(); }

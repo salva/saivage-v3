@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
 import { CardService } from '../../../src/cards/card-service.js';
 import { RuntimeInterventionBinding } from '../../../src/application/intervention-readiness.js';
-import { ReadModelChangeBroadcaster } from '../../../src/application/read-model-changes.js';
+import { NO_FRESHNESS_EFFECTS } from '../../../src/application/freshness-effects.js';
 import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { initProjectTree } from '../../helpers/canonical-project.js'; import { createTestProcessRunner } from '../../helpers/test-process-runner.js'; import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js'; import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 
 const roots: string[] = []; afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
-function runtime(root: string, cards: CardService) { const changes = new ReadModelChangeBroadcaster(); const processes = createTestProcessRunner(root); return new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: async (_input, signal) => new Promise<never>((_r, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }, conversations: { projectRoot: root, changes }, readModelChanges: changes, processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: createTestPromptTemplateRegistry() }); }
+function runtime(root: string, cards: CardService) { const processes = createTestProcessRunner(root); return new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider: { completeTurn: async (_input, signal) => new Promise<never>((_r, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }, conversations: { projectRoot: root, changes: NO_FRESHNESS_EFFECTS }, freshness: NO_FRESHNESS_EFFECTS, processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: createTestPromptTemplateRegistry() }); }
 
 describe('Supervisor prepared-root recovery', () => {
   it('owns the root before leaf-to-root recovery publication and retains only root ownership for launch', async () => {

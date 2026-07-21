@@ -18,11 +18,9 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe('direct Doctor and Supervision pre-send boundaries', () => {
-  it.each([
-    { path: '/api/debug/doctor', operation: 'debug.doctor', message: 'Operator Doctor operation failed' },
-    { path: '/api/debug/supervision', operation: 'debug.supervision', message: 'Operator Supervision operation failed' },
-  ] as const)('contains a hostile authentication throw locally for $path', async ({ path, operation, message }) => {
+describe('direct Doctor pre-send boundaries', () => {
+  it('contains a hostile authentication throw locally', async () => {
+    const path = '/api/debug/doctor'; const operation = 'debug.doctor'; const message = 'Operator Doctor operation failed';
     const marker = `hostile-auth-${operation}`;
     const root = malformedAppLogRoot();
     const store = { list: jest.fn(() => { throw new Error(`route-work-${marker}`); }) } as unknown as CardService;
@@ -56,7 +54,7 @@ describe('direct Doctor and Supervision pre-send boundaries', () => {
     const store = { list: jest.fn(() => { throw new Error('Doctor route work must be skipped.'); }) } as unknown as CardService;
     const { handlers } = mountedDirectHandlers(root, store, new AuthPolicy({ apiToken: 'direct-token' }));
 
-    for (const path of ['/api/debug/doctor', '/api/debug/supervision']) {
+    for (const path of ['/api/debug/doctor']) {
       const logError = jest.fn();
       const reply = capturingReply();
       await handlers.get(path)!(request(logError, headers, query), reply.value);
@@ -93,7 +91,7 @@ describe('direct Doctor and Supervision pre-send boundaries', () => {
     expect(JSON.stringify({ body: reply.send.mock.calls, logs: logError.mock.calls })).not.toContain(marker);
   });
 
-  it('returns strict safe 500s for Doctor outer and Supervision read failures', async () => {
+  it('returns a strict safe 500 for a Doctor outer failure', async () => {
     const root = malformedAppLogRoot();
     const store = { list: jest.fn(() => { throw hostileFailure('doctor-inner'); }) } as unknown as CardService;
     const { handlers } = mountedDirectHandlers(root, store, admittedPolicy());
@@ -115,20 +113,9 @@ describe('direct Doctor and Supervision pre-send boundaries', () => {
       'Operator Doctor operation failed',
     ]);
 
-    const supervisionLog = jest.fn();
-    const supervisionReply = capturingReply();
-    await handlers.get('/api/debug/supervision')!(request(supervisionLog), supervisionReply.value);
-    expect(supervisionReply.status).toHaveBeenCalledWith(500);
-    expect(supervisionReply.send).toHaveBeenCalledTimes(1);
-    expect(UnexpectedInternalServerErrorSchema.safeParse(supervisionReply.send.mock.calls[0]![0]).success).toBe(true);
-    expect(supervisionLog).toHaveBeenCalledWith(
-      { operation: 'debug.supervision', failureCode: 'supervision_read_failed' },
-      'Operator Supervision operation failed',
-    );
-    expect(JSON.stringify({ body: supervisionReply.send.mock.calls, logs: supervisionLog.mock.calls })).not.toContain(root);
   });
 
-  it('preserves successful Doctor and Supervision projections with one send each', async () => {
+  it('preserves a successful Doctor projection with one send', async () => {
     const store = { list: jest.fn(() => []) } as unknown as CardService;
     const { handlers } = mountedDirectHandlers(emptyRoot(), store, admittedPolicy());
 
@@ -142,14 +129,6 @@ describe('direct Doctor and Supervision pre-send boundaries', () => {
       issues: [],
     });
 
-    const supervisionReply = capturingReply();
-    await handlers.get('/api/debug/supervision')!(request(jest.fn()), supervisionReply.value);
-    expect(supervisionReply.status).toHaveBeenCalledWith(200);
-    expect(supervisionReply.send).toHaveBeenCalledTimes(1);
-    expect(supervisionReply.send).toHaveBeenCalledWith({
-      reviews: [],
-      stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} },
-    });
   });
 });
 

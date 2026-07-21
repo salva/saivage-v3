@@ -30,7 +30,7 @@ describe('validateModelRoles', () => {
     const res = validateModelRoles(makeConfig({}));
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.missingRoles).toEqual(['planner', 'executor', 'reviewer', 'analyst']);
+    expect(res.missingRoles).toEqual(['analyst', 'planner', 'executor', 'reviewer']);
     expect(res.configuredRoles).toEqual({});
   });
 
@@ -108,11 +108,11 @@ describe('validateModelRoles', () => {
     const res = validateModelRoles(makeConfig({ planner: ['gpt-4.1'] }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.missingRoles).toEqual(['executor', 'reviewer', 'analyst']);
+    expect(res.missingRoles).toEqual(['analyst', 'executor', 'reviewer']);
     expect(res.configuredRoles).toEqual({ planner: ['gpt-4.1'] });
   });
 
   it('exposes the four required roles in a stable order', () => {
-    expect([...REQUIRED_ROLES]).toEqual(['planner', 'executor', 'reviewer', 'analyst']);
+    expect([...REQUIRED_ROLES]).toEqual(['analyst', 'planner', 'executor', 'reviewer']);
   });
 });

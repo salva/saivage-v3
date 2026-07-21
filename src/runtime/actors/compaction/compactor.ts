@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendConversationBatch, ConversationPostPublicationObservationError, readConversation, type ConversationFileContext } from '../../../persistence/conversation-file.js';
+import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../../persistence/conversation-file.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type ContextCompactionContent } from '../../../schemas/index.js';
 import { hashConversationRows, validateConversationRows, type ValidatedContextCompaction } from '../../../contracts/conversation-compaction.js';
 import { classifySourceSegments } from '../../../contracts/conversation-source-classification.js';
@@ -10,7 +10,8 @@ import { providerConversationProjection } from '../conversation-session.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type SlidingBandPartitions, type SnapPolicy } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConversation, type ClassifiedRound } from './round-classifier.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors } from './result-dropping.js';
-import { summarizeMerge, summarizeRound, SummarizerExchangeProjectionError, type MergeSummaryInput, type SummarizerProviderPort } from './summarizer.js';
+import { summarizeMerge, summarizeRound, type MergeSummaryInput, type SummarizerProviderPort } from './summarizer.js';
+import { rethrowAppLogPublicationError } from '../../../persistence/app-log.js';
 
 export type AutonomousCompactionPolicy = {
   input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
@@ -158,7 +159,6 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   try {
     appendConversationBatch(args.conversations, [candidate.message]);
   } catch (error) {
-    if (error instanceof ConversationPostPublicationObservationError) throw error;
     throw new CompactionAppendError(error);
   }
   return { kind: 'compacted', providerConversation: candidate.providerConversation, compactionMessage: candidate.message, estimatedProviderMessageTokens: candidate.estimatedProviderMessageTokens };
@@ -282,8 +282,8 @@ async function wrapSummaryConstruction<T>(signal: AbortSignal, construct: () => 
   try {
     return await construct();
   } catch (error) {
+    rethrowAppLogPublicationError(error);
     signal.throwIfAborted();
-    if (error instanceof SummarizerExchangeProjectionError) throw error;
     throw new CompactionSummaryConstructionError(error);
   }
 }

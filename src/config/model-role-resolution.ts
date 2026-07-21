@@ -1,6 +1,7 @@
 import type { SaivageConfig } from '../agents/config-api.js';
+import type { AgentRole } from '../schemas/index.js';
 
-export function resolveModelListForRole(config: SaivageConfig, role: string): string[] | null {
+export function resolveModelListForRole(config: SaivageConfig, role: AgentRole): string[] | null {
   const models = config.models;
   const direct = (models as Record<string, unknown>)[role];
   if (Array.isArray(direct) && direct.length > 0) return direct as string[];
@@ -17,7 +18,7 @@ export function resolveModelListForRole(config: SaivageConfig, role: string): st
   return null;
 }
 
-export function getModelListForRole(config: SaivageConfig, role: string): string[] {
+export function getModelListForRole(config: SaivageConfig, role: AgentRole): string[] {
   const resolved = resolveModelListForRole(config, role);
   if (resolved) return resolved;
 

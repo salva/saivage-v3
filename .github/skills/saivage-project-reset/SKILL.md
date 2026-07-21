@@ -21,6 +21,7 @@ runtime/build used to recreate target-project state; it is not the reset target.
 - Keep backup artifacts under `/home/salva/g/ml/tmp/`.
 - Do not put new reset notes or operator reminders into the target project's `.saivage/instructions/`; existing `.saivage/instructions/` is durable operator state and must be preserved when applicable.
 - Build or verify the Saivage v3 source tree before using `dist/` helpers if the reset depends on freshly changed runtime code.
+- Every current-format rollout is unconditional: stop, back up, manually correct preserved selected inputs, reset, then start. Never start first to discover whether old generated state happens to work.
 
 ## Current Reset Contract
 
@@ -69,19 +70,25 @@ Successful reset postcondition:
 2. Stop only the matching service; do not stop unrelated Saivage deployments.
 3. Back up the full target project under `/home/salva/g/ml/tmp/` before pruning or resetting.
 4. Preserve the durable inputs listed above. For source-scope resets such as GetRich v2, prune source files only according to the user-approved source reset scope, then restore the preserved source/spec docs.
-5. From the target project directory, run the current built CLI reset when available:
+5. While still stopped, manually validate and edit preserved selected inputs for the current binary:
+   - remove the complete top-level scanner-only `security` section;
+   - allow only `analyst`, `planner`, `executor`, and `reviewer` under direct `models.<role>`, `models.temperature.<role>`, `models.max_tokens.<role>`, and `models.routing.<role>`;
+   - allow `default` additionally only under direct models, temperature, and max tokens—not routing;
+   - leave arbitrary profile names, model-equivalent keys, and failover model keys unchanged by this role check;
+   - validate every skill-index `target_agents` value against the independent exact vocabulary `executor | reviewer | analyst`; Planner is not a skill target.
+   Unknown/deleted keys must be corrected manually. Do not silently discard, remap, or rewrite them.
+6. From the target project directory, run the current built CLI reset when available:
 
 ```bash
 cd /path/to/target-project
 /home/salva/g/ml/saivage-v3/bin/saivage.js reset
 ```
 
-6. Verify the reset postcondition above before restarting the service.
-   Do not restore old bare-row JSONL, runtime state, snapshots, provider availability,
-   conversation versions, summary caches, or index authority. Stable conversations and the app
-   log use the current strict envelope format, and durable-format cutovers are reset-only.
-7. Restart the service and verify `/health` plus any authenticated readiness/API checks required for that deployment.
-8. Ask the analyst/control surface to derive new objectives from preserved source/spec documents. Do not copy old card/runtime state back in.
+7. Verify the reset postcondition above before restarting the service. Do not restore old app logs, runtime state, snapshots, provider availability, conversation versions, summary caches, or index authority. The current app-log logical row is exactly one `{type,data}` union member with lane `event`, `control_action`, or `provider_exchange`; event kinds are exactly `runtime_diagnostic`, `runtime_actionable_error`, and `mcp_tool_invocation`. Outer app-log identity/time fields, old lanes, and old event kinds are unsupported.
+8. Restart only the current binary and verify `/health` plus any authenticated readiness/API checks required for that deployment.
+9. Ask the analyst/control surface to derive new objectives from preserved source/spec documents. Do not copy old card/runtime state back in.
+
+There is no migration, compatibility reader, selected-log restore, config normalization, mixed-version operation, or binary-only rollback. Rollback requires another complete stopped backup/manual-input-conversion/reset/start cycle using the selected matching binary.
 
 ## Target-Specific Service Commands
 

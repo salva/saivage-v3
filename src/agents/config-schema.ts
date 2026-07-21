@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AgentRole } from '../schemas/index.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -28,45 +29,19 @@ const modelEquivalentsSchema = z.preprocess((value) => {
   return value;
 }, z.array(z.array(z.string())));
 
-// Reserved keys that have non-role-list shapes inside the models section.
-const MODELS_RESERVED_KEYS = new Set(['temperature', 'max_tokens', 'profiles', 'routing', 'equivalents', 'failover', 'default']);
-
-// Models section: role names are open — any string key whose value is a model list is accepted.
-// Reserved sub-keys carry richer shapes (per-role temperatures, routing, etc.).
-const modelsSectionSchema = z
-  .object({
-    temperature: z.record(z.string(), z.number().min(0).max(2)).optional(),
-    max_tokens: z.record(z.string(), z.number().int().positive()).optional(),
+const modelsSectionSchema = z.object({
+    analyst: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
+    planner: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
+    executor: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
+    reviewer: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
+    temperature: z.object({ analyst: z.number().min(0).max(2).optional(), planner: z.number().min(0).max(2).optional(), executor: z.number().min(0).max(2).optional(), reviewer: z.number().min(0).max(2).optional(), default: z.number().min(0).max(2).optional() }).strict().optional(),
+    max_tokens: z.object({ analyst: z.number().int().positive().optional(), planner: z.number().int().positive().optional(), executor: z.number().int().positive().optional(), reviewer: z.number().int().positive().optional(), default: z.number().int().positive().optional() }).strict().optional(),
     profiles: z.record(z.string(), routingProfileSchema).optional(),
-    routing: z.record(z.string(), z.string()).optional(),
+    routing: z.object({ analyst: z.string().optional(), planner: z.string().optional(), executor: z.string().optional(), reviewer: z.string().optional() }).strict().optional(),
     equivalents: modelEquivalentsSchema.optional(),
     failover: z.record(z.string(), z.array(z.string())).optional(),
-    default: z.array(z.string()).min(1).optional(),
-  })
-  .passthrough()
-  .superRefine((value, ctx) => {
-    const defaultChain = (value as { default?: string[] }).default;
-    const defaultKey = defaultChain ? JSON.stringify(defaultChain) : null;
-    for (const [key, raw] of Object.entries(value)) {
-      if (MODELS_RESERVED_KEYS.has(key)) continue;
-      const parsed = modelListSchema.safeParse(raw);
-      if (!parsed.success) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `models.${key} must be a model name or an array of model names` });
-        continue;
-      }
-      const arr = parsed.data;
-      if (arr.length === 0) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `models.${key}: empty array; remove the key to inherit models.default.` });
-        continue;
-      }
-      if (defaultKey !== null && JSON.stringify(arr) === defaultKey) {
-        delete (value as Record<string, unknown>)[key];
-        continue;
-      }
-      // Normalize: replace the raw entry with the parsed (always-array) form.
-      (value as Record<string, unknown>)[key] = arr;
-    }
-  });
+    default: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
+  }).strict();
 
 // Provider capabilities
 export const providerCapabilitySchema = z.object({
@@ -126,13 +101,6 @@ export const runtimeSectionSchema = z.object({
     reviewerMs: runtime.process_timeouts.reviewer_ms,
   },
 }));
-
-// Security section
-const securitySectionSchema = z.object({
-  injectionScanner: z.boolean().default(true),
-  injectionModel: z.string().optional(),
-  maxScanLengthBytes: z.number().int().positive().default(102400),
-});
 
 export const candidateSchema = z.object({
   provider: z.string().min(1),
@@ -227,7 +195,6 @@ export const saivageConfigSchema = z.object({
   providers: z.record(z.string(), providerEntrySchema).default({}),
   server: serverSectionSchema.default({}),
   runtime: runtimeSectionSchema.default({}),
-  security: securitySectionSchema.default({}),
   compaction: compactionSectionSchema,
   card_processes: cardProcessesSchema,
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
@@ -271,7 +238,7 @@ export interface ModelParams {
  */
 export function getModelParamsForRole(
   config: SaivageConfig,
-  role: string,
+  role: AgentRole,
 ): ModelParams {
   const models = config.models;
   const tempMap = models.temperature ?? {};

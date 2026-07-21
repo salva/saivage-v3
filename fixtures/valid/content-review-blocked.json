@@ -1,9 +1,0 @@
-{
-  "id": "cr-0002",
-  "source_kind": "file",
-  "source_ref": "downloads/dl-0001/original.bin",
-  "status": "blocked",
-  "summary": "File contains potential prompt injection pattern",
-  "risk": "high",
-  "created_at": "2025-01-01T05:00:00.000Z"
-}

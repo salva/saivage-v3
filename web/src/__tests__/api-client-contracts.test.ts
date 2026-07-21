@@ -64,11 +64,20 @@ describe('operator API client contracts after S06 mutation removal', () => {
 
   it('returns exact shared Debug operation promises and rejects malformed Debug JSON', async () => {
     const errorsClient: () => Promise<OperatorApiSuccess<'debug.errors'>> = client.getDebugErrors;
-    const timelineClient: () => Promise<OperatorApiSuccess<'debug.timeline'>> = client.getDebugTimeline;
+    const timelineClient: () => Promise<OperatorApiSuccess<'events.list'>> = client.getNewestEvents;
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ errors: [{ source: 'legacy' }], total: 1 }), { status: 200, headers: { 'content-type': 'application/json' } })));
     await expect(errorsClient()).rejects.toThrow();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ events: [{ id: 'event-1', kind: 'obsolete_event', timestamp: '2026-01-01T00:00:00.000Z' }], total: 1 }), { status: 200, headers: { 'content-type': 'application/json' } })));
     await expect(timelineClient()).rejects.toThrow();
+  });
+
+  it('requests the explicit newest 1000-event tail from the singular event endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ events: [], total: 0 }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await client.getNewestEvents();
+    const url = new URL(fetchMock.mock.calls[0]![0]);
+    expect(url.pathname).toBe('/api/events');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ selection: 'newest_tail', limit: '1000' });
   });
 
   it('retains exact Agent identities', () => {

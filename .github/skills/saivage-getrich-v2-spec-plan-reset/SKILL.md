@@ -88,7 +88,25 @@ cp -a "${preserve}/docs/PLAN.md" "${root}/docs/PLAN.md"
 cp -a "${preserve}/.saivage/." "${root}/.saivage/" 2>/dev/null || true
 ```
 
-5. Invoke the current built CLI. This is the only reset entry point. Its bound
+5. While the service remains stopped, manually validate and correct the restored
+selected inputs before reset or restart:
+
+- remove the complete top-level scanner-only `security` section;
+- under direct `models.<role>`, `models.temperature.<role>`,
+  `models.max_tokens.<role>`, and `models.routing.<role>`, retain only `analyst`,
+  `planner`, `executor`, and `reviewer`;
+- `default` is additionally valid only for direct models, temperature, and max
+  tokens, never routing;
+- do not restrict arbitrary profile names, model-equivalent keys, or failover
+  model keys as if they were roles;
+- validate every `.saivage/skills/index.json` `target_agents` value against the
+  separate exact set `executor | reviewer | analyst`; Planner is not a skill
+  target.
+
+Correct noncurrent entries deliberately. Do not silently discard, normalize,
+remap, or automatically rewrite them.
+
+6. Invoke the current built CLI. This is the only reset entry point. Its bound
 direct-command composition acquires the strict lifecycle lock, removes exactly
 `.saivage/cards/`, `.saivage/agents/`, `.saivage/logs/`, and `.saivage/work/`
 wholesale, publishes the root card, and then releases only its exact matching
@@ -101,7 +119,7 @@ cd "${root}"
 /home/salva/g/ml/saivage-v3/bin/saivage.js reset
 ```
 
-6. Verify the resulting layout.
+7. Verify the resulting layout.
 
 After the target-specific prune/restore and CLI reset, the result should include:
 
@@ -118,10 +136,14 @@ GetRich-v2-specific source-pruning step above is attributable to that step, not
 to the CLI reset contract. Arbitrary lock siblings, if present, are untouched.
 
 Do not copy old app-log, provider-availability, conversation-version,
-summary-cache, or conversation-index files back after reset. Growing durable
-files use strict version-1 row envelopes and the cutover is reset-only.
+summary-cache, or conversation-index files back after reset. The current app-log
+logical row is exactly one `{type,data}` union member with lane `event`,
+`control_action`, or `provider_exchange`; event kinds are exactly
+`runtime_diagnostic`, `runtime_actionable_error`, and `mcp_tool_invocation`.
+Outer app-log identity/time fields, old lanes, and old event kinds are
+unsupported. The cutover is reset-only.
 
-7. Restart and verify health.
+8. Restart only the current binary and verify health.
 
 ```bash
 ssh root@10.0.3.170 'systemctl start saivage-v3-getrich.service && systemctl is-active saivage-v3-getrich.service'
@@ -134,3 +156,4 @@ curl -fsS http://10.0.3.170:8080/health/ready
 - The target project is not a Git repository, so the backup under `tmp/` is the recovery point.
 - The target-specific prune step deletes tests, outputs, Python packages, and all docs except the restored `SPEC.md` and `PLAN.md`. The CLI reset itself deletes only its four exact generated roots wholesale and preserves everything outside them.
 - The root card is created by Saivage reset, not by a hand-written skeleton. Persisted model routing, credentials, project identity, prompt overrides, skills, and instructions must come from the preserved inputs when present.
+- There is no migration, compatibility reader, selected-log restore, config normalization, mixed-version operation, or binary-only rollback. Rollback requires another complete stopped backup/manual-input-conversion/reset/start cycle with the matching selected binary.

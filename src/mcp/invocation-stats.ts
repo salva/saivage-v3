@@ -17,8 +17,15 @@ export class McpInvocationStatsRecorder {
     this.stats.set(key, current);
   }
 
-  log(server: string, tool: string, success: boolean, durationMs: number, error?: string): void {
-    this.eventLogger.appendEvent({ kind: 'mcp_tool_invocation', server, tool, success, duration_ms: durationMs, error });
+  publish(server: string, tool: string, success: boolean, durationMs: number, operationError?: unknown): void {
+    this.eventLogger.appendEventPrepared(() => ({
+      kind: 'mcp_tool_invocation',
+      server,
+      tool,
+      success,
+      duration_ms: durationMs,
+      ...(operationError === undefined ? {} : { error: operationError instanceof Error ? operationError.message : String(operationError) }),
+    }), { operationError });
   }
 
   snapshot(): Record<string, McpInvocationStat> {

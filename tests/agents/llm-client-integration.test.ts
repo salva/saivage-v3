@@ -849,7 +849,6 @@ describe('LlmClient provider capability guardrails', () => {
         maxReviewRetries: 3,
         processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
       },
-      security: { injectionScanner: true, maxScanLengthBytes: 102400 },
       compaction: { enabled: true as const, input_budget_tokens: 100000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' as const, summarizer_candidate: { provider: 'p1', account: null, model: 'test-model' } },
       card_processes: DEFAULT_CARD_PROCESSES,
     };
@@ -892,7 +891,6 @@ describe('LlmClient provider capability guardrails', () => {
         maxReviewRetries: 3,
         processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
       },
-      security: { injectionScanner: true, maxScanLengthBytes: 102400 },
       compaction: { enabled: true as const, input_budget_tokens: 100000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' as const, summarizer_candidate: { provider: 'openai-codex', account: null, model: 'gpt-5.5' } },
       card_processes: DEFAULT_CARD_PROCESSES,
     };
@@ -929,7 +927,6 @@ describe('LlmClient provider capability guardrails', () => {
         maxReviewRetries: 3,
         processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
       },
-      security: { injectionScanner: true, maxScanLengthBytes: 102400 },
       compaction: { enabled: true as const, input_budget_tokens: 100000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' as const, summarizer_candidate: { provider: 'openai-codex', account: null, model: 'gpt-5.5' } },
       card_processes: DEFAULT_CARD_PROCESSES,
     };

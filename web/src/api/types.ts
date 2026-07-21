@@ -18,7 +18,6 @@ import type {
   RuntimeState as ContractRuntimeState,
   ServerAvailability,
   SessionStatus,
-  SupervisionResponse,
   RestartChatAcknowledgement,
 } from './contracts';
 export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
@@ -54,7 +53,6 @@ export type {
   LiveSyncUnscopedResource,
   ServerAvailability,
   SessionStatus,
-  SupervisionResponse,
   RestartChatAcknowledgement,
 } from './contracts';
 
@@ -88,9 +86,6 @@ export type ControlActionAuditEntry = OperatorApiSuccess<'controlActions.list'>[
 
 export type DoctorCheck = DoctorResponse['checks'][number];
 export type DoctorIssue = DoctorResponse['issues'][number];
-export type ContentReview = SupervisionResponse['reviews'][number];
-export type SupervisionStats = SupervisionResponse['stats'];
-
 export type ProcessView = OperatorApiSuccess<'processes.get'>['process'];
 export type ProcessListResponse = OperatorApiSuccess<'processes.list'>;
 export type ProcessDetailResponse = OperatorApiSuccess<'processes.get'>;
@@ -113,7 +108,7 @@ export interface FileEntry {
 export type FileContent = OperatorApiSuccess<'files.content'>;
 
 export type DebugErrorRecord = OperatorApiSuccess<'debug.errors'>['errors'][number];
-export type DebugTimelineEvent = OperatorApiSuccess<'debug.timeline'>['events'][number];
+export type DebugTimelineEvent = OperatorApiSuccess<'events.list'>['events'][number];
 
 
 export type McpToolWithStats = ContractMcpToolsResponse['serverDetails'][number]['tools'][number];
@@ -154,4 +149,4 @@ export type AnalystSession = NonNullable<ChatEntriesResponse['session']>;
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
 export type DebugErrorsResponse = OperatorApiSuccess<'debug.errors'>;
-export type DebugTimelineResponse = OperatorApiSuccess<'debug.timeline'>;
+export type EventsResponse = OperatorApiSuccess<'events.list'>;

@@ -19,7 +19,7 @@ import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api
 import { cardNamespace, cardStreamFile } from '../../src/persistence/layout.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
-import { EventBus } from '../../src/events/index.js';
+import { createEventLog } from '../../src/observability/index.js';
 import { buildFilesDebugOperatorContractHandlers } from '../../src/server/routes/operator-files-debug-handlers.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
@@ -62,7 +62,7 @@ async function harness(): Promise<Harness> {
   const capture = (...args: unknown[]) => { logs.push(args); };
   const logger = { level: 'trace', fatal: capture, error: capture, warn: capture, info: capture, debug: capture, trace: capture, silent: capture, child() { return this; } } as unknown as FastifyBaseLogger;
   const app = Fastify({ loggerInstance: logger });
-  new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventBus: new EventBus() }).mount(
+  new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventLogger: createEventLog(root) }).mount(
     app,
     filesDebugOperatorApiContracts,
     buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider }),
@@ -106,7 +106,7 @@ describe('canonical card Files browsing through real routes and CardService stat
     const reconstructed = new CardService(root);
     const provider = jest.fn(() => reconstructed);
     const reconstructedApp = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventBus: new EventBus() }).mount(
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventLogger: createEventLog(root) }).mount(
       reconstructedApp,
       filesDebugOperatorApiContracts,
       buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider }),

@@ -1,5 +1,5 @@
 import { ConversationSessionIdSchema, type OperationalAgentRole } from '../schemas/index.js';
-import type { ReadModelChanges } from '../application/read-model-changes.js';
+import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
@@ -15,8 +15,7 @@ import {
   type ToolDefinition,
 } from './llm-contracts.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
-import { providerExchangeAppLogEntry } from '../persistence/provider-exchange-log.js';
-import { appendAppLogEntry, type AppLogContext } from '../persistence/app-log.js';
+import { appendAppLogEntry } from '../persistence/app-log.js';
 import {
   buildCandidateRequest,
   CandidateRequestPlanIntegrityError,
@@ -81,8 +80,7 @@ export interface InvocationServiceConfig {
   registry: ProviderRegistry;
   router: ModelRouter;
   candidateAvailability: CandidateAvailability;
-  appLogs: AppLogContext;
-  readModelChanges: ReadModelChanges;
+  freshness: Pick<FreshnessEffects, 'agentsChanged'>;
 }
 
 export class InvocationService {
@@ -91,9 +89,8 @@ export class InvocationService {
   private readonly candidateAvailability: CandidateAvailability;
   private readonly recoveryDelayMs: number;
   private readonly maxRecoveryRetries: number;
-  private readonly appLogs: AppLogContext;
   private readonly registry: ProviderRegistry;
-  private readonly readModelChanges: ReadModelChanges;
+  private readonly freshness: Pick<FreshnessEffects, 'agentsChanged'>;
 
   constructor(config: InvocationServiceConfig) {
     this.projectRoot = config.projectRoot;
@@ -102,8 +99,7 @@ export class InvocationService {
     this.candidateAvailability = config.candidateAvailability;
     this.recoveryDelayMs = INVOCATION_RECOVERY_DELAY_MS;
     this.maxRecoveryRetries = MAX_INVOCATION_RECOVERY_RETRIES;
-    this.appLogs = config.appLogs;
-    this.readModelChanges = config.readModelChanges;
+    this.freshness = config.freshness;
   }
 
   async resolveCandidates(
@@ -315,30 +311,38 @@ export class InvocationService {
     sourceInputId: string,
     attempts: ProviderExchangeAttempt[],
     assistantOutputIds: string[],
+    operationError?: unknown,
   ): void {
     for (const attempt of attempts) {
-      if (attempt.attempt_index === undefined)
-        throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
-      if (attempt.source_input_id !== sourceInputId)
-        throw new Error(
-          `Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`,
-        );
-      const payload = projectProviderExchangeForPublication(
-        attempt as ProviderExchangeAttempt & { attempt_index: number },
-        assistantOutputIds,
-      );
       appendAppLogEntry(
-        this.appLogs.projectRoot,
-        providerExchangeAppLogEntry({
-          session_id: sessionId,
-          source_input_id: sourceInputId,
-          attempt_index: attempt.attempt_index,
-          timestamp: attempt.completed_at,
-          payload,
-        }),
+        this.projectRoot,
+        'provider_exchange',
+        () => {
+          if (attempt.attempt_index === undefined)
+            throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
+          if (attempt.source_input_id !== sourceInputId)
+            throw new Error(
+              `Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`,
+            );
+          const payload = projectProviderExchangeForPublication(
+            attempt as ProviderExchangeAttempt & { attempt_index: number },
+            assistantOutputIds,
+          );
+          return {
+            type: 'provider_exchange',
+            data: {
+              session_id: sessionId,
+              source_input_id: sourceInputId,
+              attempt_index: attempt.attempt_index,
+              timestamp: attempt.completed_at,
+              payload,
+            },
+          };
+        },
+        { operationError: operationError ?? (attempt.status === 'error' ? attempt.error : undefined) },
       );
       if (ConversationSessionIdSchema.safeParse(sessionId).success)
-        this.readModelChanges.agentsChanged();
+        this.freshness.agentsChanged();
     }
   }
 

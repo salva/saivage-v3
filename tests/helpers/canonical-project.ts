@@ -4,12 +4,12 @@ import { dirname, join } from 'node:path';
 import { newProjectRootInput } from '../../src/boot/app.js';
 import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
-import type { EventBus } from '../../src/events/index.js';
-import type { ReadModelChanges } from '../../src/application/read-model-changes.js';
+import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../../src/application/freshness-effects.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { createAnalystMutationServices, type AnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { publishInitialProjectCard } from '../../src/persistence/card-files.js';
 import { createProjectIdentity, readProjectIdentity } from '../../src/persistence/project-identity.js';
+import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 
 export function initProjectTree(projectRoot: string): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });
@@ -30,8 +30,8 @@ export function testConfigAuthority(projectRoot: string, env: Readonly<Record<st
 }
 
 export class CardService extends ProductionCardService {
-  constructor(projectRoot: string, eventBus?: EventBus, readModelChanges?: ReadModelChanges) {
-    super(projectRoot, eventBus, readModelChanges);
+  constructor(projectRoot: string, freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'> = NO_FRESHNESS_EFFECTS, io?: GrowingFileIo) {
+    super(projectRoot, freshness, io);
   }
 }
 

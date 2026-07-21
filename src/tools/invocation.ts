@@ -6,6 +6,7 @@ import type { AgentRole } from '../schemas/index.js';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
+import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
 
 export type ToolResult =
   | { success: true; data?: unknown; error?: never }
@@ -20,6 +21,7 @@ export interface ToolDefinition<Args = unknown> {
 
 export type ToolProviderCleanupReason =
   | { kind: 'activation_settled'; status: 'done' | 'blocked' | 'failed' | 'cancelled' }
+  | { kind: 'publication_terminal'; error: Error }
   | { kind: 'session_closed' }
   | { kind: 'runtime_shutdown' };
 
@@ -71,6 +73,7 @@ export async function invokeToolForLlm(surface: InvocationSurface, name: string,
     if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
     return result;
   } catch (error) {
+    rethrowAppLogPublicationError(error);
     if (error instanceof McpToolInvocationNotInstalledError) throw error;
     if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
     if (signal?.aborted) throw error;
@@ -82,7 +85,8 @@ export async function invokeToolCall(surface: InvocationSurface, name: string, r
   let args: unknown;
   try {
     args = JSON.parse(rawArgs) as unknown;
-  } catch {
+  } catch (error) {
+    rethrowAppLogPublicationError(error);
     return { success: false, error: 'Tool arguments must be valid JSON.' };
   }
   return invokeToolForLlm(surface, name, args, context, signal);

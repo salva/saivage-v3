@@ -5,11 +5,11 @@ import { dirname, join } from 'node:path';
 import Fastify from 'fastify';
 
 import { eventsOperatorApiContracts } from '../../src/contracts/operator-api-events.js';
-import { EventBus } from '../../src/events/index.js';
 import { appLogFile } from '../../src/persistence/layout.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { buildEventsOperatorContractHandlers } from '../../src/server/routes/operator-events-handlers.js';
+import { createEventLog } from '../../src/observability/index.js';
 
 const roots: string[] = [];
 
@@ -23,7 +23,7 @@ describe('operator Events handler boundary', () => {
     roots.push(projectRoot);
     const fastify = Fastify({ logger: false });
     const handlers = buildEventsOperatorContractHandlers({ projectRoot });
-    new ContractRuntime({ authPolicy: new AuthPolicy(), eventBus: new EventBus() }).mount(
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(projectRoot) }).mount(
       fastify,
       eventsOperatorApiContracts,
       handlers,

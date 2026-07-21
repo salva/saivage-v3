@@ -1,136 +1,53 @@
-import { initProjectTree } from '../helpers/canonical-project.js';
-import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+
 import { controlActionAuditEntrySchema } from '../../src/schemas/validators.js';
 import { listControlActions, recordControlAction } from '../../src/persistence/control-action-audit.js';
-import { testAppLogs } from '../helpers/app-logs.js';
-import { EventBus } from '../../src/events/index.js';
-import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
-
+import { AppLogPublicationError } from '../../src/persistence/app-log.js';
 
 let projectRoot: string;
+beforeEach(() => { projectRoot = mkdtempSync(join(tmpdir(), 'saivage-control-action-audit-')); });
+afterEach(() => { rmSync(projectRoot, { recursive: true, force: true }); });
 
-beforeEach(() => {
-  projectRoot = mkdtempSync(join(tmpdir(), 'saivage-control-action-audit-'));
-  initProjectTree(projectRoot);
-});
-
-afterEach(() => {
-  rmSync(projectRoot, { recursive: true, force: true });
-});
+const input = {
+  id: 'audit-1', created_at: '2026-01-01T00:00:00.000Z', actor: 'analyst' as const, surface: 'rest' as const,
+  action: 'runtime.pause', target_kind: 'runtime' as const, target_id: 'project', params_summary: 'apiKey="secret-123"',
+  outcome: 'error' as const, outcome_summary: 'token=hunter2', error: 'password=abc123',
+};
 
 describe('control action audit persistence', () => {
-  it('emits only control_action_recorded after persistence and no Agent effect', () => {
-    const eventBus = new EventBus();
-    const kinds: string[] = [];
-    eventBus.subscribe({ handler: (event) => {
-      expect(listControlActions(projectRoot)).toHaveLength(1);
-      kinds.push(event.kind);
-    } });
-    const agentsChanged = jest.fn();
-    new ReadModelChangeBroadcaster().subscribe({ runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentsChanged, conversationChanged: jest.fn() });
-    const appLogs = testAppLogs(projectRoot);
-    expect(Object.keys(appLogs)).toEqual(['projectRoot']);
-
-    recordControlAction(appLogs, {
-      id: 'audit-effect', created_at: '2026-01-01T00:00:00.000Z', actor: 'analyst', surface: 'rest', action: 'runtime.pause', target_kind: 'runtime', target_id: 'project', params_summary: 'pause', outcome: 'ok', outcome_summary: 'paused',
-    }, eventBus);
-
-    expect(kinds).toEqual(['control_action_recorded']);
-    expect(agentsChanged).not.toHaveBeenCalled();
-  });
-
-  it('appends and reloads validated redacted audit entries after recreation', () => {
-    const created = recordControlAction(testAppLogs(projectRoot), {
-      id: 'audit-1',
-      created_at: '2026-01-01T00:00:00.000Z',
-      actor: 'analyst',
-      surface: 'web-chat',
-      action: 'card.update',
-      target_kind: 'card',
-      target_id: '11111111-1111-4111-8111-111111111111',
-      params_summary: 'apiKey="secret-123" token=hunter2 nested password=abc123',
-      outcome: 'error',
-      outcome_summary: 'request rejected because secret=bad-value leaked',
-      error: 'provider token=shh-secret api-key="still-secret"',
-    });
-
+  it('prepares, redacts, validates, and appends one control row inside the publication boundary', () => {
+    let preparations = 0;
+    const created = recordControlAction(projectRoot, () => { preparations += 1; return input; });
+    expect(preparations).toBe(1);
     expect(controlActionAuditEntrySchema.parse(created)).toEqual(created);
     expect(created.params_summary).toContain('[REDACTED]');
-    expect(created.params_summary).not.toMatch(/secret-123|hunter2|abc123/);
+    expect(created.outcome_summary).toContain('[REDACTED]');
     expect(created.error).toContain('[REDACTED]');
-    expect(created.error).not.toMatch(/shh-secret|still-secret/);
-
-    const auditPath = join(projectRoot, '.saivage', 'logs', 'app.jsonl');
-    expect(existsSync(auditPath)).toBe(true);
-    const rawLines = readFileSync(auditPath, 'utf-8').trim().split('\n').filter(Boolean);
-    expect(rawLines).toHaveLength(1);
-    expect(rawLines[0]).not.toMatch(/secret-123|hunter2|abc123|shh-secret|still-secret/);
-
-    const reloaded = listControlActions(projectRoot);
-    expect(reloaded).toHaveLength(1);
-    expect(reloaded[0]).toEqual(created);
-    expect(controlActionAuditEntrySchema.parse(reloaded[0])).toEqual(reloaded[0]);
+    const path = join(projectRoot, '.saivage', 'logs', 'app.jsonl');
+    expect(existsSync(path)).toBe(true);
+    expect(readFileSync(path, 'utf8')).not.toMatch(/secret-123|hunter2|abc123/);
+    expect(listControlActions(projectRoot)).toEqual([created]);
   });
 
-  it('commits a duplicate before one control-action effect and propagates a synchronous observer failure without retry', () => {
-    const appLogs = testAppLogs(projectRoot);
-    const input = {
-      id: 'duplicate-audit', created_at: '2026-01-01T00:00:00.000Z', actor: 'analyst' as const, surface: 'rest' as const,
-      action: 'runtime.pause', target_kind: 'runtime' as const, target_id: 'project', params_summary: 'pause', outcome: 'ok' as const, outcome_summary: 'paused',
-    };
-    recordControlAction(appLogs, input);
-    const observerFailure = new Error('observer strict read failed');
-    const effects: string[] = [];
-    const eventBus = new EventBus();
-    eventBus.subscribe('control_action_recorded', () => { effects.push('emit'); expect(() => listControlActions(projectRoot)).toThrow(/duplicate id/); throw observerFailure; }, { propagateErrors: true });
-
-    expect(() => recordControlAction(appLogs, input, eventBus)).toThrow(observerFailure);
-    const rows = readFileSync(join(projectRoot, '.saivage', 'logs', 'app.jsonl'), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ id: string }> }).rows);
-    expect(rows.map(({ id }) => id)).toEqual(['duplicate-audit', 'duplicate-audit']);
-    expect(effects).toEqual(['emit']);
+  it('wraps audit preparation failure with the settled operation error', () => {
+    const preparationFailure = new Error('audit preparation failed');
+    const operationError = new Error('mutation failed');
+    let thrown: unknown;
+    try { recordControlAction(projectRoot, () => { throw preparationFailure; }, operationError); }
+    catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(AppLogPublicationError);
+    expect(thrown).toMatchObject({ entryType: 'control_action', publicationCause: preparationFailure, operationError });
+    expect(existsSync(join(projectRoot, '.saivage'))).toBe(false);
   });
 
-  it('fails on a complete malformed JSONL entry without discarding it', () => {
-    recordControlAction(testAppLogs(projectRoot), {
-      id: 'audit-1',
-      created_at: '2026-01-01T00:00:00.000Z',
-      actor: 'analyst',
-      surface: 'rest',
-      action: 'runtime.pause',
-      target_kind: 'runtime',
-      target_id: 'project',
-      params_summary: 'pause runtime',
-      outcome: 'ok',
-      outcome_summary: 'paused',
-    });
-
-    const auditPath = join(projectRoot, '.saivage', 'logs', 'app.jsonl');
-    const appended = [
-      readFileSync(auditPath, 'utf-8'),
-      '{"id":"broken"\n',
-      JSON.stringify({
-        id: 'app-audit-2',
-        timestamp: '2026-01-02T00:00:00.000Z',
-        type: 'control_action',
-        data: {
-          id: 'audit-2',
-          actor: 'analyst',
-          surface: 'cli',
-          action: 'note.append',
-          target_kind: 'note',
-          target_id: 'n-goal-1-1',
-          params_summary: 'password=swordfish',
-          outcome: 'denied',
-          outcome_summary: 'denied',
-          created_at: '2026-01-02T00:00:00.000Z',
-        },
-      }) + '\n',
-    ].join('');
-    writeFileSync(auditPath, appended, 'utf-8');
-
-    expect(() => listControlActions(projectRoot)).toThrow(/malformed/);
+  it('commits duplicates physically and fails strict reads without a second effect', () => {
+    recordControlAction(projectRoot, () => input);
+    recordControlAction(projectRoot, () => input);
+    const rows = readFileSync(join(projectRoot, '.saivage', 'logs', 'app.jsonl'), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ data: { id: string } }> }).rows);
+    expect(rows.map((row) => row.data.id)).toEqual(['audit-1', 'audit-1']);
+    expect(() => listControlActions(projectRoot)).toThrow(/duplicate logical id/);
   });
 });

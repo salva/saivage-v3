@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { errorRecordSchema } from './app-log.js';
-import { loggedEventSchema } from '../schemas/index.js';
+import { errorEventSchema } from '../schemas/index.js';
 import {
   ApiErrorSchema,
   ForbiddenErrorSchema,
@@ -34,15 +33,12 @@ export const WorkspaceFileContentResponseSchema = z.object({
   modifiedAt: z.string().nullable().optional(),
 });
 
-export const DebugErrorsResponseSchema = z.object({ errors: z.array(errorRecordSchema), total: z.number().int().nonnegative() }).strict()
+export const DebugErrorsResponseSchema = z.object({ errors: z.array(errorEventSchema), total: z.number().int().nonnegative() }).strict()
   .refine((response) => response.total === response.errors.length, { path: ['total'], message: 'total must equal errors.length' });
-export const DebugTimelineResponseSchema = z.object({ events: z.array(loggedEventSchema), total: z.number().int().nonnegative() }).strict()
-  .refine((response) => response.total === response.events.length, { path: ['total'], message: 'total must equal events.length' });
 
 export type WorkspaceFilesListResponse = z.infer<typeof WorkspaceFilesListResponseSchema>;
 export type WorkspaceFileContentResponse = z.infer<typeof WorkspaceFileContentResponseSchema>;
 export type DebugErrorsResponse = z.infer<typeof DebugErrorsResponseSchema>;
-export type DebugTimelineResponse = z.infer<typeof DebugTimelineResponseSchema>;
 
 export const filesDebugOperatorApiContracts = {
   'files.list': {
@@ -76,15 +72,5 @@ export const filesDebugOperatorApiContracts = {
     response: { 200: DebugErrorsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'DebugErrorsResponse',
-  },
-  'debug.timeline': {
-    operationId: 'debug.timeline',
-    method: 'GET',
-    path: '/api/debug/timeline',
-    success: DebugTimelineResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: DebugTimelineResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'DebugTimelineResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

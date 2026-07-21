@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import type { ReadModelChanges } from '../application/read-model-changes.js';
+import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { validateConversationRows, type ValidatedConversation } from '../contracts/conversation-compaction.js';
 import { agentMessageSchema, parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../schemas/index.js';
 import { readCanonicalGrowingFile, serializeGrowingEnvelope, appendEnvelope, publishFirstEnvelope, type GrowingFileIo } from './growing-file.js';
@@ -8,20 +8,9 @@ import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { conversationFile } from '../runtime/actors/conversation-inventory.js';
 import { listCards } from './card-files.js';
 
-export interface ConversationEntryObservation {
-  readonly id: AgentMessage['id'];
-  readonly session_id: AgentMessage['session_id'];
-  readonly kind: AgentMessage['kind'];
-  readonly role: AgentMessage['role'];
-  readonly timestamp: AgentMessage['timestamp'];
-}
-
-export type ConversationEntryObserver = (entry: ConversationEntryObservation) => void;
-
 export interface ConversationFileContext {
   readonly projectRoot: string;
-  readonly changes?: ReadModelChanges;
-  readonly observeEntry?: ConversationEntryObserver;
+  readonly changes?: Pick<FreshnessEffects, 'conversationChanged' | 'agentsChanged'>;
 }
 
 export interface ConversationAppendOptions {
@@ -32,13 +21,6 @@ export interface ConversationAppendOptions {
 export interface ConversationInventoryEntry {
   readonly sessionId: ConversationSessionId;
   readonly conversation: ValidatedConversation;
-}
-
-export class ConversationPostPublicationObservationError extends Error {
-  constructor(readonly entry: ConversationEntryObservation, options: ErrorOptions) {
-    super(`Conversation entry '${entry.id}' was published but post-publication observation failed.`, options);
-    this.name = 'ConversationPostPublicationObservationError';
-  }
 }
 
 function readExact(path: string): string | null {
@@ -117,16 +99,4 @@ export function appendConversationBatch(conversations: ConversationFileContext, 
 function afterPublication(conversations: ConversationFileContext, messages: readonly AgentMessage[]): void {
   conversations.changes?.conversationChanged(messages[0]!.session_id);
   conversations.changes?.agentsChanged();
-  for (const message of messages) {
-    if (message.kind === 'provider_private') continue;
-    const entry: ConversationEntryObservation = {
-      id: message.id,
-      session_id: message.session_id,
-      kind: message.kind,
-      role: message.role,
-      timestamp: message.timestamp,
-    };
-    try { conversations.observeEntry?.(entry); }
-    catch (cause) { throw new ConversationPostPublicationObservationError(entry, { cause }); }
-  }
 }

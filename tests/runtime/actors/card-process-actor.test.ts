@@ -10,7 +10,8 @@ import type { ProviderTurnCompletion } from '../../../src/agents/llm-contracts.j
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
-import { readConversation, type ConversationEntryObserver } from '../../../src/persistence/conversation-file.js';
+import { readConversation } from '../../../src/persistence/conversation-file.js';
+import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
 import { cardProcessesSchema } from '../../../src/agents/config-schema.js';
 import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
 import { compileCardProcesses, type CompiledCardProcess } from '../../../src/runtime/card-process/card-process-config.js';
@@ -22,7 +23,7 @@ describe('CardProcessActor configured graph execution', () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess; entry?: 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED'; runtimeProjectionChanged?: () => void; observeEntry?: ConversationEntryObserver; removeNotifications?: (store: CardService, cardId: string, ids: readonly string[]) => void; onClaim?: () => void; renderPrompt?: (toolList: string) => string } = {}) {
+  function harness(completeTurn: LLMProviderPort['completeTurn'], options: { cardType?: 'project' | 'code'; process?: CompiledCardProcess; entry?: 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED'; runtimeProjectionChanged?: () => void; publicationError?: AppLogPublicationError; publicationFailureMarker?: () => void; removeNotifications?: (store: CardService, cardId: string, ids: readonly string[]) => void; onClaim?: () => void; renderPrompt?: (toolList: string) => string } = {}) {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-card-process-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
@@ -35,7 +36,7 @@ describe('CardProcessActor configured graph execution', () => {
     const actor = new CardProcessActor({
       projectRoot, cardId, process: options.process ?? (options.cardType === 'code' ? testAutonomousCompaction.cardProcesses.terminal : testAutonomousCompaction.cardProcesses.planning),
       store, parentControl: { activateChild: async () => { throw new Error('unused'); }, cancelChild: async () => { throw new Error('unused'); } },
-      notifyCard: () => ({ ok: true, notificationId: 'unused' }), provider: { completeTurn }, conversations: { projectRoot, observeEntry: options.observeEntry },
+      notifyCard: () => ({ ok: true, notificationId: 'unused' }), provider: { completeTurn, projectProviderExchanges: () => { if (options.publicationError) { options.publicationFailureMarker?.(); throw options.publicationError; } } }, conversations: { projectRoot },
       processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: { render: (_type, _role, values) => options.renderPrompt ? options.renderPrompt(values.toolList) : String(values.contractDescription) },
       runtimeProjectionChanged: options.runtimeProjectionChanged ?? (() => undefined), ...testAutonomousCompaction,
     });
@@ -379,36 +380,19 @@ describe('CardProcessActor configured graph execution', () => {
     expect(h.claimResult).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['planner', 'reviewer', 'executor'] as const)('preserves every selected notification ID when any %s candidate-delivery append fails', async (role) => {
-    for (const failurePoint of ['failed-result', 'notification', 'correction'] as const) {
-      let roleCalls = 0;
-      const injected = new Error(`${role} ${failurePoint} append failed`);
-      let h: ReturnType<typeof harness>;
-      const observeEntry = jest.fn((entry: Parameters<ConversationEntryObserver>[0]) => {
-        const persisted = readConversation(h.projectRoot, entry.session_id).physicalRows.find((row) => row.id === entry.id)!;
-        const isFailure = failurePoint === 'failed-result'
-          ? persisted.kind === 'tool_result' && persisted.content.includes('pending_notifications')
-          : failurePoint === 'notification'
-            ? persisted.role === 'user' && persisted.content === `${role} selected notification`
-            : persisted.role === 'user' && persisted.content.includes('reconsider the appended context');
-        if (isFailure) throw injected;
-      });
-      h = harness(async (input) => {
-        if (input.role === 'planner' && role !== 'planner') {
-          const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
-          return tool('to-review', 'admit_review');
-        }
-        roleCalls += 1;
-        const filename = role === 'reviewer' ? 'review.md' : 'status.md';
-        const open = h.store.openRecord(h.cardId, filename); h.store.editRecord(h.cardId, filename, open.version, 'ready');
-        h.store.enqueueNotification(h.cardId, { id: `${role}-${failurePoint}`, content: `${role} selected notification`, created_at: '2026-07-18T00:00:00.000Z' });
-        return tool(`${role}-${failurePoint}`, role === 'reviewer' ? 'approved' : role === 'executor' ? 'done' : 'complete_direct');
-      }, { cardType: role === 'executor' ? 'code' : undefined, observeEntry });
-      await expect(h.actor.activate(h.input(), new AbortController().signal)).resolves.toMatchObject({ status: 'failed', summary: expect.stringContaining('post-publication observation failed') });
-      expect(roleCalls).toBe(1);
-      expect(h.store.read(h.cardId)!.pending_notifications.map(({ id }) => id)).toEqual([`${role}-${failurePoint}`]);
-      expect(h.claimResult).not.toHaveBeenCalled();
-    }
+  it('propagates one provider-exchange publication error by identity and permits only an external join after rejection', async () => {
+    const error = new AppLogPublicationError('provider_exchange', new Error('hostile publication failure'));
+    const projection = jest.fn();
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const h = harness(async () => ({ ...tool('terminal', 'complete_direct'), provider_exchanges: [{ attempt_index: 0, contract_id: 'test', contract_name: 'test', transport: 'generic', provider: 'test', model: 'model', source_input_id: 'input', request_params: {}, started_at: '2026-07-21T00:00:00.000Z', completed_at: '2026-07-21T00:00:01.000Z', status: 'ok', terminal_tool_fired: 'emit_result' }] }), { publicationError: error, runtimeProjectionChanged: projection, publicationFailureMarker: () => projection.mockClear() });
+    const activation = h.actor.activate(h.input(), new AbortController().signal);
+    await expect(activation).rejects.toBe(error);
+    expect(h.claimResult).not.toHaveBeenCalled();
+    expect(h.store.read(h.cardId)?.lifecycle.status).not.toBe('failed');
+    const joined = h.actor.joinActivation();
+    await expect(Promise.race([joined, new Promise((_, reject) => setTimeout(() => reject(new Error('join deadlock')), 500))])).resolves.toEqual(expect.any(Array));
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(projection).not.toHaveBeenCalled();
   });
 
   it.each(['planner', 'reviewer', 'executor'] as const)('retains duplicate-visible context when %s crashes after candidate appends before removal', async (role) => {
@@ -486,17 +470,16 @@ describe('CardProcessActor configured graph execution', () => {
     expect(h.claimResult).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['accepted settlement', 'cleanup'] as const)('keeps the terminal claim authoritative when %s fails', async (point) => {
+  it('keeps the terminal claim authoritative when cleanup fails', async () => {
+    const point = 'cleanup';
     const injected = new Error(`${point} failed after claim`);
-    let h: ReturnType<typeof harness>;
-    const observeEntry: ConversationEntryObserver | undefined = point === 'accepted settlement' ? (entry) => { const row = readConversation(h.projectRoot, entry.session_id).physicalRows.find((candidate) => candidate.id === entry.id)!; if (row.kind === 'tool_result' && row.content.includes('"accepted":true')) throw injected; } : undefined;
-    h = harness(async () => {
+    const h = harness(async () => {
       const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, 'ready');
       return tool('accepted', 'done');
-    }, { cardType: 'code', observeEntry });
-    if (point === 'cleanup') jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope').mockRejectedValue(injected);
+    }, { cardType: 'code' });
+    jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope').mockRejectedValue(injected);
     const outcome = await h.actor.activate(h.input(), new AbortController().signal);
-    expect(outcome).toMatchObject({ status: 'failed', summary: expect.stringContaining(point === 'accepted settlement' ? 'post-publication observation failed' : injected.message) });
+    expect(outcome).toMatchObject({ status: 'failed', summary: expect.stringContaining(injected.message) });
     expect(h.claimResult).toHaveBeenCalledTimes(1);
     expect(h.store.readRecord(h.cardId, 'status.md', 'latest').artifact.content).toBe('ready');
     const accepted = readConversation(h.projectRoot, `executor:${h.cardId}`).sourceRows.filter((row) => row.kind === 'tool_result' && row.content.includes('"accepted":true'));
@@ -530,30 +513,4 @@ describe('CardProcessActor configured graph execution', () => {
     expect(events).toEqual(['cleanup:0', 'cleanup:1']);
   });
 
-  it('orders intermediate and terminal acceptance effects and publishes the processor outcome only after cleanup', async () => {
-    const source = cardProcessesSchema.parse({
-      planning: DEFAULT_CARD_PROCESSES.planning,
-      terminal: { entries: { BACKLOG: { node: 'first' }, CHANGED: { node: 'first' }, BLOCKED: { node: 'first' }, STOPPED: { node: 'first', prompt: 'stopped-recovery' } }, nodes: {
-        first: { role: 'executor', prompt: 'implement', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { next: { target: { node: 'second' }, prompt: 'implementation-to-verification' } } },
-        second: { role: 'executor', prompt: 'verify', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { finish: { target: { terminal: 'DONE' } } } },
-      } },
-    });
-    const events: string[] = [];
-    let calls = 0;
-    let h: ReturnType<typeof harness>;
-    const observeEntry: ConversationEntryObserver = (entry) => { const row = readConversation(h.projectRoot, entry.session_id).physicalRows.find((candidate) => candidate.id === entry.id)!; if (row.kind === 'tool_result' && row.content.includes('"accepted":true')) events.push(`settle:${calls}`); };
-    h = harness(async () => {
-      calls += 1;
-      const open = h.store.openRecord(h.cardId, 'status.md'); h.store.editRecord(h.cardId, 'status.md', open.version, `node ${calls}`);
-      return tool(`result-${calls}`, calls === 1 ? 'next' : 'finish');
-    }, { cardType: 'code', process: compileCardProcesses(source).terminal, observeEntry, onClaim: () => events.push('claim') });
-    const close = h.store.closeRecord.bind(h.store);
-    jest.spyOn(h.store, 'closeRecord').mockImplementation((...args) => { events.push(`close:${calls}`); return close(...args); });
-    const terminate = h.processRunner.closeAndTerminateDirectScope.bind(h.processRunner);
-    jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope').mockImplementation(async (args) => { events.push(`cleanup:${calls}`); return terminate(args); });
-    const outcome = await h.actor.activate(h.input(), new AbortController().signal);
-    events.push(`publication:${outcome.status}`);
-    expect(events).toEqual(['close:1', 'settle:1', 'cleanup:1', 'claim', 'close:2', 'settle:2', 'cleanup:2', 'publication:done']);
-    expect(h.claimResult).toHaveBeenCalledTimes(1);
-  });
 });

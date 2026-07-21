@@ -15,6 +15,7 @@ import { registerServerRoutes } from '../../src/server/composition/route-composi
 import { RuntimeControlService } from '../../src/application/runtime-control-service.js';
 import type { AppTerminalRegistration, ShutdownComponent } from '../../src/boot/app.js';
 import { McpToolInvocationInstaller } from '../../src/mcp/tool-invocation-installation.js';
+import { readAppLogEntries } from '../../src/persistence/app-log.js';
 
 function config(): SaivageConfig {
   return {
@@ -30,7 +31,7 @@ function config(): SaivageConfig {
 }
 
 describe('server lifecycle composition', () => {
-  it('threads the exact server-owned EventBus through route composition and publishes contract violations on it', async () => {
+  it('threads the server-owned event logger through route composition and durably publishes contract violations', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-server-event-bus-'));
     const terminal = createAppTerminalCoordinator();
     let stopped = false;
@@ -39,9 +40,7 @@ describe('server lifecycle composition', () => {
       writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), validConfigYaml());
       const environment = await loadEnvironment(['node', 'test', '--project-root', projectRoot], { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: undefined });
       const services = await createServerServices({ environment, terminal, processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' } });
-      const published: unknown[] = [];
-      const exactBusEmit = jest.spyOn(services.eventBus, 'emit');
-      services.eventBus.subscribe('runtime_actionable_error', (event) => { published.push(event.payload); });
+      const timelineChanged = jest.spyOn(services.syncHub, 'timelineChanged');
       jest.spyOn(services.runtimeApplication, 'getProviderRoutingReadModel').mockReturnValue({ invalid: 'response' } as never);
 
       registerServerRoutes({
@@ -54,14 +53,14 @@ describe('server lifecycle composition', () => {
         saivageConfig: services.config,
         liveSyncSocket: services.liveSyncSocket,
         authPolicy: services.authPolicy,
-        eventBus: services.eventBus,
+        eventLogger: services.eventLogger,
       });
 
       const response = await services.fastify.inject({ method: 'GET', url: '/api/providers' });
       expect(response.statusCode).toBe(500);
       expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
-      expect(exactBusEmit).toHaveBeenCalledWith('runtime_actionable_error', expect.any(Object));
-      expect(published).toEqual([expect.objectContaining({
+      expect(timelineChanged).toHaveBeenCalled();
+      expect(readAppLogEntries(projectRoot, 'event').map(({ data }) => data)).toEqual([expect.objectContaining({
         actionable_error: expect.objectContaining({
           code: 'contract_response_violation',
           currentState: expect.objectContaining({ operation: 'providers.list' }),
