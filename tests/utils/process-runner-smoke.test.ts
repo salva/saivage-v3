@@ -14,6 +14,7 @@ describe('ProcessRunner smoke', () => {
     const scope = runner.createDirectScope(runtimeRootScope, 'smoke', 'runtime_card');
     try {
       const record = runner.spawn({ command: 'exit 0', directScope: scope, category: 'runtime_card', ownerId: 'smoke', ownerKind: 'agent' });
+      expect(record.id).toMatch(/^proc-[0-9a-f]{12}$/);
       await expect(runner.waitForSettlement(record.id)).resolves.toMatchObject({ status: 'exited', exitCode: 0 });
     } finally {
       await runner.terminateScopeTree({ rootScope: runtimeRootScope, categories: ['runtime_card'], reason: 'cleanup', graceMs: 100 });
