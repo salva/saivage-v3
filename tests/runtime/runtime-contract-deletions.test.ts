@@ -40,10 +40,10 @@ describe('runtime ledger contract deletions', () => {
     expect(schemas.activationOutcomeSchema).toBeDefined();
     expect(schemas.runtimeStatusSchema).toBeDefined();
     expect(schemas.runtimeRunOutcomeSchema).toBeDefined();
-    expect(schemas.eventKindValues).toEqual(expect.arrayContaining([
-      'control_action_record_appended',
-      'event_log_record_appended',
-      'error_log_record_appended',
-    ]));
+    expect(schemas.eventKindValues).toEqual([
+      'runtime_diagnostic',
+      'runtime_actionable_error',
+      'mcp_tool_invocation',
+    ]);
   });
 });

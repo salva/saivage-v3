@@ -26,10 +26,9 @@ const [
   { saivageConfigSchema },
   { DEFAULT_CARD_PROCESSES },
   { createRuntimeApplication },
-  { ReadModelChangeBroadcaster },
+  { NO_FRESHNESS_EFFECTS },
   { CardService },
   { createResolvedConfigAuthority },
-  { EventBus },
   { createEventLog },
   { ManagedProcessGroupRegistry },
   { ProcessRunner },
@@ -37,10 +36,9 @@ const [
   import(compiledModule('agents/config-schema.js')),
   import(compiledModule('agents/default-card-processes.js')),
   import(compiledModule('application/runtime-composition.js')),
-  import(compiledModule('application/read-model-changes.js')),
+  import(compiledModule('application/freshness-effects.js')),
   import(compiledModule('cards/card-service.js')),
   import(compiledModule('config/index.js')),
-  import(compiledModule('events/index.js')),
   import(compiledModule('observability/index.js')),
   import(compiledModule('runtime/managed-process-group-registry.js')),
   import(compiledModule('runtime/process-runner.js')),
@@ -60,15 +58,15 @@ try {
     },
     card_processes: DEFAULT_CARD_PROCESSES,
   });
-  const eventBus = new EventBus();
-  const readModelChanges = new ReadModelChangeBroadcaster();
-  const appLogs = { projectRoot, changes: readModelChanges };
   const configAuthority = createResolvedConfigAuthority({
     path: join(projectRoot, '.saivage', 'saivage.yaml'),
     source: { kind: 'default' },
     interpolationEnvironment: process.env,
   });
-  const processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry());
+  const processRegistry = new ManagedProcessGroupRegistry();
+  const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
+  const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst-sessions');
+  const processRunner = new ProcessRunner(projectRoot, processRegistry);
   const mcpToolInvocation = {
     getServerTools() { throw new Error('Unexpected MCP server tools read in compiled prompt smoke.'); },
     findToolCapability() { throw new Error('Unexpected MCP capability read in compiled prompt smoke.'); },
@@ -80,12 +78,12 @@ try {
     processIdentity: { pid: process.pid, startedAt: new Date().toISOString() },
     config,
     configAuthority,
-    eventBus,
-    eventLogger: createEventLog(projectRoot, appLogs, eventBus),
-    appLogs,
-    cardStore: new CardService(projectRoot, eventBus, readModelChanges),
-    readModelChanges,
+    eventLogger: createEventLog(projectRoot, NO_FRESHNESS_EFFECTS.timelineChanged),
+    cardStore: new CardService(projectRoot, NO_FRESHNESS_EFFECTS),
+    freshness: NO_FRESHNESS_EFFECTS,
     processRunner,
+    runtimeProcessRootScope,
+    analystProcessRootScope,
     mcpToolInvocation,
   });
 } finally {

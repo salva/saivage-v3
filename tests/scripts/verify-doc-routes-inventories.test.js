@@ -224,12 +224,12 @@ describe('source-derived Config schema inventory', () => {
     const result = verifyConfigDocs({ projectRoot: process.cwd() });
     expect(result.ok).toBe(true);
     expect([...result.expected.keys()]).toEqual([
-      'top-level', 'models', 'models.profiles.entry', 'providers.entry',
+      'top-level', 'models', 'models.temperature', 'models.max_tokens', 'models.profiles.entry', 'models.routing', 'providers.entry',
       'providers.entry.capabilities', 'providers.entry.capabilities.responsesReasoning',
       'providers.entry.modelCapabilities.entry', 'providers.entry.modelCapabilities.entry.responsesReasoning',
       'providers.entry.accounts.entry', 'providers.entry.accounts.entry.capabilities',
       'providers.entry.accounts.entry.capabilities.responsesReasoning', 'server', 'runtime',
-      'runtime.process_timeouts', 'security', 'compaction', 'compaction.summarizer_candidate',
+      'runtime.process_timeouts', 'compaction', 'compaction.summarizer_candidate',
       'card_processes', 'card_processes.planning', 'card_processes.planning.entries',
       'card_processes.planning.entries.BACKLOG', 'card_processes.planning.entries.CHANGED', 'card_processes.planning.entries.BLOCKED', 'card_processes.planning.entries.STOPPED',
       'card_processes.planning.nodes.entry', 'card_processes.planning.nodes.entry.records.item', 'card_processes.planning.nodes.entry.edges.entry',
@@ -282,7 +282,7 @@ describe('source-derived Config schema inventory', () => {
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('duplicate-config-section');
     });
     withFixture(['src/agents/config-schema.ts', DOC], (root) => {
-      rewrite(root, DOC, (source) => source.replace('| `models` | `default', '| `models` | default'));
+      replaceChecked(root, DOC, '| `models` | `analyst', '| `models` | analyst');
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('malformed-config-row');
     });
   });

@@ -7,7 +7,6 @@ describe('buildRuntimeDiagnosticEvent', () => {
       kind: 'runtime_diagnostic',
       phase: 'startup',
       error_message: 'reconciled run',
-      error_name: 'Error',
     });
   });
 });
