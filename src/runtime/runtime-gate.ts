@@ -17,6 +17,14 @@ export class RuntimeGate {
   get pauseRequested(): boolean { return this.#pauseRequested; }
   get isParked(): boolean { return this.#parked !== null; }
 
+  completeRun(): void {
+    if (this.#terminal) throw new Error('Cannot complete a terminally closed RuntimeGate.');
+    if (this.#parked) throw new Error('Cannot complete a RuntimeGate with a parked frontier.');
+    this.#open = false;
+    this.#pauseRequested = false;
+    this.#onParked = null;
+  }
+
   requestPause(onParked: () => void): void {
     if (this.#terminal) throw new Error('Cannot pause a terminally closed RuntimeGate.');
     this.#pauseRequested = true;

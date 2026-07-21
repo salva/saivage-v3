@@ -117,7 +117,7 @@ const {
 } = storeToRefs(runtimeStore);
 
 const errorMsg = ref<string | null>(null);
-const canStopProject = computed(() => ['starting', 'running', 'pausing', 'paused'].includes(status.value));
+const canStopProject = computed(() => ['starting', 'running', 'pausing', 'paused', 'error'].includes(status.value));
 
 async function stopProject(): Promise<void> { try { await runtimeStore.stopProject(); } catch (error) { errorMsg.value = error instanceof Error ? error.message : String(error); } }
 async function restartServer(): Promise<void> {

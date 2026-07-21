@@ -21,11 +21,8 @@ type PlannerRoleSurfaceContext = {
   readonly cardId: string;
   readonly sessionId: string;
   readonly store: CardService;
-  readonly children: PlannerControlProviderContext['children'];
-  readonly cancelCard: PlannerControlProviderContext['cancelCard'];
+  readonly parentControl: PlannerControlProviderContext['parentControl'];
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
-  readonly beginStructuralWait: PlannerControlProviderContext['beginStructuralWait'];
-  readonly endStructuralWait: PlannerControlProviderContext['endStructuralWait'];
 };
 
 type ReviewerRoleSurfaceContext = {
@@ -58,7 +55,7 @@ export function buildRoleSurface(context: RoleSurfaceContext): InvocationSurface
   switch (context.role) {
     case 'planner':
       return buildInvocationSurface(context.role, [
-        createPlannerControlProvider({ projectRoot: context.projectRoot, parentCardId: context.cardId, sessionId: context.sessionId, store: context.store, children: context.children, cancelCard: context.cancelCard, notifyCard: context.notifyCard, beginStructuralWait: context.beginStructuralWait, endStructuralWait: context.endStructuralWait }),
+        createPlannerControlProvider({ projectRoot: context.projectRoot, parentCardId: context.cardId, sessionId: context.sessionId, store: context.store, parentControl: context.parentControl, notifyCard: context.notifyCard }),
         createCardInspectionProvider({ store: context.store }),
         createWorkspaceProvider({ projectRoot: context.projectRoot, cardId: context.cardId, agentRole: context.role, store: context.store, notifyCard: undefined }),
         createCardHistoryProvider({ store: context.store }),

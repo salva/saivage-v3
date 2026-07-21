@@ -33,8 +33,8 @@ describe('CardProcessActor configured graph execution', () => {
     const processRunner = createTestProcessRunner(projectRoot);
     const actor = new CardProcessActor({
       projectRoot, cardId, process: options.process ?? (options.cardType === 'code' ? testAutonomousCompaction.cardProcesses.terminal : testAutonomousCompaction.cardProcesses.planning),
-      store, children: { get: () => null }, ownerStructuralWait: { begin: (relationship) => relationship, end: () => undefined },
-      cancelCard: async () => { throw new Error('unused'); }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), provider: { completeTurn }, conversations: { projectRoot, observeEntry: options.observeEntry },
+      store, parentControl: { activateChild: async () => { throw new Error('unused'); }, cancelChild: async () => { throw new Error('unused'); } },
+      notifyCard: () => ({ ok: true, notificationId: 'unused' }), provider: { completeTurn }, conversations: { projectRoot, observeEntry: options.observeEntry },
       processRunner, promptTemplates: { render: (_type, _role, values) => options.renderPrompt ? options.renderPrompt(values.toolList) : String(values.contractDescription) },
       runtimeProjectionChanged: options.runtimeProjectionChanged ?? (() => undefined), ...testAutonomousCompaction,
     });

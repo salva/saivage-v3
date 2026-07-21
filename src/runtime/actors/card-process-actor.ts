@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { BaseActor, type ActorLifecycleContext, type ActorTransitionContext } from '../micro-actor/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
-import type { CardActivationInput, CardActor, CardCancellationResult, CardProcessorActor } from './card-actor.js';
-import { ConversationLLMActor, type CompactorPort, type LLMActorOutcome, type LLMProviderPort } from './llm-actor.js';
+import type { CardActivationInput, CardProcessorActor, PlannerChildControlPort } from './card-activation-owner.js';
+import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from './llm-actor.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import type { CardService } from '../../cards/card-service.js';
@@ -14,7 +14,7 @@ import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import type { CompiledCardProcess, ProcessPosition } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import { AgentNodeExecution, type AcceptedNodeResult, type NodeTransition } from './agent-node-execution.js';
-import type { ExecutingLlmSnapshot, LlmToolInvocationContext, StructuralChildRelationship } from './executing-llm-snapshot.js';
+import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import { deferred, type Deferred } from './deferred.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
@@ -48,7 +48,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #stagedFailure: Error | null = null;
   #activationSettled = false;
 
-  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; children: { get(cardId: string): CardActor | null }; ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void }; cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
+  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.definition, {
       enter: (context) => this.#enterProcessState(context),
       transition: (context) => this.#processTransitioned(context),
@@ -62,8 +62,8 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#compactor = args.compactor;
     this.#summarizerProvider = args.summarizerProvider;
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;
-    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, children: args.children, ownerStructuralWait: args.ownerStructuralWait, cancelCard: args.cancelCard, notifyCard: args.notifyCard, processRunner: args.processRunner, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
-      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), toolContext: (llm, outcome) => this.#toolInvocationContext(llm, outcome),
+    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, parentControl: args.parentControl, notifyCard: args.notifyCard, processRunner: args.processRunner, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
+      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(),
     });
   }
 
@@ -188,7 +188,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
       const route = this.process.definition.states.get(context.source)?.on.get(context.event);
       if (route?.target !== context.target) throw new Error(`Process terminal route disagrees with compiled definition.`);
     }
-    if (this.#currentExecutingLlm?.executingActivity().mode === 'waiting') throw new Error(`Processor '${this.cardId}' settled while its current LLM actor was waiting.`);
+    if (this.#currentExecutingLlm?.executingActivity().mode === 'waiting' && !this.#joiningLlmActors) throw new Error(`Processor '${this.cardId}' settled while its current LLM actor was waiting.`);
     this.#currentExecutingLlm = null;
     this.#runtimeProjectionChanged();
     if (!this.#joiningLlmActors) {
@@ -219,8 +219,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     const llm = new ConversationLLMActor({ projectRoot: this.projectRoot, agentId, provider: this.#provider, conversations: this.#conversations, gate: this.#gate, compactor: this.#compactor, summarizerProvider: this.#summarizerProvider, runtimeProjectionChanged: this.#runtimeProjectionChanged });
     llm.start(); this.#activeLlmActors.set(agentId, llm); this.#runtimeProjectionChanged(); return llm;
   }
-  #selectExecutingLlm(llm: ConversationLLMActor): void { const current = this.#currentExecutingLlm; if (!current) { this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); return; } if (current === llm) return; if (current.executingActivity().mode !== 'active') throw new Error(`Processor '${this.cardId}' cannot hand off an LLM actor while waiting.`); this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); }
-  #toolInvocationContext(llm: ConversationLLMActor, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): LlmToolInvocationContext { if (this.#currentExecutingLlm !== llm || outcome.agentId !== llm.agentId) throw new Error(`Tool call '${outcome.toolCallId}' does not belong to the current LLM actor.`); const identity = { sessionId: parseConversationSessionId(llm.agentId), sourceInputId: outcome.inputId, toolCallId: outcome.toolCallId, toolName: outcome.toolName }; return { ...identity, waits: llm.waitCallbacks(identity) }; }
+  #selectExecutingLlm(llm: ConversationLLMActor): void { const current = this.#currentExecutingLlm; if (!current) { this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); return; } if (current === llm) return; current.assertInvocationCanHandoff(); if (current.executingActivity().mode !== 'active') throw new Error(`Processor '${this.cardId}' cannot hand off an LLM actor while waiting.`); this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); }
   #freshSourceInputId(): string { return randomUUID(); }
   async #joinProcessorActivation(): Promise<readonly InvocationJoinOutcome[]> { const tracker = this.#operationTracker; if (!tracker) { await this.awaitLifecycleSettlement(); return []; } const outcome = await tracker.join(); await this.awaitLifecycleSettlement(); return [outcome]; }
 }

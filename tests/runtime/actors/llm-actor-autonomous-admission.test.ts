@@ -23,6 +23,70 @@ afterEach(() => {
 });
 
 describe('prepared conversation LLM admission', () => {
+  it('constructs one exact complete tool context and projects only supervisor-admitted child waiting', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-child-context-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    let providerCalls = 0;
+    const actor = toolCallingActor(projectRoot, async () => {
+      providerCalls += 1;
+      return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-call', type: 'function' as const, function: { name: 'activate_card', arguments: '{"card_id":"card-a"}' } }] }, provider_exchanges: [] };
+    });
+    const outcome = await actor.turn(preparedInput());
+    if (outcome.type !== 'tool_call') throw new Error('Expected a tool call.');
+
+    const context = actor.toolInvocationContext(outcome);
+    expect(context).toBe(actor.toolInvocationContext(outcome));
+    expect(context).toMatchObject({ sessionId: 'planner:project', sourceInputId: outcome.inputId, toolCallId: 'activate-call', toolName: 'activate_card' });
+    expect(context.childInvocation.identity).toEqual({ sessionId: 'planner:project', sourceInputId: outcome.inputId, toolCallId: 'activate-call', toolName: 'activate_card' });
+    const lease = context.childInvocation.reserveChild('card-a');
+    expect(context.childInvocation.reserveChild('card-a')).toBe(lease);
+    expect(() => context.childInvocation.reserveChild('card-b')).toThrow(/already reserved child/);
+    expect(actor.executingActivity()).toEqual({ mode: 'active', barrier: null });
+
+    lease.markAdmitted();
+    expect(actor.executingActivity()).toEqual({ mode: 'waiting', barrier: { kind: 'child', relationship: expect.objectContaining({ childCardId: 'card-a', toolCallId: 'activate-call' }) } });
+    expect(() => actor.settleToolResultWithoutContinuation('activate-call', { success: true })).toThrow(/child lease is 'admitted'/);
+    expect(() => actor.assertInvocationCanHandoff()).toThrow(/cannot hand off/);
+    expect(() => actor.abandonParkedTurn()).toThrow(/child invocation lease/);
+
+    const order: string[] = [];
+    lease.markSettling();
+    lease.markReleased();
+    lease.activation.then(() => order.push('lease-resolved'));
+    order.push('ownership-invalidated');
+    lease.deliverOutcome({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } });
+    await lease.activation;
+    expect(order).toEqual(['ownership-invalidated', 'lease-resolved']);
+    actor.settleToolResultWithoutContinuation('activate-call', { success: true });
+    expect(providerCalls).toBe(1);
+  });
+
+  it('rejects foreign tool outcomes and keeps publication-unknown leases unsettled through actor disposal', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-child-unknown-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const actor = toolCallingActor(projectRoot, async () => ({ result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-call', type: 'function' as const, function: { name: 'activate_card', arguments: '{}' } }] }, provider_exchanges: [] }));
+    const outcome = await actor.turn(preparedInput());
+    if (outcome.type !== 'tool_call') throw new Error('Expected a tool call.');
+    expect(() => actor.toolInvocationContext({ ...outcome, agentId: 'planner:card-a' })).toThrow(/belongs to/);
+    expect(() => actor.toolInvocationContext({ ...outcome, inputId: 'stale-input' })).toThrow(/does not match/);
+    expect(() => actor.toolInvocationContext({ ...outcome, toolName: 'other' })).toThrow(/does not match/);
+
+    const lease = actor.toolInvocationContext(outcome).childInvocation.reserveChild('card-a');
+    lease.markAdmitted();
+    lease.markPublicationUnknown();
+    let settled = false;
+    void lease.activation.then(() => { settled = true; }, () => { settled = true; });
+    actor.disposeInvocations(new Error('owner disposal'));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(actor.executingActivity()).toMatchObject({ mode: 'waiting', barrier: { kind: 'child' } });
+    lease.markContained();
+    lease.deliverInterruption(new Error('contained'));
+    await expect(lease.activation).rejects.toThrow('contained');
+  });
+
   it('persists and publishes inside the admitted raw callback before consumer delivery', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-order-'));
     roots.push(projectRoot);
@@ -229,6 +293,19 @@ describe('prepared conversation LLM admission', () => {
     expect(providerCall).not.toHaveBeenCalled();
   });
 });
+
+function toolCallingActor(projectRoot: string, completeTurn: LLMProviderPort['completeTurn']): ConversationLLMActor {
+  const actor = new ConversationLLMActor({
+    projectRoot,
+    agentId: 'planner:project',
+    provider: { completeTurn },
+    conversations: { projectRoot },
+    compactor: { shouldCompact: () => false, compact: jest.fn<CompactorPort['compact']>() },
+    summarizerProvider: { completeTurn: jest.fn<LLMProviderPort['completeTurn']>(), projectProviderExchanges: jest.fn() },
+  });
+  actor.start();
+  return actor;
+}
 
 function preparedInput(): PreparedLlmInvocationInput {
   const systemPrompt = 'system';

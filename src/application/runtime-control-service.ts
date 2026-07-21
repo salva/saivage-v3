@@ -1,7 +1,6 @@
 import type { RuntimeState } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { RuntimeApi, StartProjectResult, StopProjectResult } from '../runtime/runtime-api.js';
-import type { RuntimeInterventionBinding } from './intervention-readiness.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 
 export interface RuntimeControlApplicationPort {
@@ -25,15 +24,13 @@ export interface RuntimeControlMechanics extends Omit<RuntimeApi, 'pause' | 'res
     | { readonly accepted: true; readonly launch: RuntimeLaunchPlan }
   >;
   launchStartedProject(launch: RuntimeLaunchPlan): RuntimeState;
-  beginPause(): { readonly settled: boolean };
-  beginResume(): void;
-  finishResume(): void;
+  pause(): void;
+  resume(): void;
   captureAutonomousExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[];
 }
 
 export class RuntimeControlService implements RuntimeApi {
   constructor(private readonly options: {
-    interventionBinding: RuntimeInterventionBinding;
     mechanics?: RuntimeControlMechanics;
   }) {}
 
@@ -45,9 +42,7 @@ export class RuntimeControlService implements RuntimeApi {
   cleanupForApplicationStop(): Promise<void> { return this.requireMechanics().cleanupForApplicationStop(); }
 
   async startProject(): Promise<StartProjectResult> {
-    this.options.interventionBinding.markNotReady();
     const prepared = await this.requireMechanics().beginStartProject();
-    this.options.interventionBinding.markNotReady();
     if (!prepared.accepted) {
       return prepared.result;
     }
@@ -57,23 +52,15 @@ export class RuntimeControlService implements RuntimeApi {
   }
 
   pause(): void {
-    const mechanics = this.requireMechanics();
-    const prepared = mechanics.beginPause();
-    this.options.interventionBinding.markNotReady();
-    if (prepared.settled) this.options.interventionBinding.markPausedReady();
+    this.requireMechanics().pause();
   }
 
   resume(): void {
-    const mechanics = this.requireMechanics();
-    mechanics.beginResume();
-    this.options.interventionBinding.markNotReady();
-    mechanics.finishResume();
+    this.requireMechanics().resume();
   }
 
   async stopProject(): Promise<StopProjectResult> {
-    const result = await this.requireMechanics().stopProject();
-    this.options.interventionBinding.markStoppedReady();
-    return result;
+    return this.requireMechanics().stopProject();
   }
 
   notifyCard(cardId: string, notification: CardNotification) { return this.requireMechanics().notifyCard(cardId, notification); }

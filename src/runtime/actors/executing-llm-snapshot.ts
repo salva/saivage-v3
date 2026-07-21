@@ -7,6 +7,16 @@ export interface ToolInvocationIdentity {
   readonly toolName: string;
 }
 
+export interface ExternalAndProcessWaits {
+  waitExternal<T>(promise: Promise<T>): Promise<T>;
+  waitProcess<T>(processId: string, promise: Promise<T>): Promise<T>;
+}
+
+export interface ChildInvocationReservation {
+  readonly identity: ToolInvocationIdentity;
+  reserveChild(childCardId: string): import('./child-invocation-wait.js').ChildInvocationLease;
+}
+
 export interface StructuralChildRelationship extends ToolInvocationIdentity {
   readonly childCardId: string;
 }
@@ -28,12 +38,7 @@ export interface ExecutingLlmSnapshot {
   readonly activity: ExecutingLlmActivity;
 }
 
-export interface ToolWaitCallbacks {
-  waitExternal<T>(promise: Promise<T>): Promise<T>;
-  waitProcess<T>(processId: string, promise: Promise<T>): Promise<T>;
-  waitChild<T>(relationship: StructuralChildRelationship, promise: Promise<T>): Promise<T>;
-}
-
 export interface LlmToolInvocationContext extends ToolInvocationIdentity {
-  readonly waits: ToolWaitCallbacks;
+  readonly waits: ExternalAndProcessWaits;
+  readonly childInvocation: ChildInvocationReservation;
 }

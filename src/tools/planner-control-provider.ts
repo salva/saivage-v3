@@ -1,13 +1,11 @@
 import { z } from 'zod';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 
-import type { CardActivationAdmissionProjection, CardPatch, CardService, NewCardInput } from '../cards/card-api.js';
-import { canCancelCardStatus } from '../cards/status-api.js';
+import type { CardPatch, CardService, NewCardInput } from '../cards/card-api.js';
 import {
   activateCardArgumentsSchema,
   formatActivateCardResult,
   type ActivateCardArguments,
-  type CardActivationOutcome,
 } from '../contracts/tool-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
 import { queueNotification } from '../notifications/index.js';
@@ -15,22 +13,15 @@ import { cardIdSchema, cardTypeValues, urgencyValues, type CardRecord, type Card
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
-import type { LlmToolInvocationContext, StructuralChildRelationship } from '../runtime/actors/executing-llm-snapshot.js';
-import { cardProcessEntryForStatus } from '../runtime/card-process/card-process-config.js';
+import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
+import type { PlannerChildControlPort } from '../runtime/actors/card-activation-owner.js';
 import { cardParentId } from '../schemas/card-id.js';
-
-interface PlannerChildActor {
-  activate(input: { kind: 'parent'; cardId: string; sessionId: string }, parentAdmit: () => void): Promise<CardActivationOutcome>;
-  awaitSettlement(caller?: { kind: 'parent'; cardId: string; sessionId: string }): Promise<CardActivationOutcome>;
-}
 
 interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
-  readActivationAdmission(cardId: string): CardActivationAdmissionProjection | null;
   create?(input: NewCardInput): CardRecord;
   mutateCard?(cardId: string, changes: CardPatch, ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): CardRecord;
-  setStatus(cardId: string, status: 'changed' | 'running'): CardRecord;
-  activateStopped(cardId: string): CardRecord;
+  setStatus(cardId: string, status: 'changed'): CardRecord;
   reorderChildren?(parentId: string, orderedChildIds: string[], ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): ReorderChildrenResult;
 }
 
@@ -39,11 +30,8 @@ export interface PlannerControlProviderContext {
   readonly parentCardId: string;
   readonly sessionId: string;
   readonly store: PlannerControlStore;
-  readonly children: { get(cardId: string): PlannerChildActor | null };
-  readonly cancelCard: (cardId: string, reason: string) => Promise<{ card_id: string; status: 'cancelled'; cancelled_card_ids: string[] }>;
+  readonly parentControl: PlannerChildControlPort;
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
-  readonly beginStructuralWait: (relationship: StructuralChildRelationship) => StructuralChildRelationship;
-  readonly endStructuralWait: (relationship: StructuralChildRelationship) => void;
 }
 
 const createCardSchema = z.object({
@@ -138,43 +126,17 @@ function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.inf
 
 async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<typeof cancelCardSchema>): Promise<ToolResult> {
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');
-  const child = requireImmediateChild(ctx, record.card_id, 'cancel_card');
-  if (!child.success) return child;
-  if (!canCancelCardStatus(child.card.lifecycle.status)) return failure(`cancel_card cannot cancel ${child.card.lifecycle.status === 'cancelled' ? 'already-cancelled' : child.card.lifecycle.status} child '${record.card_id}'.`);
-  try { return { success: true, data: await ctx.cancelCard(record.card_id, record.reason ?? 'planner_cancel_card') }; }
+  if (record.card_id === 'project' || cardParentId(record.card_id) !== ctx.parentCardId) return failure(`cancel_card can target only immediate children of '${ctx.parentCardId}'.`);
+  try { return { success: true, data: await ctx.parentControl.cancelChild({ childCardId: record.card_id, reason: record.reason ?? 'planner_cancel_card' }) }; }
   catch (error) { if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
 }
 
 async function activateCard(ctx: PlannerControlProviderContext, record: ActivateCardArguments, invocation?: LlmToolInvocationContext): Promise<ToolResult> {
-  const admission = ctx.store.readActivationAdmission(record.card_id);
-  if (!admission) return failure(`Child card '${record.card_id}' not found.`);
-  const child = admission.child;
-  if (cardParentId(child.id) !== ctx.parentCardId) return failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`);
-  const incomplete = admission.dependencies.filter(({ status }) => status !== 'done');
-  if (incomplete.length > 0) {
-    return failure(`Child card '${record.card_id}' has incomplete dependencies: ${incomplete.map(({ id, status }) => `${id} (${status})`).join(', ')}.`);
-  }
-  if (child.lifecycle.status !== 'running' && cardProcessEntryForStatus(child.lifecycle.status) === null) {
-    return failure(`Card '${record.card_id}' in status '${child.lifecycle.status}' is not activatable.`);
-  }
-  const actor = ctx.children.get(record.card_id);
-  if (!actor) return failure(`No CardActor is registered for child '${record.card_id}'.`);
+  if (cardParentId(record.card_id) !== ctx.parentCardId) return failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`);
+  if (!invocation) throw new Error('activate_card requires an LLM invocation context.');
+  const lease = invocation.childInvocation.reserveChild(record.card_id);
   try {
-    let pending: Promise<CardActivationOutcome>;
-    if (child.lifecycle.status === 'running') {
-      pending = actor.awaitSettlement({ kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId });
-    } else {
-      pending = actor.activate(
-        { kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId },
-        () => { if (child.lifecycle.status === 'stopped') ctx.store.activateStopped(record.card_id); else ctx.store.setStatus(record.card_id, 'running'); },
-      );
-    }
-    let activation: CardActivationOutcome;
-    if (invocation) {
-      const relationship = ctx.beginStructuralWait({ sessionId: invocation.sessionId, sourceInputId: invocation.sourceInputId, toolCallId: invocation.toolCallId, toolName: invocation.toolName, childCardId: record.card_id });
-      try { activation = await invocation.waits.waitChild(relationship, pending); }
-      finally { ctx.endStructuralWait(relationship); }
-    } else activation = await pending;
+    const activation = await ctx.parentControl.activateChild({ childCardId: record.card_id, invocation: lease });
     return formatActivateCardResult(record.card_id, activation);
   } catch (error) {
     if (isRuntimeStoppedInterruption(error)) throw error;

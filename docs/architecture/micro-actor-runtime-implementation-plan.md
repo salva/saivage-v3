@@ -6,8 +6,9 @@ This implementation note is subordinate to [System Architecture](./system-archit
 
 ## Current Runtime Shape
 
-- The runtime installs one process-local instance and owns the exact live-card map.
-- One `CardActor` owns each live activation and its synchronous result/cancel claim.
+- The runtime installs one process-local instance and the supervisor owns one exact `activationOwners` map.
+- One plain `CardActivationOwner` holds each activation's phase, result/cancel winner, independent containment owner, ready processor, relationship, publication task, and retained failure. It is not a `BaseActor`.
+- `CardProcessActor` and `ConversationLLMActor` remain actors. The conversation actor alone constructs the complete LLM invocation context and concrete child lease; supervisor transitions coordinate that lease with owner structure.
 - Project/goal restart begins planner; terminal-card restart begins executor; reviewer is nested live work only.
 - Pause is one request flag and one parked frontier. Stop interrupts open work for restartable containment; only when domain cancellation already owns the claim does Stop join that exact actor's cancellation settlement.
 - Stable planner/executor/reviewer session owners locally settle only the latest interrupted conversation round.
@@ -18,7 +19,7 @@ This implementation note is subordinate to [System Architecture](./system-archit
 - Start assigns the initial state and invokes only `enter`. External transitions run `leave`, source-task abort/clear, target assignment, `transition`, then `enter`; unknown events and ordinary same-state transitions run no callback.
 - Runtime state, actor snapshots, active reconstruction, recovery diagnostics, and replay coordinators do not exist.
 
-## CardActor Cancellation Contract
+## Card Activation Cancellation Contract
 
 Cancellation claims the activation before its first await, revokes all late commits, contains activation-owned process and descendant scopes, publishes the card cancellation, settles the caller exactly once, and removes live ownership last. Result-first and cancel-first races therefore have one winner. A running card without exactly one owner fails fast.
 
@@ -50,7 +51,7 @@ Process ownership is process-local and activation-scoped. Stopped runtime instan
 
 Obsolete. Startup begins with an empty process registry and performs no process reconciliation or actor replay.
 
-## P3 CardActor Owns Authoritative Cancellation And Activation ID Settlement
+## P3 Supervisor Owns Authoritative Cancellation And Activation Settlement
 
 The cancellation contract above is current. The activation claim and exact live-owner map provide the sole running-card cancellation authority.
 

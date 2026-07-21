@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { CardService } from '../../src/cards/card-service.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
@@ -41,7 +42,7 @@ describe('reviewer role surface record access', () => {
       mcpToolInvocation: unusedMcpToolInvocation,
     });
 
-    await expect(invokeToolForLlm(surface, 'read', { path: `record:///status.md?card=${CHILD}&v=1` })).resolves.toEqual({
+    await expect(invokeToolForLlm(surface, 'read', { path: `record:///status.md?card=${CHILD}&v=1` }, testLlmToolInvocationContext({ toolName: 'read' }))).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
         path: `record:///status.md?card=${CHILD}&v=1`,
@@ -49,7 +50,7 @@ describe('reviewer role surface record access', () => {
         content: 'First closed descendant status.',
       }),
     });
-    await expect(invokeToolForLlm(surface, 'read', { path: `record:///status.md?card=${CHILD}&v=latest` })).resolves.toEqual({
+    await expect(invokeToolForLlm(surface, 'read', { path: `record:///status.md?card=${CHILD}&v=latest` }, testLlmToolInvocationContext({ toolName: 'read' }))).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
         path: `record:///status.md?card=${CHILD}&v=2`,
@@ -58,11 +59,11 @@ describe('reviewer role surface record access', () => {
       }),
     });
 
-    await expect(invokeToolForLlm(surface, 'write', { path: 'record:///review.md?v=next', content: 'Review draft.' })).resolves.toEqual({
+    await expect(invokeToolForLlm(surface, 'write', { path: 'record:///review.md?v=next', content: 'Review draft.' }, testLlmToolInvocationContext({ toolName: 'write' }))).resolves.toEqual({
       success: true,
       data: { path: 'record:///review.md?card=project&v=1', record_url: 'record:///review.md?card=project&v=1', bytes: 13, written: true },
     });
-    await expect(invokeToolForLlm(surface, 'read', { path: 'record:///review.md?v=next' })).resolves.toEqual({
+    await expect(invokeToolForLlm(surface, 'read', { path: 'record:///review.md?v=next' }, testLlmToolInvocationContext({ toolName: 'read' }))).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
         path: 'record:///review.md?card=project&v=1',
@@ -73,11 +74,11 @@ describe('reviewer role surface record access', () => {
 
     const foreignOpen = store.openRecord(CHILD, 'status.md');
     store.editRecord(CHILD, 'status.md', foreignOpen.version, 'Unclosed descendant draft.');
-    await expect(invokeToolForLlm(surface, 'read', { path: `record:///status.md?card=${CHILD}&v=next` })).resolves.toMatchObject({
+    await expect(invokeToolForLlm(surface, 'read', { path: `record:///status.md?card=${CHILD}&v=next` }, testLlmToolInvocationContext({ toolName: 'read' }))).resolves.toMatchObject({
       success: false,
       error: 'Only the owning agent may read its current open record slot.',
     });
-    await expect(invokeToolForLlm(surface, 'read', { path: `record://status.md?card=${CHILD}&v=1` })).resolves.toMatchObject({
+    await expect(invokeToolForLlm(surface, 'read', { path: `record://status.md?card=${CHILD}&v=1` }, testLlmToolInvocationContext({ toolName: 'read' }))).resolves.toMatchObject({
       success: false,
       error: expect.stringContaining('expected record:///'),
     });

@@ -60,14 +60,13 @@ describe('Stage-I runtime lifecycle E2E', () => {
     expect(runtime.getActorRuntimeReadModel().cards.map((entry) => entry.cardId)).toEqual(['project']);
     expect(runtime.getActorRuntimeReadModel()).not.toHaveProperty('agents');
 
-    expect(runtime.beginPause().settled).toBe(false);
+    runtime.pause();
     releaseFirst();
     await waitUntil(() => runtime.getStatus().status === 'paused');
     expect(inputs).toHaveLength(1);
     const paused = runtime.getRuntimeState();
     if (!paused) throw new Error('Paused runtime state missing.');
-    runtime.beginResume();
-    runtime.finishResume();
+    runtime.resume();
     await waitUntil(() => inputs.length === 2);
     expect(inputs[1]!.inputId).not.toBe(inputs[0]!.inputId);
 

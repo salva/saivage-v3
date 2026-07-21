@@ -1,8 +1,48 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { APP_CLEANUP_LEAF_TIMEOUT_MS, createAppTerminalCoordinator } from '../../src/boot/app.js';
+import { mkdtempSync, rmSync } from 'node:fs'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
+import { CardService } from '../../src/cards/card-service.js'; import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js'; import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js'; import { SupervisorRuntimeApi, RuntimeControlConflictError } from '../../src/runtime/actors/supervisor-runtime-api.js'; import { initProjectTree } from '../helpers/canonical-project.js'; import { createTestProcessRunner } from '../helpers/test-process-runner.js'; import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js'; import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
+
+const roots: string[] = [];
+function realHarness(provider: LLMProviderPort = { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_r, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }) {
+  const root = mkdtempSync(join(tmpdir(), 'saivage-terminal-supervisor-')); roots.push(root); initProjectTree(root); const cards = new CardService(root); const runner = createTestProcessRunner(root);
+  const supervisor = new SupervisorRuntimeApi({ ...testAutonomousCompaction, projectRoot: root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider, conversations: { projectRoot: root }, readModelChanges: new ReadModelChangeBroadcaster(), processRunner: runner, promptTemplates: createTestPromptTemplateRegistry() });
+  const terminal = createAppTerminalCoordinator(); terminal.registerAdmissionCloser('runtime', () => supervisor.closeApplicationAdmission()); terminal.registerCleanupLeaf('runtime', () => supervisor.cleanupForApplicationStop()); return { supervisor, terminal, cards, runner };
+}
 
 describe('App terminal coordinator', () => {
-  afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
+  afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+
+  it('drives real supervisor application containment before a losing Stop', async () => {
+    const { supervisor, terminal } = realHarness();
+    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); supervisor.launchStartedProject(prepared.launch);
+    const closing = terminal.stop(); await expect(supervisor.stopProject()).rejects.toBeInstanceOf(RuntimeControlConflictError); await expect(closing).resolves.toEqual({ warnings: [] }); expect(supervisor.getStatus().status).toBe('closing');
+  });
+
+  it('joins Stop-first through actual terminal cleanup without a second termination', async () => {
+    const { supervisor, terminal, runner } = realHarness(); const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); supervisor.launchStartedProject(prepared.launch);
+    const terminate = jest.spyOn(runner, 'terminateScopeTree'); const owned = jest.spyOn(runner, 'terminateOwnedRoot'); const stop = supervisor.stopProject();
+    await expect(terminal.stop()).resolves.toEqual({ warnings: [] }); await expect(stop).resolves.toMatchObject({ contained: true }); expect(terminate).toHaveBeenCalledTimes(1); expect(owned).not.toHaveBeenCalled(); expect(supervisor.getStatus().status).toBe('stopped');
+  });
+
+  it.each(['result', 'cancel'] as const)('contains an actual already-settled %s runtime without reviving ownership', async (winner) => {
+    let calls = 0; const provider = { completeTurn: async () => { calls += 1; return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: String(calls), type: 'function' as const, function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?v=next', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }) } }] }, provider_exchanges: [] }; } };
+    const h = realHarness(provider); const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); h.supervisor.launchStartedProject(prepared.launch);
+    if (winner === 'cancel') await h.supervisor.cancelCard('project', 'terminal shutdown');
+    else for (let i = 0; i < 200 && h.supervisor.getStatus().status !== 'stopped'; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(h.supervisor.getStatus().status).toBe('stopped'); const first = h.terminal.stop(); expect(h.terminal.stop()).toBe(first); await expect(first).resolves.toEqual({ warnings: [] }); expect(h.supervisor.getStatus().status).toBe('stopped');
+  });
+
+  it('reports an actual supervisor cleanup failure once and retains closing ownership', async () => {
+    const h = realHarness(); const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); h.supervisor.launchStartedProject(prepared.launch);
+    jest.spyOn(h.runner, 'terminateOwnedRoot').mockRejectedValueOnce(new Error('termination failed')); const report = await h.terminal.stop();
+    expect(report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_failed' }] }); expect(h.supervisor.getStatus().status).toBe('error');
+  });
+
+  it('closes admission on an actual stopped supervisor and leaves Stop not-contained', async () => {
+    const h = realHarness(); await h.supervisor.start(); await expect(h.terminal.stop()).resolves.toEqual({ warnings: [] }); await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: false });
+  });
 
   it('closes every admission before cleanup and isolates fixed warnings', async () => {
     const terminal = createAppTerminalCoordinator();

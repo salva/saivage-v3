@@ -29,8 +29,7 @@ async function waitUntil(predicate: () => boolean): Promise<void> { for (let att
 function history(cards: CardService, cardId: string) { const result = cards.listCardHistory(cardId); if (result.kind !== 'found') throw new Error(`missing ${cardId}`); return result.value; }
 
 type RuntimeOwnership = {
-  cardActors: Map<string, { readonly cardId: string }>;
-  liveCardActors: Map<string, { readonly cardId: string }>;
+  activationOwners: Map<string, { readonly cardId: string }>;
 };
 
 function runtime(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>; projectProviderExchanges?: (sessionId: string, inputId: string, attempts: ProviderExchangeAttempt[], outputIds: string[]) => void }, processRunner = new ProcessRunner(projectRoot, new ManagedProcessGroupRegistry())): SupervisorRuntimeApi {
@@ -136,10 +135,8 @@ describe('failed child activation lifecycle E2E', () => {
     expect(failed).toMatchObject({ version_seq: failedRunningVersion + 1, lifecycle: { status: 'failed', result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') }, error: expect.stringContaining('authentication failed permanently') } });
     expect(failureToolResult).toEqual({ success: true, data: { card_id: failedChild.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') } } });
     expect(rejectedRetryToolResult).toEqual({ success: false, error: `Card '${failedChild.id}' in status 'failed' is not activatable.` });
-    expect(ownership.cardActors.has(failedChild.id)).toBe(false);
-    expect(ownership.liveCardActors.has(failedChild.id)).toBe(false);
-    expect([...ownership.cardActors.keys()]).toEqual(['project', parent.id]);
-    expect([...ownership.liveCardActors.keys()]).toEqual(['project', parent.id]);
+    expect(ownership.activationOwners.has(failedChild.id)).toBe(false);
+    expect([...ownership.activationOwners.keys()]).toEqual(['project', parent.id]);
     expect(supervisor.getActorRuntimeReadModel().cards.map(({ cardId }) => cardId)).toEqual(['project', parent.id]);
     expect(history(cards, failedChild.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
 
@@ -150,8 +147,8 @@ describe('failed child activation lifecycle E2E', () => {
     const runningChain = selectLinkedRunningChain(cards).map((card) => card.id);
     expect(runningChain).toEqual(['project', parent.id, sibling.id]);
     expect(cards.read(failedChild.id)?.lifecycle.status).toBe('failed');
-    expect(ownership.liveCardActors.has(failedChild.id)).toBe(false);
-    expect(ownership.liveCardActors.get(sibling.id)?.cardId).toBe(sibling.id);
+    expect(ownership.activationOwners.has(failedChild.id)).toBe(false);
+    expect(ownership.activationOwners.get(sibling.id)?.cardId).toBe(sibling.id);
     const cardProjection = new CardsReadModelService(projectRoot, cards, supervisor).getCard(failedChild.id);
     if ('statusCode' in cardProjection) throw new Error('expected card projection');
     expect(cardProjection.body.card.lifecycle.status).toBe('failed');
@@ -165,8 +162,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(cards.read(parent.id)).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'Parent failed after child failure.' } } });
     expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'Project failed after child failure.' } } });
     expect(selectLinkedRunningChain(cards)).toEqual([]);
-    expect(ownership.cardActors.size).toBe(0);
-    expect(ownership.liveCardActors.size).toBe(0);
+    expect(ownership.activationOwners.size).toBe(0);
     expect(supervisor.getRuntimeState()).toBeNull();
   });
 
@@ -219,8 +215,7 @@ describe('failed child activation lifecycle E2E', () => {
     await retryAdmitted.promise;
     expect(firstActivationResult).toEqual({ success: true, data: { card_id: child.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') } } });
     expect(cards.read(child.id)).toMatchObject({ title: 'Retry child changed', lifecycle: { status: 'running' } });
-    expect(ownership.cardActors.get(child.id)?.cardId).toBe(child.id);
-    expect(ownership.liveCardActors.get(child.id)?.cardId).toBe(child.id);
+    expect(ownership.activationOwners.get(child.id)?.cardId).toBe(child.id);
     expect(supervisor.getStatus().currentCardId).toBe(child.id);
     releaseRetry.resolve();
 
@@ -228,8 +223,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(cards.read(child.id)).toMatchObject({ title: 'Retry child changed', lifecycle: { status: 'done', result: { kind: 'done', summary: 'Changed child completed.' } } });
     expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(2);
     expect(childCalls).toBe(3);
-    expect(ownership.cardActors.size).toBe(0);
-    expect(ownership.liveCardActors.size).toBe(0);
+    expect(ownership.activationOwners.size).toBe(0);
   });
 
   it('selects cleanup failure after accepted executor terminal handling as the only terminal publication', async () => {
@@ -263,7 +257,7 @@ describe('failed child activation lifecycle E2E', () => {
     if (!prepared.accepted) throw new Error('Run was not accepted.');
     supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => cards.read(child.id)?.lifecycle.status === 'failed');
-    await waitUntil(() => !(supervisor as unknown as RuntimeOwnership).cardActors.has(child.id));
+    await waitUntil(() => !(supervisor as unknown as RuntimeOwnership).activationOwners.has(child.id));
 
     expect(cards.read(child.id)).toMatchObject({ version_seq: initialVersion + 2, lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
     expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
@@ -271,8 +265,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(() => cards.readRecord(child.id, 'status.md', 'open')).toThrow();
     const terminalRows = readConversation(projectRoot, `executor:${child.id}`).physicalRows.filter((row) => row.tool_call_id === 'accepted');
     expect(terminalRows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool_result', content: JSON.stringify({ success: true, data: { accepted: true } }) })]));
-    expect((supervisor as unknown as RuntimeOwnership).cardActors.has(child.id)).toBe(false);
-    expect((supervisor as unknown as RuntimeOwnership).liveCardActors.has(child.id)).toBe(false);
+    expect((supervisor as unknown as RuntimeOwnership).activationOwners.has(child.id)).toBe(false);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
   });
 
@@ -293,8 +286,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: expect.stringContaining('failed without ProviderTurnFailure metadata') }, error: expect.stringContaining('failed without ProviderTurnFailure metadata') } });
     expect(cards.read('project')!.version_seq).toBeGreaterThan(runningVersion);
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
-    expect((supervisor as unknown as RuntimeOwnership).cardActors.size).toBe(0);
-    expect((supervisor as unknown as RuntimeOwnership).liveCardActors.size).toBe(0);
+    expect((supervisor as unknown as RuntimeOwnership).activationOwners.size).toBe(0);
     consoleError.mockRestore();
   });
 });

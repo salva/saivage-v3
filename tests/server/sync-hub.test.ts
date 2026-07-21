@@ -9,7 +9,6 @@ import type { DomainEvent } from '../../src/events/index.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { ReadModelChangeBroadcaster } from '../../src/application/read-model-changes.js';
 import { CardService } from '../../src/cards/card-service.js';
-import { ActiveCardLeaf } from '../../src/runtime/active-card-leaf.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { WebSocket } from 'ws';
 
@@ -128,15 +127,14 @@ describe('SyncHub semantic hints', () => {
     }
   });
 
-  it('delivers a real actor-owner runtime hint through the broadcaster after debounce', () => {
+  it('delivers a runtime ownership hint through the broadcaster after debounce', () => {
     jest.useFakeTimers();
     const live = new LiveSyncSocket();
     const invalidate = jest.spyOn(live, 'invalidate');
     const hub = new SyncHub(live, 25);
     const changes = new ReadModelChangeBroadcaster();
     changes.subscribe(hub);
-    const currentness = new ActiveCardLeaf(() => changes.runtimeChanged());
-    currentness.setChain(['project']);
+    changes.runtimeChanged();
     expect(invalidate).not.toHaveBeenCalled();
 
     jest.advanceTimersByTime(25);

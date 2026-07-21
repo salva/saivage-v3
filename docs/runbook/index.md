@@ -2,6 +2,12 @@
 
 Status: current operator procedures for runtime maintenance.
 
+## Activation ownership and retained uncertainty
+
+Accepted Run first installs a prepared root owner and reports `starting/not_ready`; it is containable before launch. Application shutdown permanently closes Run admission. A lifecycle append that throws is outcome-unknown: the runtime retains its owner and any exact planner child wait in `error/not_ready`, performs no affected stream reread/write/retry, and does not turn the incident into a failed planner tool result. Use **Stop project** to attempt process-local containment. If interruption, joins, and process termination succeed, Stop clears in-memory ownership without claiming what the durable append did. If a distinct containment operation fails, ownership remains `error/not_ready` and repeated Stop returns the same failure.
+
+Pause is cooperative and run-scoped. Natural root completion can win from running, pausing, or paused; its stopped transition clears the old Pause request and callback before publication, so a later gate wait cannot emit paused for the old run. Project Stop and application close arbitrate one first containment owner: Stop-first may clear for reuse, application-close-first retains contained state until exit, and losing callers join rather than repeat interruption or termination. Retained historical Planner control-action rows remain readable, while current Planner reorder/notification operations append no control action.
+
 ## Prepared conversation compaction
 
 Before startup, provide `compaction.enabled: true`, a positive operator-selected route-independent `input_budget_tokens`, and one exact structured `summarizer_candidate: { provider, account, model }` emitted by the configured Provider Registry. `account: null` means the provider-level implicit account; explicit `"_implicit"` and `"_"` remain distinct exact names. Slash-bearing model IDs such as `org/summary/model` are ordinary data. Omitted, false, incomplete, malformed, or non-emitted candidates fail startup. There is no generated policy, flattened compatibility spelling, fallback summarizer route, or warning-only mode. Configuration load also requires the effective Analyst output request (`models.max_tokens.analyst`, then `models.max_tokens.default`, then 4096) to be no greater than `floor(input_budget_tokens * completion_reserve_fraction)`. The diagnostic reports the effective source, request, reserve, budget, and fraction. Raise the input budget or reserve fraction, or lower the configured Analyst max, then perform a fresh ordinary start; this is configuration correction, not state recovery.
@@ -72,7 +78,7 @@ Each leaf has one referenced ten-second bound. Fast completion clears the timer;
 
 ## Running-card cancellation
 
-Analyst and planner explicit `cancel_card` route running cancellation through the runtime cancellation port. The exact live `CardActor` synchronously claims the target and complete running descendant suffix before containment awaits, revokes callbacks, contains scope, preserves done descendants, publishes deepest-first cancellation, settles once, and removes ownership last. Project Stop and App cleanup never call this port. If cancellation already owns the terminal claim when Stop begins, Stop joins that same exact actor settlement; closing retains ownership until it succeeds, then the supervisor clears the maps. A running card with no exact live owner is an invariant failure, never a direct-write fallback. If a cancellation request resumes after its captured runtime closed or was replaced, it reports `runtime_control_interrupted` before reread or mutation; inspect state and intentionally retry.
+Analyst and planner explicit `cancel_card` route running cancellation through runtime cancellation authority. The supervisor consults its one owner map before target I/O, synchronously claims the exact target and running descendant suffix, preserves done descendants, and publishes deepest-first. Planner access is through the exact parent-bound port. Project Stop and App cleanup never initiate cancellation; if cancellation already won, containment joins it without taking abort/publication authority. Durable running without an exact owner is an invariant failure, never a direct-write fallback.
 
 ## Storage and interruption
 

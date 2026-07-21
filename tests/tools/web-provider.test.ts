@@ -8,6 +8,7 @@ import { createWebProvider } from '../../src/tools/web-tools.js';
 import { createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
 import { EventBus } from '../../src/events/index.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
 describe('WebProvider', () => {
   it('waits only around public fetch and resumes before result publication/finalization', async () => {
@@ -19,14 +20,10 @@ describe('WebProvider', () => {
     try {
       const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' })]);
       const context = {
-        sessionId: 'executor:card-a' as const,
-        sourceInputId: '11111111-1111-4111-8111-111111111111',
-        toolCallId: 'call-web',
-        toolName: 'webfetch',
+        ...testLlmToolInvocationContext({ toolCallId: 'call-web', toolName: 'webfetch' }),
         waits: {
           waitExternal: async <T>(promise: Promise<T>) => { events.push('wait-enter'); const value = await promise; events.push('wait-exit'); return value; },
           waitProcess: async <T>(_id: string, _promise: Promise<T>) => { throw new Error('unexpected process wait'); },
-          waitChild: async <T>(_relationship: any, _promise: Promise<T>) => { throw new Error('unexpected child wait'); },
         },
       };
       const pending = invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34', metadata_only: true }, new AbortController().signal, context);

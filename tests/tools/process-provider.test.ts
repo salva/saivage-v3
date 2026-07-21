@@ -8,6 +8,7 @@ import { createProcessProvider } from '../../src/tools/process-provider.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
 function executorProvider(root: string, processRunner: ProcessRunner, ownerId = 'activation-1') {
   return createProcessProvider({ projectRoot: root, processRunner, directScope: processRunner.createDirectScope(processRunner.runtimeRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentRole: 'executor', ownerKind: 'agent' });
@@ -48,11 +49,8 @@ describe('process provider', () => {
       return promise;
     };
     const context: LlmToolInvocationContext = {
-      sessionId: 'executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const,
-      sourceInputId: '11111111-1111-4111-8111-111111111111',
-      toolCallId: 'call-process',
-      toolName: 'run_command',
-      waits: { waitProcess, waitExternal: async <T>(_promise: Promise<T>) => { throw new Error('unexpected external wait'); }, waitChild: async <T>(_relationship: any, _promise: Promise<T>) => { throw new Error('unexpected child wait'); } },
+      ...testLlmToolInvocationContext({ sessionId: 'executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', toolCallId: 'call-process', toolName: 'run_command' }),
+      waits: { waitProcess, waitExternal: async <T>(_promise: Promise<T>) => { throw new Error('unexpected external wait'); } },
     };
 
     const foreground = await invokeTool(surface, 'run_command', { command: 'sleep 0.05', timeout_ms: 1000 }, new AbortController().signal, context);

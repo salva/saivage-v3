@@ -23,6 +23,7 @@ describe('DashboardView S06 read-only contract', () => {
     expect(source).not.toContain('Analyst Chat');
     expect(source).not.toContain('class="chat-panel"');
     expect(source).toContain('Stop project');
+    expect(source).toContain("['starting', 'running', 'pausing', 'paused', 'error']");
     expect(source).toContain('v-if="restartServerAvailable"');
     expect(source).toContain("window.prompt('Type RESTART SERVER to confirm server restart:') !== 'RESTART SERVER'");
     expect(source).toContain('restartServerAvailable');

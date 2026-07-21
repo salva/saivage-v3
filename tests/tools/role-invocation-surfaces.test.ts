@@ -11,7 +11,7 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { invokeToolForLlm, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { buildRoleSurface, type RoleSurfaceContext } from '../../src/tools/role-invocation-surfaces.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
-import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
+import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { createTestDirectProcessScope, createTestProcessRunner } from '../helpers/test-process-runner.js';
 
 const roots: string[] = [];
@@ -51,7 +51,7 @@ describe('role invocation surfaces', () => {
     const context = fixture(role);
     const surface = buildRoleSurface(context);
     for (const status of ['backlog', 'running']) {
-      await expect(invokeToolForLlm(surface, 'create_card', { type: 'code', title: 'strict child', brief: 'strict brief', status }))
+      await expect(invokeToolForLlm(surface, 'create_card', { type: 'code', title: 'strict child', brief: 'strict brief', status }, testLlmToolInvocationContext({ toolName: 'create_card' })))
         .resolves.toMatchObject({ success: false });
     }
     const store = context.role === 'analyst' ? context.toolContext.store : context.store;
@@ -64,11 +64,11 @@ describe('role invocation surfaces', () => {
     const surface = buildRoleSurface(context);
     const args = { serverName: 'test-server', toolName: 'test-tool', args: { value: 7 } };
 
-    await expect(invokeToolForLlm(surface, 'mcp_tool_call', args)).rejects.toBeInstanceOf(McpToolInvocationNotInstalledError);
+    await expect(invokeToolForLlm(surface, 'mcp_tool_call', args, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).rejects.toBeInstanceOf(McpToolInvocationNotInstalledError);
 
     const invokeTool = jest.fn<McpToolInvocationPort['invokeTool']>(async () => ({ accepted: true }));
     installation.installer.install({ getServerTools: () => [], findToolCapability: () => null, invokeTool });
-    await expect(invokeToolForLlm(surface, 'mcp_tool_call', args)).resolves.toEqual({ success: true, data: { accepted: true } });
+    await expect(invokeToolForLlm(surface, 'mcp_tool_call', args, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).resolves.toEqual({ success: true, data: { accepted: true } });
     expect(invokeTool).toHaveBeenCalledWith('test-server', 'test-tool', { value: 7 }, undefined);
   });
 });
@@ -79,7 +79,7 @@ function fixture(role: RoleSurfaceContext['role'], mcpToolInvocation: McpToolInv
   initProjectTree(projectRoot);
   const store = new CardService(projectRoot);
   const processRunner = createTestProcessRunner(projectRoot);
-  if (role === 'planner') return { role, projectRoot, cardId: 'project', sessionId: 'planner:project', store, children: { get: () => null }, cancelCard: async (cardId) => ({ card_id: cardId, status: 'cancelled', cancelled_card_ids: [cardId] }), notifyCard: () => ({ ok: true, notificationId: 'test-notification' }), beginStructuralWait: (relationship) => relationship, endStructuralWait: () => undefined };
+  if (role === 'planner') return { role, projectRoot, cardId: 'project', sessionId: 'planner:project', store, parentControl: { activateChild: async () => { throw new Error('unused'); }, cancelChild: async ({ childCardId }) => ({ card_id: childCardId, status: 'cancelled', cancelled_card_ids: [childCardId] }) }, notifyCard: () => ({ ok: true, notificationId: 'test-notification' }) };
   if (role === 'reviewer') return { role, projectRoot, cardId: 'project', store, mcpToolInvocation };
   if (role === 'executor') return { role, projectRoot, cardId: 'project', ownerId: 'activation:test:node:0', store, processRunner, processScope: createTestDirectProcessScope(processRunner, 'runtime_card'), mcpToolInvocation };
   const toolContext: ToolContext = {

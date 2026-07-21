@@ -15,7 +15,8 @@ import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js'
 import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult } from './compaction/compactor.js';
 import { SummarizerExchangeProjectionError, type SummarizerProviderPort } from './compaction/summarizer.js';
 import { sanitizeRecoveryMessage } from '../../agents/invocation-recovery-policy.js';
-import type { ExactWaitBarrier, ExecutingLlmActivity, ToolInvocationIdentity, ToolWaitCallbacks } from './executing-llm-snapshot.js';
+import type { ChildInvocationReservation, ExactWaitBarrier, ExecutingLlmActivity, ExternalAndProcessWaits, LlmToolInvocationContext, ToolInvocationIdentity } from './executing-llm-snapshot.js';
+import { ChildInvocationLease } from './child-invocation-wait.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -78,6 +79,8 @@ export class ConversationLLMActor extends BaseActor {
   readonly #invocations = new InvocationLifecycle();
   #currentInvocation: InvocationLease | null = null;
   #executingActivity: ExecutingLlmActivity = Object.freeze({ mode: 'active', barrier: null });
+  #childInvocationLease: ChildInvocationLease | null = null;
+  #toolContext: LlmToolInvocationContext | null = null;
 
   readonly conversations: ConversationFileContext;
   readonly compactor: CompactorPort;
@@ -122,19 +125,46 @@ export class ConversationLLMActor extends BaseActor {
   }
 
   executingActivity(): ExecutingLlmActivity {
+    const lease = this.#childInvocationLease;
+    if (lease?.isWaitingBarrier()) return Object.freeze({ mode: 'waiting', barrier: Object.freeze({ kind: 'child', relationship: lease.relationship }) });
     return this.#executingActivity;
   }
 
   resetExecutingActivity(): void {
     if (this.#executingActivity.mode === 'waiting') throw new Error(`LLMActor '${this.agentId}' cannot reset activity while waiting.`);
+    if (this.#childInvocationLease) throw new Error(`LLMActor '${this.agentId}' cannot reset activity with a child invocation lease.`);
     this.#executingActivity = Object.freeze({ mode: 'active', barrier: null });
     this.runtimeProjectionChanged?.();
   }
 
-  waitCallbacks(identity: ToolInvocationIdentity): ToolWaitCallbacks {
-    if (identity.sessionId !== this.agentId) throw new Error(`Tool invocation session '${identity.sessionId}' does not match LLM actor '${this.agentId}'.`);
+  toolInvocationContext(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): LlmToolInvocationContext {
+    const identity = this.requireExactToolOutcome(outcome);
+    if (this.#toolContext) return this.#toolContext;
+    const wait = this.externalAndProcessWaits(identity);
+    const childInvocation: ChildInvocationReservation = Object.freeze({
+      identity,
+      reserveChild: (childCardId: string) => {
+        this.requireExactToolOutcome(outcome);
+        const existing = this.#childInvocationLease;
+        if (existing) {
+          if (existing.childCardId !== childCardId) throw new Error(`Tool call '${identity.toolCallId}' already reserved child '${existing.childCardId}', not '${childCardId}'.`);
+          return existing;
+        }
+        if (this.#executingActivity.mode !== 'active') throw new Error(`LLMActor '${this.agentId}' cannot reserve a child while another wait barrier is active.`);
+        const lease = new ChildInvocationLease(identity, childCardId);
+        this.#childInvocationLease = lease;
+        return lease;
+      },
+    });
+    this.#toolContext = Object.freeze({ ...identity, waits: wait, childInvocation });
+    return this.#toolContext;
+  }
+
+  private externalAndProcessWaits(identity: ToolInvocationIdentity): ExternalAndProcessWaits {
     const wait = async <T>(barrier: ExactWaitBarrier, promise: Promise<T>): Promise<T> => {
+      this.requireCurrentInvocationIdentity(identity);
       if (this.#executingActivity.mode !== 'active') throw new Error(`LLMActor '${this.agentId}' already owns a wait barrier.`);
+      if (this.#childInvocationLease?.isWaitingBarrier()) throw new Error(`LLMActor '${this.agentId}' already owns a child wait barrier.`);
       this.#executingActivity = Object.freeze({ mode: 'waiting', barrier: Object.freeze(barrier) });
       this.publishExecutingActivityChange();
       let value!: T;
@@ -152,11 +182,10 @@ export class ConversationLLMActor extends BaseActor {
       if (rejected) throw rejection;
       return value;
     };
-    return {
-      waitExternal: (promise) => { const barrier = { kind: 'external' as const, ...identity }; return wait(barrier, promise); },
-      waitProcess: (processId, promise) => { const barrier = { kind: 'process' as const, ...identity, processId }; return wait(barrier, promise); },
-      waitChild: (relationship, promise) => { const barrier = { kind: 'child' as const, relationship }; return wait(barrier, promise); },
-    };
+    return Object.freeze({
+      waitExternal: <T>(promise: Promise<T>) => { const barrier = { kind: 'external' as const, ...identity }; return wait(barrier, promise); },
+      waitProcess: <T>(processId: string, promise: Promise<T>) => { const barrier = { kind: 'process' as const, ...identity, processId }; return wait(barrier, promise); },
+    });
   }
 
   private publishExecutingActivityChange(): void {
@@ -169,6 +198,7 @@ export class ConversationLLMActor extends BaseActor {
     let waiting: WaitingToolCall;
     try {
       waiting = this.requireWaitingTool(toolCallId);
+      this.consumeChildInvocation(toolCallId);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -196,6 +226,7 @@ export class ConversationLLMActor extends BaseActor {
 
   settleToolResultWithoutContinuation(toolCallId: string, result: ToolResult): void {
     const waiting = this.requireWaitingTool(toolCallId);
+    this.consumeChildInvocation(toolCallId);
     this.recordToolSettled(toolCallId);
     const input = this.requireInput();
     appendToolResult(this.conversations, {
@@ -240,6 +271,7 @@ export class ConversationLLMActor extends BaseActor {
     if (this.state() === 'idle') return;
     if (this.state() !== 'waiting_tool') throw new Error(`LLMActor '${this.agentId}' cannot abandon a turn from '${this.state()}'.`);
     if (this.#result) throw new Error(`LLMActor '${this.agentId}' cannot abandon a pending turn.`);
+    if (this.#childInvocationLease) throw new Error(`LLMActor '${this.agentId}' cannot abandon a turn with a child invocation lease.`);
     this.input = null;
     this.outcome = null;
     this.waitingToolCall = null;
@@ -432,6 +464,11 @@ export class ConversationLLMActor extends BaseActor {
   disposeInvocations(reason: unknown): void {
     this.#invocations.revoke(reason);
     this.#currentInvocation = null;
+    const lease = this.#childInvocationLease;
+    if (lease?.phase() === 'reserved') {
+      lease.markRejected();
+      lease.deliverInterruption(reason instanceof Error ? reason : new Error(String(reason)));
+    }
   }
 
   closeInvocationAdmission(reason: unknown): void {
@@ -440,8 +477,13 @@ export class ConversationLLMActor extends BaseActor {
 
   async joinInvocationSettlement(): Promise<InvocationJoinOutcome> {
     const outcome = await this.#invocations.join();
+    if (this.#childInvocationLease) await this.#childInvocationLease.join();
     await this.awaitLifecycleSettlement();
     return outcome;
+  }
+
+  assertInvocationCanHandoff(): void {
+    if (this.#childInvocationLease) throw new Error(`LLMActor '${this.agentId}' cannot hand off with a child invocation lease.`);
   }
 
   pendingInvocationCount(): number {
@@ -482,6 +524,29 @@ export class ConversationLLMActor extends BaseActor {
   private recordToolSettled(toolCallId: string): void {
     if (this.deliveredToolCallIds.has(toolCallId)) throw new Error(`Tool call '${toolCallId}' already has a result or error.`);
     this.deliveredToolCallIds.add(toolCallId);
+    this.#toolContext = null;
+  }
+
+  private consumeChildInvocation(toolCallId: string): void {
+    const lease = this.#childInvocationLease;
+    if (!lease) return;
+    if (lease.identity.toolCallId !== toolCallId) throw new Error(`Child invocation lease '${lease.identity.toolCallId}' does not belong to tool call '${toolCallId}'.`);
+    if (!lease.isConsumable()) throw new Error(`LLMActor '${this.agentId}' cannot settle tool call '${toolCallId}' while child lease is '${lease.phase()}'.`);
+    this.#childInvocationLease = null;
+    this.#toolContext = null;
+  }
+
+  private requireExactToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): ToolInvocationIdentity {
+    if (outcome.agentId !== this.agentId) throw new Error(`Tool call '${outcome.toolCallId}' belongs to '${outcome.agentId}', not '${this.agentId}'.`);
+    const waiting = this.requireWaitingTool(outcome.toolCallId);
+    if (!this.input || this.input.sessionId !== this.agentId) throw new Error(`LLMActor '${this.agentId}' has no exact current invocation input.`);
+    if (outcome.inputId !== waiting.sourceInputId || outcome.toolName !== waiting.toolName) throw new Error(`Tool call '${outcome.toolCallId}' does not match the current delivered call.`);
+    return Object.freeze({ sessionId: this.agentId, sourceInputId: waiting.sourceInputId, toolCallId: waiting.toolCallId, toolName: waiting.toolName });
+  }
+
+  private requireCurrentInvocationIdentity(identity: ToolInvocationIdentity): void {
+    const waiting = this.requireWaitingTool(identity.toolCallId);
+    if (identity.sessionId !== this.agentId || waiting.sourceInputId !== identity.sourceInputId || waiting.toolName !== identity.toolName) throw new Error(`Tool invocation '${identity.toolCallId}' is not the current delivered call for '${this.agentId}'.`);
   }
 
   private appendContinuationContext(input: CanonicalLlmInvocationInput, continuationInputId: string, continuationContextHook?: LLMToolContinuationContextHook): void {

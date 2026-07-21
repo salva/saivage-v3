@@ -2,7 +2,7 @@ import type { Subscription, SubscriptionOptions } from '../events/index.js';
 import type { RuntimeState, RuntimeStatus } from '../schemas/index.js';
 import type { ActorRuntimeReadModel } from '../application/read-models/actor-runtime-read-model.js';
 import type { CardNotification } from '../schemas/index.js';
-import type { CardCancellationResult } from './actors/card-actor.js';
+import type { CardCancellationResult } from './actors/card-activation-owner.js';
 
 export interface RuntimeControlStateResult {
   runtime: RuntimeState | null;

@@ -5,7 +5,7 @@ import type { Contract, ContractTerminalDescriptor } from '../../contracts/contr
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
 import type { CardRecord, ConversationSessionId } from '../../schemas/index.js';
-import type { CardActivationInput, CardActor, CardCancellationResult } from './card-actor.js';
+import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
 import { processNodeOutcomes, processNodeTransition, processTransitionPromptKey, type CompiledCardProcess, type ProcessNodeMetadata, type ProcessRole } from '../card-process/card-process-config.js';
 import type { ActorTransitionContext } from '../micro-actor/index.js';
@@ -23,7 +23,6 @@ import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface } from '../../tools/invocation.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
-import type { StructuralChildRelationship } from './executing-llm-snapshot.js';
 import { plannerActorId, reviewerActorId, executorActorId } from './ids.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
@@ -48,16 +47,13 @@ export interface AgentNodeExecutionHost {
   createLlm(agentId: string): ConversationLLMActor;
   selectLlm(llm: ConversationLLMActor): void;
   freshInputId(): string;
-  toolContext(llm: ConversationLLMActor, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): import('./executing-llm-snapshot.js').LlmToolInvocationContext;
 }
 
 export interface AgentNodeExecutionDeps {
   projectRoot: string;
   cardId: string;
   store: CardService;
-  children: { get(cardId: string): CardActor | null };
-  ownerStructuralWait: { begin(relationship: StructuralChildRelationship): StructuralChildRelationship; end(relationship: StructuralChildRelationship): void };
-  cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
+  parentControl: PlannerChildControlPort;
   notifyCard: (cardId: string, notification: import('../../schemas/index.js').CardNotification) => import('../runtime-api.js').NotifyCardResult;
   processRunner: ProcessRunner;
   mcpToolInvocation: McpToolInvocationPort;
@@ -132,7 +128,7 @@ export class AgentNodeExecution {
         },
         onNonTerminalTool: async (toolOutcome) => {
           const toolResult = surface.tools.has(toolOutcome.toolName)
-            ? await invokeToolForLlm(surface, toolOutcome.toolName, toolOutcome.args, signal, this.host.toolContext(llm, toolOutcome))
+            ? await invokeToolForLlm(surface, toolOutcome.toolName, toolOutcome.args, llm.toolInvocationContext(toolOutcome), signal)
             : { success: false as const, error: `Unsupported ${node.role} tool call '${toolOutcome.toolName}'.` };
           signal.throwIfAborted();
           return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId));
@@ -189,7 +185,7 @@ export class AgentNodeExecution {
   }
 
   private buildSurface(role: ProcessRole, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {
-    if (role === 'planner') return buildRoleSurface({ role: 'planner', projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId, store: this.deps.store, children: this.deps.children, cancelCard: this.deps.cancelCard, notifyCard: this.deps.notifyCard, beginStructuralWait: (relationship) => this.deps.ownerStructuralWait.begin(relationship), endStructuralWait: (relationship) => this.deps.ownerStructuralWait.end(relationship) });
+    if (role === 'planner') return buildRoleSurface({ role: 'planner', projectRoot: this.deps.projectRoot, cardId: input.card.id, sessionId, store: this.deps.store, parentControl: this.deps.parentControl, notifyCard: this.deps.notifyCard });
     if (role === 'reviewer') return buildRoleSurface({ role: 'reviewer', projectRoot: this.deps.projectRoot, cardId: input.card.id, store: this.deps.store, mcpToolInvocation: this.deps.mcpToolInvocation });
     if (!scope) throw new Error(`Executor node for '${this.deps.cardId}' requires a node-local process scope.`);
     const ownerId = `${input.activationId}:node:${nodeOrdinal}`;

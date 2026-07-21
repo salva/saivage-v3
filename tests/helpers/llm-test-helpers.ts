@@ -5,6 +5,8 @@ import type { SummarizerProviderPort } from '../../src/runtime/actors/compaction
 import { compileCardProcesses } from '../../src/runtime/card-process/card-process-config.js';
 import { cardProcessesSchema } from '../../src/agents/config-schema.js';
 import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
+import { ChildInvocationLease } from '../../src/runtime/actors/child-invocation-wait.js';
+import type { LlmToolInvocationContext, ToolInvocationIdentity } from '../../src/runtime/actors/executing-llm-snapshot.js';
 
 export const testCompactionPolicy: AutonomousCompactionPolicy = {
   input_budget_tokens: 100_000,
@@ -27,6 +29,32 @@ export const unusedMcpToolInvocation: McpToolInvocationPort = {
   findToolCapability: () => { throw new Error('Unexpected MCP capability read in test.'); },
   invokeTool: () => Promise.reject(new Error('Unexpected MCP invocation in test.')),
 };
+
+export function testLlmToolInvocationContext(overrides: Partial<ToolInvocationIdentity> = {}): LlmToolInvocationContext {
+  const identity: ToolInvocationIdentity = Object.freeze({
+    sessionId: 'executor:card-a',
+    sourceInputId: '11111111-1111-4111-8111-111111111111',
+    toolCallId: 'test-tool-call',
+    toolName: 'test_tool',
+    ...overrides,
+  });
+  let lease: ChildInvocationLease | null = null;
+  return Object.freeze({
+    ...identity,
+    waits: Object.freeze({
+      waitExternal: <T>(promise: Promise<T>) => promise,
+      waitProcess: <T>(_processId: string, promise: Promise<T>) => promise,
+    }),
+    childInvocation: Object.freeze({
+      identity,
+      reserveChild: (childCardId: string) => {
+        if (lease && lease.childCardId !== childCardId) throw new Error(`Already reserved '${lease.childCardId}'.`);
+        lease ??= new ChildInvocationLease(identity, childCardId);
+        return lease;
+      },
+    }),
+  });
+}
 
 export const testAutonomousCompaction = {
   processIdentity: { pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' },

@@ -147,7 +147,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     message_timestamp: entry.timestamp,
   });
   const conversations: ConversationFileContext = { projectRoot, changes: services.readModelChanges, observeEntry };
-  interventionBinding.markStoppedReady();
 
   const registry = new ProviderRegistry(config);
   const summarizerCandidate = registry.assertCandidate(config.compaction.summarizer_candidate);
@@ -207,7 +206,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, eventBus, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, readModelChanges: services.readModelChanges });
-  const runtimeControl = new RuntimeControlService({ interventionBinding, mechanics: runtimeMechanics });
+  const runtimeControl = new RuntimeControlService({ mechanics: runtimeMechanics });
   const runtimeApi: RuntimeApi = runtimeControl;
   cardStore.setNotifyCard((cardId, notification) => runtimeApi.notifyCard(cardId, notification));
   let analystRuntimeCache: AnalystRuntime | null = null;

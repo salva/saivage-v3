@@ -65,7 +65,7 @@ export async function invokeTool(surface: InvocationSurface, name: string, args:
   return definition.executor(parsed.data, signal, context);
 }
 
-export async function invokeToolForLlm(surface: InvocationSurface, name: string, args: unknown, signal?: AbortSignal, context?: LlmToolInvocationContext): Promise<ToolResult> {
+export async function invokeToolForLlm(surface: InvocationSurface, name: string, args: unknown, context: LlmToolInvocationContext, signal?: AbortSignal): Promise<ToolResult> {
   try {
     const result = await invokeTool(surface, name, args, signal, context);
     if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
@@ -78,14 +78,14 @@ export async function invokeToolForLlm(surface: InvocationSurface, name: string,
   }
 }
 
-export async function invokeToolCall(surface: InvocationSurface, name: string, rawArgs: string, signal?: AbortSignal, context?: LlmToolInvocationContext): Promise<ToolResult> {
+export async function invokeToolCall(surface: InvocationSurface, name: string, rawArgs: string, context: LlmToolInvocationContext, signal?: AbortSignal): Promise<ToolResult> {
   let args: unknown;
   try {
     args = JSON.parse(rawArgs) as unknown;
   } catch {
     return { success: false, error: 'Tool arguments must be valid JSON.' };
   }
-  return invokeToolForLlm(surface, name, args, signal, context);
+  return invokeToolForLlm(surface, name, args, context, signal);
 }
 
 export async function cleanupInvocationSurface(surface: InvocationSurface, reason: ToolProviderCleanupReason): Promise<void> {

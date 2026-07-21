@@ -197,12 +197,9 @@ describe('contract-backed config/providers/control-actions routes', () => {
         projectRoot,
         parentCardId: 'project',
         sessionId: 'planner:project',
-        store: { read: () => null, readActivationAdmission: () => null, setStatus: () => { throw new Error('unused'); }, activateStopped: () => { throw new Error('unused'); }, reorderChildren },
-        children: { get: () => null },
-        cancelCard: async () => { throw new Error('unused'); },
+        store: { read: () => null, setStatus: () => { throw new Error('unused'); }, reorderChildren },
+        parentControl: { activateChild: async () => { throw new Error('unused'); }, cancelChild: async () => { throw new Error('unused'); } },
         notifyCard: () => ({ ok: true, notificationId: 'unused' }),
-        beginStructuralWait: (relationship) => relationship,
-        endStructuralWait: () => undefined,
       });
       await expect(invokeTool(buildInvocationSurface('planner', [planner]), 'reorder_child', { orderedChildIds: [] }))
         .resolves.toEqual({ success: true, data: { parent_id: 'project', changed: 0 } });

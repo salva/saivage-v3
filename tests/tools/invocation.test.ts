@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { buildInvocationSurface, defineTool, invokeTool, invokeToolCall, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
 describe('tool invocation surface', () => {
   const provider = (providerName: string, toolName = 'demo'): ToolProvider => ({
@@ -39,13 +40,13 @@ describe('tool invocation surface', () => {
   it('parses raw JSON tool-call arguments in invokeToolCall', async () => {
     const surface = buildInvocationSurface('executor', [provider('a')]);
 
-    await expect(invokeToolCall(surface, 'demo', JSON.stringify({ value: 'ok' }))).resolves.toEqual({ success: true, data: { value: 'ok' } });
+    await expect(invokeToolCall(surface, 'demo', JSON.stringify({ value: 'ok' }), testLlmToolInvocationContext({ toolName: 'demo' }))).resolves.toEqual({ success: true, data: { value: 'ok' } });
   });
 
   it('returns model-visible errors for malformed raw JSON arguments', async () => {
     const surface = buildInvocationSurface('executor', [provider('a')]);
 
-    await expect(invokeToolCall(surface, 'demo', '{')).resolves.toEqual({ success: false, error: 'Tool arguments must be valid JSON.' });
+    await expect(invokeToolCall(surface, 'demo', '{', testLlmToolInvocationContext({ toolName: 'demo' }))).resolves.toEqual({ success: false, error: 'Tool arguments must be valid JSON.' });
   });
 
   it('does not catch executor exceptions', async () => {
@@ -77,7 +78,7 @@ describe('tool invocation surface', () => {
       ],
     }]);
 
-    await expect(invokeToolCall(surface, 'buggy', '{}')).resolves.toEqual({ success: false, error: 'programmer bug' });
+    await expect(invokeToolCall(surface, 'buggy', '{}', testLlmToolInvocationContext({ toolName: 'buggy' }))).resolves.toEqual({ success: false, error: 'programmer bug' });
   });
 
   it('rethrows from invokeToolCall when the signal is already aborted', async () => {
@@ -86,7 +87,7 @@ describe('tool invocation surface', () => {
     const reason = new Error('cancelled');
     controller.abort(reason);
 
-    await expect(invokeToolCall(surface, 'demo', JSON.stringify({ value: 'ok' }), controller.signal)).rejects.toThrow('cancelled');
+    await expect(invokeToolCall(surface, 'demo', JSON.stringify({ value: 'ok' }), testLlmToolInvocationContext({ toolName: 'demo' }), controller.signal)).rejects.toThrow('cancelled');
   });
 
   it.each(['fulfill', 'same-reject', 'different-reject'] as const)('gives exact Stop identity priority after abort-ignoring tool %s', async (mode) => {
@@ -96,7 +97,7 @@ describe('tool invocation surface', () => {
     const surface = buildInvocationSurface('planner', [{ providerName: 'controlled', tools: [defineTool({ name: 'controlled', description: 'controlled', inputSchema: z.object({}).strict(), executor: () => tool })] }]);
     const controller = new AbortController();
     const interruption = new RuntimeStoppedInterruption();
-    const pending = invokeToolForLlm(surface, 'controlled', {}, controller.signal);
+    const pending = invokeToolForLlm(surface, 'controlled', {}, testLlmToolInvocationContext({ toolName: 'controlled' }), controller.signal);
     await Promise.resolve();
     controller.abort(interruption);
     if (mode === 'fulfill') resolve({ success: true });

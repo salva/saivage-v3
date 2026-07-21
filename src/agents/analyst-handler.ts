@@ -390,8 +390,7 @@ export class AnalystSessionActor extends BaseActor {
       this.toolInFlight = toolCall.toolName;
       let result: ToolResult;
       try {
-        const identity = { sessionId: this.sessionId, sourceInputId: toolCall.inputId, toolCallId: toolCall.toolCallId, toolName: toolCall.toolName };
-        result = await invokeToolCall(surface, toolCall.toolName, rawArguments, signal, { ...identity, waits: this.llm.waitCallbacks(identity) });
+        result = await invokeToolCall(surface, toolCall.toolName, rawArguments, this.llm.toolInvocationContext(toolCall), signal);
       } catch (err) {
         if (this.isCancelled()) return this.cancelledLoopResponse();
         throw err;
